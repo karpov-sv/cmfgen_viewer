@@ -11,6 +11,7 @@ from .syntax import highlight_text, syntax_css
 CORE_FILES = {
     "RVTJ",
     "OBSFLUX",
+    "OBSFRAME",
     "MOD_SUM",
     "MEANOPAC",
     "HYDRO",
@@ -29,6 +30,29 @@ OPTIONAL_FILES = {
     "WARNINGS",
     "OUTGEN",
     "STEQ_VALS",
+    "OUT_FLUX",
+    "OUT_PARAMS",
+    "CFDAT_OUT",
+    "CONT_FREQ",
+    "OBS_FREQ",
+    "TRANS_INFO",
+    "SOB_FORCE_MULT",
+    "PLANCK_KAPPA_MEAN",
+    "ION_LINE_FORCE_TABLE",
+    "ION_FLUX_MEAN_OPAC",
+    "PHOTOSPHERIC_RADIUS",
+    "MOM_J_ERRORS",
+    "FLUX_FILE",
+    "CMF_FORCE_DATA",
+    "ETA_DATA",
+    "CHI_DATA",
+    "RAY_DATA",
+    "SOB_FORCE_DATA",
+    "IP_DATA",
+    "RTAU_DATA",
+    "ZTAU_DATA",
+    "DFR_DATA",
+    "IP_FG_DATA",
 }
 
 RESTART_INTERNAL_FILES = {
@@ -44,15 +68,19 @@ RESTART_INTERNAL_FILES = {
 }
 
 INPUT_CONTROL_FILES = {
+    "MODEL",
     "MODEL_SPEC",
     "VADAT",
     "IN_ITS",
+    "CMF_FLUX_PARAM",
+    "FORB_LINE_CONTROL",
 }
 
 INPUT_RESTART_FILES = {
     "POINT1",
     "POINT2",
     "SCRTEMP",
+    "OLD_J_FILE",
 }
 
 INPUT_ATOMIC_CORE_FILES = {
@@ -65,6 +93,7 @@ INPUT_ATOMIC_OPTIONAL_FILES = {
     "TWO_PHOT_DATA",
     "CHG_EXCH_DATA",
     "RS_XRAY_FLUXES",
+    "FULL_STRK_LIST",
 }
 
 INPUT_INIT_MODEL_FILES = {
@@ -79,6 +108,8 @@ INPUT_GRID_PROFILE_FILES = {
     "CFDAT",
     "GRID_PARAMS",
     "PROF_T_ED",
+    "REVISED_LAMBDAS",
+    "REVISE_P_PARAMS",
 }
 
 INPUT_VELOCITY_FILES = {
@@ -209,6 +240,12 @@ def classify_cmfgen_role(filename: str, relpath: str = "") -> str:
         return "input_sn_nonthermal"
     if name in INPUT_HYDRO_ITERATION_FILES:
         return "input_hydro_iteration"
+
+    if name in CORE_FILES:
+        return "core_viewer"
+    if name in OPTIONAL_FILES:
+        return "optional_diagnostic"
+
     if ION_OSC_PATTERN.match(name) or ION_MAP_PATTERN.match(name) or ION_PHOT_PATTERN.match(name) or ION_COL_PATTERN.match(name):
         return "input_atomic_core"
     if ION_DIE_PATTERN.match(name) or ION_AUTO_PATTERN.match(name):
@@ -216,9 +253,7 @@ def classify_cmfgen_role(filename: str, relpath: str = "") -> str:
     if ION_INIT_PATTERN.match(name) and name not in {"IN_ITS"}:
         return "input_init_model"
 
-    if name in CORE_FILES:
-        return "core_viewer"
-    if name in OPTIONAL_FILES or name.startswith("POP") or name.endswith("OUT"):
+    if name.startswith("POP") or name.endswith("OUT"):
         return "optional_diagnostic"
     if name in RESTART_INTERNAL_FILES or name.endswith("_INFO"):
         return "restart_internal"
@@ -272,7 +307,12 @@ def _human_size(size: int) -> str:
     return f"{value:.1f} {unit}"
 
 
-def list_directory(basepath: str, relpath: str = "", show_all: bool = False) -> list[dict[str, object]]:
+def list_directory(
+    basepath: str,
+    relpath: str = "",
+    show_all: bool = False,
+    show_symlinks: bool = True,
+) -> list[dict[str, object]]:
     directory = resolve_path(basepath, relpath)
     if not directory.is_dir():
         raise NotADirectoryError(str(directory))
@@ -283,7 +323,20 @@ def list_directory(basepath: str, relpath: str = "", show_all: bool = False) -> 
             continue
 
         try:
+            is_symlink = entry.is_symlink()
+        except OSError:
+            continue
+
+        if is_symlink and not show_symlinks:
+            try:
+                if not entry.is_dir():
+                    continue
+            except OSError:
+                continue
+
+        try:
             stat = entry.stat()
+            is_dir = entry.is_dir()
         except OSError:
             continue
 
@@ -297,7 +350,8 @@ def list_directory(basepath: str, relpath: str = "", show_all: bool = False) -> 
             {
                 "name": entry.name,
                 "path": rel,
-                "is_dir": entry.is_dir(),
+                "is_dir": is_dir,
+                "is_symlink": is_symlink,
                 "kind": kind,
                 "mime": mime or "application/octet-stream",
                 "cmfgen_role": role,

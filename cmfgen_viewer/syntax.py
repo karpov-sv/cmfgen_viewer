@@ -7,11 +7,10 @@ import re
 from pygments import highlight
 from pygments.formatters import HtmlFormatter
 from pygments.lexer import RegexLexer, bygroups
-from pygments.lexers import TextLexer, get_lexer_for_filename, get_lexer_for_mimetype, guess_lexer
+from pygments.lexers import TextLexer, get_lexer_for_filename, get_lexer_for_mimetype
 from pygments.token import Comment, Keyword, Name, Number, Operator, Punctuation, String, Text, Whitespace
 from pygments.util import ClassNotFound
 
-PREVIEW_GUESS_BYTES = 8192
 _FORMATTER = HtmlFormatter(cssclass="cmf-codehilite")
 _CMFGEN_INPUT_SUFFIXES = {"", ".dat", ".txt", ".in"}
 _CMFGEN_CONTROL_FILES = {"MODEL_SPEC", "VADAT", "IN_ITS"}
@@ -86,10 +85,7 @@ def _detect_lexer(contents: str, *, filename: str, mime: str | None = None, role
         except ClassNotFound:
             pass
 
-    try:
-        return guess_lexer(contents[:PREVIEW_GUESS_BYTES])
-    except ClassNotFound:
-        return TextLexer(stripall=False)
+    return TextLexer(stripall=False)
 
 
 def _align_cmfgen_columns(contents: str) -> str:

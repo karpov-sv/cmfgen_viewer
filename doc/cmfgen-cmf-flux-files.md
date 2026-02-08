@@ -1,0 +1,333 @@
+# CMFGEN CMF_FLUX Files
+
+Important name note
+-------------------
+The active observer-frame spectrum driver in this snapshot is:
+- `obs/cmf_flux_v5.f` (`PROGRAM CMF_FLUX_V5`)
+
+There is no `obs/cmf_flux.f` in this tree. All findings below trace `cmf_flux_v5.f` and its runtime callees.
+
+
+Execution path (high level)
+---------------------------
+1) `CMF_FLUX_V5` startup and model/data loading (`obs/cmf_flux_v5.f`).
+2) `CMF_FLUX_SUB_V5` comoving transfer + observer-frame synthesis (`obs/cmf_flux_sub_v5.f`).
+3) Observer-frame post-processing in `OBS_FRAME_SUB_V9` (`obs/obs_frame_sub_v9.f`).
+
+
+Input files read by CMF_FLUX_V5 / CMF_FLUX_SUB_V5
+=====================================================
+
+Core run context and controls
+---------------------------------
+1) `RVTJ` (or user-selected RVTJ filename)
+- Requested via `RD_NCHAR(...,'RVTJ',...)` and existence-checked (`obs/cmf_flux_v5.f:290,297`).
+- Parsed with `RD_RVTJ_PARAMS_V4` and `RD_RVTJ_VEC_V4` (`obs/cmf_flux_v5.f:332,355`).
+- Also defines default directory/extension used for other files (`obs/cmf_flux_v5.f:306-330`).
+
+2) `MODEL` (default `DIR_NAME//MODEL//FILE_EXTENT`, or explicit if ASK mode)
+- Existence and open logic in `obs/cmf_flux_v5.f:382-396`.
+- Read by `RD_MODEL_FILE` (`obs/rd_model_file.f:21,41`), then parsed for keys like `MASS`, `DIE_AS_LINE`.
+
+3) `MODEL_SPEC`
+- Opened from RVTJ directory (`obs/cmf_flux_v5.f:413-420`).
+- Parsed into keyword store (`RD_OPTIONS_INTO_STORE`) to get options like `SL_OPT`.
+
+4) `CMF_FLUX_PARAM`
+- Opened and read in `obs/cmf_flux_v5.f:551-558`.
+- This drives many runtime branches in `RD_CMF_FLUX_CONTROLS` (`obs/rd_cmf_flux_controls.f`).
+
+5) Hydrogen bf data files (required)
+- `HYD_L_DATA` and `GBF_N_DATA` read by `RD_HYD_BF_DATA`:
+  - call site: `obs/cmf_flux_v5.f:265`
+  - opens: `newsubs/rd_hyd_bf_data.f:36` and `newsubs/rd_hyd_bf_data.f:103`
+- Missing either file causes STOP.
+
+
+Species/ion population and atomic data inputs
+-------------------------------------------------
+1) Species population files `POP<species>` (optional per species)
+- Default lookup: `POP` + species + RVTJ extension (`obs/cmf_flux_v5.f:450`).
+- Checked with `INQUIRE`; if absent, species is skipped (`obs/cmf_flux_v5.f:451-453`).
+- Open/read via `OP_SPEC_FILE_V2` (`obs/cmf_flux_v5.f:458`; open in `disp/subs/op_spec_file_v2.f:22`).
+
+2) Per-ion oscillator files `<ION>_F_OSCDAT` (required for present ions)
+- Built and read in ion loop (`obs/cmf_flux_v5.f:585-593`).
+- Actual open in `newsubs/genosc_v9.f:137`.
+
+3) Per-ion autoionization files `<ION>_AUTO_DATA` (optional)
+- Checked with `INQUIRE` in `ADD_AUTO_RATES` (`new_main/subs/auto/add_auto_rates.f:39-45`).
+- If missing and above-threshold levels exist, warning is emitted.
+
+4) Per-ion full-to-super mapping `<ION>_F_TO_S`
+- Read in `obs/cmf_flux_v5.f:603-606`.
+- Open in `subs/rd_f_to_s_ids_v2.f:49`.
+- Special case: if `N_F == N_S`, routine returns without opening a file (`subs/rd_f_to_s_ids_v2.f:41-47`).
+
+5) Per-ion photoionization files `PHOT<ION>_A`, `PHOT<ION>_B`, ...
+- Read by `RDPHOT_GEN_V2` (`obs/cmf_flux_v5.f:607-615`).
+- File naming/opens in `newsubs/rdphot_gen_v2.f:148-153` and `newsubs/rdphot_gen_v2.f:321-327`.
+- Number of route files comes from first file’s `!Number of photoionization routes`.
+
+6) Per-ion dielectronic-photo files `DIE<ION>` (conditional)
+- Used when `DIE_AS_LINE=.FALSE.` and ion dielectronic flags are set (`obs/cmf_flux_v5.f:617-623`).
+- Open in `newsubs/rd_phot_die_v1.f:153`.
+
+
+Conditional feature inputs inside CMF_FLUX_SUB_V5
+------------------------------------------------------
+1) `FULL_STRK_LIST`
+- Required when Stark list profiles are requested (`RD_STARK_FILE` or `GLOBAL_LINE_PROF='LIST'`):
+  - gate: `obs/cmf_flux_sub_v5.f:566-568`
+  - open: `stark/rd_strk_list.f:47`
+
+2) Additional Stark table files (dynamic names)
+- For LIST-based profiles, `RD_BS_STRK_TAB` opens `FILE=PROF_TYPE` where `PROF_TYPE` comes from list metadata:
+  - open: `stark/rd_bs_strk_tab.f:45`
+- These table filenames are not hard-coded globally; they come from profile type/list configuration.
+
+3) `TWO_PHOT_DATA` (if `INC_TWO` / `INCL_TWO_PHOT`)
+- Gate/call: `obs/cmf_flux_sub_v5.f:572`
+- Open: `new_main/mod_subs/two_phot_mod.f:125`
+
+4) `XRAY_PHOT_FITS` (always read by current cmf_flux path)
+- Call: `obs/cmf_flux_sub_v5.f:576`
+- Open: `newsubs/xray_data_mod.f:59`
+
+5) `RS_XRAY_FLUXES` (only if `XRAYS=.TRUE.` and `.NOT. FF_XRAYS`)
+- Gate: `obs/cmf_flux_sub_v5.f:578-580`
+- Open: `newsubs/rd_xray_spec.f:77`
+
+6) `REVISED_LAMBDAS` (optional)
+- Attempted in `ADJUST_LINE_FREQ_V2`; missing file only triggers warning:
+  - call: `obs/cmf_flux_sub_v5.f:758`
+  - open: `subs/adjust_line_freq_v2.f:28-33`
+
+7) `FORB_LINE_CONTROL` (optional)
+- Checked and read by `SET_FORBID_ZERO`:
+  - call: `obs/cmf_flux_v5.f:634`
+  - check/open: `obs/set_forbid_zero.f:11,18`
+
+8) `REVISE_P_PARAMS` (optional; only when revised observer p-grid enabled)
+- Gate: `obs/cmf_flux_sub_v5.f:2056-2060`
+- Open and parse: `obs/revise_obs_p.f:35-58`
+- Missing file falls back to defaults.
+
+
+Reuse/continuation-style binary inputs (conditional)
+--------------------------------------------------------
+1) `OLD_J_FILE` (+ `OLD_J_FILE_INFO`) for ES initialization
+- Used only in branch:
+  - `USE_OLDJ_FOR_ES .AND. .NOT. RD_COHERENT_ES .AND. COHERENT_ES`
+  - `obs/cmf_flux_sub_v5.f:1161-1167`
+- `COMP_J_CONV_V2` reads direct-info sidecar and opens direct file by FILE_IN (`subs/comp_j_conv_v2.f:164-167`).
+
+2) `EDDFACTOR` (+ `EDDFACTOR_INFO`) reuse path
+- `OPEN_RW_EDDFACTOR` can attempt to read existing info/data when `COMPUTE_EDDFAC=.FALSE.`:
+  - sidecar read: `new_main/subs/open_rw_eddfactor.f:63`
+  - direct open: `new_main/subs/open_rw_eddfactor.f:80-83`
+
+3) `ES_J_CONV` direct file as input
+- Opened old for incoherent scattering iteration:
+  - `obs/cmf_flux_sub_v5.f:1196-1201`
+- If unavailable, code falls back to recomputing coherent ES path.
+
+4) `IP_FG_DATA` sentinel behavior (advanced diagnostic path in FG solver)
+- If file exists, FG solver writes direct-access profile data into it:
+  - existence check: `subs/fg_j_cmf_v10.f:1691`
+  - open/write: `subs/fg_j_cmf_v10.f:1695-1709`
+
+
+Files created/written by CMF_FLUX
+====================================
+
+Primary text outputs
+------------------------
+1) `OUT_FLUX`
+- Run log / warnings / progress output.
+- Open append: `obs/cmf_flux_v5.f:89`.
+
+2) `OUT_PARAMS`
+- Parameter/atomic-data summary stream from cmf_flux setup and readers.
+- Open: `obs/cmf_flux_v5.f:556`.
+
+3) `CFDAT_OUT`
+- Continuum frequency table generated by `SET_CONT_FREQ_V4`.
+- Written each run in normal path (`subs/set_cont_freq_v4.f:298-303`).
+
+4) `CONT_FREQ`
+- Continuum-evaluation mapping diagnostics from `DET_MAIN_CONT_FREQ`.
+- Written at `subs/det_main_cont_freq.f:149-183`.
+
+5) `OBS_FREQ`
+- Observer-frame frequency grid + spacing diagnostics from `INS_LINE_OBS_V4`.
+- Written at `obs/ins_line_obs_v4.f:277-282`.
+
+6) `OBSFLUX`
+- CMF/continuum-derived observed spectrum output.
+- Open/write: `obs/cmf_flux_sub_v5.f:1889-1898`.
+
+7) `MEANOPAC`
+- Mean opacity/tau diagnostics.
+- Open/write: `obs/cmf_flux_sub_v5.f:1964-1992`.
+
+8) `HYDRO`
+- Momentum-term diagnostics via `HYDRO_TERMS`.
+- Open: `subs/hydro_terms.f:65`.
+
+9) `OBSFRAME`
+- Observer-frame formal-solution spectrum output.
+- Open/write: `obs/cmf_flux_sub_v5.f:2120-2128`.
+
+10) `J_COMP` (when last-iteration J comparison is active)
+- Written in `COMP_JCONT_V4.INC` (`obs/COMP_JCONT_V4.INC:493-507` and `obs/COMP_JCONT_V4.INC:885-899`).
+
+11) `PLANCK_KAPPA_MEAN` (special early-exit branch)
+- Written only when `COMPUTE_J=.FALSE.`; code then `STOP`s:
+  - `obs/cmf_flux_sub_v5.f:1854-1863`.
+
+
+Optional text outputs
+-------------------------
+1) `TRANS_INFO` (if `WRITE_TRANS_INFO`)
+- Open/write in `obs/cmf_flux_sub_v5.f:834-860`.
+
+2) `EWDATA` (Sobolev EW mode)
+- Opened only in Sobolev EW section (`obs/cmf_flux_sub_v5.f:2158`).
+- Not produced when `DO_SOBOLEV_LINES=.FALSE.` (`obs/cmf_flux_sub_v5.f:2133`).
+
+3) `SOB_FORCE_MULT` (if `WRITE_SOB_FORCE`)
+- Written in Sobolev force post-processing (`obs/cmf_flux_sub_v5.f:2447-2451`).
+
+4) Ion-force summaries (if `WR_ION_LINE_FORCE`)
+- `ION_LINE_FORCE_TABLE` (`new_main/subs/out_line_force.f:28-40`)
+- `ION_FLUX_MEAN_OPAC` (`new_main/subs/out_line_force.f:42-64`)
+
+5) `PHOTOSPHERIC_RADIUS` (if `WRITE_dFR`)
+- Written in observer-frame diagnostics (`obs/obs_frame_sub_v9.f:1204-1226`).
+
+
+Direct-access / binary outputs (+ sidecars)
+-----------------------------------------------
+Direct-access files generally require companion `<name>_INFO` metadata from `WRITE_DIRECT_INFO_V3` (`subs/write_direct_info_v3.f:47-53`).
+
+1) `EDDFACTOR` (+ `EDDFACTOR_INFO`)
+- Created/reused via `OPEN_RW_EDDFACTOR` (`new_main/subs/open_rw_eddfactor.f`).
+- Used for Eddington factors and RV/Lang records.
+
+2) `FLUX_FILE` (+ `FLUX_FILE_INFO`) [if `WRITE_FLUX`]
+- Open/write through `OPEN_RW_EDDFACTOR`:
+  - `obs/cmf_flux_sub_v5.f:1657-1664` and `obs/cmf_flux_sub_v5.f:1709-1716`.
+
+3) `CMF_FORCE_DATA` (+ `CMF_FORCE_DATA_INFO`) [if `WRITE_CMF_FORCE`]
+- Created/written in continuum loop (`obs/cmf_flux_sub_v5.f:1692-1699`).
+
+4) `ETA_DATA` (+ `ETA_DATA_INFO`) [if `WRITE_ETA_AND_CHI`]
+- Written in block starting `obs/cmf_flux_sub_v5.f:1804-1815`.
+
+5) `CHI_DATA` (+ `CHI_DATA_INFO`) [if `WRITE_ETA_AND_CHI`]
+- Written in `obs/cmf_flux_sub_v5.f:1817-1826`.
+
+6) `RAY_DATA` (+ `RAY_DATA_INFO`) [if `WRITE_ETA_AND_CHI` and `INCL_RAY_SCAT`]
+- Written in `obs/cmf_flux_sub_v5.f:1828-1838`.
+
+7) `ES_J_CONV` (+ `ES_J_CONV_INFO`) [if incoherent ES convolution generated]
+- Generated via `COMP_J_CONV_V2` + `OUT_RV_TO_EDDFACTOR` in `obs/cmf_flux_sub_v5.f:1874-1881`.
+
+8) `SOB_FORCE_DATA` (+ `SOB_FORCE_DATA_INFO`) [if `WRITE_SOB_FORCE`]
+- Created with `OPEN_DIR_ACC_V1` in `obs/cmf_flux_sub_v5.f:2394-2397`.
+
+9) Observer-frame optional direct files from `OBS_FRAME_SUB_V9`
+- `IP_DATA` (+ `IP_DATA_INFO`) if `WRITE_IP` (`obs/obs_frame_sub_v9.f:1144-1155`).
+- `RTAU_DATA` (+ `RTAU_DATA_INFO`) if `WRITE_RTAU` (`obs/obs_frame_sub_v9.f:1158-1172`).
+- `ZTAU_DATA` (+ `ZTAU_DATA_INFO`) if `WRITE_RTAU` (`obs/obs_frame_sub_v9.f:1175-1187`).
+- `dFR_DATA` (+ `dFR_DATA_INFO`) if `WRITE_dFR` (`obs/obs_frame_sub_v9.f:1190-1203`).
+
+
+Diagnostics and implementation-dependent artifacts
+------------------------------------------------------
+1) `MOM_J_ERRORS`
+- Opened by moment solver on first use (`subs/mom_j_cmf_v7.f:220`).
+
+2) `IP_FG_DATA` (+ `IP_FG_DATA_INFO`) optional debug path
+- Written only if sentinel `IP_FG_DATA` exists at startup (`subs/fg_j_cmf_v10.f:1691-1709`).
+
+3) Potential implicit-unit files if unopened units are written
+- `LU_NEG` (unit 75) is written in `cmf_flux_sub_v5` but no explicit open was found in this path (`obs/cmf_flux_sub_v5.f:1555+`, `2355+`).
+- Depending on compiler/runtime, this may create unit-default files (for example `fort.75`) when negative-opacity diagnostics trigger.
+- Treat this as implementation-dependent, not a stable API output.
+
+
+Conditions that most strongly change CMF_FLUX output set
+===========================================================
+Key `CMF_FLUX_PARAM`-driven toggles (parsed in `obs/rd_cmf_flux_controls.f`):
+
+1) `COMP_J` (`COMPUTE_J`)
+- If false, run exits after writing `PLANCK_KAPPA_MEAN` (`obs/cmf_flux_sub_v5.f:1854-1863`).
+- In that branch, normal spectral outputs like `OBSFLUX`, `OBSFRAME`, `MEANOPAC` are not reached.
+
+2) `WR_TRANS` -> `TRANS_INFO`.
+3) `WR_ETA` -> `ETA_DATA`, `CHI_DATA`, and `RAY_DATA` (with Rayleigh enabled).
+4) `WR_FLUX` -> `FLUX_FILE`.
+5) `WR_CMF_FORCE` -> `CMF_FORCE_DATA`.
+6) `DO_SOB_LINES`
+- If false, routine returns before Sobolev EW/force section (`obs/cmf_flux_sub_v5.f:2133`).
+- If true, enables `EWDATA` and optional Sobolev force outputs.
+7) `WR_SOB_FORCE` -> `SOB_FORCE_DATA` + `SOB_FORCE_MULT`.
+8) `WR_ION_FORCE` -> ion-force summary tables.
+9) `WR_IP`, `WR_RTAU`, `WR_dFR` -> observer-frame auxiliary direct files.
+10) `INC_TWO`, `INC_XRAYS`, `FF_XRAYS`, `GLOBAL_PROF`, `REVISE_P`, etc. control conditional input dependencies listed above.
+
+
+Viewer-app implications (pragmatic priority)
+===============================================
+For a lightweight first viewer focused on CMF_FLUX products:
+
+Phase 1 (highest value, text parsing first)
+1) `OBSFLUX`
+2) `OBSFRAME`
+3) `MEANOPAC`
+4) `OUT_FLUX` (run log/status)
+
+Phase 2 (diagnostics, still text)
+1) `EWDATA` (if Sobolev enabled)
+2) `HYDRO`
+3) `J_COMP`
+4) `SOB_FORCE_MULT`
+5) `TRANS_INFO` (if written)
+
+Phase 3 (binary direct-access with sidecar parsing)
+1) `ETA_DATA`, `CHI_DATA`, `RAY_DATA`
+2) `FLUX_FILE`, `CMF_FORCE_DATA`, `SOB_FORCE_DATA`
+3) Observer-frame binary diagnostics (`IP_DATA`, `RTAU_DATA`, `ZTAU_DATA`, `dFR_DATA`)
+
+Direct-access files should be parsed only with their `_INFO` metadata (`subs/write_direct_info_v3.f` / `READ_DIRECT_INFO_V3`) to avoid record-length/endian issues.
+
+
+Quick inventory (concise)
+============================
+Core inputs:
+- RVTJ, MODEL, MODEL_SPEC, CMF_FLUX_PARAM, HYD_L_DATA, GBF_N_DATA
+
+Per-ion inputs:
+- `<ION>_F_OSCDAT`, `<ION>_F_TO_S`, `PHOT<ION>_A/B/...`
+- optional `<ION>_AUTO_DATA`, optional `DIE<ION>`
+
+Conditional inputs:
+- FULL_STRK_LIST (+ Stark profile tables)
+- TWO_PHOT_DATA
+- XRAY_PHOT_FITS
+- RS_XRAY_FLUXES
+- FORB_LINE_CONTROL
+- REVISED_LAMBDAS
+- REVISE_P_PARAMS
+- OLD_J_FILE (+ OLD_J_FILE_INFO), EDDFACTOR(+_INFO), ES_J_CONV(+_INFO) in reuse paths
+
+Primary outputs:
+- OUT_FLUX, OUT_PARAMS, CFDAT_OUT, CONT_FREQ, OBS_FREQ, OBSFLUX, MEANOPAC, HYDRO, OBSFRAME
+
+Conditional outputs:
+- TRANS_INFO, EWDATA, SOB_FORCE_MULT, PLANCK_KAPPA_MEAN,
+- ION_LINE_FORCE_TABLE, ION_FLUX_MEAN_OPAC, PHOTOSPHERIC_RADIUS,
+- direct files: EDDFACTOR, FLUX_FILE, CMF_FORCE_DATA, ETA_DATA, CHI_DATA, RAY_DATA, ES_J_CONV, SOB_FORCE_DATA, IP_DATA, RTAU_DATA, ZTAU_DATA, dFR_DATA (+ `_INFO` sidecars)
+

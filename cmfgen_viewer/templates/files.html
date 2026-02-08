@@ -12,7 +12,7 @@
         {% for item in breadcrumb %}
           <li class="breadcrumb-item {% if item.path is none %}active{% endif %}">
             {% if item.path is not none %}
-              <a href="{{ url_for('viewer.view', path=item.path) }}">{{ item.name }}</a>
+              <a href="{{ url_for('viewer.view', path=item.path, **view_query) }}">{{ item.name }}</a>
             {% else %}
               {{ item.name }}
             {% endif %}
@@ -20,6 +20,15 @@
         {% endfor %}
       </ol>
     </nav>
+  {% endif %}
+
+  {% if quick_links %}
+    <div class="quick-links mb-3">
+      <span class="small text-muted me-2">Quick links:</span>
+      {% for item in quick_links %}
+        <a class="btn btn-sm btn-outline-primary quick-link-item" href="{{ url_for('viewer.view', path=item.path, **view_query) }}">{{ item.name }}</a>
+      {% endfor %}
+    </div>
   {% endif %}
 
   {% block files_body %}{% endblock %}

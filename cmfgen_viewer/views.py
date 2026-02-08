@@ -17,10 +17,50 @@ except ModuleNotFoundError:  # pragma: no cover - optional dependency fallback
 
 bp = Blueprint("viewer", __name__)
 DOCS_DIR = Path(__file__).resolve().parent.parent / "doc"
+QUICK_LINK_FILES = (
+    "VADAT",
+    "MODEL_SPEC",
+    "IN_ITS",
+    "MOD_SUM",
+    "RVTJ",
+    "OBSFLUX",
+    "MEANOPAC",
+    "HYDRO",
+    "GAMMAS",
+    "OUTGEN",
+    "WARNINGS",
+)
 
 
 def _viewer_config() -> dict[str, object]:
     return dict(current_app.config.get("CMFGEN_VIEWER", {}))
+
+
+def _join_relpath(parent: str, child: str) -> str:
+    if not parent:
+        return child
+    return f"{parent.rstrip('/')}/{child}"
+
+
+def _collect_quick_links(basepath: str, directory_relpath: str) -> list[dict[str, str]]:
+    try:
+        directory = resolve_path(basepath, directory_relpath)
+    except (FileNotFoundError, NotADirectoryError):
+        return []
+    if not directory.is_dir():
+        return []
+
+    links: list[dict[str, str]] = []
+    for name in QUICK_LINK_FILES:
+        candidate = directory / name
+        if candidate.is_file():
+            links.append(
+                {
+                    "name": name,
+                    "path": _join_relpath(directory_relpath, name),
+                }
+            )
+    return links
 
 
 def _doc_title(path: Path) -> str:
@@ -137,6 +177,9 @@ def documentation(slug: str | None):
 def view(path: str):
     config = _viewer_config()
     basepath = str(config.get("basepath", "."))
+    symlink_mode = request.args.get("symlinks", "").strip().lower()
+    hide_symlink_files = symlink_mode == "hide"
+    view_query: dict[str, str] = {"symlinks": "hide"} if hide_symlink_files else {}
 
     try:
         target = resolve_path(basepath, path)
@@ -149,16 +192,36 @@ def view(path: str):
         "basepath": basepath,
         "show_all": bool(config.get("show_all", False)),
         "show_role_badges": is_model_context_path(path),
+        "view_query": view_query,
     }
 
     if target.is_dir():
-        files = list_directory(basepath, path, show_all=bool(config.get("show_all", False)))
+        current_dir_name = target.name.lower()
+        current_dir_is_model = current_dir_name.startswith("model") and current_dir_name != "models"
+        model_context = is_model_context_path(path) or is_model_context_path(str(target)) or current_dir_is_model
+        show_symlink_toggle = model_context
+        show_symlinks = (not hide_symlink_files) or (not show_symlink_toggle)
+        symlink_toggle_query: dict[str, str] = {}
+        if show_symlink_toggle and show_symlinks:
+            symlink_toggle_query = {"symlinks": "hide"}
+
+        files = list_directory(
+            basepath,
+            path,
+            show_all=bool(config.get("show_all", False)),
+            show_symlinks=show_symlinks,
+        )
+        context["show_symlink_toggle"] = show_symlink_toggle
+        context["show_symlinks"] = show_symlinks
+        context["symlink_toggle_query"] = symlink_toggle_query
+        context["quick_links"] = _collect_quick_links(basepath, path)
         return render_template("files_list.html", files=files, **context)
 
     if target.is_file():
         details = describe_file(basepath, path)
         parent_path = Path(path).parent.as_posix()
         context["show_role_badges"] = is_model_context_path(parent_path)
+        context["quick_links"] = _collect_quick_links(basepath, parent_path)
         has_parsed = bool(details.get("parsed"))
         requested_display = request.args.get("display", "").strip().lower()
         if has_parsed:

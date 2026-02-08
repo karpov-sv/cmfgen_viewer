@@ -1,6 +1,14 @@
 {% extends "files.html" %}
 
 {% block files_body %}
+  {% if show_symlink_toggle %}
+    <div class="mb-2 d-flex align-items-center gap-2">
+      <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('viewer.view', path=path, **symlink_toggle_query) }}">
+        {% if show_symlinks %}Hide Symlinked Files{% else %}Show Symlinked Files{% endif %}
+      </a>
+      <span class="small text-muted">Symlinked files are currently {{ "shown" if show_symlinks else "hidden" }}.</span>
+    </div>
+  {% endif %}
   {% if not files %}
     <p class="text-muted">No entries found.</p>
   {% else %}
@@ -44,7 +52,7 @@
               data-is-dir="{{ 1 if file.is_dir else 0 }}"
             >
               <td class="col-name">
-                <a href="{{ url_for('viewer.view', path=file.path) }}">
+                <a href="{{ url_for('viewer.view', path=file.path, **view_query) }}">
                   <i
                     class="file-entry-icon fa fa-{% if file.is_dir %}folder-open-o{% elif file.kind == 'text' %}file-text-o{% elif file.kind == 'image' %}file-image-o{% else %}file-o{% endif %}"
                     aria-hidden="true"

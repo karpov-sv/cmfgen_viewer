@@ -88,6 +88,17 @@ a:focus {
     color: #2b2f33;
 }
 
+.quick-links {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.quick-link-item {
+    white-space: nowrap;
+}
+
 #files-table .col-name {
     width: 100%;
 }
