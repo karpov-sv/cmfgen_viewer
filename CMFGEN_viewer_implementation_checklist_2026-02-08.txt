@@ -1,6 +1,6 @@
 CMFGEN Viewer Implementation Checklist
 Date: 2026-02-08
-Companion to: CMFGEN_output_file_investigation_2026-02-08.txt
+Companion to: txt_files/CMFGEN_output_file_investigation_2026-02-08.txt
 
 Objective
 ---------

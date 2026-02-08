@@ -408,4 +408,57 @@ Hydro/regrid options:
 - HYDRO_ITERATION_INFO, GREY_SCL_FAC_IN, HYDRO_OLD_MODEL, NEW_CALC_GRID,
   RVSIG_COL, RVSIG_COL_IT_<iter>, FIN_CAL_GRID, R_REGRIDDING_LOG, NEW_R_GRID
 
+Post-processed observer aliases (cmf_flux workflows):
+- OBSFRAME (native cmf_flux output)
+- obs_fin / obs_fin* (renamed OBSFRAME from "full/final" style run)
+- obs_cont / obs_cont* (renamed OBSFRAME from continuum/reference run)
+
+O. `obs_fin` and `obs_cont` note (why often undocumented)
+==========================================================
+`obs_fin` and `obs_cont` are not core CMFGEN writer names in the main `cmfgen` path. They are convention-driven names used by post-processing scripts around `cmf_flux`.
+
+Code-trace summary:
+- `cmf_flux` writes `OBSFRAME` (`obs/cmf_flux_sub_v5.f:2120-2128`).
+- Legacy batch flow renames `obsframe.dat` -> `obs_fin.dat`, then on a second run renames `obsframe.dat` -> `obs_cont.dat` (`opac/batobs.com:10,25`).
+- The script generator also emits `mv -f OBSFRAME obs_fin...` (`misc/create_batobs_ins.f:216`).
+- Plot tools consume these names directly (`spec_plt/plt_spec.f:1123,1191`; `spec_plt/plt_many_sn_spec.f:97-99`).
+
+Interpretation for viewer design:
+- Treat `obs_fin`/`obs_cont` as aliases of `OBSFRAME` produced by specific workflows, not guaranteed standalone outputs of every run.
+- Discovery logic should include `OBSFRAME`, `obs_fin*`, and `obs_cont*`.
+
+P. Other Script-Created Alias Files
+===================================
+Beyond `obs_fin`/`obs_cont`, several helper scripts create staging aliases that are easy to misinterpret as native code outputs.
+
+1) Additional `cmf_flux` post-processing aliases (`create_batobs_ins`)
+- `OBSFLUX` -> `obs_cmf*`
+- `HYDRO` -> `hydro_fin*`
+- `MEANOPAC` -> `meanopac*`
+- `TIMING` -> `full_timing*`
+- `J_COMP` -> `J_COMP*`
+- `CMF_FLUX_PARAM` -> `CMF_FLUX_PARAM*`
+- optional: `EDDFACTOR` -> `EDDFACTOR_STORE`, `EDDFACTOR_INFO` -> `EDDFACTOR_STORE_INFO`
+References: `misc/create_batobs_ins.f:216-223`, `misc/create_batobs_ins.f:235-236`.
+
+2) Model-startup staging aliases (`cpmod`/`drad_cpmod`/`sn_update`)
+- `GAMMAS` -> `GAMMAS_IN` (`com/cpmod.sh:49`, `com/drad_cpmod.sh:53`)
+- `JH_AT_CURRENT_TIME` -> `JH_AT_OLD_TIME` (`com/drad_cpmod.sh:63`, `com/sn_update.sh:47`)
+- `JH_AT_CURRENT_TIME_INFO` -> `JH_AT_OLD_TIME_INFO` (`com/drad_cpmod.sh:64`, `com/sn_update.sh:54`)
+- `SN_HYDRO_FOR_NEXT_MODEL` -> `SN_HYDRO_DATA` (`com/drad_cpmod.sh:66`, `com/sn_update.sh:68`)
+- `CUR_MODEL_DATA` -> `OLD_MODEL_DATA` (`com/drad_cpmod.sh:67`, `com/sn_update.sh:61`)
+- `GREY_SCL_FAC_IN` -> `GREY_SCL_FAC_SAVE` when copying into same directory (`com/cpmod.sh:22`, `com/drad_cpmod.sh:27`)
+
+3) Generic file-family renames
+- Any `*OUT` files -> `*_IN` via `out2in` (`com/out2in.sh:5-9`, invoked by `com/cpmod.sh:160` and `com/drad_cpmod.sh`).
+- Restart pointer promotions:
+  - `NEW_POINT1` -> `POINT1`
+  - `NEW_POINT2` -> `POINT2`
+  - `NEW_SCRTEMP` -> `SCRTEMP`
+  (`com/mvscr.sh:1-3`)
+
+Viewer implication:
+- Distinguish between native writer names (emitted by Fortran code) and script aliases (workflow-convenience/staging names).
+- In directory scans, treat aliases as equivalent identities for their source files.
+
 End of investigation.

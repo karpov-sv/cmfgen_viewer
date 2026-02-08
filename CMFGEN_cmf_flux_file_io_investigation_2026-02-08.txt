@@ -321,7 +321,54 @@ Phase 3 (binary direct-access with sidecar parsing)
 Direct-access files should be parsed only with their `_INFO` metadata (`subs/write_direct_info_v3.f` / `READ_DIRECT_INFO_V3`) to avoid record-length/endian issues.
 
 
-E. Quick inventory (concise)
+E. `obs_fin` and `obs_cont`: what they are
+==========================================
+These two names are not direct hard-coded outputs of `CMF_FLUX_SUB_V5`; they are post-run aliases created by helper scripts.
+
+1) Base producer
+- `cmf_flux` writes observer-frame spectrum to `OBSFRAME` (`obs/cmf_flux_sub_v5.f:2120-2128`).
+- Format is standard `RD_MOD`-compatible text: a `Frequencies` block then `Observed intensity` values (`spec_plt/subs/rd_mod.f`).
+
+2) Where `obs_fin` comes from
+- `opac/batobs.com` runs `cmf_flux` and then renames `obsframe.dat` -> `obs_fin.dat` (`opac/batobs.com:10`).
+- Script generator also encodes this behavior as `mv -f OBSFRAME obs_fin...` (`misc/create_batobs_ins.f:216`).
+- Interpretation: "final/full" observer-frame spectrum from the first/default run settings.
+
+3) Where `obs_cont` comes from
+- In the same `batobs` workflow, control parameters are modified between runs:
+  - `GLOBAL_LINE`: `BLANK` -> `SOB`
+  - `DO_SOB_LINES`: `F` -> `T`
+  - `NUM_ES`: `2` -> `1`
+  (see `opac/batobs.com:12-14`)
+- After the second run, `obsframe.dat` is renamed to `obs_cont.dat` (`opac/batobs.com:25`).
+- Interpretation: continuum/reference spectrum used for normalization workflows.
+
+4) Consumers in plotting/analysis tools
+- `plt_spec` `GEN` flow defaults to reading `obs_fin`, then loads `obs_cont` for normalization (`spec_plt/plt_spec.f:1123,1191`).
+- `plt_ip` comment explicitly compares full spectrum with `obs_fin` (`spec_plt/plt_ip.f:457`).
+- `plt_many_sn_spec` defaults to per-model `obs_fin` and `obs_cont` paths (`spec_plt/plt_many_sn_spec.f:97-99`).
+
+5) Practical viewer implication
+- Treat `obs_fin` and `obs_cont` as convention-driven renamed `OBSFRAME` files, not guaranteed outputs of every cmf_flux run.
+- For robust discovery, scan for `OBSFRAME`, `obs_fin*`, and `obs_cont*` and capture neighboring `CMF_FLUX_PARAM*` snapshots when present.
+
+6) Additional `batobs`-style aliases from generated scripts
+- `misc/create_batobs_ins.f` generates shell commands that may also rename:
+  - `OBSFLUX` -> `obs_cmf*`
+  - `HYDRO` -> `hydro_fin*`
+  - `MEANOPAC` -> `meanopac*`
+  - `TIMING` -> `full_timing*`
+  - `J_COMP` -> `J_COMP*`
+  - `CMF_FLUX_PARAM` -> `CMF_FLUX_PARAM*`
+  (see `misc/create_batobs_ins.f:216-223`)
+- Optional archival aliases:
+  - `EDDFACTOR` -> `EDDFACTOR_STORE`
+  - `EDDFACTOR_INFO` -> `EDDFACTOR_STORE_INFO`
+  (see `misc/create_batobs_ins.f:235-236`)
+- These are workflow/staging conventions, not native filenames written by physics routines.
+
+
+F. Quick inventory (concise)
 ============================
 Core inputs:
 - RVTJ, MODEL, MODEL_SPEC, CMF_FLUX_PARAM, HYD_L_DATA, GBF_N_DATA

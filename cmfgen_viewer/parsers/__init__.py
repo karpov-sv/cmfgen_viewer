@@ -20,6 +20,7 @@ from .diagnostic_text import (
     parse_out_params,
     parse_pop_family,
     parse_rate_file,
+    parse_rvsig_col,
     parse_sob_force_mult,
     parse_trans_info,
 )
@@ -33,6 +34,7 @@ PARSERS = {
     "MOD_SUM": parse_mod_sum,
     "MEANOPAC": parse_meanopac,
     "HYDRO": parse_hydro,
+    "RVSIG_COL": parse_rvsig_col,
     "OBSFRAME": parse_obsframe,
     "OUT_FLUX": parse_out_flux,
     "GAMMAS": parse_gammas,
@@ -54,6 +56,7 @@ PARSERS = {
 POP_FAMILY_RE = re.compile(r"^POP[A-Z0-9_]+$")
 DEPARTURE_OUT_RE = re.compile(r"^[A-Z0-9]+OUT$")
 OBS_ALIAS_RE = re.compile(r"^OBS_(?:FIN|CONT)(?:[._].*)?$")
+RVSIG_ALIAS_RE = re.compile(r"^RVSIG_COL(?:_.+)?$")
 
 MAX_PARSE_FILE_BYTES = 256 * 1024 * 1024
 
@@ -72,6 +75,9 @@ def _resolve_parser(path: Path):
         # `obs_fin*` / `obs_cont*` are post-processed OBSFLUX/OBSFRAME aliases.
         # Their content follows the OBSFLUX vector-block structure.
         return parse_obsflux
+
+    if any(RVSIG_ALIAS_RE.match(candidate) for candidate in names):
+        return parse_rvsig_col
 
     if any(POP_FAMILY_RE.match(candidate) for candidate in names):
         return parse_pop_family

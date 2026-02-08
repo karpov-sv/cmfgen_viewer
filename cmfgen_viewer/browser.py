@@ -53,15 +53,33 @@ OPTIONAL_FILES = {
     "ZTAU_DATA",
     "DFR_DATA",
     "IP_FG_DATA",
+    "NEG_OPAC",
+    "NON_TH_RATES",
+    "SN_HYDRO_FOR_NEXT_MODEL",
+    "HYDRO_ITERATION_INFO",
+    "HYDRO_OLD_MODEL",
+    "NEW_CALC_GRID",
+    "R_REGRIDDING_LOG",
+    "NEW_R_GRID",
+    "TIMING",
+    "KEVIN_TESTING",
 }
 
 RESTART_INTERNAL_FILES = {
     "SCRTEMP",
     "POINT1",
     "POINT2",
+    "NEW_POINT1",
+    "NEW_POINT2",
+    "NEW_SCRTEMP",
     "BAMAT",
     "BAMATPNT",
+    "CUR_MODEL_DATA",
+    "MODEL_SCR",
+    "CHEK+CK_ON_BA_UPDATE",
+    "IMPURITYJ",
     "EDDFACTOR",
+    "EDDFACTOR_STORE",
     "ES_J_CONV",
     "JH_AT_CURRENT_TIME",
     "JEW",
@@ -81,6 +99,8 @@ INPUT_RESTART_FILES = {
     "POINT2",
     "SCRTEMP",
     "OLD_J_FILE",
+    "JH_AT_OLD_TIME",
+    "OLD_MODEL_DATA",
 }
 
 INPUT_ATOMIC_CORE_FILES = {
@@ -102,6 +122,7 @@ INPUT_INIT_MODEL_FILES = {
     "FIN_CAL_GRID",
     "GREY_SCL_FAC_IN",
     "GREY_SCL_FAC",
+    "GREY_SCL_FAC_SAVE",
 }
 
 INPUT_GRID_PROFILE_FILES = {
@@ -217,45 +238,67 @@ def is_model_context_path(relpath: str) -> bool:
 
 def classify_cmfgen_role(filename: str, relpath: str = "") -> str:
     name = filename.upper()
+    stem = Path(filename).stem.upper()
     suffix = Path(filename).suffix.lower()
+    names = {name}
+    if stem and stem != name:
+        names.add(stem)
 
     if suffix == ".sh" and _is_in_model_dir(relpath or filename):
         return "script"
 
-    if name in INPUT_CONTROL_FILES:
+    if any(candidate.startswith("CMF_FLUX_PARAM") for candidate in names):
         return "input_control"
-    if name in INPUT_RESTART_FILES:
+    if any(candidate in INPUT_CONTROL_FILES for candidate in names):
+        return "input_control"
+    if any(candidate in INPUT_RESTART_FILES for candidate in names):
         return "input_restart"
-    if name in INPUT_ATOMIC_CORE_FILES:
+    if any(candidate in INPUT_ATOMIC_CORE_FILES for candidate in names):
         return "input_atomic_core"
-    if name in INPUT_ATOMIC_OPTIONAL_FILES:
+    if any(candidate in INPUT_ATOMIC_OPTIONAL_FILES for candidate in names):
         return "input_atomic_optional"
-    if name in INPUT_INIT_MODEL_FILES:
+    if any(candidate in INPUT_INIT_MODEL_FILES for candidate in names):
         return "input_init_model"
-    if name in INPUT_GRID_PROFILE_FILES:
+    if any(candidate in INPUT_GRID_PROFILE_FILES for candidate in names):
         return "input_grid_profile"
-    if name in INPUT_VELOCITY_FILES:
+    if any(candidate in INPUT_VELOCITY_FILES for candidate in names):
         return "input_velocity"
-    if name in INPUT_SN_NONTHERM_FILES:
+    if any(candidate.startswith("RVSIG_COL") for candidate in names):
+        return "input_velocity"
+    if any(candidate in INPUT_SN_NONTHERM_FILES for candidate in names):
         return "input_sn_nonthermal"
-    if name in INPUT_HYDRO_ITERATION_FILES:
+    if any(candidate in INPUT_HYDRO_ITERATION_FILES for candidate in names):
         return "input_hydro_iteration"
 
-    if name in CORE_FILES:
+    if any(candidate in CORE_FILES for candidate in names):
         return "core_viewer"
-    if name in OPTIONAL_FILES:
+    if any(candidate in OPTIONAL_FILES for candidate in names):
+        return "optional_diagnostic"
+    if any(candidate.startswith("OBS_FIN") for candidate in names):
+        return "optional_diagnostic"
+    if any(candidate.startswith("OBS_CONT") for candidate in names):
+        return "optional_diagnostic"
+    if any(candidate.startswith("OBS_CMF") for candidate in names):
+        return "optional_diagnostic"
+    if any(candidate.startswith("HYDRO_FIN") for candidate in names):
+        return "optional_diagnostic"
+    if any(candidate.startswith("MEANOPAC") and candidate != "MEANOPAC" for candidate in names):
+        return "optional_diagnostic"
+    if any(candidate.startswith("FULL_TIMING") for candidate in names):
+        return "optional_diagnostic"
+    if any(candidate.startswith("J_COMP") for candidate in names):
         return "optional_diagnostic"
 
-    if ION_OSC_PATTERN.match(name) or ION_MAP_PATTERN.match(name) or ION_PHOT_PATTERN.match(name) or ION_COL_PATTERN.match(name):
+    if any(ION_OSC_PATTERN.match(candidate) for candidate in names) or any(ION_MAP_PATTERN.match(candidate) for candidate in names) or any(ION_PHOT_PATTERN.match(candidate) for candidate in names) or any(ION_COL_PATTERN.match(candidate) for candidate in names):
         return "input_atomic_core"
-    if ION_DIE_PATTERN.match(name) or ION_AUTO_PATTERN.match(name):
+    if any(ION_DIE_PATTERN.match(candidate) for candidate in names) or any(ION_AUTO_PATTERN.match(candidate) for candidate in names):
         return "input_atomic_optional"
-    if ION_INIT_PATTERN.match(name) and name not in {"IN_ITS"}:
+    if any(ION_INIT_PATTERN.match(candidate) and candidate not in {"IN_ITS"} for candidate in names):
         return "input_init_model"
 
-    if name.startswith("POP") or name.endswith("OUT"):
+    if any(candidate.startswith("POP") or candidate.endswith("OUT") for candidate in names):
         return "optional_diagnostic"
-    if name in RESTART_INTERNAL_FILES or name.endswith("_INFO"):
+    if any(candidate in RESTART_INTERNAL_FILES or candidate.endswith("_INFO") for candidate in names):
         return "restart_internal"
     return "other"
 

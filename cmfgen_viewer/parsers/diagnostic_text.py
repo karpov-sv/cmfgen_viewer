@@ -12,6 +12,8 @@ WARN_RE = re.compile(r"\b(warn|error|fatal|stop|fail|exception)\b", re.IGNORECAS
 COLON_SCALAR_RE = re.compile(r"^\s*([^:#=][^:=#]{0,80})\s*:\s*(\S.*)$")
 GAMMAS_DEPTH_RE = re.compile(r"^\s*([+-]?\d+(?:\.\d*)?)\s*!?\s*Number of depth points\b", re.IGNORECASE)
 GAMMAS_SPECIES_RE = re.compile(r"^\s*([+-]?\d+(?:\.\d*)?)\s+([A-Za-z][A-Za-z0-9_+-]*)\b")
+RVSIG_DEPTH_RE = re.compile(r"^\s*([+-]?\d+(?:\.\d*)?)\s*!?\s*Number of depth points\b", re.IGNORECASE)
+RVSIG_SCALAR_RE = re.compile(r"^\s*!+\s*(.+?)\s*(?:is:|=)\s*([^\s!`]+)\s*$", re.IGNORECASE)
 
 
 def _bool_text(value: bool) -> str:
@@ -451,6 +453,124 @@ def parse_obsframe(path: Path) -> dict[str, object]:
 
 def parse_out_flux(path: Path) -> dict[str, object]:
     return parse_log_diagnostic(path, parser_name="OUT_FLUX", title="OUT_FLUX run log")
+
+
+def parse_rvsig_col(path: Path) -> dict[str, object]:
+    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    warnings: list[str] = []
+
+    depth_points: int | None = None
+    for line in lines[:80]:
+        match = RVSIG_DEPTH_RE.match(line)
+        if not match:
+            continue
+        parsed_depth = parse_float_token(match.group(1))
+        if parsed_depth is not None and parsed_depth > 0:
+            depth_points = int(parsed_depth)
+            break
+
+    scalar_rows: list[list[str]] = []
+    seen_scalar_keys: set[str] = set()
+    for line in lines:
+        match = RVSIG_SCALAR_RE.match(line)
+        if not match:
+            continue
+        key = re.sub(r"\s+", " ", match.group(1)).strip()
+        value_token = match.group(2).strip()
+        if not key or key in seen_scalar_keys:
+            continue
+        seen_scalar_keys.add(key)
+        numeric_value = parse_float_token(value_token)
+        scalar_rows.append([key, format_number(numeric_value) if numeric_value is not None else value_token])
+
+    blocks = [block for block in _collect_numeric_blocks(lines) if int(block["cols"]) in {4, 5}]
+    selected = _choose_block(blocks)
+    if not selected:
+        return parse_numeric_diagnostic(path, parser_name="RVSIG_COL", title=f"{path.name} velocity-grid profile")
+
+    data_rows = selected["rows"]
+    col_count = int(selected["cols"])
+    row_count = len(data_rows)
+    start_line = int(selected["start_line"])
+
+    if depth_points is not None:
+        if row_count > depth_points:
+            extra_rows = row_count - depth_points
+            data_rows = data_rows[:depth_points]
+            row_count = depth_points
+            warnings.append(f"Trimmed {extra_rows} trailing row(s) beyond declared depth points ({depth_points}).")
+        elif row_count < depth_points:
+            warnings.append(f"Depth points declared={depth_points} while parsed rows={row_count}.")
+
+    if col_count == 5:
+        columns = ["Radius (10^10 cm)", "Velocity (km/s)", "Sigma", "Tau", "Index"]
+        y_specs = [(1, "Velocity (km/s)"), (2, "Sigma"), (3, "Tau")]
+    else:
+        columns = ["Radius (10^10 cm)", "Velocity (km/s)", "Sigma", "Depth index"]
+        y_specs = [(1, "Velocity (km/s)"), (2, "Sigma")]
+
+    table_truncated = row_count > MAX_TABLE_ROWS
+    if table_truncated:
+        warnings.append(f"Main table truncated to first {MAX_TABLE_ROWS} rows.")
+    table_rows = [[format_number(value) for value in row] for row in data_rows[:MAX_TABLE_ROWS]]
+
+    summary_rows: list[list[str]] = [
+        ["file", path.name],
+        ["depth_points_declared", str(depth_points) if depth_points is not None else "n/a"],
+        ["parsed_rows", str(row_count)],
+        ["parsed_columns", str(col_count)],
+        ["data_start_line", str(start_line)],
+    ]
+
+    x_values = [row[0] for row in data_rows]
+    x_log = _all_positive(x_values) and _auto_log_scale(x_values) == "log"
+    plots: list[dict[str, object]] = []
+    for index, label in y_specs:
+        y_values = [row[index] for row in data_rows]
+        y_log = _all_positive(y_values) and _auto_log_scale(y_values) == "log"
+        plotly = build_plotly_line_plot(
+            x_values,
+            y_values,
+            x_label="Radius (10^10 cm)",
+            y_label=label,
+            default_x_scale="log" if x_log else "linear",
+            default_y_scale="log" if y_log else "linear",
+            max_points=1400,
+        )
+        if plotly:
+            plots.append({"title": f"{label} vs Radius", **plotly})
+
+    tables: list[dict[str, object]] = [
+        {
+            "title": "RVSIG_COL depth table",
+            "columns": columns,
+            "rows": table_rows,
+        }
+    ]
+    if scalar_rows:
+        tables.insert(
+            0,
+            {
+                "title": "Velocity-law scalars",
+                "columns": ["Field", "Value"],
+                "rows": scalar_rows[:MAX_SCALAR_ROWS],
+            },
+        )
+        if len(scalar_rows) > MAX_SCALAR_ROWS:
+            warnings.append(f"Scalars table truncated to first {MAX_SCALAR_ROWS} rows.")
+
+    return {
+        "parser": "RVSIG_COL",
+        "title": f"{path.name} velocity-grid profile",
+        "summary_table": {
+            "title": "Parsed summary",
+            "columns": ["Field", "Value"],
+            "rows": summary_rows,
+        },
+        "tables": tables,
+        "plots": plots,
+        "warnings": warnings,
+    }
 
 
 def parse_gammas(path: Path) -> dict[str, object]:

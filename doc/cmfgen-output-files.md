@@ -393,3 +393,51 @@ Hydro/regrid options:
 - HYDRO_ITERATION_INFO, GREY_SCL_FAC_IN, HYDRO_OLD_MODEL, NEW_CALC_GRID,
   RVSIG_COL, RVSIG_COL_IT_<iter>, FIN_CAL_GRID, R_REGRIDDING_LOG, NEW_R_GRID
 
+
+Post-Processed Observer Aliases (`cmf_flux` workflows)
+======================================================
+`obs_fin` and `obs_cont` are convention-driven aliases, not native writer names in the main `cmfgen` path.
+
+Code-trace summary:
+- `cmf_flux` writes `OBSFRAME` (`obs/cmf_flux_sub_v5.f:2120-2128`).
+- Legacy batch flow renames `obsframe.dat` -> `obs_fin.dat`, then on a second run renames `obsframe.dat` -> `obs_cont.dat` (`opac/batobs.com:10,25`).
+- The generated script path also emits `mv -f OBSFRAME obs_fin...` (`misc/create_batobs_ins.f:216`).
+- Plot tools consume these names directly (`spec_plt/plt_spec.f:1123,1191`; `spec_plt/plt_many_sn_spec.f:97-99`).
+
+Viewer implication:
+- Treat `obs_fin`/`obs_cont` as aliases of `OBSFRAME` produced by specific workflows, not guaranteed standalone outputs of every run.
+- Discovery logic should include `OBSFRAME`, `obs_fin*`, and `obs_cont*`.
+
+
+Other Script-Created Alias Files
+================================
+Beyond `obs_fin`/`obs_cont`, helper scripts create staging aliases that are easy to misinterpret as native outputs.
+
+Additional `cmf_flux` post-processing aliases (`create_batobs_ins`):
+- `OBSFLUX` -> `obs_cmf*`
+- `HYDRO` -> `hydro_fin*`
+- `MEANOPAC` -> `meanopac*`
+- `TIMING` -> `full_timing*`
+- `J_COMP` -> `J_COMP*`
+- `CMF_FLUX_PARAM` -> `CMF_FLUX_PARAM*`
+- Optional archival aliases: `EDDFACTOR` -> `EDDFACTOR_STORE`, `EDDFACTOR_INFO` -> `EDDFACTOR_STORE_INFO`
+References: `misc/create_batobs_ins.f:216-223`, `misc/create_batobs_ins.f:235-236`.
+
+Model-startup staging aliases (`cpmod`/`drad_cpmod`/`sn_update`):
+- `GAMMAS` -> `GAMMAS_IN`
+- `JH_AT_CURRENT_TIME` -> `JH_AT_OLD_TIME`
+- `JH_AT_CURRENT_TIME_INFO` -> `JH_AT_OLD_TIME_INFO`
+- `SN_HYDRO_FOR_NEXT_MODEL` -> `SN_HYDRO_DATA`
+- `CUR_MODEL_DATA` -> `OLD_MODEL_DATA`
+- `GREY_SCL_FAC_IN` -> `GREY_SCL_FAC_SAVE` when copying into same directory
+
+Generic family renames:
+- Any `*OUT` files -> `*_IN` via `out2in`.
+- Restart pointer promotions:
+  - `NEW_POINT1` -> `POINT1`
+  - `NEW_POINT2` -> `POINT2`
+  - `NEW_SCRTEMP` -> `SCRTEMP`
+
+Viewer implication:
+- Distinguish native writer names from script aliases.
+- Treat alias names as equivalent identities during directory scans.

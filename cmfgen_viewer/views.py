@@ -30,6 +30,12 @@ QUICK_LINK_FILES = (
     "OUTGEN",
     "WARNINGS",
 )
+QUICK_LINK_GLOBS = (
+    "obs_fin*",
+    "obs_cont*",
+    "obs/obs_fin*",
+    "obs/obs_cont*",
+)
 
 
 def _viewer_config() -> dict[str, object]:
@@ -51,15 +57,29 @@ def _collect_quick_links(basepath: str, directory_relpath: str) -> list[dict[str
         return []
 
     links: list[dict[str, str]] = []
+    seen_paths: set[str] = set()
+
+    def add_link(path_obj: Path, *, label: str | None = None) -> None:
+        rel = _join_relpath(directory_relpath, path_obj.relative_to(directory).as_posix())
+        if rel in seen_paths:
+            return
+        seen_paths.add(rel)
+        links.append(
+            {
+                "name": label or path_obj.name,
+                "path": rel,
+            }
+        )
+
     for name in QUICK_LINK_FILES:
         candidate = directory / name
         if candidate.is_file():
-            links.append(
-                {
-                    "name": name,
-                    "path": _join_relpath(directory_relpath, name),
-                }
-            )
+            add_link(candidate, label=name)
+
+    for pattern in QUICK_LINK_GLOBS:
+        for candidate in sorted(directory.glob(pattern), key=lambda p: p.name.lower()):
+            if candidate.is_file():
+                add_link(candidate)
     return links
 
 

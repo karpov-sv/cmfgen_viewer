@@ -1,0 +1,381 @@
+CMFGEN End-to-End Processing Pipeline and File I/O Map
+Date: 2026-02-08
+Repository snapshot: /home/karpov/CMFGEN2023/cur_cmf
+
+Purpose
+-------
+This document is a consolidated, step-by-step map of file processing across:
+1) helper scripts used to stage/transfer model directories,
+2) CMFGEN main runs,
+3) CMF_FLUX post-processing runs,
+4) helper-script post-processing around CMF_FLUX outputs.
+
+Source investigations consolidated here:
+- txt_files/CMFGEN_input_file_investigation_2026-02-08.txt
+- txt_files/CMFGEN_output_file_investigation_2026-02-08.txt
+- txt_files/CMFGEN_cmf_flux_file_io_investigation_2026-02-08.txt
+
+Conventions
+-----------
+- READ: file consumed by a component.
+- WRITE: new/overwritten output file.
+- UPDATE: in-place keyword update, rename, symlink swap, or copy into canonical alias name.
+- File names are runtime working-directory names unless a directory prefix is explicitly shown.
+
+
+Step 1. Pre-run directory staging (helper scripts)
+===================================================
+Component: `com/cpmod.sh`, `com/drad_cpmod.sh`, `com/sn_update.sh`, `com/out2in.sh`, `com/mv_n.sh`, `com/mvscr.sh`
+
+READ
+- Existing model control/data from source run directory, e.g. `batch.sh`, `IN_ITS`, `VADAT`, `*OUT`, `GAMMAS`, `MODEL_SPEC` (`com/cpmod.sh:45-50`, `com/drad_cpmod.sh:49-54`).
+- Optional SN continuation files: `JH_AT_CURRENT_TIME`, `JH_AT_CURRENT_TIME_INFO`, `SN_HYDRO_FOR_NEXT_MODEL`, `CUR_MODEL_DATA` (`com/drad_cpmod.sh:63-67`, `com/sn_update.sh:46-68`).
+
+WRITE
+- Staged inputs in target directory:
+  - `GAMMAS_IN` from `GAMMAS` (`com/cpmod.sh:49`, `com/drad_cpmod.sh:53`).
+  - `SN_HYDRO_DATA` from `SN_HYDRO_FOR_NEXT_MODEL` (`com/drad_cpmod.sh:66`, `com/sn_update.sh:68`).
+  - `OLD_MODEL_DATA` from `CUR_MODEL_DATA` (`com/drad_cpmod.sh:67`, `com/sn_update.sh:61`).
+  - `JH_AT_OLD_TIME` and `_INFO` from current-time files (`com/drad_cpmod.sh:63-64`, `com/sn_update.sh:47-55`).
+
+UPDATE
+- Family rename `*OUT -> *_IN` (invoked via `out2in`) (`com/out2in.sh:5-9`, `com/cpmod.sh:160`).
+- Explicit ion renames (subset) such as `Mg2OUT -> Mg2_IN` (`com/mv_n.sh:1-15`).
+- When copying within same directory: `GREY_SCL_FAC_IN -> GREY_SCL_FAC_SAVE` (`com/cpmod.sh:22`, `com/drad_cpmod.sh:27`).
+- Restart pointer promotion: `NEW_POINT1 -> POINT1`, `NEW_POINT2 -> POINT2`, `NEW_SCRTEMP -> SCRTEMP` (`com/mvscr.sh:1-3`).
+
+
+Step 2. CMFGEN startup and top-level control load
+==================================================
+Component: `new_main/cmfgen.f` + `new_main/cmfgen_sub.f`
+
+READ
+- `MODEL_SPEC` (`new_main/cmfgen.f:291`).
+- `VADAT` (`new_main/mod_subs/rd_control_variables.f:46`).
+- `IN_ITS` (`new_main/cmfgen_sub.f:545`; reopened later at `new_main/cmfgen_sub.f:4695`).
+
+WRITE
+- `OUTGEN` (run log, append) (`new_main/cmfgen.f:101`).
+- `WARNINGS` (`new_main/cmfgen.f:108`).
+- `STEQ_VALS` iterative trace (`new_main/cmfgen_sub.f:528`).
+
+UPDATE
+- none in this initial load step (updates begin in iterative/hydro stages).
+
+
+Step 3. CMFGEN mode selection: continuation vs fresh model
+===========================================================
+Component: restart path in `subs/scr_read_v2.f`, fresh-start path in `set_new_model_estimates`
+
+READ (continuation path)
+- `POINT1`, fallback `POINT2`, then `SCRTEMP` (`subs/scr_read_v2.f:87`, `:106`, `:136`).
+
+READ (fresh start path)
+- `T_IN` (`subs/regrid_t_ed_v3.f:41`, `subs/init_temp_v2.f:65`).
+- Per-ion `*_IN` departure coefficient files (`subs/regrid_log_dc_v1.f:96`).
+- `GAMMAS_IN` (`subs/getelec_v2.f:40`).
+- Optional fallback initializers: `FIN_CAL_GRID` (`new_main/mod_subs/set_new_model_estimates.f:219`), `GREY_SCL_FAC_IN` or `GREY_SCL_FAC` (`subs/scale_grey.f:32`, `:37`).
+
+WRITE
+- none directly at branch decision.
+
+UPDATE
+- branch state `NEWMOD` switches internally based on restart viability (no explicit file update in this step).
+
+
+Step 4. CMFGEN core physics/atomic ingestion
+============================================
+Component: `new_main/cmfgen_sub.f` and reader routines
+
+READ (always/typical)
+- `HYD_L_DATA`, `GBF_N_DATA` (`new_main/cmfgen_sub.f:660`, `newsubs/rd_hyd_bf_data.f:36`, `:103`).
+- `XRAY_PHOT_FITS` (`new_main/cmfgen_sub.f:671`, `newsubs/xray_data_mod.f:59`).
+- Per-ion files:
+  - `<ION>_F_OSCDAT` (`newsubs/genosc_v9.f:137`),
+  - `<ION>_F_TO_S` (`subs/rd_f_to_s_ids_v3.f:51`),
+  - `PHOT<ION>_A/B/...` (`newsubs/rdphot_gen_v2.f:148`, `:321`),
+  - `<ION>_COL_DATA` (`subs/get_col_ref.f:16`, `subs/gen_omega_rd_v2.f:150`).
+
+READ (conditional)
+- `TWO_PHOT_DATA` (`new_main/mod_subs/two_phot_mod.f:125`).
+- `CHG_EXCH_DATA` (`new_main/subs/chg/rd_chg_exch_v3.f:51`).
+- `DIE<ION>` (`subs/rdgendie_v4.f:97` or `newsubs/rd_phot_die_v1.f:153`).
+- `<ION>_AUTO_DATA` if present (`new_main/subs/auto/steq_auto_v2.f:84`).
+- `RS_XRAY_FLUXES` when X-rays require external spectrum (`newsubs/rd_xray_spec.f:77`).
+
+READ (grid/structure options)
+- `CFDAT` when continuum-file mode is enabled (`new_main/mod_subs/set_frequency_grid_v2.f:344`).
+- `GRID_PARAMS` or `PROF_T_ED` for profile grids (`new_main/mod_subs/set_frequency_grid_v2.f:138-143`, `subs/rd_t_ed.f:28`).
+- Velocity/structure option files: `RDINR`, `RVSIG_COL`, `deKOTER`, `SN_HYDRO_DATA`, `input_hydro.dat` (see `subs/starpcyg_v3.f:119`, `newsubs/rd_rv_file_v2.f:62`, `:127`, `new_main/subs/rd_sn_data.f:91`, `new_main/subs/set_rv_hydro_model_v3.f:117`, `new_main/mod_subs/set_abund_clump.f:310`).
+
+WRITE
+- none as science output yet; this stage is mostly ingestion/setup.
+
+UPDATE
+- none required in nominal ingest stage.
+
+
+Step 5. CMFGEN iterative solve and mutable-state maintenance
+=============================================================
+Component: `new_main/cmfgen_sub.f`, hydro/regrid modules, restart modules
+
+READ
+- Existing continuation/state files as needed in loop:
+  - `SCRTEMP` / pointer files,
+  - `EDDFACTOR` and `_INFO`,
+  - `ES_J_CONV` and `_INFO`,
+  - optional `IT_SPECIFIER` (`subs/specify_it_cycle_v3.f:59`).
+
+WRITE
+- Restart/state files:
+  - `SCRTEMP`, `POINT1`, `POINT2` (`subs/scr_read_v2.f` write path around `:449`, `:460` per prior investigation),
+  - `BAMAT`, `BAMATPNT` (via `new_main/subs/store_ba_data_v3.f`; called from `new_main/cmfgen_sub.f:2943`, `3624`, `4062`),
+  - `EDDFACTOR` + `EDDFACTOR_INFO` (via `new_main/subs/open_rw_eddfactor.f`),
+  - `ES_J_CONV` + `ES_J_CONV_INFO` (via `subs/comp_j_conv_v2.f`),
+  - optional `JH_AT_CURRENT_TIME` + `_INFO` (`plane/out_jh.f:60`, controlled by write flags).
+
+WRITE (hydro/regrid diagnostic branch)
+- `HYDRO_ITERATION_INFO`, `HYDRO_OLD_MODEL`, `NEW_CALC_GRID`, `RVSIG_COL`, `RVSIG_COL_IT_<iter>`, `FIN_CAL_GRID` (`new_main/subs/do_cmf_hydro_v2.f`).
+- `R_REGRIDDING_LOG`, optional `NEW_R_GRID` (`new_main/subs/do_tau_regrid.f:75`, `new_main/subs/do_vel_regrid.f:133`, `:356`).
+
+UPDATE (in-place keyword mutation)
+- `VADAT` updates via `UPDATE_KEYWORD`, e.g. `[RSTAR]`, `[RMAX]`, X-ray fill factors, relaxation knobs (`new_main/cmfgen_sub.f:1030-1031`, `4555-4623`, `4682`; `new_main/subs/do_cmf_hydro_v2.f:361-362`, `385`, `407-408`, `1107-1110`).
+- `IN_ITS` updates, e.g. `[DO_LAM_IT]` toggles (`new_main/cmfgen_sub.f:4563`, `4682`).
+- `HYDRO_DEFAULTS` updates, e.g. `[N_ITS]`, `[ITS_DONE]`, hydro options (`new_main/cmfgen_sub.f:931`, `new_main/subs/do_cmf_hydro_v2.f:1097-1098`, `362`, `408-409`).
+- `ADJUST_R_DEFAULTS` updates, e.g. `[N_ITS]` (`new_main/mod_subs/adjust_r_grid_v4.f:240`, `subs/specify_it_cycle_v3.f:89-91`).
+
+
+Step 6. CMFGEN finalization outputs (science products)
+=======================================================
+Component: final-iteration output block in `new_main/cmfgen_sub.f`
+
+READ
+- Minimal additional input; final block writes accumulated model results.
+
+WRITE (primary)
+- `RVTJ` (`new_main/cmfgen_sub.f:4312`).
+- `OBSFLUX` (`new_main/cmfgen_sub.f:3027`, `3715`).
+- `MOD_SUM` (`new_main/cmfgen_sub.f:4091`).
+- `MEANOPAC` (`new_main/cmfgen_sub.f:3081`).
+- `HYDRO` (`subs/hydro_terms_v5.f:118`, call site `new_main/cmfgen_sub.f:3168`).
+- `GAMMAS` (`new_main/cmfgen_sub.f:4496`).
+- Species/departure products: `POP<species>`, `<ION_ID>OUT` (`new_main/cmfgen_sub.f:4449`, `4485`).
+
+WRITE (conditional diagnostics)
+- `NETRATE`, `TOTRATE`, `EWDATA`, `LINEHEAT` when `WRITE_RATES` (`new_main/cmfgen_sub.f:1303-1306`).
+- `NEG_OPAC` fallback (`new_main/cmfgen_sub.f:1308`).
+- `J_COMP` boundary comparison (`new_main/mod_subs/comp_j_blank.f:445`, `:869`).
+- `NON_THERM_COOL`, `NON_TH_RATES` in non-thermal branches.
+
+WRITE (SN/time-dependent/gamma)
+- `SN_HYDRO_FOR_NEXT_MODEL` (`new_main/cmfgen_sub.f:4442`).
+- `CUR_MODEL_DATA` (`new_main/cmfgen_sub.f:4509`, `4628`).
+- `GAMFLUX` (`new_main/gam_transport/gamray_sub_v3.f90:445`).
+- `GAMRAY_ENERGY_DEP` (`new_main/gam_transport/gamma_energy_dep_v7.f90:114`).
+- Optional verbose gamma diagnostics in `./data/*`.
+
+UPDATE
+- Final keyword state may already have been modified in step 5; no new distinct file-update class beyond standard writes.
+
+
+Step 7. CMF_FLUX startup and input load
+=======================================
+Component: `obs/cmf_flux_v5.f` + `obs/cmf_flux_sub_v5.f`
+
+READ (core)
+- `RVTJ` (`obs/cmf_flux_v5.f:290`, `:332`, `:355`).
+- `MODEL` (`obs/cmf_flux_v5.f:382-396`).
+- `MODEL_SPEC` (`obs/cmf_flux_v5.f:413-420`).
+- `CMF_FLUX_PARAM` (`obs/cmf_flux_v5.f:551-558`).
+- `HYD_L_DATA`, `GBF_N_DATA` (`obs/cmf_flux_v5.f:265`, `newsubs/rd_hyd_bf_data.f:36`, `:103`).
+
+READ (species/ion)
+- `POP<species>` (`obs/cmf_flux_v5.f:450-458`).
+- `<ION>_F_OSCDAT`, `<ION>_F_TO_S`, `PHOT<ION>_A/B/...`, optional `<ION>_AUTO_DATA`, optional `DIE<ION>` (`obs/cmf_flux_v5.f:585-623`).
+
+READ (conditional runtime)
+- `FULL_STRK_LIST`, Stark tables (`obs/cmf_flux_sub_v5.f:566-568`, `stark/rd_strk_list.f:47`).
+- `TWO_PHOT_DATA` (`obs/cmf_flux_sub_v5.f:572`).
+- `XRAY_PHOT_FITS` (`obs/cmf_flux_sub_v5.f:576`).
+- `RS_XRAY_FLUXES` (`obs/cmf_flux_sub_v5.f:578-580`).
+- `FORB_LINE_CONTROL`, `REVISED_LAMBDAS`, `REVISE_P_PARAMS` (optional controls).
+- Reuse paths: `OLD_J_FILE`, `EDDFACTOR`, `ES_J_CONV` with `_INFO` sidecars.
+
+WRITE
+- none yet (startup/loading stage).
+
+UPDATE
+- none in code path; external scripts may update `CMF_FLUX_PARAM` between runs.
+
+
+Step 8. CMF_FLUX transfer/observer-frame solve outputs
+=======================================================
+Component: `obs/cmf_flux_sub_v5.f`, `obs/obs_frame_sub_v9.f`
+
+WRITE (primary text outputs)
+- `OUT_FLUX` (`obs/cmf_flux_v5.f:89`).
+- `OUT_PARAMS` (`obs/cmf_flux_v5.f:556`).
+- `CFDAT_OUT` (`subs/set_cont_freq_v4.f:298-303`).
+- `CONT_FREQ` (`subs/det_main_cont_freq.f:149-183`).
+- `OBS_FREQ` (`obs/ins_line_obs_v4.f:277-282`).
+- `OBSFLUX` (`obs/cmf_flux_sub_v5.f:1889-1898`).
+- `MEANOPAC` (`obs/cmf_flux_sub_v5.f:1964-1992`).
+- `HYDRO` (`subs/hydro_terms.f:65`).
+- `OBSFRAME` (`obs/cmf_flux_sub_v5.f:2120-2128`).
+
+WRITE (conditional text outputs)
+- `TRANS_INFO`, `EWDATA`, `SOB_FORCE_MULT`, `ION_LINE_FORCE_TABLE`, `ION_FLUX_MEAN_OPAC`, `PHOTOSPHERIC_RADIUS`, `PLANCK_KAPPA_MEAN` (option-dependent; see `obs/rd_cmf_flux_controls.f` and `obs/cmf_flux_sub_v5.f`).
+
+WRITE (direct-access binary + sidecar)
+- `EDDFACTOR`, `FLUX_FILE`, `CMF_FORCE_DATA`, `ETA_DATA`, `CHI_DATA`, `RAY_DATA`, `ES_J_CONV`, `SOB_FORCE_DATA`, and observer-frame binaries `IP_DATA`, `RTAU_DATA`, `ZTAU_DATA`, `dFR_DATA` with matching `_INFO` files.
+
+UPDATE
+- none in solver itself; files are produced/overwritten per run options.
+
+
+Step 9. CMF_FLUX post-processing helper scripts and aliases
+============================================================
+Component: `opac/batobs.com`, generated scripts from `misc/create_batobs_ins.f`
+
+READ
+- `cmf_flux_param_init.dat` copied to `cmf_flux_param.dat` before run (`opac/batobs.com:3`).
+- Runtime products from each CMF_FLUX call: `obsframe.dat`, `hydro.dat`, etc.
+
+WRITE
+- Aliased/saved outputs:
+  - First pass: `obsframe.dat -> obs_fin.dat`, `hydro.dat -> hydro_fin.dat` (`opac/batobs.com:10-11`).
+  - Second pass: `obsframe.dat -> obs_cont.dat` (`opac/batobs.com:25`).
+- Generated shell workflow can additionally keep aliases:
+  - `OBSFLUX -> obs_cmf*`, `MEANOPAC -> meanopac*`, `TIMING -> full_timing*`, `J_COMP -> J_COMP*`, `CMF_FLUX_PARAM -> CMF_FLUX_PARAM*` (`misc/create_batobs_ins.f:216-223`).
+  - optional archives: `EDDFACTOR -> EDDFACTOR_STORE`, `EDDFACTOR_INFO -> EDDFACTOR_STORE_INFO` (`misc/create_batobs_ins.f:235-236`).
+
+UPDATE
+- `CMF_FLUX_PARAM` keyword edits between passes in legacy flow:
+  - `GLOBAL_LINE: BLANK -> SOB`,
+  - `DO_SOB_LINES: F -> T`,
+  - `NUM_ES: 2 -> 1` (`opac/batobs.com:12-14`).
+- Cleanup/deletes of transient files between passes (`opac/batobs.com:19-23`; generated cleanup in `misc/create_batobs_ins.f:225-233`).
+
+
+Step 10. Downstream consumers of aliased observer files
+========================================================
+Component: plotting/analysis tools (`spec_plt/*`)
+
+READ
+- `obs_fin` and `obs_cont` as normalized-spectrum pair (`spec_plt/plt_spec.f:1123`, `:1191`).
+- Multi-model defaults: `obs_zf/obs_fin` and `obs_cont/obs_cont` (`spec_plt/plt_many_sn_spec.f:97-99`).
+
+WRITE
+- plotting outputs only; no core model-state mutation.
+
+UPDATE
+- none in core run files.
+
+
+Step 11. LTE utility pipeline (`main_lte.exe` / `wind_hyd.exe`)
+================================================================
+Component: `lte_hydro/lte.f` + `lte_hydro/lte_sub.f` (`main_lte.exe`), and `lte_hydro/wind_hyd.f` (`wind_hyd.exe`)
+
+Key path finding (for your `lte/` subfolder question)
+- No code path in this snapshot creates a directory literally named `lte/`:
+  - no `mkdir lte`, no `cd lte`, and no hard-coded `FILE='lte/...'`.
+- Both LTE executables open/write bare filenames in the current working directory.
+- Therefore, files appearing under a run directory’s `lte/` subfolder are produced when the executable is launched from that subfolder by external workflow convention (not by internal directory-creation logic).
+
+11A) Typical launch path
+- `lte_hydro/Makefile` builds:
+  - `exe/main_lte.exe` (`lte_hydro/Makefile:58-65`)
+  - `exe/wind_hyd.exe` (`lte_hydro/Makefile:67-72`)
+- Example runner `lte_hydro/lte_tst1/ltebat.sh` launches `main_lte.exe` after `batch.sh ass` symlink setup (`lte_hydro/lte_tst1/ltebat.sh:10-23`).
+
+11B) `main_lte.exe` file flow
+READ
+- `GRID_PARAMS` (`lte_hydro/lte.f:272`; also `lte_hydro/set_lte_est.f:43`).
+- `MODEL_SPEC` (`lte_hydro/lte.f:285-286`).
+- `VADAT` and control keywords via `RD_CONTROL_VARIABLES` called from `lte_hydro/lte_sub.f:479`
+  and implemented by `new_main/mod_subs/rd_control_variables.f:46`.
+- CMFGEN-style atomic files through LTE-sub path:
+  - `HYD_L_DATA`, `GBF_N_DATA` (`lte_hydro/lte_sub.f:532`),
+  - `TWO_PHOT_DATA` (`lte_hydro/lte_sub.f:536`),
+  - `CHG_EXCH_DATA` (`lte_hydro/lte_sub.f:540`),
+  - `XRAY_PHOT_FITS` and optional `RS_XRAY_FLUXES` (`lte_hydro/lte_sub.f:544`, `:547`),
+  - per-ion files (`*_F_OSCDAT`, `*_F_TO_S`, `PHOT*_A/B/...`, optional `DIE*`) in `lte_hydro/lte_sub.f:563-623`.
+
+WRITE
+- `OUTLTE` log (`lte_hydro/lte.f:89`).
+- `MODEL_SCR` scratch descriptor (deleted at end) (`lte_hydro/lte_sub.f:462`, `:700` close/delete path).
+- `MODEL` (`lte_hydro/lte_sub.f:634`).
+- Optional diagnostics:
+  - `NEG_OPAC` (`lte_hydro/lte_sub.f:890`),
+  - `ML_COUNTER` (`lte_hydro/lte_sub.f:983`).
+- Main LTE products:
+  - `ROSSELAND_LTE_TAB` (`lte_hydro/lte_sub.f:1103`),
+  - `MOD_SUM` (`lte_hydro/lte_sub.f:1161`),
+  - `RVTJ` (`lte_hydro/lte_sub.f:1347`),
+  - `POP<species>` (`lte_hydro/lte_sub.f:1450`),
+  - `<ION>OUT` via `WRITEDC_V2` (`lte_hydro/lte_sub.f:1486`),
+  - `GAMMAS` via `RITE_GAM_HEAD(...,'GAMMAS')` (`lte_hydro/lte_sub.f:1498` block).
+- Optional SN/time-sequence continuation output:
+  - `MODELS_FN_TIME` and pointers `TIME_PNT1`/`TIME_PNT2` through `RITE_TIME_MODEL`
+    (`lte_hydro/lte_sub.f:1509`; writer in `new_main/subs/read_time_model_v1.f:228+`, file opens around `:314+`).
+
+UPDATE
+- No dedicated `lte/` path update.
+- General control mutation behavior from shared CMFGEN control routines can still apply to files like `VADAT` when those branches are enabled.
+
+11C) `wind_hyd.exe` file flow
+READ
+- `HYDRO_PARAMS` (`lte_hydro/wind_hyd.f:227`).
+- Optional old-structure file (default prompt `RVTJ`) when `OLD_MODEL=.TRUE.`:
+  - metadata via `RD_RVTJ_PARAMS_V4` (`lte_hydro/wind_hyd.f:306`)
+  - vectors via `RD_RVTJ_VEC_V4` (`lte_hydro/wind_hyd.f:334`)
+- `ROSSELAND_LTE_TAB` read internally by `GET_LTE_ROSS_V2` (`lte_hydro/get_lte_ross_v2.f:42`), called at e.g. `lte_hydro/wind_hyd.f:521`, `:581`, `:1011`, `:1064-1065`.
+
+WRITE
+- `OLD_GRID` (`lte_hydro/wind_hyd.f:363`).
+- `DIAGNOSTIC_EST_1` and `DIAGNOSTIC_EST_2` (`lte_hydro/wind_hyd.f:616`, `:620`).
+- `NEW_CALC_GRID` (`lte_hydro/wind_hyd.f:754`).
+- Primary hydro outputs:
+  - `RVSIG_COL_NEW` (`lte_hydro/wind_hyd.f:898`),
+  - `FIN_CAL_GRID` (`lte_hydro/wind_hyd.f:933`).
+
+WRITE (implicit-unit diagnostics; implementation-dependent)
+- The code writes to logical units without explicit `OPEN` in this file (examples: 15, 17, 73, 82, 170; see `lte_hydro/wind_hyd.f:351`, `:533`, `:740`, `:848`, `:972`).
+- On many runtimes this creates files like `fort.15`, `fort.17`, `fort.73`, etc.
+- This matches sample artifacts in `lte_hydro/hydro_tst1/` and `lte_hydro/hydro_tst2/`.
+
+UPDATE
+- No in-place update of a dedicated `lte/` directory path; outputs are emitted in CWD.
+
+
+Canonical file identity map (native vs helper-script aliases)
+==============================================================
+Native producer name -> helper alias(es)
+- `OBSFRAME` -> `obs_fin*`, `obs_cont*`
+- `HYDRO` -> `hydro_fin*`
+- `OBSFLUX` -> `obs_cmf*`
+- `MEANOPAC` -> `meanopac*`
+- `TIMING` -> `full_timing*`
+- `EDDFACTOR` -> `EDDFACTOR_STORE`
+- `EDDFACTOR_INFO` -> `EDDFACTOR_STORE_INFO`
+- `GAMMAS` -> `GAMMAS_IN`
+- `JH_AT_CURRENT_TIME` -> `JH_AT_OLD_TIME`
+- `JH_AT_CURRENT_TIME_INFO` -> `JH_AT_OLD_TIME_INFO`
+- `SN_HYDRO_FOR_NEXT_MODEL` -> `SN_HYDRO_DATA`
+- `CUR_MODEL_DATA` -> `OLD_MODEL_DATA`
+- `NEW_POINT1` -> `POINT1`
+- `NEW_POINT2` -> `POINT2`
+- `NEW_SCRTEMP` -> `SCRTEMP`
+
+Important negative finding:
+- `hydro_cont` is not defined by built-in writers or helper rename paths in this snapshot.
+
+
+Operational notes for future viewer/launcher
+=============================================
+1) Always track both native and alias filenames in scan logic.
+2) Preserve mutable controls (`VADAT`, `IN_ITS`, `HYDRO_DEFAULTS`, `ADJUST_R_DEFAULTS`, `CMF_FLUX_PARAM`) as versioned snapshots.
+3) For direct-access binaries, require `_INFO` sidecars before attempting parse.
+4) Treat script-level aliases as workflow conventions, not guaranteed outputs.
+
+End of consolidated pipeline map.
