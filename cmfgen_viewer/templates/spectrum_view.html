@@ -1,0 +1,237 @@
+{% extends "files.html" %}
+
+{% block title %}Final Spectrum - CMFGEN Viewer{% endblock %}
+
+{% block files_body %}
+  <section class="mb-4">
+    <h2 class="h4 mb-1">Final Spectrum</h2>
+    <p class="text-muted mb-3">Model: <code>{{ model_name }}</code></p>
+
+    <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+      <form method="get" class="d-flex align-items-center gap-2">
+        <input type="hidden" name="mode" value="{{ mode }}">
+        <label for="fin-select" class="small text-muted mb-0">obs_fin file</label>
+        <select id="fin-select" name="fin" class="form-select form-select-sm" onchange="this.form.submit()">
+          {% for option in fin_options %}
+            <option value="{{ option.name }}" {% if option.name == selected_fin %}selected{% endif %}>{{ option.label }}</option>
+          {% endfor %}
+        </select>
+      </form>
+
+      <div class="btn-group btn-group-sm ms-sm-2" role="group" aria-label="Spectrum mode">
+        <a
+          class="btn {% if mode == 'both' %}btn-primary{% else %}btn-outline-primary{% endif %}"
+          href="{{ url_for('viewer.spectrum', path=path, fin=selected_fin, mode='both') }}"
+        >
+          Spectrum + Continuum
+        </a>
+        <a
+          class="btn {% if mode == 'normalized' %}btn-primary{% else %}btn-outline-primary{% endif %}"
+          href="{{ url_for('viewer.spectrum', path=path, fin=selected_fin, mode='normalized') }}"
+        >
+          Normalized
+        </a>
+      </div>
+    </div>
+
+    {% if warnings %}
+      <div class="alert alert-warning py-2 mb-3">
+        {% for warning in warnings %}
+          <div>{{ warning }}</div>
+        {% endfor %}
+      </div>
+    {% endif %}
+
+    <h3 class="h5 mb-2">Model Summary</h3>
+    {% for section in model_summary_sections %}
+      {% if section.rows %}
+        <h4 class="h6 mt-3">{{ section.title }}</h4>
+        <div class="table-responsive mb-2">
+          <table class="table table-sm table-striped">
+            <thead>
+              <tr>
+                {% if section.columns %}
+                  {% for column in section.columns %}
+                    <th>{{ column }}</th>
+                  {% endfor %}
+                {% else %}
+                  <th>Field</th>
+                  <th>Value</th>
+                {% endif %}
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in section.rows %}
+                <tr>
+                  {% for value in row %}
+                    <td><code>{{ value }}</code></td>
+                  {% endfor %}
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% endif %}
+    {% endfor %}
+
+    {% if spectrum_summary_rows %}
+      <h4 class="h6 mt-3">Spectrum Data</h4>
+      <div class="table-responsive mb-3">
+        <table class="table table-sm table-striped">
+          <thead>
+            <tr>
+              <th>Field</th>
+              <th>Value</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in spectrum_summary_rows %}
+              <tr>
+                <td><code>{{ row[0] }}</code></td>
+                <td><code>{{ row[1] }}</code></td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% endif %}
+  </section>
+
+  {% if plot_data %}
+    {% set plot_id = "final-spectrum-plot" %}
+    {% set x_scale_id = plot_id ~ "-xscale" %}
+    {% set y_scale_id = plot_id ~ "-yscale" %}
+    <div class="plot-wrap mb-4">
+      <div class="plot-title">
+        {% if mode == "both" %}
+          Final spectrum and continuum
+        {% else %}
+          Continuum-normalized spectrum
+        {% endif %}
+      </div>
+      <div class="plot-controls">
+        <label for="{{ x_scale_id }}" class="plot-control-label">X scale</label>
+        <select id="{{ x_scale_id }}" class="form-select form-select-sm plot-scale-select">
+          <option value="linear" {% if plot_data.default_x_scale != 'log' %}selected{% endif %}>Linear</option>
+          <option value="log" {% if plot_data.default_x_scale == 'log' %}selected{% endif %}>Log</option>
+        </select>
+        <label for="{{ y_scale_id }}" class="plot-control-label">Y scale</label>
+        <select id="{{ y_scale_id }}" class="form-select form-select-sm plot-scale-select">
+          <option value="linear" {% if plot_data.default_y_scale != 'log' %}selected{% endif %}>Linear</option>
+          <option value="log" {% if plot_data.default_y_scale == 'log' %}selected{% endif %}>Log</option>
+        </select>
+      </div>
+      <div class="plotly-resizable">
+        <div id="{{ plot_id }}" class="plotly-chart"></div>
+        <div class="plot-resize-handle" role="separator" aria-orientation="vertical" aria-label="Resize plot"></div>
+      </div>
+    </div>
+    <script>
+      (function () {
+        var target = document.getElementById("{{ plot_id }}");
+        if (!target || !window.Plotly) {
+          if (target) {
+            target.innerHTML = '<p class="text-muted small mb-0">Plotly failed to load.</p>';
+          }
+          return;
+        }
+
+        function bindVerticalResize(plotElement) {
+          var container = plotElement.closest(".plotly-resizable");
+          if (!container) {
+            return;
+          }
+          if (window.ResizeObserver && !plotElement.__plotResizeObserver) {
+            var frameId = null;
+            var observer = new ResizeObserver(function () {
+              if (frameId !== null) {
+                window.cancelAnimationFrame(frameId);
+              }
+              frameId = window.requestAnimationFrame(function () {
+                if (plotElement.data) {
+                  Plotly.Plots.resize(plotElement);
+                }
+              });
+            });
+            observer.observe(container);
+            plotElement.__plotResizeObserver = observer;
+          }
+
+          var handle = container.querySelector(".plot-resize-handle");
+          if (!handle || handle.__plotDragBound) {
+            return;
+          }
+          handle.__plotDragBound = true;
+
+          var dragState = null;
+          var minHeight = 320;
+
+          function setHeight(nextHeight) {
+            container.style.height = Math.max(minHeight, Math.round(nextHeight)) + "px";
+            if (plotElement.data) {
+              Plotly.Plots.resize(plotElement);
+            }
+          }
+
+          function finishDrag(event) {
+            if (!dragState || event.pointerId !== dragState.pointerId) {
+              return;
+            }
+            if (handle.releasePointerCapture) {
+              handle.releasePointerCapture(event.pointerId);
+            }
+            dragState = null;
+            document.body.classList.remove("plot-resizing");
+          }
+
+          handle.addEventListener("pointerdown", function (event) {
+            if (event.button !== 0) {
+              return;
+            }
+            event.preventDefault();
+            dragState = {
+              pointerId: event.pointerId,
+              startY: event.clientY,
+              startHeight: container.getBoundingClientRect().height
+            };
+            if (handle.setPointerCapture) {
+              handle.setPointerCapture(event.pointerId);
+            }
+            document.body.classList.add("plot-resizing");
+          });
+
+          handle.addEventListener("pointermove", function (event) {
+            if (!dragState || event.pointerId !== dragState.pointerId) {
+              return;
+            }
+            setHeight(dragState.startHeight + (event.clientY - dragState.startY));
+          });
+
+          handle.addEventListener("pointerup", finishDrag);
+          handle.addEventListener("pointercancel", finishDrag);
+        }
+
+        var plotData = {{ plot_data.data | tojson }};
+        var plotLayout = {{ plot_data.layout | tojson }};
+        var plotConfig = {{ plot_data.config | tojson }};
+
+        var xScale = document.getElementById("{{ x_scale_id }}");
+        var yScale = document.getElementById("{{ y_scale_id }}");
+
+        Plotly.newPlot(target, plotData, plotLayout, plotConfig).then(function () {
+          function applyScale() {
+            Plotly.relayout(target, {
+              "xaxis.type": xScale.value,
+              "yaxis.type": yScale.value
+            });
+          }
+
+          xScale.addEventListener("change", applyScale);
+          yScale.addEventListener("change", applyScale);
+          applyScale();
+          bindVerticalResize(target);
+        });
+      })();
+    </script>
+  {% endif %}
+{% endblock %}

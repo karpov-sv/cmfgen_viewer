@@ -9,6 +9,16 @@ from markupsafe import Markup
 from pygments.formatters import HtmlFormatter
 
 from .browser import describe_file, is_model_context_path, list_directory, make_breadcrumb, resolve_path
+from .final_spectrum import (
+    build_both_plot,
+    build_model_summary_sections,
+    build_normalized_plot,
+    discover_final_spectrum_files,
+    fin_file_label,
+    load_obs_spectrum,
+    read_model,
+    spectrum_data_rows,
+)
 from .syntax import highlight_text, syntax_css
 
 try:
@@ -133,6 +143,32 @@ def _collect_quick_links(basepath: str, directory_relpath: str) -> list[dict[str
     return links
 
 
+def _model_root_relpath(relpath: str) -> str | None:
+    parts = [part for part in Path(relpath).parts if part not in ("", ".")]
+    for index, part in enumerate(parts):
+        lowered = part.lower()
+        if lowered.startswith("model") and lowered != "models":
+            return "/".join(parts[: index + 1])
+    return None
+
+
+def _spectrum_link_context(basepath: str, relpath: str) -> dict[str, object] | None:
+    model_root = _model_root_relpath(relpath)
+    if not model_root:
+        return None
+    try:
+        model_dir = resolve_path(basepath, model_root)
+    except (FileNotFoundError, NotADirectoryError):
+        return None
+    files = discover_final_spectrum_files(model_dir)
+    if files is None:
+        return None
+    return {
+        "model_path": model_root,
+        "fin_count": len(files["fin_files"]),
+    }
+
+
 def _doc_title(path: Path) -> str:
     fallback = path.stem.replace("-", " ").replace("_", " ").title()
     try:
@@ -243,6 +279,78 @@ def documentation(slug: str | None):
     )
 
 
+@bp.route("/spectrum/<path:path>")
+def spectrum(path: str):
+    config = _viewer_config()
+    basepath = str(config.get("basepath", "."))
+
+    try:
+        target = resolve_path(basepath, path)
+    except FileNotFoundError:
+        abort(404)
+    if not target.is_dir():
+        abort(404)
+
+    model_root = _model_root_relpath(path)
+    if not model_root:
+        abort(404)
+    model_dir = resolve_path(basepath, model_root)
+
+    spectrum_files = discover_final_spectrum_files(model_dir)
+    if spectrum_files is None:
+        abort(404)
+
+    fin_files = [entry.name for entry in spectrum_files["fin_files"]]
+    if not fin_files:
+        abort(404)
+
+    selected_fin = request.args.get("fin", "").strip()
+    if selected_fin not in fin_files:
+        selected_fin = fin_files[0]
+
+    view_mode = request.args.get("mode", "both").strip().lower()
+    if view_mode not in {"both", "normalized"}:
+        view_mode = "both"
+
+    continuum = load_obs_spectrum(Path(spectrum_files["obs_cont"]))
+    final = load_obs_spectrum(Path(spectrum_files["obs_dir"]) / selected_fin)
+    plot_data = build_both_plot(continuum, final) if view_mode == "both" else build_normalized_plot(continuum, final)
+
+    warnings: list[str] = []
+    if plot_data is None:
+        warnings.append("Plot generation failed: insufficient overlapping spectrum points.")
+
+    breadcrumb = make_breadcrumb(model_root)
+    if breadcrumb:
+        breadcrumb[-1]["path"] = model_root
+        breadcrumb.append({"name": "Final Spectrum", "path": None})
+
+    model_summary_sections = build_model_summary_sections(read_model(model_dir))
+    fin_options = [{"name": name, "label": fin_file_label(name)} for name in fin_files]
+
+    context = {
+        "path": model_root,
+        "breadcrumb": breadcrumb,
+        "basepath": basepath,
+        "show_all": bool(config.get("show_all", False)),
+        "view_query": {},
+        "quick_links": _collect_quick_links(basepath, model_root),
+        "spectrum_view": _spectrum_link_context(basepath, model_root),
+    }
+    return render_template(
+        "spectrum_view.html",
+        model_name=model_dir.name,
+        selected_fin=selected_fin,
+        fin_options=fin_options,
+        mode=view_mode,
+        plot_data=plot_data,
+        model_summary_sections=model_summary_sections,
+        spectrum_summary_rows=spectrum_data_rows(continuum, final),
+        warnings=warnings,
+        **context,
+    )
+
+
 @bp.route("/view/", defaults={"path": ""})
 @bp.route("/view/<path:path>")
 def view(path: str):
@@ -264,6 +372,7 @@ def view(path: str):
         "show_all": bool(config.get("show_all", False)),
         "show_role_badges": is_model_context_path(path),
         "view_query": view_query,
+        "spectrum_view": _spectrum_link_context(basepath, path),
     }
 
     if target.is_dir():
@@ -293,6 +402,7 @@ def view(path: str):
         parent_path = Path(path).parent.as_posix()
         context["show_role_badges"] = is_model_context_path(parent_path)
         context["quick_links"] = _collect_quick_links(basepath, parent_path)
+        context["spectrum_view"] = _spectrum_link_context(basepath, parent_path)
         has_parsed = bool(details.get("parsed"))
         requested_display = request.args.get("display", "").strip().lower()
         if has_parsed:

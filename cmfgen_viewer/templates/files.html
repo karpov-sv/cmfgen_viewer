@@ -22,9 +22,15 @@
     </nav>
   {% endif %}
 
-  {% if quick_links %}
+  {% if quick_links or spectrum_view %}
     <div class="quick-links mb-3">
       <span class="small text-muted me-2">Quick links:</span>
+      {% if spectrum_view %}
+        <a class="btn btn-sm btn-outline-success quick-link-item" href="{{ url_for('viewer.spectrum', path=spectrum_view.model_path) }}">
+          <i class="fa fa-line-chart me-1" aria-hidden="true"></i>
+          Final Spectrum
+        </a>
+      {% endif %}
       {% for item in quick_links %}
         <a class="btn btn-sm btn-outline-primary quick-link-item" href="{{ url_for('viewer.view', path=item.path, **view_query) }}">{{ item.name }}</a>
       {% endfor %}
