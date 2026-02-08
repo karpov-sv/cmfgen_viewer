@@ -13,6 +13,10 @@ COUNT_RE = re.compile(r"\((\s*\d+)\)")
 
 # OBSFLUX/OBS_CONT frequencies are in units of 10^15 Hz.
 LIGHT_SPEED_ANGSTROM_PER_10P15_HZ = 2997.92458
+LIGHT_SPEED_CM_PER_S = 2.99792458e10
+ANGSTROM_PER_CM = 1e8
+JANSKY_TO_CGS_HZ = 1e-23
+JY_TO_FLAMBDA_ANGSTROM_FACTOR = JANSKY_TO_CGS_HZ * LIGHT_SPEED_CM_PER_S * ANGSTROM_PER_CM
 
 MAX_MODEL_TIME_LINES = 4
 MAX_SPECIES_ROWS = 12
@@ -430,6 +434,9 @@ def _plot_layout(*, y_label: str, y_scale: str) -> dict[str, object]:
             "showgrid": True,
             "zeroline": False,
             "type": y_scale,
+            "exponentformat": "e",
+            "showexponent": "all",
+            "minexponent": 0,
         },
         "showlegend": True,
         "legend": {"orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "left", "x": 0},
@@ -445,6 +452,20 @@ def _plot_config() -> dict[str, object]:
     }
 
 
+def _jy_to_cgs_per_angstrom(wavelength: list[float], flux_jy: list[float]) -> tuple[list[float], list[float]]:
+    converted_x: list[float] = []
+    converted_y: list[float] = []
+    for wavelength_angstrom, flux_value_jy in zip(wavelength, flux_jy):
+        if wavelength_angstrom <= 0 or not math.isfinite(wavelength_angstrom) or not math.isfinite(flux_value_jy):
+            continue
+        flux_cgs = flux_value_jy * JY_TO_FLAMBDA_ANGSTROM_FACTOR / (wavelength_angstrom * wavelength_angstrom)
+        if not math.isfinite(flux_cgs):
+            continue
+        converted_x.append(wavelength_angstrom)
+        converted_y.append(flux_cgs)
+    return converted_x, converted_y
+
+
 def build_both_plot(continuum: dict[str, object], final: dict[str, object]) -> dict[str, object] | None:
     cont_x = continuum.get("wavelength")
     cont_y = continuum.get("flux")
@@ -455,8 +476,13 @@ def build_both_plot(continuum: dict[str, object], final: dict[str, object]) -> d
     if len(cont_x) < 2 or len(fin_x) < 2:
         return None
 
-    cont_x_ds, cont_y_ds = downsample_xy(cont_x, cont_y, max_points=MAX_SERIES_POINTS)
-    fin_x_ds, fin_y_ds = downsample_xy(fin_x, fin_y, max_points=MAX_SERIES_POINTS)
+    cont_x_cgs, cont_y_cgs = _jy_to_cgs_per_angstrom(cont_x, cont_y)
+    fin_x_cgs, fin_y_cgs = _jy_to_cgs_per_angstrom(fin_x, fin_y)
+    if len(cont_x_cgs) < 2 or len(fin_x_cgs) < 2:
+        return None
+
+    cont_x_ds, cont_y_ds = downsample_xy(cont_x_cgs, cont_y_cgs, max_points=MAX_SERIES_POINTS)
+    fin_x_ds, fin_y_ds = downsample_xy(fin_x_cgs, fin_y_cgs, max_points=MAX_SERIES_POINTS)
     if len(cont_x_ds) < 2 or len(fin_x_ds) < 2:
         return None
 
@@ -469,7 +495,7 @@ def build_both_plot(continuum: dict[str, object], final: dict[str, object]) -> d
                 "x": fin_x_ds,
                 "y": fin_y_ds,
                 "line": {"color": "#1f77b4", "width": 1.6},
-                "hovertemplate": "Wavelength=%{x:.6g} Å<br>Flux=%{y:.6g}<extra></extra>",
+                "hovertemplate": "Wavelength=%{x:.6g} Å<br>Flux=%{y:.6e} erg s^-1 cm^-2 Å^-1<extra></extra>",
             },
             {
                 "type": "scatter",
@@ -478,10 +504,10 @@ def build_both_plot(continuum: dict[str, object], final: dict[str, object]) -> d
                 "x": cont_x_ds,
                 "y": cont_y_ds,
                 "line": {"color": "#d62728", "width": 1.3},
-                "hovertemplate": "Wavelength=%{x:.6g} Å<br>Flux=%{y:.6g}<extra></extra>",
+                "hovertemplate": "Wavelength=%{x:.6g} Å<br>Flux=%{y:.6e} erg s^-1 cm^-2 Å^-1<extra></extra>",
             },
         ],
-        "layout": _plot_layout(y_label="Flux (Janskys)", y_scale="log"),
+        "layout": _plot_layout(y_label="Flux (erg s^-1 cm^-2 Å^-1)", y_scale="log"),
         "config": _plot_config(),
         "default_x_scale": "log",
         "default_y_scale": "log",
@@ -538,6 +564,8 @@ def spectrum_data_rows(continuum: dict[str, object], final: dict[str, object]) -
         ["Selected final spectrum", _as_text(final.get("name", ""))],
         ["Final points", _as_text(len(final.get("wavelength", [])))],
         ["Continuum points", _as_text(len(continuum.get("wavelength", [])))],
+        ["Absolute flux units", "erg s^-1 cm^-2 Å^-1"],
+        ["Reference distance", "1 kpc"],
     ]
     final_skipped = final.get("skipped_points")
     cont_skipped = continuum.get("skipped_points")

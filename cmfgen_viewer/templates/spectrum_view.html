@@ -101,6 +101,11 @@
     {% set plot_id = "final-spectrum-plot" %}
     {% set x_scale_id = plot_id ~ "-xscale" %}
     {% set y_scale_id = plot_id ~ "-yscale" %}
+    {% set redshift_id = plot_id ~ "-redshift" %}
+    {% set velocity_id = plot_id ~ "-velocity" %}
+    {% set distance_id = plot_id ~ "-distance" %}
+    {% set reset_transform_id = plot_id ~ "-reset-transform" %}
+    {% set transform_hint_id = plot_id ~ "-transform-hint" %}
     <div class="plot-wrap mb-4">
       <div class="plot-title">
         {% if mode == "both" %}
@@ -110,6 +115,35 @@
         {% endif %}
       </div>
       <div class="plot-controls">
+        <label for="{{ redshift_id }}" class="plot-control-label">Redshift z</label>
+        <input
+          id="{{ redshift_id }}"
+          type="number"
+          step="any"
+          class="form-control form-control-sm plot-number-input"
+          value="0"
+        >
+        <label for="{{ velocity_id }}" class="plot-control-label">Radial velocity (km/s)</label>
+        <input
+          id="{{ velocity_id }}"
+          type="number"
+          step="any"
+          class="form-control form-control-sm plot-number-input"
+          value="0"
+        >
+        <label for="{{ distance_id }}" class="plot-control-label">Distance (kpc)</label>
+        <input
+          id="{{ distance_id }}"
+          type="number"
+          min="0.000001"
+          step="any"
+          class="form-control form-control-sm plot-number-input"
+          value="1"
+        >
+        <button id="{{ reset_transform_id }}" type="button" class="btn btn-outline-secondary btn-sm">Reset</button>
+      </div>
+      <div id="{{ transform_hint_id }}" class="small text-muted mb-2"></div>
+      <div class="plot-controls">      
         <label for="{{ x_scale_id }}" class="plot-control-label">X scale</label>
         <select id="{{ x_scale_id }}" class="form-select form-select-sm plot-scale-select">
           <option value="linear" {% if plot_data.default_x_scale != 'log' %}selected{% endif %}>Linear</option>
@@ -214,21 +248,181 @@
         var plotData = {{ plot_data.data | tojson }};
         var plotLayout = {{ plot_data.layout | tojson }};
         var plotConfig = {{ plot_data.config | tojson }};
+        var spectrumMode = "{{ mode }}";
+
+        var LIGHT_SPEED_KM_PER_S = 299792.458;
 
         var xScale = document.getElementById("{{ x_scale_id }}");
         var yScale = document.getElementById("{{ y_scale_id }}");
+        var redshiftInput = document.getElementById("{{ redshift_id }}");
+        var velocityInput = document.getElementById("{{ velocity_id }}");
+        var distanceInput = document.getElementById("{{ distance_id }}");
+        var resetTransform = document.getElementById("{{ reset_transform_id }}");
+        var transformHint = document.getElementById("{{ transform_hint_id }}");
 
-        Plotly.newPlot(target, plotData, plotLayout, plotConfig).then(function () {
-          function applyScale() {
-            Plotly.relayout(target, {
-              "xaxis.type": xScale.value,
-              "yaxis.type": yScale.value
-            });
+        var baseData = plotData.map(function (trace) {
+          var cloned = Object.assign({}, trace);
+          cloned.x = Array.isArray(trace.x) ? trace.x.slice() : [];
+          cloned.y = Array.isArray(trace.y) ? trace.y.slice() : [];
+          return cloned;
+        });
+        var isSyncingVelocity = false;
+        var transformFrame = null;
+
+        function formatNumeric(value, decimals) {
+          if (!Number.isFinite(value)) {
+            return "";
+          }
+          return Number(value.toFixed(decimals)).toString();
+        }
+
+        function setTransformHint(message, isError) {
+          if (!transformHint) {
+            return;
+          }
+          transformHint.textContent = message;
+          transformHint.classList.toggle("text-danger", !!isError);
+          transformHint.classList.toggle("text-muted", !isError);
+        }
+
+        function updateVelocityFromRedshift() {
+          if (!redshiftInput || !velocityInput) {
+            return;
+          }
+          var redshift = Number(redshiftInput.value);
+          if (!Number.isFinite(redshift)) {
+            return;
+          }
+          isSyncingVelocity = true;
+          velocityInput.value = formatNumeric(redshift * LIGHT_SPEED_KM_PER_S, 6);
+          isSyncingVelocity = false;
+        }
+
+        function updateRedshiftFromVelocity() {
+          if (!redshiftInput || !velocityInput) {
+            return;
+          }
+          var velocity = Number(velocityInput.value);
+          if (!Number.isFinite(velocity)) {
+            return;
+          }
+          isSyncingVelocity = true;
+          redshiftInput.value = formatNumeric(velocity / LIGHT_SPEED_KM_PER_S, 10);
+          isSyncingVelocity = false;
+        }
+
+        function applyAxisScale() {
+          Plotly.relayout(target, {
+            "xaxis.type": xScale.value,
+            "yaxis.type": yScale.value
+          });
+        }
+
+        function applyPhysicalTransforms() {
+          var redshift = redshiftInput ? Number(redshiftInput.value) : 0;
+          if (!Number.isFinite(redshift)) {
+            redshift = 0;
+          }
+          if ((1 + redshift) <= 0) {
+            setTransformHint("Redshift must be greater than -1.", true);
+            return;
           }
 
-          xScale.addEventListener("change", applyScale);
-          yScale.addEventListener("change", applyScale);
-          applyScale();
+          var distanceKpc = distanceInput ? Number(distanceInput.value) : 1;
+          if (!Number.isFinite(distanceKpc) || distanceKpc <= 0) {
+            setTransformHint("Distance must be a positive number in kpc.", true);
+            return;
+          }
+
+          if (spectrumMode === "both") {
+            setTransformHint("Flux is shown in erg s^-1 cm^-2 Å^-1 and scaled as 1/d^2 from the 1 kpc model reference.", false);
+          } else {
+            setTransformHint("Normalized mode applies wavelength shift only; distance scaling cancels in F/Fc.", false);
+          }
+
+          var wavelengthScale = 1 / (1 + redshift);
+          var distanceScale = 1 / (distanceKpc * distanceKpc);
+          var transformedX = [];
+          var transformedY = [];
+
+          for (var traceIndex = 0; traceIndex < baseData.length; traceIndex += 1) {
+            var sourceX = baseData[traceIndex].x;
+            var sourceY = baseData[traceIndex].y;
+            var nextX = new Array(sourceX.length);
+            var nextY = new Array(sourceY.length);
+
+            for (var i = 0; i < sourceX.length; i += 1) {
+              nextX[i] = sourceX[i] * wavelengthScale;
+            }
+            if (spectrumMode === "both") {
+              for (var j = 0; j < sourceY.length; j += 1) {
+                nextY[j] = sourceY[j] * distanceScale;
+              }
+            } else {
+              for (var k = 0; k < sourceY.length; k += 1) {
+                nextY[k] = sourceY[k];
+              }
+            }
+
+            transformedX.push(nextX);
+            transformedY.push(nextY);
+          }
+
+          Plotly.restyle(target, {
+            x: transformedX,
+            y: transformedY
+          });
+        }
+
+        function scheduleTransforms() {
+          if (transformFrame !== null) {
+            window.cancelAnimationFrame(transformFrame);
+          }
+          transformFrame = window.requestAnimationFrame(function () {
+            transformFrame = null;
+            applyPhysicalTransforms();
+          });
+        }
+
+        Plotly.newPlot(target, plotData, plotLayout, plotConfig).then(function () {
+          xScale.addEventListener("change", applyAxisScale);
+          yScale.addEventListener("change", applyAxisScale);
+          if (redshiftInput) {
+            redshiftInput.addEventListener("input", function () {
+              if (!isSyncingVelocity) {
+                updateVelocityFromRedshift();
+              }
+              scheduleTransforms();
+            });
+          }
+          if (velocityInput) {
+            velocityInput.addEventListener("input", function () {
+              if (!isSyncingVelocity) {
+                updateRedshiftFromVelocity();
+              }
+              scheduleTransforms();
+            });
+          }
+          if (distanceInput) {
+            distanceInput.addEventListener("input", scheduleTransforms);
+          }
+          if (resetTransform) {
+            resetTransform.addEventListener("click", function () {
+              if (redshiftInput) {
+                redshiftInput.value = "0";
+              }
+              if (velocityInput) {
+                velocityInput.value = "0";
+              }
+              if (distanceInput) {
+                distanceInput.value = "1";
+              }
+              scheduleTransforms();
+            });
+          }
+          updateVelocityFromRedshift();
+          applyAxisScale();
+          scheduleTransforms();
           bindVerticalResize(target);
         });
       })();
