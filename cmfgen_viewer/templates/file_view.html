@@ -30,12 +30,9 @@
   {% endif %}
 
   {% if parsed and display_mode == 'parsed' %}
-    <div class="card mb-3">
-      <div class="card-header">
-        <strong>{{ parsed.title }}</strong>
-        <span class="text-muted">({{ parsed.parser }})</span>
-      </div>
-      <div class="card-body">
+    <section class="mb-4">
+      <h2 class="h4 mb-1">{{ parsed.title }}</h2>
+      <p class="text-muted mb-3"><code>{{ parsed.parser }}</code></p>
         {% if parsed.warnings %}
           <div class="alert alert-warning py-2 mb-3">
             {% for warning in parsed.warnings %}
@@ -560,8 +557,7 @@
             {% endif %}
           {% endfor %}
         {% endif %}
-      </div>
-    </div>
+    </section>
   {% endif %}
 
   <div class="card mb-3">
