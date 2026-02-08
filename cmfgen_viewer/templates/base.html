@@ -14,10 +14,43 @@
     <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
       <div class="container">
         <a class="navbar-brand" href="{{ url_for('viewer.index') }}">CMFGEN Viewer</a>
+        {% set on_docs = request.path.startswith('/documentation') %}
+        {% set current_doc_slug = request.view_args.get('slug') if request.endpoint == 'viewer.documentation' and request.view_args else '' %}
+        <ul class="navbar-nav ms-auto flex-row gap-2">
+          <li class="nav-item">
+            <a class="nav-link {% if not on_docs %}active{% endif %}" href="{{ url_for('viewer.view', path='') }}">Browse</a>
+          </li>
+          <li class="nav-item dropdown">
+            <a
+              class="nav-link dropdown-toggle {% if on_docs %}active{% endif %}"
+              href="{{ url_for('viewer.documentation') }}"
+              id="docs-dropdown"
+              role="button"
+              data-bs-toggle="dropdown"
+              aria-expanded="false"
+            >
+              Documentation
+            </a>
+            <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="docs-dropdown">
+              {% if docs_nav %}
+                {% for doc in docs_nav %}
+                  <li>
+                    <a class="dropdown-item {% if current_doc_slug == doc.slug %}active{% endif %}" href="{{ url_for('viewer.documentation', slug=doc.slug) }}">
+                      {{ doc.title }}
+                    </a>
+                  </li>
+                {% endfor %}
+              {% else %}
+                <li><span class="dropdown-item-text text-muted">No docs</span></li>
+              {% endif %}
+            </ul>
+          </li>
+        </ul>
       </div>
     </nav>
     <main class="container pb-4">
       {% block body %}{% endblock %}
     </main>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   </body>
 </html>

@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+
+{% block title %}Documentation - CMFGEN Viewer{% endblock %}
+
+{% block body %}
+  {% if doc_highlight_css %}
+    <style>{{ doc_highlight_css }}</style>
+  {% endif %}
+  {% if active_doc %}
+    <div class="doc-content">{{ doc_html | safe }}</div>
+  {% else %}
+    <p class="text-muted mb-0">
+      No documentation files found in <code>doc/</code>.
+    </p>
+  {% endif %}
+{% endblock %}

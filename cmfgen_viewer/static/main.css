@@ -171,3 +171,55 @@ a:focus {
     width: 100%;
     min-height: 320px;
 }
+
+.docs-nav {
+    max-height: 75vh;
+    overflow: auto;
+}
+
+.doc-content {
+    line-height: 1.45;
+}
+
+.doc-content h1,
+.doc-content h2,
+.doc-content h3,
+.doc-content h4 {
+    margin-top: 1.25rem;
+}
+
+.doc-content h1:first-child,
+.doc-content h2:first-child {
+    margin-top: 0;
+}
+
+.doc-content pre {
+    background: #f8f9fa;
+    border-radius: 0.4rem;
+    padding: 0.75rem;
+}
+
+.doc-content .codehilite,
+.doc-content .codehilite pre {
+    background: #f8f9fa;
+    border-radius: 0.4rem;
+}
+
+.doc-content code {
+    font-family: var(--bs-font-monospace);
+}
+
+.doc-content table {
+    width: 100%;
+    margin-bottom: 1rem;
+}
+
+.doc-content table th,
+.doc-content table td {
+    border: 1px solid #dee2e6;
+    padding: 0.35rem 0.5rem;
+}
+
+.doc-content table th {
+    background: #f8f9fa;
+}
