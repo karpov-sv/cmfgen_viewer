@@ -25,6 +25,10 @@ Then open `http://127.0.0.1:5567`.
   - `core_viewer` (e.g. `RVTJ`, `OBSFLUX`, `MOD_SUM`)
   - `optional_diagnostic` (e.g. `POP*`, `*OUT`, rates)
   - `restart_internal` (e.g. `SCRTEMP`, `POINT1/2`, `*_INFO`)
+- Initial structured parsers + preview panels for:
+  - `RVTJ` (core radial vectors and profile plots)
+  - `OBSFLUX` (spectrum/luminosity vectors and diagnostic scalars)
+  - `MOD_SUM` (dimensions, key scalars, tau rows, abundance table)
 
 ## Notes
 

@@ -4,6 +4,8 @@ from datetime import datetime, timezone
 import mimetypes
 from pathlib import Path
 
+from .parsers import parse_known_file
+
 CORE_FILES = {
     "RVTJ",
     "OBSFLUX",
@@ -223,6 +225,12 @@ def describe_file(basepath: str, relpath: str) -> dict[str, object]:
         context["mode"] = "text"
         context["contents"] = contents
         context["truncated"] = truncated
+        try:
+            parsed = parse_known_file(target)
+            if parsed is not None:
+                context["parsed"] = parsed
+        except Exception as exc:
+            context["parse_error"] = str(exc)
     elif kind == "image":
         context["mode"] = "image"
 
