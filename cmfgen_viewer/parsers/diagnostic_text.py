@@ -10,6 +10,8 @@ MAX_SCALAR_ROWS = 40
 MAX_LOG_ROWS = 180
 WARN_RE = re.compile(r"\b(warn|error|fatal|stop|fail|exception)\b", re.IGNORECASE)
 COLON_SCALAR_RE = re.compile(r"^\s*([^:#=][^:=#]{0,80})\s*:\s*(\S.*)$")
+GAMMAS_DEPTH_RE = re.compile(r"^\s*([+-]?\d+(?:\.\d*)?)\s*!?\s*Number of depth points\b", re.IGNORECASE)
+GAMMAS_SPECIES_RE = re.compile(r"^\s*([+-]?\d+(?:\.\d*)?)\s+([A-Za-z][A-Za-z0-9_+-]*)\b")
 
 
 def _bool_text(value: bool) -> str:
@@ -452,7 +454,210 @@ def parse_out_flux(path: Path) -> dict[str, object]:
 
 
 def parse_gammas(path: Path) -> dict[str, object]:
-    return parse_numeric_diagnostic(path, parser_name="GAMMAS", title="GAMMAS mean ionic charge profiles")
+    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    warnings: list[str] = []
+
+    depth_points: int | None = None
+    for line in lines[:40]:
+        match = GAMMAS_DEPTH_RE.match(line)
+        if not match:
+            continue
+        parsed_depth = parse_float_token(match.group(1))
+        if parsed_depth is not None and parsed_depth > 0:
+            depth_points = int(parsed_depth)
+            break
+
+    def collect_values(start_index: int, expected_count: int | None) -> tuple[list[float], int]:
+        values: list[float] = []
+        index = start_index
+        while index < len(lines):
+            stripped = lines[index].strip()
+            if not stripped:
+                index += 1
+                continue
+            if stripped.startswith("!") or GAMMAS_SPECIES_RE.match(stripped):
+                break
+            numeric = parse_numeric_tokens(stripped)
+            if numeric:
+                values.extend(numeric)
+                if expected_count is not None and len(values) >= expected_count:
+                    return values[:expected_count], index + 1
+                index += 1
+                continue
+            if values:
+                break
+            index += 1
+        return values, index
+
+    electron_density: list[float] = []
+    radius: list[float] = []
+    temperature: list[float] = []
+    species_rows: list[dict[str, object]] = []
+
+    index = 0
+    while index < len(lines):
+        stripped = lines[index].strip()
+        if not stripped:
+            index += 1
+            continue
+
+        if stripped.startswith("!"):
+            heading = stripped.lstrip("!").strip().lower()
+            if heading.startswith("electron density"):
+                electron_density, index = collect_values(index + 1, depth_points)
+                continue
+            if heading.startswith("radius"):
+                radius, index = collect_values(index + 1, depth_points)
+                continue
+            if heading.startswith("temperature"):
+                temperature, index = collect_values(index + 1, depth_points)
+                continue
+
+        species_match = GAMMAS_SPECIES_RE.match(stripped)
+        if species_match:
+            atomic_number = parse_float_token(species_match.group(1))
+            species_label = species_match.group(2).strip()
+            values, index = collect_values(index + 1, depth_points)
+            species_rows.append(
+                {
+                    "atomic_number": int(atomic_number) if atomic_number is not None else None,
+                    "label": species_label,
+                    "values": values,
+                }
+            )
+            continue
+
+        index += 1
+
+    row_count = depth_points
+    if row_count is None or row_count <= 0:
+        candidate_sizes = [len(electron_density), len(radius), len(temperature)] + [len(species["values"]) for species in species_rows]
+        row_count = max(candidate_sizes, default=0)
+
+    if row_count <= 0:
+        return parse_numeric_diagnostic(path, parser_name="GAMMAS", title="GAMMAS mean ionic charge profiles")
+
+    summary_rows: list[list[str]] = [
+        ["file", path.name],
+        ["depth_points_declared", str(depth_points) if depth_points is not None else "n/a"],
+        ["depth_points_used", str(row_count)],
+        ["species_count", str(len(species_rows))],
+    ]
+
+    for title, values in [
+        ("electron_density_points", electron_density),
+        ("radius_points", radius),
+        ("temperature_points", temperature),
+    ]:
+        if values:
+            summary_rows.append([title, str(len(values))])
+        else:
+            warnings.append(f"{title.replace('_', ' ')} block not found.")
+
+    for block_label, values in [
+        ("electron density", electron_density),
+        ("radius", radius),
+        ("temperature", temperature),
+    ]:
+        if values and len(values) != row_count:
+            warnings.append(f"{block_label} has {len(values)} values while expected {row_count}.")
+
+    species_table_rows: list[list[str]] = []
+    for species in species_rows:
+        values = species["values"]
+        species_table_rows.append(
+            [
+                str(species["atomic_number"]) if species["atomic_number"] is not None else "?",
+                str(species["label"]),
+                str(len(values)),
+            ]
+        )
+        if len(values) != row_count:
+            warnings.append(f"{species['label']} has {len(values)} values while expected {row_count}.")
+
+    columns = [
+        "Depth",
+        "Radius (10^10 cm)",
+        "Temperature (10^4 K)",
+        "Electron density (cm^-3)",
+    ] + [str(species["label"]) for species in species_rows]
+    data_rows: list[list[str]] = []
+    for depth_index in range(row_count):
+        row = [
+            str(depth_index + 1),
+            format_number(radius[depth_index]) if depth_index < len(radius) else "",
+            format_number(temperature[depth_index]) if depth_index < len(temperature) else "",
+            format_number(electron_density[depth_index]) if depth_index < len(electron_density) else "",
+        ]
+        for species in species_rows:
+            values = species["values"]
+            row.append(format_number(values[depth_index]) if depth_index < len(values) else "")
+        data_rows.append(row)
+
+    table_truncated = len(data_rows) > MAX_TABLE_ROWS
+    if table_truncated:
+        warnings.append(f"Main table truncated to first {MAX_TABLE_ROWS} rows.")
+    main_table_rows = data_rows[:MAX_TABLE_ROWS]
+
+    x_values = radius[:row_count] if len(radius) == row_count and len(radius) >= 2 else [float(index + 1) for index in range(row_count)]
+    x_label = "Radius (10^10 cm)" if len(radius) == row_count and len(radius) >= 2 else "Depth index"
+    x_log = _all_positive(x_values) and _auto_log_scale(x_values) == "log"
+
+    plots: list[dict[str, object]] = []
+    for species in species_rows:
+        values = species["values"]
+        if len(values) < 2:
+            continue
+        y_values = values[:row_count] if len(values) >= row_count else values
+        x_plot = x_values
+        x_plot_label = x_label
+        if len(y_values) != len(x_plot):
+            x_plot = [float(index + 1) for index in range(len(y_values))]
+            x_plot_label = "Depth index"
+        y_log = _all_positive(y_values) and _auto_log_scale(y_values) == "log"
+        plotly = build_plotly_line_plot(
+            x_plot,
+            y_values,
+            x_label=x_plot_label,
+            y_label="Mean ionic charge",
+            default_x_scale="log" if x_log else "linear",
+            default_y_scale="log" if y_log else "linear",
+            max_points=1200,
+        )
+        if plotly:
+            plots.append({"title": f"{species['label']} mean ionic charge", **plotly})
+
+    tables: list[dict[str, object]] = [
+        {
+            "title": "GAMMAS depth table",
+            "columns": columns,
+            "rows": main_table_rows,
+        }
+    ]
+    if species_table_rows:
+        tables.append(
+            {
+                "title": "Species blocks",
+                "columns": ["Atomic number", "Species", "Values"],
+                "rows": species_table_rows,
+            }
+        )
+
+    if not species_rows:
+        warnings.append("No species blocks were detected.")
+
+    return {
+        "parser": "GAMMAS",
+        "title": "GAMMAS mean ionic charge profiles",
+        "summary_table": {
+            "title": "Parsed summary",
+            "columns": ["Field", "Value"],
+            "rows": summary_rows,
+        },
+        "tables": tables,
+        "plots": plots,
+        "warnings": warnings,
+    }
 
 
 def parse_pop_family(path: Path) -> dict[str, object]:

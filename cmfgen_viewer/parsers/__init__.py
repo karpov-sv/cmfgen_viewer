@@ -36,6 +36,7 @@ PARSERS = {
     "OBSFRAME": parse_obsframe,
     "OUT_FLUX": parse_out_flux,
     "GAMMAS": parse_gammas,
+    "GAMMAS_IN": parse_gammas,
     "J_COMP": parse_j_comp,
     "NETRATE": parse_rate_file,
     "TOTRATE": parse_rate_file,
@@ -52,18 +53,29 @@ PARSERS = {
 }
 POP_FAMILY_RE = re.compile(r"^POP[A-Z0-9_]+$")
 DEPARTURE_OUT_RE = re.compile(r"^[A-Z0-9]+OUT$")
+OBS_ALIAS_RE = re.compile(r"^OBS_(?:FIN|CONT)(?:[._].*)?$")
 
 MAX_PARSE_FILE_BYTES = 256 * 1024 * 1024
 
 
 def _resolve_parser(path: Path):
     name = path.name.upper()
-    parser = PARSERS.get(name)
-    if parser is not None:
-        return parser
-    if POP_FAMILY_RE.match(name):
+    stem = path.stem.upper()
+    names = (name, stem) if stem != name else (name,)
+
+    for candidate in names:
+        parser = PARSERS.get(candidate)
+        if parser is not None:
+            return parser
+
+    if any(OBS_ALIAS_RE.match(candidate) for candidate in names):
+        # `obs_fin*` / `obs_cont*` are post-processed OBSFLUX/OBSFRAME aliases.
+        # Their content follows the OBSFLUX vector-block structure.
+        return parse_obsflux
+
+    if any(POP_FAMILY_RE.match(candidate) for candidate in names):
         return parse_pop_family
-    if DEPARTURE_OUT_RE.match(name):
+    if any(DEPARTURE_OUT_RE.match(candidate) for candidate in names):
         return parse_departure_out_family
     return None
 
