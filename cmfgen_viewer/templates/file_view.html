@@ -1,0 +1,41 @@
+{% extends "files.html" %}
+
+{% block files_body %}
+  <div class="mb-3">
+    <a class="btn btn-sm btn-outline-primary" href="{{ url_for('viewer.download_file', path=path) }}">
+      Download File
+    </a>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-body">
+      <dl class="row mb-0">
+        <dt class="col-sm-3">Name</dt>
+        <dd class="col-sm-9"><code>{{ name }}</code></dd>
+        <dt class="col-sm-3">Size</dt>
+        <dd class="col-sm-9">{{ human_size }} ({{ size }} bytes)</dd>
+        <dt class="col-sm-3">Modified</dt>
+        <dd class="col-sm-9"><code>{{ modified_display }}</code></dd>
+        <dt class="col-sm-3">MIME</dt>
+        <dd class="col-sm-9"><code>{{ mime }}</code></dd>
+        <dt class="col-sm-3">CMFGEN Role</dt>
+        <dd class="col-sm-9">
+          <span class="role-badge role-{{ cmfgen_role }}">{{ cmfgen_role }}</span>
+        </dd>
+      </dl>
+    </div>
+  </div>
+
+  {% if mode == 'text' %}
+    {% if truncated %}
+      <p class="small text-warning">Preview is truncated to the first 512 KB.</p>
+    {% endif %}
+    <pre class="file-preview"><code>{{ contents }}</code></pre>
+  {% elif mode == 'image' %}
+    <div class="text-center">
+      <img src="{{ url_for('viewer.raw_file', path=path) }}" class="img-fluid img-thumbnail" alt="{{ path }}">
+    </div>
+  {% else %}
+    <p class="text-muted">No inline preview available for this file type.</p>
+  {% endif %}
+{% endblock %}

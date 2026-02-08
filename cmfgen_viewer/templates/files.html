@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+
+{% block body %}
+  <div class="mb-3">
+    <div class="small text-muted">Base path: <code>{{ basepath }}</code></div>
+    <div class="small text-muted">Show hidden files: <code>{{ "yes" if show_all else "no" }}</code></div>
+  </div>
+
+  {% if breadcrumb %}
+    <nav aria-label="breadcrumb">
+      <ol class="breadcrumb">
+        {% for item in breadcrumb %}
+          <li class="breadcrumb-item {% if item.path is none %}active{% endif %}">
+            {% if item.path is not none %}
+              <a href="{{ url_for('viewer.view', path=item.path) }}">{{ item.name }}</a>
+            {% else %}
+              {{ item.name }}
+            {% endif %}
+          </li>
+        {% endfor %}
+      </ol>
+    </nav>
+  {% endif %}
+
+  {% block files_body %}{% endblock %}
+{% endblock %}

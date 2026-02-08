@@ -1,0 +1,74 @@
+{% extends "files.html" %}
+
+{% block files_body %}
+  {% if not files %}
+    <p class="text-muted">No entries found.</p>
+  {% else %}
+    <p class="text-muted">{{ files|length }} entries</p>
+    <div class="table-responsive">
+      <table class="table table-sm table-hover align-middle" id="files-table">
+        <thead>
+          <tr>
+            <th class="col-name">
+              <button type="button" class="table-sort" data-key="name" data-type="string">
+                Name <span class="sort-indicator"></span>
+              </button>
+            </th>
+            <th class="col-fixed text-end">
+              <button type="button" class="table-sort" data-key="kind" data-type="string">
+                Kind <span class="sort-indicator"></span>
+              </button>
+            </th>
+            <th class="col-fixed text-end">
+              <button type="button" class="table-sort" data-key="role" data-type="string">
+                CMFGEN Role <span class="sort-indicator"></span>
+              </button>
+            </th>
+            <th class="col-fixed text-end">
+              <button type="button" class="table-sort" data-key="size" data-type="number">
+                Size <span class="sort-indicator"></span>
+              </button>
+            </th>
+            <th class="col-fixed text-end">
+              <button type="button" class="table-sort" data-key="modified" data-type="number">
+                Modified (UTC) <span class="sort-indicator"></span>
+              </button>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for file in files %}
+            <tr
+              data-entry
+              data-name="{{ file.name|lower }}"
+              data-kind="{{ file.kind|lower }}"
+              data-role="{{ file.cmfgen_role|lower }}"
+              data-size="{{ -1 if file.is_dir else file.size }}"
+              data-modified="{{ file.modified_ts }}"
+            >
+              <td class="col-name">
+                <a href="{{ url_for('viewer.view', path=file.path) }}">
+                  {% if file.is_dir %}[DIR]{% else %}[FILE]{% endif %}
+                  {{ file.name }}
+                </a>
+              </td>
+              <td class="col-fixed text-end"><code>{{ file.kind }}</code></td>
+              <td class="col-fixed text-end">
+                <span class="role-badge role-{{ file.cmfgen_role }}">{{ file.cmfgen_role }}</span>
+              </td>
+              <td class="col-fixed text-end">
+                {% if file.is_dir %}
+                  -
+                {% else %}
+                  {{ file.human_size }}
+                {% endif %}
+              </td>
+              <td class="col-fixed text-end"><code>{{ file.modified_display }}</code></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <script src="{{ url_for('static', filename='files_table.js') }}"></script>
+  {% endif %}
+{% endblock %}

@@ -1,0 +1,118 @@
+CMFGEN Viewer Implementation Checklist
+Date: 2026-02-08
+Companion to: CMFGEN_output_file_investigation_2026-02-08.txt
+
+Objective
+---------
+Build a simple, reliable viewer for CMFGEN simulation results with clear expansion path from text outputs first, then advanced binary diagnostics.
+
+Success Criteria (MVP)
+----------------------
+[ ] Load a run folder and detect available outputs.
+[ ] Parse and visualize:
+    [ ] RVTJ (radial structure)
+    [ ] OBSFLUX (spectrum/luminosity vectors)
+    [ ] MOD_SUM (metadata/summary)
+[ ] Show parsing warnings for missing/partial optional files.
+[ ] Export a normalized run manifest (JSON) for reproducibility.
+
+Phase 0: Dataset and Ground Truth
+---------------------------------
+[ ] Create a small fixture set of real CMFGEN output folders:
+    [ ] Stellar model (no SN)
+    [ ] SN model
+    [ ] SN + non-thermal + gamma transport (if available)
+[ ] For each fixture, record expected files present/absent.
+[ ] Keep one “minimal” and one “full-feature” run for regression tests.
+
+Phase 1: File Discovery + Manifest
+----------------------------------
+[ ] Implement directory scanner with known filename patterns:
+    - Exact: RVTJ, OBSFLUX, MOD_SUM, MEANOPAC, HYDRO, GAMMAS
+    - Prefix: POP*
+    - Suffix: *OUT
+    - Optional: NETRATE/TOTRATE/EWDATA/LINEHEAT, J_COMP, NON_THERM_COOL, GAMFLUX, GAMRAY_ENERGY_DEP
+[ ] Implement output classification:
+    - core_viewer, optional_diagnostic, restart_internal
+[ ] Write `manifest.json` containing:
+    - run path, detected files, parse status, errors/warnings, inferred model type (SN/non-SN)
+
+Phase 2: Parser Layer (ASCII First)
+------------------------------------
+[ ] RVTJ parser:
+    [ ] header metadata
+    [ ] named vectors by section title
+    [ ] robust tolerance to spacing and format changes
+[ ] OBSFLUX parser:
+    [ ] continuum frequency grid
+    [ ] observed intensity
+    [ ] all named luminosity vectors
+[ ] MOD_SUM parser:
+    [ ] key scalar metadata (L, Mdot, dimensions, Teff/tau diagnostics)
+[ ] POP* parser (optional in MVP+):
+    [ ] species total population depth vectors
+[ ] *OUT parser (optional in MVP+):
+    [ ] departure coefficients with depth index and physical columns
+
+Phase 3: Data Model
+-------------------
+[ ] Define canonical internal schema:
+    - `metadata`
+    - `depth_grid`
+    - `profiles` (dict of named vectors)
+    - `spectrum`
+    - `species`
+    - `diagnostics`
+[ ] Enforce units metadata (e.g., km/s, 10^10 cm, Janskys).
+[ ] Add schema validation and explicit versioning.
+
+Phase 4: Viewer UI (Initial)
+----------------------------
+[ ] Run Overview page:
+    - model type, dimensions, timestamps, high-level params from MOD_SUM/RVTJ
+[ ] Radial Profiles page:
+    - selectable vectors from RVTJ (R,V,T,ED,density,J/H/K,opacities)
+[ ] Spectrum page:
+    - OBSFLUX frequency-intensity plot
+    - toggle additional luminosity vectors
+[ ] Diagnostics page:
+    - availability matrix for optional files
+    - parse warnings/errors
+
+Phase 5: Diagnostics Expansion
+------------------------------
+[ ] Add MEANOPAC and HYDRO plotting.
+[ ] Add J_COMP parser/plot for boundary consistency checks.
+[ ] Add rate files (NETRATE, TOTRATE, EWDATA, LINEHEAT) browser.
+[ ] Add GAMMAS + POP* + *OUT panels.
+
+Phase 6: Binary Support (Advanced)
+----------------------------------
+[ ] Add direct-access readers for selected high-value binaries:
+    - JH_AT_CURRENT_TIME (+ _INFO)
+    - optionally EDDFACTOR / ES_J_CONV
+[ ] Use `_INFO` sidecars to resolve RECL/word-size/endian safely.
+[ ] Fail gracefully when metadata is missing/inconsistent.
+
+Testing Checklist
+-----------------
+[ ] Unit tests per parser with golden files.
+[ ] Corruption tests: truncated file, malformed headers, missing sections.
+[ ] Cross-run consistency checks (ND lengths align across vectors).
+[ ] Snapshot tests for transformed JSON outputs.
+[ ] Performance test on large NCF/ND runs.
+
+Operational Notes
+-----------------
+[ ] Never treat restart/internal files (SCRTEMP, POINT1/2, BAMAT, EDDFACTOR) as required for MVP display.
+[ ] Keep parser warnings non-fatal unless core files are unreadable.
+[ ] Track provenance: include source file path and parse timestamp in every parsed artifact.
+
+Definition of Done
+------------------
+[ ] User can open a CMFGEN run directory and immediately inspect:
+    - key model metadata,
+    - radial structure,
+    - emergent spectrum,
+    with clear status on optional diagnostics.
+[ ] Parsing pipeline is test-covered and deterministic on fixture runs.

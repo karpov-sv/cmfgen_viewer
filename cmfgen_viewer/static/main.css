@@ -1,0 +1,71 @@
+.file-preview {
+    /* max-height: 70vh; */
+    /* overflow: auto; */
+    white-space: pre;
+    /* background: #101216; */
+    /* color: #f2f5f9; */
+    border-radius: 0.4rem;
+    padding: 0.9rem;
+}
+
+.role-badge {
+    display: inline-block;
+    border-radius: 0.4rem;
+    padding: 0.2rem 0.5rem;
+    font-size: 0.8rem;
+    line-height: 1.2;
+}
+
+.role-core_viewer {
+    background: #d1ecf1;
+    color: #13414c;
+}
+
+.role-optional_diagnostic {
+    background: #fff3cd;
+    color: #5f4b00;
+}
+
+.role-restart_internal {
+    background: #f8d7da;
+    color: #5f1d23;
+}
+
+.role-other {
+    background: #e2e3e5;
+    color: #2b2f33;
+}
+
+#files-table .col-name {
+    width: 100%;
+}
+
+#files-table .col-name a {
+    display: inline-block;
+    max-width: 100%;
+}
+
+#files-table .col-fixed {
+    width: 1%;
+    white-space: nowrap;
+}
+
+.table-sort {
+    border: 0;
+    background: transparent;
+    padding: 0;
+    color: inherit;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.table-sort:hover {
+    text-decoration: underline;
+}
+
+.sort-indicator {
+    display: inline-block;
+    min-width: 1ch;
+}
