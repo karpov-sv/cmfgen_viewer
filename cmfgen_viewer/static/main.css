@@ -33,6 +33,51 @@ a:focus {
     color: #5f1d23;
 }
 
+.role-input_control {
+    background: #d0ebff;
+    color: #0c4a6e;
+}
+
+.role-input_restart {
+    background: #fde2e4;
+    color: #7a1f2a;
+}
+
+.role-input_atomic_core {
+    background: #e3f2fd;
+    color: #174a73;
+}
+
+.role-input_atomic_optional {
+    background: #fff7d6;
+    color: #5f4b00;
+}
+
+.role-input_init_model {
+    background: #e8f5e9;
+    color: #245a2b;
+}
+
+.role-input_grid_profile {
+    background: #e8eefc;
+    color: #243b6b;
+}
+
+.role-input_velocity {
+    background: #ede7f6;
+    color: #3f2c70;
+}
+
+.role-input_sn_nonthermal {
+    background: #ffe8cc;
+    color: #7a3e00;
+}
+
+.role-input_hydro_iteration {
+    background: #f1f3f5;
+    color: #343a40;
+}
+
 .role-script {
     background: #d8f3dc;
     color: #1f4d35;

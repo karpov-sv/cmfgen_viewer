@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from flask import Blueprint, abort, current_app, redirect, render_template, request, send_file, url_for
 
-from .browser import describe_file, list_directory, make_breadcrumb, resolve_path
+from .browser import describe_file, is_model_context_path, list_directory, make_breadcrumb, resolve_path
 
 bp = Blueprint("viewer", __name__)
 
@@ -32,6 +34,7 @@ def view(path: str):
         "breadcrumb": make_breadcrumb(path),
         "basepath": basepath,
         "show_all": bool(config.get("show_all", False)),
+        "show_role_badges": is_model_context_path(path),
     }
 
     if target.is_dir():
@@ -40,6 +43,8 @@ def view(path: str):
 
     if target.is_file():
         details = describe_file(basepath, path)
+        parent_path = Path(path).parent.as_posix()
+        context["show_role_badges"] = is_model_context_path(parent_path)
         has_parsed = bool(details.get("parsed"))
         requested_display = request.args.get("display", "").strip().lower()
         if has_parsed:

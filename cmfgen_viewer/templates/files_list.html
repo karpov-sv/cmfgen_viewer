@@ -14,16 +14,13 @@
                 Name <span class="sort-indicator"></span>
               </button>
             </th>
-            <th class="col-fixed text-end">
-              <button type="button" class="table-sort" data-key="kind" data-type="string">
-                Kind <span class="sort-indicator"></span>
-              </button>
-            </th>
-            <th class="col-fixed text-end">
-              <button type="button" class="table-sort" data-key="role" data-type="string">
-                CMFGEN Role <span class="sort-indicator"></span>
-              </button>
-            </th>
+            {% if show_role_badges %}
+              <th class="col-fixed text-end">
+                <button type="button" class="table-sort" data-key="role" data-type="string">
+                  CMFGEN Role <span class="sort-indicator"></span>
+                </button>
+              </th>
+            {% endif %}
             <th class="col-fixed text-end">
               <button type="button" class="table-sort" data-key="size" data-type="number">
                 Size <span class="sort-indicator"></span>
@@ -41,7 +38,6 @@
             <tr
               data-entry
               data-name="{{ file.name|lower }}"
-              data-kind="{{ file.kind|lower }}"
               data-role="{{ file.cmfgen_role|lower }}"
               data-size="{{ -1 if file.is_dir else file.size }}"
               data-modified="{{ file.modified_ts }}"
@@ -56,10 +52,13 @@
                   {{ file.name }}
                 </a>
               </td>
-              <td class="col-fixed text-end"><code>{{ file.kind }}</code></td>
-              <td class="col-fixed text-end">
-                <span class="role-badge role-{{ file.cmfgen_role }}">{{ file.cmfgen_role }}</span>
-              </td>
+              {% if show_role_badges %}
+                <td class="col-fixed text-end">
+                  {% if not file.is_dir %}
+                    <span class="role-badge role-{{ file.cmfgen_role }}">{{ file.cmfgen_role }}</span>
+                  {% endif %}
+                </td>
+              {% endif %}
               <td class="col-fixed text-end">
                 {% if file.is_dir %}
                   -

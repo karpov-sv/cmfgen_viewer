@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import mimetypes
 from pathlib import Path
+import re
 
 from .parsers import parse_known_file
 from .syntax import highlight_text, syntax_css
@@ -41,6 +42,76 @@ RESTART_INTERNAL_FILES = {
     "JH_AT_CURRENT_TIME",
     "JEW",
 }
+
+INPUT_CONTROL_FILES = {
+    "MODEL_SPEC",
+    "VADAT",
+    "IN_ITS",
+}
+
+INPUT_RESTART_FILES = {
+    "POINT1",
+    "POINT2",
+    "SCRTEMP",
+}
+
+INPUT_ATOMIC_CORE_FILES = {
+    "HYD_L_DATA",
+    "GBF_N_DATA",
+    "XRAY_PHOT_FITS",
+}
+
+INPUT_ATOMIC_OPTIONAL_FILES = {
+    "TWO_PHOT_DATA",
+    "CHG_EXCH_DATA",
+    "RS_XRAY_FLUXES",
+}
+
+INPUT_INIT_MODEL_FILES = {
+    "T_IN",
+    "GAMMAS_IN",
+    "FIN_CAL_GRID",
+    "GREY_SCL_FAC_IN",
+    "GREY_SCL_FAC",
+}
+
+INPUT_GRID_PROFILE_FILES = {
+    "CFDAT",
+    "GRID_PARAMS",
+    "PROF_T_ED",
+}
+
+INPUT_VELOCITY_FILES = {
+    "RDINR",
+    "RVSIG_COL",
+    "DEKOTER",
+}
+
+INPUT_SN_NONTHERM_FILES = {
+    "SN_HYDRO_DATA",
+    "NUC_DECAY_DATA",
+    "INPUT_HYDRO.DAT",
+    "ARNAUD_ROTHENFLUG.DAT",
+    "NT_CROSEC_SCLFAC",
+    "NT_ION_CROSEC_SCLFAC",
+    "NON_THERM_DEGRADATION_SPEC",
+    "INCIDENT_INTENSITY",
+}
+
+INPUT_HYDRO_ITERATION_FILES = {
+    "HYDRO_DEFAULTS",
+    "ADJUST_R_DEFAULTS",
+    "IT_SPECIFIER",
+    "SOL_ABUNDANCE",
+}
+
+ION_OSC_PATTERN = re.compile(r"^[A-Z0-9]+_F_OSCDAT$")
+ION_MAP_PATTERN = re.compile(r"^[A-Z0-9]+_F_TO_S$")
+ION_PHOT_PATTERN = re.compile(r"^PHOT[A-Z0-9]+_[A-Z]+$")
+ION_COL_PATTERN = re.compile(r"^[A-Z0-9]+_COL_DATA$")
+ION_DIE_PATTERN = re.compile(r"^DIE[A-Z0-9]+$")
+ION_AUTO_PATTERN = re.compile(r"^[A-Z0-9]+_AUTO_DATA$")
+ION_INIT_PATTERN = re.compile(r"^[A-Z0-9]+_IN$")
 
 TEXT_EXTENSIONS = {
     ".txt",
@@ -96,7 +167,19 @@ def _is_in_model_dir(relpath: str) -> bool:
     if len(parts) <= 1:
         return False
     for part in parts[:-1]:
-        if part == "models" or part.startswith("model"):
+        if part.startswith("model") and part != "models":
+            return True
+    return False
+
+
+def is_model_context_path(relpath: str) -> bool:
+    """
+    Return True when current directory path looks like a concrete model folder
+    (e.g. .../model_Bstar1026[/...]), not a generic collection folder like "models".
+    """
+    parts = [part.lower() for part in Path(relpath).parts if part not in ("", ".")]
+    for part in parts:
+        if part.startswith("model") and part != "models":
             return True
     return False
 
@@ -107,6 +190,32 @@ def classify_cmfgen_role(filename: str, relpath: str = "") -> str:
 
     if suffix == ".sh" and _is_in_model_dir(relpath or filename):
         return "script"
+
+    if name in INPUT_CONTROL_FILES:
+        return "input_control"
+    if name in INPUT_RESTART_FILES:
+        return "input_restart"
+    if name in INPUT_ATOMIC_CORE_FILES:
+        return "input_atomic_core"
+    if name in INPUT_ATOMIC_OPTIONAL_FILES:
+        return "input_atomic_optional"
+    if name in INPUT_INIT_MODEL_FILES:
+        return "input_init_model"
+    if name in INPUT_GRID_PROFILE_FILES:
+        return "input_grid_profile"
+    if name in INPUT_VELOCITY_FILES:
+        return "input_velocity"
+    if name in INPUT_SN_NONTHERM_FILES:
+        return "input_sn_nonthermal"
+    if name in INPUT_HYDRO_ITERATION_FILES:
+        return "input_hydro_iteration"
+    if ION_OSC_PATTERN.match(name) or ION_MAP_PATTERN.match(name) or ION_PHOT_PATTERN.match(name) or ION_COL_PATTERN.match(name):
+        return "input_atomic_core"
+    if ION_DIE_PATTERN.match(name) or ION_AUTO_PATTERN.match(name):
+        return "input_atomic_optional"
+    if ION_INIT_PATTERN.match(name) and name not in {"IN_ITS"}:
+        return "input_init_model"
+
     if name in CORE_FILES:
         return "core_viewer"
     if name in OPTIONAL_FILES or name.startswith("POP") or name.endswith("OUT"):
