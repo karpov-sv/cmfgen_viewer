@@ -40,6 +40,12 @@
 
         const rows = Array.from(tbody.querySelectorAll("tr[data-entry]"));
         rows.sort((left, right) => {
+            const leftIsDir = left.dataset.isDir === "1";
+            const rightIsDir = right.dataset.isDir === "1";
+            if (leftIsDir !== rightIsDir) {
+                return leftIsDir ? -1 : 1;
+            }
+
             const leftValue = readValue(left, key, type);
             const rightValue = readValue(right, key, type);
 

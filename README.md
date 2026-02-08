@@ -29,6 +29,7 @@ Then open `http://127.0.0.1:5567`.
   - `RVTJ` (core radial vectors and profile plots)
   - `OBSFLUX` (spectrum/luminosity vectors and diagnostic scalars)
   - `MOD_SUM` (dimensions, key scalars, tau rows, abundance table)
+- Raw text preview supports syntax highlighting for common formats (for example shell scripts, Python, JSON, YAML, Markdown)
 
 ## Notes
 

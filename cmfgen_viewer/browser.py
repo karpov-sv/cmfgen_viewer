@@ -5,6 +5,7 @@ import mimetypes
 from pathlib import Path
 
 from .parsers import parse_known_file
+from .syntax import highlight_text, syntax_css
 
 CORE_FILES = {
     "RVTJ",
@@ -43,6 +44,7 @@ RESTART_INTERNAL_FILES = {
 
 TEXT_EXTENSIONS = {
     ".txt",
+    ".sh",
     ".log",
     ".dat",
     ".csv",
@@ -89,8 +91,22 @@ def _join_relpath(parent: str, child: str) -> str:
     return f"{parent.rstrip('/')}/{child}"
 
 
-def classify_cmfgen_role(filename: str) -> str:
+def _is_in_model_dir(relpath: str) -> bool:
+    parts = [part.lower() for part in Path(relpath).parts if part not in ("", ".")]
+    if len(parts) <= 1:
+        return False
+    for part in parts[:-1]:
+        if part == "models" or part.startswith("model"):
+            return True
+    return False
+
+
+def classify_cmfgen_role(filename: str, relpath: str = "") -> str:
     name = filename.upper()
+    suffix = Path(filename).suffix.lower()
+
+    if suffix == ".sh" and _is_in_model_dir(relpath or filename):
+        return "script"
     if name in CORE_FILES:
         return "core_viewer"
     if name in OPTIONAL_FILES or name.startswith("POP") or name.endswith("OUT"):
@@ -164,7 +180,7 @@ def list_directory(basepath: str, relpath: str = "", show_all: bool = False) -> 
 
         rel = _join_relpath(relpath, entry.name)
         mime = mimetypes.guess_type(entry.name)[0]
-        role = classify_cmfgen_role(entry.name)
+        role = classify_cmfgen_role(entry.name, relpath=rel)
         kind = _classify_kind(entry, mime, role)
         modified_at = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc)
 
@@ -203,7 +219,7 @@ def describe_file(basepath: str, relpath: str) -> dict[str, object]:
 
     stat = target.stat()
     mime = mimetypes.guess_type(target.name)[0]
-    role = classify_cmfgen_role(target.name)
+    role = classify_cmfgen_role(target.name, relpath=relpath)
     kind = _classify_kind(target, mime, role)
     modified_at = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc)
 
@@ -225,6 +241,10 @@ def describe_file(basepath: str, relpath: str) -> dict[str, object]:
         context["mode"] = "text"
         context["contents"] = contents
         context["truncated"] = truncated
+        highlighted_html, lexer_name = highlight_text(contents, filename=target.name, mime=context["mime"])
+        context["highlighted_html"] = highlighted_html
+        context["highlight_css"] = syntax_css()
+        context["highlight_lexer"] = lexer_name
         try:
             parsed = parse_known_file(target)
             if parsed is not None:

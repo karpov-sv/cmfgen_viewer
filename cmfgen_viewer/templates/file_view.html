@@ -140,10 +140,16 @@
   {% if (not has_parsed) or display_mode == 'raw' %}
 
     {% if mode == 'text' %}
+      {% if highlight_css %}
+        <style>{{ highlight_css }}</style>
+      {% endif %}
       {% if truncated %}
         <p class="small text-warning">Preview is truncated to the first 512 KB.</p>
       {% endif %}
-      <pre class="file-preview"><code>{{ contents }}</code></pre>
+      {% if highlight_lexer %}
+        <p class="small text-muted">Syntax: <code>{{ highlight_lexer }}</code></p>
+      {% endif %}
+      <div class="file-preview syntax-preview">{{ highlighted_html | safe }}</div>
     {% elif mode == 'image' %}
       <div class="text-center">
         <img src="{{ url_for('viewer.raw_file', path=path) }}" class="img-fluid img-thumbnail" alt="{{ path }}">

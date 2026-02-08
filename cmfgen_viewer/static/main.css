@@ -1,11 +1,13 @@
 .file-preview {
-    /* max-height: 70vh; */
-    /* overflow: auto; */
-    white-space: pre;
-    /* background: #101216; */
-    /* color: #f2f5f9; */
     border-radius: 0.4rem;
-    padding: 0.9rem;
+    padding: 0.75rem;
+    background: #f8f9fa;
+}
+
+a,
+a:hover,
+a:focus {
+    text-decoration: none;
 }
 
 .role-badge {
@@ -31,6 +33,11 @@
     color: #5f1d23;
 }
 
+.role-script {
+    background: #d8f3dc;
+    color: #1f4d35;
+}
+
 .role-other {
     background: #e2e3e5;
     color: #2b2f33;
@@ -43,6 +50,18 @@
 #files-table .col-name a {
     display: inline-block;
     max-width: 100%;
+}
+
+.file-entry-icon {
+    width: 1.2em;
+    margin-right: 0.3em;
+    text-align: center;
+}
+
+.syntax-preview .cmf-codehilite,
+.syntax-preview .cmf-codehilite pre {
+    margin: 0;
+    background: transparent;
 }
 
 #files-table .col-fixed {

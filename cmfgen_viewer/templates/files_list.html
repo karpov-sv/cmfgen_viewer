@@ -45,10 +45,14 @@
               data-role="{{ file.cmfgen_role|lower }}"
               data-size="{{ -1 if file.is_dir else file.size }}"
               data-modified="{{ file.modified_ts }}"
+              data-is-dir="{{ 1 if file.is_dir else 0 }}"
             >
               <td class="col-name">
                 <a href="{{ url_for('viewer.view', path=file.path) }}">
-                  {% if file.is_dir %}[DIR]{% else %}[FILE]{% endif %}
+                  <i
+                    class="file-entry-icon fa fa-{% if file.is_dir %}folder-open-o{% elif file.kind == 'text' %}file-text-o{% elif file.kind == 'image' %}file-image-o{% else %}file-o{% endif %}"
+                    aria-hidden="true"
+                  ></i>
                   {{ file.name }}
                 </a>
               </td>
