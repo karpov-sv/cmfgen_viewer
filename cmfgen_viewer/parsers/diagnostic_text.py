@@ -14,6 +14,7 @@ GAMMAS_DEPTH_RE = re.compile(r"^\s*([+-]?\d+(?:\.\d*)?)\s*!?\s*Number of depth p
 GAMMAS_SPECIES_RE = re.compile(r"^\s*([+-]?\d+(?:\.\d*)?)\s+([A-Za-z][A-Za-z0-9_+-]*)\b")
 RVSIG_DEPTH_RE = re.compile(r"^\s*([+-]?\d+(?:\.\d*)?)\s*!?\s*Number of depth points\b", re.IGNORECASE)
 RVSIG_SCALAR_RE = re.compile(r"^\s*!+\s*(.+?)\s*(?:is:|=)\s*([^\s!`]+)\s*$", re.IGNORECASE)
+HYDRO_PARAMS_KV_RE = re.compile(r"^\s*(\S.*?)\s+\[([A-Za-z0-9_./+=-]+)\]\s*$")
 
 
 def _bool_text(value: bool) -> str:
@@ -453,6 +454,125 @@ def parse_obsframe(path: Path) -> dict[str, object]:
 
 def parse_out_flux(path: Path) -> dict[str, object]:
     return parse_log_diagnostic(path, parser_name="OUT_FLUX", title="OUT_FLUX run log")
+
+
+def parse_outlte(path: Path) -> dict[str, object]:
+    return parse_log_diagnostic(path, parser_name="OUTLTE", title="OUTLTE LTE run log")
+
+
+def parse_rosseland_lte_tab(path: Path) -> dict[str, object]:
+    return parse_numeric_diagnostic(
+        path,
+        parser_name="ROSSELAND_LTE_TAB",
+        title="ROSSELAND_LTE_TAB LTE opacity grid",
+        column_labels=[
+            "T",
+            "Density",
+            "Atom population",
+            "Ne",
+            "Chi(Ross)",
+            "Chi(es)",
+            "Kap(Ross)",
+            "Kap(es)",
+        ],
+        prefer_log_x=True,
+        prefer_log_y=True,
+    )
+
+
+def parse_hydro_params(path: Path) -> dict[str, object]:
+    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    rows: list[list[str]] = []
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith(("!", "#")):
+            continue
+        match = HYDRO_PARAMS_KV_RE.match(stripped)
+        if not match:
+            continue
+        value_raw = match.group(1).strip()
+        key = match.group(2).strip()
+        numeric = parse_float_token(value_raw)
+        value = format_number(numeric) if numeric is not None else value_raw
+        rows.append([key, value])
+
+    if not rows:
+        return parse_log_diagnostic(path, parser_name="HYDRO_PARAMS", title="HYDRO_PARAMS setup values")
+
+    return {
+        "parser": "HYDRO_PARAMS",
+        "title": "HYDRO_PARAMS setup values",
+        "summary_table": {
+            "title": "Parameter summary",
+            "columns": ["Field", "Value"],
+            "rows": [["file", path.name], ["parameter_count", str(len(rows))]],
+        },
+        "tables": [
+            {
+                "title": "Input parameters",
+                "columns": ["Key", "Value"],
+                "rows": rows,
+            }
+        ],
+        "plots": [],
+        "warnings": [],
+    }
+
+
+def parse_ml_counter(path: Path) -> dict[str, object]:
+    values: list[float] = []
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        for token in line.split():
+            parsed = parse_float_token(token)
+            if parsed is not None:
+                values.append(parsed)
+
+    if not values:
+        return parse_log_diagnostic(path, parser_name="ML_COUNTER", title="ML_COUNTER iteration counters")
+
+    rows = [[str(index + 1), format_number(value)] for index, value in enumerate(values[:MAX_TABLE_ROWS])]
+    warnings: list[str] = []
+    if len(values) > MAX_TABLE_ROWS:
+        warnings.append(f"Counter table truncated to first {MAX_TABLE_ROWS} rows.")
+
+    x_values = [float(index + 1) for index in range(len(values))]
+    plot = build_plotly_line_plot(
+        x_values,
+        values,
+        x_label="Sample index",
+        y_label="Counter value",
+        max_points=1200,
+        default_x_scale="linear",
+        default_y_scale="linear",
+    )
+    plots = [{"title": "Counter progression", **plot}] if plot else []
+
+    return {
+        "parser": "ML_COUNTER",
+        "title": "ML_COUNTER iteration counters",
+        "summary_table": {
+            "title": "Counter summary",
+            "columns": ["Field", "Value"],
+            "rows": [["file", path.name], ["samples", str(len(values))]],
+        },
+        "tables": [
+            {
+                "title": "Counter values",
+                "columns": ["Index", "Value"],
+                "rows": rows,
+            }
+        ],
+        "plots": plots,
+        "warnings": warnings,
+    }
+
+
+def parse_lte_diagnostic_est(path: Path) -> dict[str, object]:
+    return parse_numeric_diagnostic(path, parser_name=path.name.upper(), title=f"{path.name} wind_hyd diagnostics")
+
+
+def parse_time_pointer(path: Path) -> dict[str, object]:
+    return parse_log_diagnostic(path, parser_name=path.name.upper(), title=f"{path.name} time-sequence pointer")
 
 
 def parse_rvsig_col(path: Path) -> dict[str, object]:
