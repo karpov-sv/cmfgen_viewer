@@ -118,8 +118,25 @@ def _align_cmfgen_columns(contents: str) -> str:
             parsed_rows.append((line, "", comment, False))
             continue
 
+        # Align only true control rows ("value  [KEY]  description"), not
+        # arbitrary bracketed fragments in MODEL payload sections such as
+        # term labels like "...Fo[7/2]" or prose lines starting with
+        # "[Reference]".
+        if key_match.start() > 0 and not head[key_match.start() - 1].isspace():
+            parsed_rows.append((line, "", comment, False))
+            continue
+
         value_part = head[: key_match.start()].rstrip()
+        if not value_part.strip():
+            parsed_rows.append((line, "", comment, False))
+            continue
+
         key_part = key_match.group(0)
+        key_name = key_part[1:-1].strip()
+        if not re.fullmatch(r"[A-Za-z0-9_./+=-]+", key_name):
+            parsed_rows.append((line, "", comment, False))
+            continue
+
         tail = head[key_match.end() :].strip()
         if tail:
             key_part = f"{key_part} {tail}"
