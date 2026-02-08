@@ -106,7 +106,9 @@ def build_plotly_line_plot(
     return {
         "data": [
             {
-                "type": "scattergl",
+                # Use SVG scatter to avoid browser WebGL-context limits when a page
+                # contains many plots (e.g., full-column MEANOPAC rendering).
+                "type": "scatter",
                 "mode": "lines",
                 "x": sampled_x,
                 "y": sampled_y,

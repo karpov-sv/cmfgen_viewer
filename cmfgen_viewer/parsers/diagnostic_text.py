@@ -1,0 +1,503 @@
+from __future__ import annotations
+
+import re
+from pathlib import Path
+
+from .common import build_plotly_line_plot, format_number, parse_float_token, parse_key_value_pairs, parse_numeric_tokens
+
+MAX_TABLE_ROWS = 220
+MAX_SCALAR_ROWS = 40
+MAX_LOG_ROWS = 180
+WARN_RE = re.compile(r"\b(warn|error|fatal|stop|fail|exception)\b", re.IGNORECASE)
+COLON_SCALAR_RE = re.compile(r"^\s*([^:#=][^:=#]{0,80})\s*:\s*(\S.*)$")
+
+
+def _bool_text(value: bool) -> str:
+    return "yes" if value else "no"
+
+
+def _all_positive(values: list[float]) -> bool:
+    return bool(values) and all(value > 0 for value in values)
+
+
+def _auto_log_scale(values: list[float]) -> str:
+    if not _all_positive(values):
+        return "linear"
+    min_value = min(values)
+    max_value = max(values)
+    if min_value <= 0:
+        return "linear"
+    return "log" if (max_value / min_value) >= 1.0e3 else "linear"
+
+
+def _extract_scalars(lines: list[str]) -> list[list[str]]:
+    rows: list[list[str]] = []
+    for line in lines:
+        if len(rows) >= MAX_SCALAR_ROWS:
+            break
+
+        stripped = line.strip()
+        if not stripped:
+            continue
+
+        parsed_equal = parse_key_value_pairs(stripped)
+        if parsed_equal:
+            for key, raw in parsed_equal[:4]:
+                rows.append([key, format_number(parse_float_token(raw) if parse_float_token(raw) is not None else raw)])
+                if len(rows) >= MAX_SCALAR_ROWS:
+                    break
+            continue
+
+        colon = COLON_SCALAR_RE.match(stripped)
+        if colon:
+            key = colon.group(1).strip()
+            raw = colon.group(2).strip()
+            numeric = parse_float_token(raw)
+            rows.append([key, format_number(numeric) if numeric is not None else raw])
+    return rows
+
+
+def _collect_numeric_blocks(lines: list[str]) -> list[dict[str, object]]:
+    blocks: list[dict[str, object]] = []
+
+    current_rows: list[list[float]] = []
+    current_cols: int | None = None
+    current_start = 0
+
+    def flush() -> None:
+        nonlocal current_rows, current_cols, current_start
+        if current_rows and current_cols and current_cols >= 2:
+            blocks.append(
+                {
+                    "rows": current_rows,
+                    "cols": current_cols,
+                    "start_line": current_start,
+                }
+            )
+        current_rows = []
+        current_cols = None
+        current_start = 0
+
+    for idx, raw in enumerate(lines, start=1):
+        values = parse_numeric_tokens(raw.strip())
+        if values and len(values) >= 2:
+            cols = len(values)
+            if current_cols is None:
+                current_cols = cols
+                current_start = idx
+                current_rows = [values]
+                continue
+            if cols == current_cols:
+                current_rows.append(values)
+                continue
+            flush()
+            current_cols = cols
+            current_start = idx
+            current_rows = [values]
+            continue
+        flush()
+    flush()
+    return blocks
+
+
+def _choose_block(blocks: list[dict[str, object]]) -> dict[str, object] | None:
+    if not blocks:
+        return None
+    return max(blocks, key=lambda block: (len(block["rows"]) * int(block["cols"]), len(block["rows"])))
+
+
+def _build_numeric_table(
+    rows: list[list[float]],
+    *,
+    column_labels: list[str] | None = None,
+) -> tuple[list[str], list[list[str]], bool]:
+    if not rows:
+        return [], [], False
+
+    col_count = len(rows[0])
+    labels = [f"col_{index + 1}" for index in range(col_count)]
+    if column_labels:
+        for idx, label in enumerate(column_labels[:col_count]):
+            labels[idx] = label
+
+    truncated = len(rows) > MAX_TABLE_ROWS
+    subset = rows[:MAX_TABLE_ROWS]
+    body = [[format_number(value) for value in row] for row in subset]
+    return labels, body, truncated
+
+
+def _make_unique_labels(labels: list[str]) -> list[str]:
+    seen: dict[str, int] = {}
+    output: list[str] = []
+    for label in labels:
+        key = label
+        count = seen.get(key, 0) + 1
+        seen[key] = count
+        if count == 1:
+            output.append(label)
+        else:
+            output.append(f"{label}_{count}")
+    return output
+
+
+def _detect_header_labels(lines: list[str], *, start_line: int, col_count: int) -> list[str] | None:
+    # Search a few lines above the numeric block for a non-numeric token row that
+    # matches the numeric column count (common in CMFGEN tables like MEANOPAC).
+    search_start = max(0, start_line - 5)
+    for index in range(start_line - 2, search_start - 1, -1):
+        candidate = lines[index].strip()
+        if not candidate:
+            continue
+        tokens = candidate.split()
+        if len(tokens) != col_count:
+            continue
+        if all(parse_float_token(token) is not None for token in tokens):
+            continue
+        return _make_unique_labels(tokens)
+    return None
+
+
+def parse_numeric_diagnostic(
+    path: Path,
+    *,
+    parser_name: str,
+    title: str,
+    column_labels: list[str] | None = None,
+    prefer_log_x: bool = False,
+    prefer_log_y: bool = False,
+) -> dict[str, object]:
+    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    scalars = _extract_scalars(lines)
+    blocks = _collect_numeric_blocks(lines)
+    selected = _choose_block(blocks)
+
+    summary_rows: list[list[str]] = [
+        ["file", path.name],
+        ["total_lines", str(len(lines))],
+        ["numeric_blocks", str(len(blocks))],
+    ]
+    if scalars:
+        summary_rows.append(["scalar_fields_detected", str(len(scalars))])
+
+    tables: list[dict[str, object]] = []
+    plots: list[dict[str, object]] = []
+    warnings: list[str] = []
+
+    if scalars:
+        tables.append(
+            {
+                "title": "Detected scalars",
+                "columns": ["Field", "Value"],
+                "rows": scalars,
+            }
+        )
+
+    if selected:
+        data_rows = selected["rows"]
+        col_count = int(selected["cols"])
+        start_line = int(selected["start_line"])
+        summary_rows.append(["selected_block_start_line", str(start_line)])
+        summary_rows.append(["selected_block_rows", str(len(data_rows))])
+        summary_rows.append(["selected_block_columns", str(col_count)])
+
+        headers, body, table_truncated = _build_numeric_table(data_rows, column_labels=column_labels)
+        if headers and body:
+            tables.append(
+                {
+                    "title": "Main numeric block",
+                    "columns": headers,
+                    "rows": body,
+                }
+            )
+        if table_truncated:
+            warnings.append(f"Numeric table truncated to first {MAX_TABLE_ROWS} rows.")
+
+        x = [row[0] for row in data_rows]
+        x_label = headers[0] if headers else "col_1"
+        log_x = _all_positive(x) and (prefer_log_x or _auto_log_scale(x) == "log")
+        y_series_limit = min(col_count, 4)
+        for col_index in range(1, y_series_limit):
+            y = [row[col_index] for row in data_rows]
+            y_label = headers[col_index] if headers else f"col_{col_index + 1}"
+            log_y = _all_positive(y) and (prefer_log_y or _auto_log_scale(y) == "log")
+            plotly = build_plotly_line_plot(
+                x,
+                y,
+                x_label=x_label,
+                y_label=y_label,
+                default_x_scale="log" if log_x else "linear",
+                default_y_scale="log" if log_y else "linear",
+                max_points=1200,
+            )
+            if plotly:
+                plots.append({"title": f"{y_label} vs {x_label}", **plotly})
+    else:
+        summary_rows.append(["selected_block_rows", "0"])
+        warnings.append("No numeric data block with at least two columns was detected.")
+        preview_rows = [[str(index), line] for index, line in enumerate(lines[:MAX_LOG_ROWS], start=1)]
+        if preview_rows:
+            tables.append(
+                {
+                    "title": "Text preview",
+                    "columns": ["Line", "Content"],
+                    "rows": preview_rows,
+                }
+            )
+            if len(lines) > MAX_LOG_ROWS:
+                warnings.append(f"Text preview truncated to first {MAX_LOG_ROWS} lines.")
+
+    return {
+        "parser": parser_name,
+        "title": title,
+        "summary_table": {
+            "title": "Parsed summary",
+            "columns": ["Field", "Value"],
+            "rows": summary_rows,
+        },
+        "tables": tables,
+        "plots": plots,
+        "warnings": warnings,
+    }
+
+
+def parse_log_diagnostic(path: Path, *, parser_name: str, title: str) -> dict[str, object]:
+    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    warning_rows: list[list[str]] = []
+    error_rows: list[list[str]] = []
+
+    for index, line in enumerate(lines, start=1):
+        lower = line.lower()
+        if "error" in lower or "fatal" in lower:
+            error_rows.append([str(index), line.strip()])
+        if WARN_RE.search(line):
+            warning_rows.append([str(index), line.strip()])
+
+    recent_rows = [[str(index), line] for index, line in enumerate(lines[-MAX_LOG_ROWS:], start=max(1, len(lines) - MAX_LOG_ROWS + 1))]
+    summary_rows = [
+        ["file", path.name],
+        ["total_lines", str(len(lines))],
+        ["warning_like_lines", str(len(warning_rows))],
+        ["error_like_lines", str(len(error_rows))],
+        ["tail_lines_shown", str(len(recent_rows))],
+    ]
+
+    tables: list[dict[str, object]] = []
+    if warning_rows:
+        tables.append(
+            {
+                "title": "Warnings / errors",
+                "columns": ["Line", "Content"],
+                "rows": warning_rows[:MAX_LOG_ROWS],
+            }
+        )
+    if recent_rows:
+        tables.append(
+            {
+                "title": "Recent lines",
+                "columns": ["Line", "Content"],
+                "rows": recent_rows,
+            }
+        )
+
+    warnings: list[str] = []
+    if len(warning_rows) > MAX_LOG_ROWS:
+        warnings.append(f"Warnings table truncated to first {MAX_LOG_ROWS} rows.")
+    if not tables:
+        warnings.append("Log is empty.")
+
+    return {
+        "parser": parser_name,
+        "title": title,
+        "summary_table": {
+            "title": "Log summary",
+            "columns": ["Field", "Value"],
+            "rows": summary_rows,
+        },
+        "tables": tables,
+        "plots": [],
+        "warnings": warnings,
+    }
+
+
+def parse_meanopac(path: Path) -> dict[str, object]:
+    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    blocks = _collect_numeric_blocks(lines)
+    selected = _choose_block(blocks)
+
+    summary_rows: list[list[str]] = [
+        ["file", path.name],
+        ["total_lines", str(len(lines))],
+        ["numeric_blocks", str(len(blocks))],
+    ]
+
+    tables: list[dict[str, object]] = []
+    plots: list[dict[str, object]] = []
+    warnings: list[str] = []
+
+    for raw_line in lines:
+        stripped = raw_line.strip()
+        if "NB:" not in stripped:
+            continue
+        for chunk in re.split(r"(?=NB:)", stripped):
+            text = chunk.strip()
+            if text.startswith("NB:"):
+                warnings.append(text[3:].strip())
+
+    if not selected:
+        summary_rows.append(["selected_block_rows", "0"])
+        warnings.append("No numeric data block with at least two columns was detected.")
+        preview_rows = [[str(index), line] for index, line in enumerate(lines[:MAX_LOG_ROWS], start=1)]
+        if preview_rows:
+            tables.append(
+                {
+                    "title": "Text preview",
+                    "columns": ["Line", "Content"],
+                    "rows": preview_rows,
+                }
+            )
+        return {
+            "parser": "MEANOPAC",
+            "title": "MEANOPAC opacity diagnostics",
+            "summary_table": {
+                "title": "Parsed summary",
+                "columns": ["Field", "Value"],
+                "rows": summary_rows,
+            },
+            "tables": tables,
+            "plots": plots,
+            "warnings": warnings,
+        }
+
+    data_rows = selected["rows"]
+    col_count = int(selected["cols"])
+    start_line = int(selected["start_line"])
+    header_labels = _detect_header_labels(lines, start_line=start_line, col_count=col_count)
+
+    summary_rows.append(["selected_block_start_line", str(start_line)])
+    summary_rows.append(["selected_block_rows", str(len(data_rows))])
+    summary_rows.append(["selected_block_columns", str(col_count)])
+    summary_rows.append(["header_labels_detected", _bool_text(bool(header_labels))])
+
+    headers, body, table_truncated = _build_numeric_table(data_rows, column_labels=header_labels)
+    tables.append(
+        {
+            "title": "Main numeric block",
+            "columns": headers,
+            "rows": body,
+        }
+    )
+    if table_truncated:
+        warnings.append(f"Numeric table truncated to first {MAX_TABLE_ROWS} rows.")
+
+    x_index = 0
+    x = [row[x_index] for row in data_rows]
+    x_label = headers[x_index] if headers else "col_1"
+    x_log = _all_positive(x) and _auto_log_scale(x) == "log"
+
+    # Plot every data column (except the x-axis) by default so users get full
+    # visibility into the complete MEANOPAC table without manual selection.
+    # Keep original column order and case-sensitive labels exactly as read.
+    selected_indices = [
+        index
+        for index in range(col_count)
+        if index != x_index and (not headers or headers[index].strip().upper() != "I")
+    ]
+    summary_rows.append(["plotted_series_count", str(len(selected_indices))])
+
+    for col_index in selected_indices:
+        y = [row[col_index] for row in data_rows]
+        y_label = headers[col_index] if headers else f"col_{col_index + 1}"
+        y_log = _all_positive(y) and _auto_log_scale(y) == "log"
+        plotly = build_plotly_line_plot(
+            x,
+            y,
+            x_label=x_label,
+            y_label=y_label,
+            default_x_scale="log" if x_log else "linear",
+            default_y_scale="log" if y_log else "linear",
+            max_points=1200,
+        )
+        if plotly:
+            plots.append({"title": f"{y_label} vs {x_label}", **plotly})
+
+    return {
+        "parser": "MEANOPAC",
+        "title": "MEANOPAC opacity diagnostics",
+        "summary_table": {
+            "title": "Parsed summary",
+            "columns": ["Field", "Value"],
+            "rows": summary_rows,
+        },
+        "tables": tables,
+        "plots": plots,
+        "warnings": warnings,
+    }
+
+
+def parse_hydro(path: Path) -> dict[str, object]:
+    return parse_numeric_diagnostic(path, parser_name="HYDRO", title="HYDRO momentum diagnostics")
+
+
+def parse_obsframe(path: Path) -> dict[str, object]:
+    return parse_numeric_diagnostic(
+        path,
+        parser_name="OBSFRAME",
+        title="OBSFRAME observer-frame spectrum",
+        prefer_log_x=True,
+    )
+
+
+def parse_out_flux(path: Path) -> dict[str, object]:
+    return parse_log_diagnostic(path, parser_name="OUT_FLUX", title="OUT_FLUX run log")
+
+
+def parse_gammas(path: Path) -> dict[str, object]:
+    return parse_numeric_diagnostic(path, parser_name="GAMMAS", title="GAMMAS mean ionic charge profiles")
+
+
+def parse_pop_family(path: Path) -> dict[str, object]:
+    return parse_numeric_diagnostic(path, parser_name="POP*", title=f"{path.name} species population profile")
+
+
+def parse_departure_out_family(path: Path) -> dict[str, object]:
+    return parse_numeric_diagnostic(path, parser_name="*OUT", title=f"{path.name} departure coefficients")
+
+
+def parse_j_comp(path: Path) -> dict[str, object]:
+    return parse_numeric_diagnostic(path, parser_name="J_COMP", title="J_COMP boundary consistency diagnostics")
+
+
+def parse_rate_file(path: Path) -> dict[str, object]:
+    return parse_numeric_diagnostic(path, parser_name=path.name.upper(), title=f"{path.name} rate diagnostics")
+
+
+def parse_trans_info(path: Path) -> dict[str, object]:
+    return parse_log_diagnostic(path, parser_name="TRANS_INFO", title="TRANS_INFO transfer diagnostics")
+
+
+def parse_sob_force_mult(path: Path) -> dict[str, object]:
+    return parse_numeric_diagnostic(path, parser_name="SOB_FORCE_MULT", title="SOB_FORCE_MULT diagnostics")
+
+
+def parse_gamflux(path: Path) -> dict[str, object]:
+    return parse_numeric_diagnostic(path, parser_name="GAMFLUX", title="GAMFLUX gamma spectrum", prefer_log_x=True)
+
+
+def parse_gamray_energy_dep(path: Path) -> dict[str, object]:
+    return parse_numeric_diagnostic(path, parser_name="GAMRAY_ENERGY_DEP", title="GAMRAY_ENERGY_DEP deposition profile")
+
+
+def parse_out_params(path: Path) -> dict[str, object]:
+    return parse_log_diagnostic(path, parser_name="OUT_PARAMS", title="OUT_PARAMS setup summary")
+
+
+def parse_cfdat_out(path: Path) -> dict[str, object]:
+    return parse_numeric_diagnostic(path, parser_name="CFDAT_OUT", title="CFDAT_OUT continuum frequencies")
+
+
+def parse_cont_freq(path: Path) -> dict[str, object]:
+    return parse_numeric_diagnostic(path, parser_name="CONT_FREQ", title="CONT_FREQ mapping diagnostics")
+
+
+def parse_obs_freq(path: Path) -> dict[str, object]:
+    return parse_numeric_diagnostic(path, parser_name="OBS_FREQ", title="OBS_FREQ observer-frame frequency grid")

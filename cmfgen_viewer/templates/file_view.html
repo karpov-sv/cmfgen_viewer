@@ -70,109 +70,277 @@
 
         {% if parsed.plots %}
           <h6>Plots</h6>
-          {% for plot in parsed.plots %}
-            {% set plot_id = "plotly-" ~ parsed.parser|lower ~ "-" ~ loop.index0 %}
-            {% set x_scale_id = plot_id ~ "-xscale" %}
-            {% set y_scale_id = plot_id ~ "-yscale" %}
-            <div class="plot-wrap mb-4">
-              <div class="plot-title">{{ plot.title }}</div>
-              <div class="plot-controls">
-                <label for="{{ x_scale_id }}" class="plot-control-label">X scale</label>
-                <select id="{{ x_scale_id }}" class="form-select form-select-sm plot-scale-select">
-                  <option value="linear" {% if plot.default_x_scale != 'log' %}selected{% endif %}>Linear</option>
-                  <option value="log" {% if plot.default_x_scale == 'log' %}selected{% endif %}>Log</option>
-                </select>
-                <label for="{{ y_scale_id }}" class="plot-control-label">Y scale</label>
-                <select id="{{ y_scale_id }}" class="form-select form-select-sm plot-scale-select">
-                  <option value="linear" {% if plot.default_y_scale != 'log' %}selected{% endif %}>Linear</option>
-                  <option value="log" {% if plot.default_y_scale == 'log' %}selected{% endif %}>Log</option>
-                </select>
-              </div>
-              <div id="{{ plot_id }}" class="plotly-chart"></div>
-              <script>
-                (function () {
-                  var target = document.getElementById("{{ plot_id }}");
-                  if (!target) {
-                    return;
+          {% set has_plot_mode_toggle = parsed.plots|length > 1 %}
+          {% set plot_mode_id = "plot-mode-" ~ parsed.parser|lower %}
+          {% set combined_plot_id = "plotly-" ~ parsed.parser|lower ~ "-combined" %}
+          {% set combined_wrap_id = combined_plot_id ~ "-wrap" %}
+          {% set combined_x_scale_id = combined_plot_id ~ "-xscale" %}
+          {% set combined_y_scale_id = combined_plot_id ~ "-yscale" %}
+          {% set separate_wrap_id = combined_plot_id ~ "-separate" %}
+
+          {% if has_plot_mode_toggle %}
+            <div class="plot-controls mb-2">
+              <label for="{{ plot_mode_id }}" class="plot-control-label">View mode</label>
+              <select id="{{ plot_mode_id }}" class="form-select form-select-sm plot-scale-select">
+                <option value="combined" selected>Combined</option>
+                <option value="separate">Separate</option>
+              </select>
+            </div>
+          {% endif %}
+
+          <div id="{{ combined_wrap_id }}" class="plot-wrap mb-4">
+            <div class="plot-title">All curves</div>
+            <div class="plot-controls">
+              <label for="{{ combined_x_scale_id }}" class="plot-control-label">X scale</label>
+              <select id="{{ combined_x_scale_id }}" class="form-select form-select-sm plot-scale-select">
+                <option value="linear" selected>Linear</option>
+                <option value="log">Log</option>
+              </select>
+              <label for="{{ combined_y_scale_id }}" class="plot-control-label">Y scale</label>
+              <select id="{{ combined_y_scale_id }}" class="form-select form-select-sm plot-scale-select">
+                <option value="linear" selected>Linear</option>
+                <option value="log">Log</option>
+              </select>
+            </div>
+            <div id="{{ combined_plot_id }}" class="plotly-chart"></div>
+            <script>
+              (function () {
+                var target = document.getElementById("{{ combined_plot_id }}");
+                if (!target) {
+                  return;
+                }
+                if (!window.Plotly) {
+                  target.innerHTML = '<p class="text-muted small mb-0">Plotly failed to load.</p>';
+                  return;
+                }
+
+                function cloneObject(input) {
+                  return input ? JSON.parse(JSON.stringify(input)) : {};
+                }
+
+                var plotItems = {{ parsed.plots | tojson }};
+                var traces = [];
+                var layout = {};
+                var config = {};
+                var defaultX = "linear";
+                var defaultY = "linear";
+                var colorPalette = [
+                  "#1f77b4", "#d62728", "#2ca02c", "#9467bd", "#ff7f0e",
+                  "#17becf", "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22"
+                ];
+                var traceColorIndex = 0;
+                for (var i = 0; i < plotItems.length; i += 1) {
+                  var item = plotItems[i];
+                  if (!item || !Array.isArray(item.data) || item.data.length === 0) {
+                    continue;
                   }
-                  if (!window.Plotly) {
-                    target.innerHTML = '<p class="text-muted small mb-0">Plotly failed to load.</p>';
-                    return;
+
+                  if (Object.keys(layout).length === 0) {
+                    layout = cloneObject(item.layout || {});
+                    config = cloneObject(item.config || {});
+                    defaultX = item.default_x_scale === "log" ? "log" : "linear";
+                    defaultY = item.default_y_scale === "log" ? "log" : "linear";
                   }
-                  Plotly.newPlot(
-                    target,
-                    {{ plot.data | tojson }},
-                    {{ plot.layout | tojson }},
-                    {{ plot.config | tojson }}
-                  ).then(function () {
-                    var xScale = document.getElementById("{{ x_scale_id }}");
-                    var yScale = document.getElementById("{{ y_scale_id }}");
-                    if (!xScale || !yScale) {
-                      return;
+
+                  for (var j = 0; j < item.data.length; j += 1) {
+                    var trace = cloneObject(item.data[j]);
+                    var name = item.title || ("Series " + (i + 1));
+                    var separator = name.indexOf(" vs ");
+                    if (separator > 0) {
+                      name = name.slice(0, separator);
                     }
+                    trace.name = name;
+                    if (!trace.line) {
+                      trace.line = {};
+                    }
+                    trace.line.color = colorPalette[traceColorIndex % colorPalette.length];
+                    traceColorIndex += 1;
+                    traces.push(trace);
+                  }
+                }
 
-                    var traces = {{ plot.data | tojson }};
+                if (traces.length === 0) {
+                  target.innerHTML = '<p class="text-muted small mb-0">No plot data available.</p>';
+                  return;
+                }
 
-                    function canUseLog(values) {
-                      if (!Array.isArray(values) || values.length === 0) {
-                        return false;
+                if (!layout.xaxis) {
+                  layout.xaxis = {};
+                }
+                if (!layout.yaxis) {
+                  layout.yaxis = {};
+                }
+                layout.showlegend = true;
+                layout.height = Math.max(Number(layout.height) || 0, 400);
+                layout.legend = {
+                  orientation: "h",
+                  yanchor: "bottom",
+                  y: 1.02,
+                  xanchor: "left",
+                  x: 0
+                };
+                layout.yaxis.title = { text: "Value" };
+
+                var xScale = document.getElementById("{{ combined_x_scale_id }}");
+                var yScale = document.getElementById("{{ combined_y_scale_id }}");
+                if (xScale) {
+                  xScale.value = defaultX;
+                }
+                if (yScale) {
+                  yScale.value = defaultY;
+                }
+
+                Plotly.newPlot(target, traces, layout, config).then(function () {
+                  if (!xScale || !yScale) {
+                    return;
+                  }
+
+                  function applyScale() {
+                    Plotly.relayout(target, {
+                      "xaxis.type": xScale.value,
+                      "yaxis.type": yScale.value
+                    });
+                  }
+
+                  xScale.addEventListener("change", applyScale);
+                  yScale.addEventListener("change", applyScale);
+                  applyScale();
+                });
+              })();
+            </script>
+          </div>
+
+          {% if has_plot_mode_toggle %}
+            <div id="{{ separate_wrap_id }}" style="display: none;">
+              {% for plot in parsed.plots %}
+                {% set plot_id = "plotly-" ~ parsed.parser|lower ~ "-" ~ loop.index0 %}
+                {% set x_scale_id = plot_id ~ "-xscale" %}
+                {% set y_scale_id = plot_id ~ "-yscale" %}
+                <div class="plot-wrap mb-4">
+                  <div class="plot-title">{{ plot.title }}</div>
+                  <div class="plot-controls">
+                    <label for="{{ x_scale_id }}" class="plot-control-label">X scale</label>
+                    <select id="{{ x_scale_id }}" class="form-select form-select-sm plot-scale-select">
+                      <option value="linear" {% if plot.default_x_scale != 'log' %}selected{% endif %}>Linear</option>
+                      <option value="log" {% if plot.default_x_scale == 'log' %}selected{% endif %}>Log</option>
+                    </select>
+                    <label for="{{ y_scale_id }}" class="plot-control-label">Y scale</label>
+                    <select id="{{ y_scale_id }}" class="form-select form-select-sm plot-scale-select">
+                      <option value="linear" {% if plot.default_y_scale != 'log' %}selected{% endif %}>Linear</option>
+                      <option value="log" {% if plot.default_y_scale == 'log' %}selected{% endif %}>Log</option>
+                    </select>
+                  </div>
+                  <div id="{{ plot_id }}" class="plotly-chart"></div>
+                  <script>
+                    (function () {
+                      var target = document.getElementById("{{ plot_id }}");
+                      if (!target) {
+                        return;
                       }
-                      for (var i = 0; i < values.length; i += 1) {
-                        var value = Number(values[i]);
-                        if (!Number.isFinite(value) || value <= 0) {
-                          return false;
+                      if (!window.Plotly) {
+                        target.innerHTML = '<p class="text-muted small mb-0">Plotly failed to load.</p>';
+                        return;
+                      }
+                      Plotly.newPlot(
+                        target,
+                        {{ plot.data | tojson }},
+                        {{ plot.layout | tojson }},
+                        {{ plot.config | tojson }}
+                      ).then(function () {
+                        var xScale = document.getElementById("{{ x_scale_id }}");
+                        var yScale = document.getElementById("{{ y_scale_id }}");
+                        if (!xScale || !yScale) {
+                          return;
                         }
-                      }
+
+                        function applyScale() {
+                          Plotly.relayout(target, {
+                            "xaxis.type": xScale.value,
+                            "yaxis.type": yScale.value
+                          });
+                        }
+
+                        xScale.addEventListener("change", applyScale);
+                        yScale.addEventListener("change", applyScale);
+                        applyScale();
+                      });
+                    })();
+                  </script>
+                </div>
+              {% endfor %}
+            </div>
+
+            <script>
+              (function () {
+                var mode = document.getElementById("{{ plot_mode_id }}");
+                var combinedWrap = document.getElementById("{{ combined_wrap_id }}");
+                var separateWrap = document.getElementById("{{ separate_wrap_id }}");
+                if (!mode || !combinedWrap || !separateWrap) {
+                  return;
+                }
+                var plotItems = {{ parsed.plots | tojson }};
+
+                function xAxisSignature(item) {
+                  if (!item || !item.layout || !item.layout.xaxis) {
+                    return "unknown";
+                  }
+                  var xaxis = item.layout.xaxis;
+                  var title = xaxis.title;
+                  var text = "";
+                  if (typeof title === "string") {
+                    text = title.trim();
+                  } else if (title && typeof title.text === "string") {
+                    text = title.text.trim();
+                  }
+                  var scale = typeof xaxis.type === "string" ? xaxis.type : "linear";
+                  return (text || "unnamed") + "|" + scale;
+                }
+
+                function hasMixedXAxes(items) {
+                  if (!Array.isArray(items) || items.length < 2) {
+                    return false;
+                  }
+                  var firstSignature = xAxisSignature(items[0]);
+                  for (var i = 1; i < items.length; i += 1) {
+                    if (xAxisSignature(items[i]) !== firstSignature) {
                       return true;
                     }
+                  }
+                  return false;
+                }
 
-                    var canLogX = true;
-                    var canLogY = true;
-                    for (var i = 0; i < traces.length; i += 1) {
-                      var trace = traces[i];
-                      if (trace && Array.isArray(trace.x)) {
-                        canLogX = canLogX && canUseLog(trace.x);
-                      } else {
-                        canLogX = false;
-                      }
-                      if (trace && Array.isArray(trace.y)) {
-                        canLogY = canLogY && canUseLog(trace.y);
-                      } else {
-                        canLogY = false;
-                      }
+                function resizeVisibleCharts(container) {
+                  if (!window.Plotly || !container) {
+                    return;
+                  }
+                  var charts = container.querySelectorAll(".plotly-chart");
+                  for (var i = 0; i < charts.length; i += 1) {
+                    if (charts[i] && charts[i].data) {
+                      Plotly.Plots.resize(charts[i]);
                     }
+                  }
+                }
 
-                    var xLogOption = xScale.querySelector('option[value="log"]');
-                    var yLogOption = yScale.querySelector('option[value="log"]');
-                    if (xLogOption && !canLogX) {
-                      xLogOption.disabled = true;
-                    }
-                    if (yLogOption && !canLogY) {
-                      yLogOption.disabled = true;
-                    }
+                function applyMode() {
+                  if (mode.value === "separate") {
+                    combinedWrap.style.display = "none";
+                    separateWrap.style.display = "";
+                    resizeVisibleCharts(separateWrap);
+                  } else {
+                    separateWrap.style.display = "none";
+                    combinedWrap.style.display = "";
+                    resizeVisibleCharts(combinedWrap);
+                  }
+                }
 
-                    if (!canLogX && xScale.value === "log") {
-                      xScale.value = "linear";
-                    }
-                    if (!canLogY && yScale.value === "log") {
-                      yScale.value = "linear";
-                    }
-
-                    function applyScale() {
-                      Plotly.relayout(target, {
-                        "xaxis.type": xScale.value,
-                        "yaxis.type": yScale.value
-                      });
-                    }
-
-                    xScale.addEventListener("change", applyScale);
-                    yScale.addEventListener("change", applyScale);
-                    applyScale();
-                  });
-                })();
-              </script>
-            </div>
-          {% endfor %}
+                if (hasMixedXAxes(plotItems)) {
+                  mode.value = "separate";
+                }
+                mode.addEventListener("change", applyMode);
+                applyMode();
+              })();
+            </script>
+          {% endif %}
         {% endif %}
 
         {% if parsed.tables %}
