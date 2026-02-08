@@ -107,6 +107,8 @@ a:focus {
 .syntax-preview .cmf-codehilite pre {
     margin: 0;
     background: transparent;
+    font-family: var(--bs-font-monospace);
+    tab-size: 8;
 }
 
 #files-table .col-fixed {

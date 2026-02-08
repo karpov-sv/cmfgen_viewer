@@ -350,7 +350,12 @@ def describe_file(basepath: str, relpath: str) -> dict[str, object]:
         context["mode"] = "text"
         context["contents"] = contents
         context["truncated"] = truncated
-        highlighted_html, lexer_name = highlight_text(contents, filename=target.name, mime=context["mime"])
+        highlighted_html, lexer_name = highlight_text(
+            contents,
+            filename=target.name,
+            mime=context["mime"],
+            role=role,
+        )
         context["highlighted_html"] = highlighted_html
         context["highlight_css"] = syntax_css()
         context["highlight_lexer"] = lexer_name
