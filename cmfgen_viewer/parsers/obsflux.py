@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import math
 import re
 from pathlib import Path
 
-from .common import build_svg_line_plot, format_number, parse_float_token, parse_numeric_tokens
+from .common import build_plotly_line_plot, format_number, parse_float_token, parse_numeric_tokens
 
 OBSFLUX_VECTOR_HEADINGS: list[tuple[str, str]] = [
     ("Continuum Frequencies", "continuum_frequencies"),
@@ -20,6 +21,9 @@ OBSFLUX_VECTOR_HEADINGS: list[tuple[str, str]] = [
 
 SCALAR_RE = re.compile(r"^\s*([^:]+):\s+(.+)$")
 COUNT_RE = re.compile(r"\((\s*\d+)\)")
+
+# OBSFLUX continuum frequencies are in units of 10^15 Hz.
+LIGHT_SPEED_ANGSTROM_PER_10P15_HZ = 2997.92458
 
 
 def _detect_heading(line: str) -> tuple[str, str] | None:
@@ -95,18 +99,50 @@ def parse_obsflux(path: Path) -> dict[str, object]:
     plots: list[dict[str, object]] = []
     freq = vectors.get("continuum_frequencies", [])
     intensity = vectors.get("observed_intensity_janskys", [])
+    wavelengths: list[float] = []
+    spectrum_flux: list[float] = []
+    trimmed_points = 0
     if freq and intensity:
         size = min(len(freq), len(intensity))
-        svg = build_svg_line_plot(freq[:size], intensity[:size], max_points=1400)
-        if svg:
-            plots.append(
-                {
-                    "title": "Observed spectrum",
-                    "x_label": "Frequency",
-                    "y_label": "Intensity (Janskys)",
-                    "svg": svg,
-                }
-            )
+        for frequency, flux in zip(freq[:size], intensity[:size]):
+            if frequency > 0 and math.isfinite(frequency):
+                wavelengths.append(LIGHT_SPEED_ANGSTROM_PER_10P15_HZ / frequency)
+                spectrum_flux.append(flux)
+
+        # The high-frequency end of OBSFLUX often contains a numerically tiny "floor"
+        # where intensities are effectively indistinguishable from zero for practical
+        # visualization, yet still strictly positive floating-point values. Plotting
+        # this floor stretches the y-axis and makes physically meaningful parts of the
+        # spectrum harder to inspect interactively. To trim this region robustly without
+        # introducing an arbitrary absolute threshold, use a run-specific baseline:
+        # the intensity at the longest wavelength point. We then remove only the leading
+        # short-wavelength segment whose intensities are below (or equal to) that baseline.
+        # This preserves the long-wavelength side and avoids clipping interior structure.
+        if len(wavelengths) >= 3 and len(spectrum_flux) == len(wavelengths):
+            longest_wavelength_floor = spectrum_flux[-1]
+            if math.isfinite(longest_wavelength_floor):
+                first_keep_index = 0
+                max_trim = len(spectrum_flux) - 2
+                while (
+                    first_keep_index < max_trim
+                    and spectrum_flux[first_keep_index] <= longest_wavelength_floor
+                ):
+                    first_keep_index += 1
+                if first_keep_index > 0:
+                    trimmed_points = first_keep_index
+                    wavelengths = wavelengths[first_keep_index:]
+                    spectrum_flux = spectrum_flux[first_keep_index:]
+
+        plotly = build_plotly_line_plot(
+            wavelengths,
+            spectrum_flux,
+            x_label="Wavelength (Å)",
+            y_label="Intensity (Janskys)",
+            max_points=1400,
+            default_x_scale="log",
+        )
+        if plotly:
+            plots.append({"title": "Observed spectrum", **plotly})
 
     for key, title in [
         ("luminosity", "Luminosity"),
@@ -116,16 +152,15 @@ def parse_obsflux(path: Path) -> dict[str, object]:
         values = vectors.get(key, [])
         if len(values) >= 2:
             x_values = list(range(1, len(values) + 1))
-            svg = build_svg_line_plot(x_values, values, max_points=800)
-            if svg:
-                plots.append(
-                    {
-                        "title": title,
-                        "x_label": "Depth index",
-                        "y_label": "Value",
-                        "svg": svg,
-                    }
-                )
+            plotly = build_plotly_line_plot(
+                x_values,
+                values,
+                x_label="Depth index",
+                y_label="Value",
+                max_points=800,
+            )
+            if plotly:
+                plots.append({"title": title, **plotly})
 
     summary_rows: list[list[str]] = []
     if expected_ncf is not None:
@@ -134,6 +169,17 @@ def parse_obsflux(path: Path) -> dict[str, object]:
         summary_rows.append(["Parsed continuum points", str(len(vectors["continuum_frequencies"]))])
     if "observed_intensity_janskys" in vectors:
         summary_rows.append(["Parsed observed-intensity points", str(len(vectors["observed_intensity_janskys"]))])
+    if wavelengths:
+        summary_rows.append(
+            [
+                "Wavelength range (Å)",
+                f"{format_number(min(wavelengths))} .. {format_number(max(wavelengths))}",
+            ]
+        )
+    if trimmed_points > 0:
+        summary_rows.append(
+            ["Trimmed short-wavelength floor points", str(trimmed_points)]
+        )
 
     tables: list[dict[str, object]] = [
         {
@@ -149,6 +195,10 @@ def parse_obsflux(path: Path) -> dict[str, object]:
                 "columns": ["Quantity", "Value"],
                 "rows": summary_scalars,
             }
+        )
+    if freq and intensity and len(wavelengths) != min(len(freq), len(intensity)):
+        warnings.append(
+            "Some spectrum points were skipped due to non-positive or non-finite continuum frequency values."
         )
 
     return {

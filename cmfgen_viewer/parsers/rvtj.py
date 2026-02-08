@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from .common import (
-    build_svg_line_plot,
+    build_plotly_line_plot,
     format_number,
     maybe_number,
     normalize_space,
@@ -134,16 +134,15 @@ def parse_rvtj(path: Path) -> dict[str, object]:
             x_label_local = "Depth index"
         else:
             x_label_local = x_label
-        svg = build_svg_line_plot(x_for_plot, values, max_points=800)
-        if svg:
-            plots.append(
-                {
-                    "title": title,
-                    "x_label": x_label_local,
-                    "y_label": y_label,
-                    "svg": svg,
-                }
-            )
+        plotly = build_plotly_line_plot(
+            x_for_plot,
+            values,
+            x_label=x_label_local,
+            y_label=y_label,
+            max_points=800,
+        )
+        if plotly:
+            plots.append({"title": title, **plotly})
 
     return {
         "parser": "RVTJ",

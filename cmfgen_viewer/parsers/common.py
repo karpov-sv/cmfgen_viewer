@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 import re
 from typing import Iterable
 
@@ -89,55 +88,58 @@ def downsample_xy(x_values: Iterable[float], y_values: Iterable[float], max_poin
     return sampled_x, sampled_y
 
 
-def _safe_bounds(values: list[float]) -> tuple[float, float]:
-    finite = [value for value in values if math.isfinite(value)]
-    if not finite:
-        return 0.0, 1.0
-    minimum = min(finite)
-    maximum = max(finite)
-    if minimum == maximum:
-        minimum -= 1.0
-        maximum += 1.0
-    return minimum, maximum
-
-
-def build_svg_line_plot(
+def build_plotly_line_plot(
     x_values: Iterable[float],
     y_values: Iterable[float],
     *,
+    x_label: str,
+    y_label: str,
     max_points: int = 1200,
-    width: int = 880,
-    height: int = 260,
-    pad_x: int = 44,
-    pad_y: int = 24,
+    color: str = "#0b7285",
+    default_x_scale: str = "linear",
+    default_y_scale: str = "linear",
 ) -> dict[str, object] | None:
     sampled_x, sampled_y = downsample_xy(x_values, y_values, max_points=max_points)
     if len(sampled_x) < 2:
         return None
 
-    x_min, x_max = _safe_bounds(sampled_x)
-    y_min, y_max = _safe_bounds(sampled_y)
-    inner_w = max(width - 2 * pad_x, 10)
-    inner_h = max(height - 2 * pad_y, 10)
-
-    def sx(value: float) -> float:
-        return pad_x + (value - x_min) * inner_w / (x_max - x_min)
-
-    def sy(value: float) -> float:
-        return height - pad_y - (value - y_min) * inner_h / (y_max - y_min)
-
-    points = " ".join(f"{sx(x):.2f},{sy(y):.2f}" for x, y in zip(sampled_x, sampled_y))
-
     return {
-        "width": width,
-        "height": height,
-        "pad_x": pad_x,
-        "pad_y": pad_y,
-        "points": points,
-        "x_min": x_min,
-        "x_max": x_max,
-        "y_min": y_min,
-        "y_max": y_max,
+        "data": [
+            {
+                "type": "scattergl",
+                "mode": "lines",
+                "x": sampled_x,
+                "y": sampled_y,
+                "line": {"color": color, "width": 1.6},
+                "hovertemplate": f"{x_label}=%{{x:.6g}}<br>{y_label}=%{{y:.6g}}<extra></extra>",
+            }
+        ],
+        "layout": {
+            "template": "plotly_white",
+            "margin": {"l": 60, "r": 24, "t": 14, "b": 52},
+            "height": 320,
+            "xaxis": {
+                "title": {"text": x_label},
+                "showgrid": True,
+                "zeroline": False,
+                "type": default_x_scale,
+            },
+            "yaxis": {
+                "title": {"text": y_label},
+                "showgrid": True,
+                "zeroline": False,
+                "type": default_y_scale,
+            },
+            "showlegend": False,
+            "hovermode": "closest",
+        },
+        "config": {
+            "responsive": True,
+            "displaylogo": False,
+            "modeBarButtonsToRemove": ["lasso2d", "select2d", "autoScale2d"],
+        },
+        "default_x_scale": default_x_scale,
+        "default_y_scale": default_y_scale,
         "point_count": len(sampled_x),
     }
 

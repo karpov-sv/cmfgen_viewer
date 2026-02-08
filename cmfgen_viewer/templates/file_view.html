@@ -71,18 +71,106 @@
         {% if parsed.plots %}
           <h6>Plots</h6>
           {% for plot in parsed.plots %}
+            {% set plot_id = "plotly-" ~ parsed.parser|lower ~ "-" ~ loop.index0 %}
+            {% set x_scale_id = plot_id ~ "-xscale" %}
+            {% set y_scale_id = plot_id ~ "-yscale" %}
             <div class="plot-wrap mb-4">
               <div class="plot-title">{{ plot.title }}</div>
-              <div class="small text-muted mb-1">{{ plot.x_label }} vs {{ plot.y_label }}</div>
-              <svg class="line-plot" viewBox="0 0 {{ plot.svg.width }} {{ plot.svg.height }}" preserveAspectRatio="none" role="img" aria-label="{{ plot.title }}">
-                <line x1="{{ plot.svg.pad_x }}" y1="{{ plot.svg.height - plot.svg.pad_y }}" x2="{{ plot.svg.width - plot.svg.pad_x }}" y2="{{ plot.svg.height - plot.svg.pad_y }}" class="axis-line"></line>
-                <line x1="{{ plot.svg.pad_x }}" y1="{{ plot.svg.pad_y }}" x2="{{ plot.svg.pad_x }}" y2="{{ plot.svg.height - plot.svg.pad_y }}" class="axis-line"></line>
-                <polyline points="{{ plot.svg.points }}" class="plot-line" />
-              </svg>
-              <div class="plot-bounds">
-                x:[{{ "%.4e"|format(plot.svg.x_min) }}, {{ "%.4e"|format(plot.svg.x_max) }}]
-                y:[{{ "%.4e"|format(plot.svg.y_min) }}, {{ "%.4e"|format(plot.svg.y_max) }}]
+              <div class="plot-controls">
+                <label for="{{ x_scale_id }}" class="plot-control-label">X scale</label>
+                <select id="{{ x_scale_id }}" class="form-select form-select-sm plot-scale-select">
+                  <option value="linear" {% if plot.default_x_scale != 'log' %}selected{% endif %}>Linear</option>
+                  <option value="log" {% if plot.default_x_scale == 'log' %}selected{% endif %}>Log</option>
+                </select>
+                <label for="{{ y_scale_id }}" class="plot-control-label">Y scale</label>
+                <select id="{{ y_scale_id }}" class="form-select form-select-sm plot-scale-select">
+                  <option value="linear" {% if plot.default_y_scale != 'log' %}selected{% endif %}>Linear</option>
+                  <option value="log" {% if plot.default_y_scale == 'log' %}selected{% endif %}>Log</option>
+                </select>
               </div>
+              <div id="{{ plot_id }}" class="plotly-chart"></div>
+              <script>
+                (function () {
+                  var target = document.getElementById("{{ plot_id }}");
+                  if (!target) {
+                    return;
+                  }
+                  if (!window.Plotly) {
+                    target.innerHTML = '<p class="text-muted small mb-0">Plotly failed to load.</p>';
+                    return;
+                  }
+                  Plotly.newPlot(
+                    target,
+                    {{ plot.data | tojson }},
+                    {{ plot.layout | tojson }},
+                    {{ plot.config | tojson }}
+                  ).then(function () {
+                    var xScale = document.getElementById("{{ x_scale_id }}");
+                    var yScale = document.getElementById("{{ y_scale_id }}");
+                    if (!xScale || !yScale) {
+                      return;
+                    }
+
+                    var traces = {{ plot.data | tojson }};
+
+                    function canUseLog(values) {
+                      if (!Array.isArray(values) || values.length === 0) {
+                        return false;
+                      }
+                      for (var i = 0; i < values.length; i += 1) {
+                        var value = Number(values[i]);
+                        if (!Number.isFinite(value) || value <= 0) {
+                          return false;
+                        }
+                      }
+                      return true;
+                    }
+
+                    var canLogX = true;
+                    var canLogY = true;
+                    for (var i = 0; i < traces.length; i += 1) {
+                      var trace = traces[i];
+                      if (trace && Array.isArray(trace.x)) {
+                        canLogX = canLogX && canUseLog(trace.x);
+                      } else {
+                        canLogX = false;
+                      }
+                      if (trace && Array.isArray(trace.y)) {
+                        canLogY = canLogY && canUseLog(trace.y);
+                      } else {
+                        canLogY = false;
+                      }
+                    }
+
+                    var xLogOption = xScale.querySelector('option[value="log"]');
+                    var yLogOption = yScale.querySelector('option[value="log"]');
+                    if (xLogOption && !canLogX) {
+                      xLogOption.disabled = true;
+                    }
+                    if (yLogOption && !canLogY) {
+                      yLogOption.disabled = true;
+                    }
+
+                    if (!canLogX && xScale.value === "log") {
+                      xScale.value = "linear";
+                    }
+                    if (!canLogY && yScale.value === "log") {
+                      yScale.value = "linear";
+                    }
+
+                    function applyScale() {
+                      Plotly.relayout(target, {
+                        "xaxis.type": xScale.value,
+                        "yaxis.type": yScale.value
+                      });
+                    }
+
+                    xScale.addEventListener("change", applyScale);
+                    yScale.addEventListener("change", applyScale);
+                    applyScale();
+                  });
+                })();
+              </script>
             </div>
           {% endfor %}
         {% endif %}

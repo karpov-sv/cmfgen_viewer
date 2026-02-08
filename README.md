@@ -27,8 +27,9 @@ Then open `http://127.0.0.1:5567`.
   - `restart_internal` (e.g. `SCRTEMP`, `POINT1/2`, `*_INFO`)
 - Initial structured parsers + preview panels for:
   - `RVTJ` (core radial vectors and profile plots)
-  - `OBSFLUX` (spectrum/luminosity vectors and diagnostic scalars)
+  - `OBSFLUX` (spectrum/luminosity vectors and diagnostic scalars; spectrum displayed in wavelength Å)
   - `MOD_SUM` (dimensions, key scalars, tau rows, abundance table)
+- Parsed plots are interactive via Plotly (zoom, pan, hover values, export image, linear/log axis toggles)
 - Raw text preview supports syntax highlighting for common formats (for example shell scripts, Python, JSON, YAML, Markdown)
 
 ## Notes
