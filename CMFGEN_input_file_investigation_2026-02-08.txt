@@ -1,0 +1,342 @@
+CMFGEN Input File Investigation for Model Runs
+Date: 2026-02-08
+Repository snapshot: /home/karpov/CMFGEN2023/cur_cmf
+
+Purpose
+-------
+This document records a static code-level investigation of CMFGEN model-run inputs, with emphasis on:
+1) which files are required vs optional,
+2) which files are conditional on keywords/modes,
+3) filename patterns needed for a robust run launcher and future result-viewer tooling.
+
+Scope and Method
+----------------
+- Static analysis only (no runtime execution, no external docs).
+- Primary trace path:
+  - `new_main/cmfgen.f` (main startup; `MODEL_SPEC`)
+  - `new_main/cmfgen_sub.f` (main run driver; most input-file calls)
+  - helper readers in `new_main/mod_subs`, `new_main/subs`, `subs`, `newsubs`, `plane`.
+- Note: CMFGEN opens files by bare names (relative to run working directory), not by repository-relative paths.
+
+Quick Summary
+-------------
+- Core startup controls are `MODEL_SPEC`, `VADAT`, `IN_ITS`.
+- Atomic/model data is heavily per-ion and filename-driven:
+  - `*_F_OSCDAT`, `*_F_TO_S`, `PHOT*_A/B/...`, `*_COL_DATA`, optional `DIE*`, optional `*_AUTO_DATA`.
+- Fresh new-model starts additionally rely on `*_IN`, `T_IN`, `GAMMAS_IN` (or fallback generation paths).
+- Continuation runs rely on `SCRTEMP` + `POINT1/POINT2`.
+- SN and non-thermal modes add specialized inputs (`SN_HYDRO_DATA`, `NUC_DECAY_DATA`, `arnaud_rothenflug.dat`, etc.).
+
+
+A. Core Control Inputs (always in normal CMFGEN run path)
+==========================================================
+
+A1) `MODEL_SPEC`
+- Opened in `new_main/cmfgen.f:291`.
+- Drives model dimensions (`ND`, `NC`, `NP`, `NUM_BNDS`, etc.) and ion stage presence (`*_ISF` / `*_NSF` keys).
+- Also influences whether super-level mapping files are needed (see `*_F_TO_S` notes below).
+
+A2) `VADAT`
+- Opened in `new_main/mod_subs/rd_control_variables.f:46`.
+- Main control keyword file for physics and run behavior (`VEL_LAW`, clumping, X-rays, SN options, etc.).
+- Parsed through extensive `RD_STORE_*` calls in `RD_CONTROL_VARIABLES`.
+
+A3) `IN_ITS`
+- Opened in `new_main/cmfgen_sub.f:545`.
+- Contains iteration controls such as `NUM_ITS` and `DO_LAM_IT`.
+- Re-opened later for dynamic iteration control in `new_main/cmfgen_sub.f:4695`.
+
+A4) Working-directory behavior
+- Files are opened by literal names (`FILE='VADAT'`, `FILE='MODEL_SPEC'`, etc.), so run directory contents must match expected names exactly.
+- On case-sensitive systems, filename case matters.
+
+
+B. Startup Mode Split: New Model vs Continuation
+=================================================
+
+B1) Continuation/restart files
+- `SCR_READ_V2` (called from `new_main/cmfgen_sub.f:912`) tries:
+  - `POINT1` (`subs/scr_read_v2.f:87`)
+  - fallback `POINT2` (`subs/scr_read_v2.f:106`)
+  - then `SCRTEMP` (`subs/scr_read_v2.f:136`)
+- If pointers/scratch are missing or invalid, code falls back to `NEWMOD=.TRUE.` (`subs/scr_read_v2.f`, pointer-read error path).
+
+B2) Consequence
+- For intended continuation: `POINT1/POINT2/SCRTEMP` must be valid and mutually consistent.
+- For fresh start: those files are not required.
+
+
+C. Core Physics/Atomic Inputs in Main Path
+==========================================
+
+C1) Always-read core atomic files
+- `HYD_L_DATA` and `GBF_N_DATA` via `RD_HYD_BF_DATA`:
+  - `new_main/cmfgen_sub.f:660`
+  - `newsubs/rd_hyd_bf_data.f:36` and `:103`
+  - missing file causes STOP.
+- `XRAY_PHOT_FITS` via `RD_XRAY_FITS`:
+  - called unconditionally in `new_main/cmfgen_sub.f:671`
+  - opened in `newsubs/xray_data_mod.f:59`
+  - missing file causes STOP even if X-rays are otherwise disabled.
+
+C2) Per-ion files in atomic-data loop (`new_main/cmfgen_sub.f:730+`)
+- `TRIM(ION_ID)//'_F_OSCDAT'`
+  - read by `GENOSC_V9`, open at `newsubs/genosc_v9.f:137`
+  - required for each present ion (`ATM(ID)%XzV_PRES`).
+- `TRIM(ION_ID)//'_F_TO_S'`
+  - parsed by `RD_F_TO_S_IDS_V3` (`subs/rd_f_to_s_ids_v3.f:51`)
+  - required when full/super-level mapping is needed (`N_F != N_S`); one-to-one mapping path returns without opening.
+- `PHOT<ION_ID>_A`, `PHOT<ION_ID>_B`, ... (photoionization routes)
+  - built in `newsubs/rdphot_gen_v2.f:148` and `:321`
+  - opened via `GEN_ASCI_OPEN`; missing file causes STOP.
+  - `N_PHOT` is read from the first route file and controls how many suffix files are required.
+- `TRIM(ION_ID)//'_COL_DATA'`
+  - opened in `GET_COL_REF` (`subs/get_col_ref.f:16`)
+  - collisional tables then used by `GEN_OMEGA_RD_V2` (`subs/gen_omega_rd_v2.f:150`)
+  - missing file causes STOP.
+
+
+D. Conditional Atomic/Rate Inputs
+=================================
+
+D1) Two-photon data
+- `TWO_PHOT_DATA` opened in `new_main/mod_subs/two_phot_mod.f:125`.
+- Only required if `INC_TWO`/`INCL_TWO_PHOT` is true (set in `VADAT`; parsed at `new_main/mod_subs/rd_control_variables.f:715`).
+
+D2) Charge exchange data
+- `CHG_EXCH_DATA` opened in `new_main/subs/chg/rd_chg_exch_v3.f:51`.
+- Only required if `INC_CHG`/`INCL_CHG_EXCH` is true (`new_main/mod_subs/rd_control_variables.f:714`).
+
+D3) Dielectronic data (per ion)
+- Pattern: `DIE<ION_ID>`
+- If dielectronic-as-line path is used: read via `RDGENDIE_V4` (`subs/rdgendie_v4.f:97`).
+- Else dielectronic-photo route path: read via `RD_PHOT_DIE_V1` (`newsubs/rd_phot_die_v1.f:153`).
+- Triggered by per-ion dielectronic flags (`DIE_<ION>` keywords from `VADAT` logic in `RD_CONTROL_VARIABLES` and downstream loop in `cmfgen_sub`).
+
+D4) Autoionization data (per ion)
+- Pattern: `<ION_ID>_AUTO_DATA`
+- Passed to `STEQ_AUTO_V2` in `new_main/cmfgen_sub.f:1646`.
+- `STEQ_AUTO_V2` checks existence with `INQUIRE` (`new_main/subs/auto/steq_auto_v2.f:84`):
+  - if file exists, used;
+  - if missing, routine may return with warning (especially relevant if above-threshold states exist).
+- Practical guidance: include where autoionization is physically relevant.
+
+D5) X-ray emissivity spectrum table
+- `RS_XRAY_FLUXES` opened in `newsubs/rd_xray_spec.f:77`.
+- Required only when `XRAYS=.TRUE.` and `.NOT. FF_XRAYS` (`new_main/cmfgen_sub.f:673`).
+
+
+E. New-Model Initialization Inputs (`NEWMOD=.TRUE.`)
+====================================================
+
+E1) Default expected files
+- `T_IN` for temperature/electron-density interpolation:
+  - used by `REGRID_T_ED_V3` (`subs/regrid_t_ed_v3.f:41`)
+  - also by `REGRID_T_ED` (`subs/regrid_t_ed.f:39`) and `INIT_TEMP_V2` (`subs/init_temp_v2.f:65`).
+- `<ION_ID>_IN` for initial departure coefficients:
+  - read in `SET_NEW_MODEL_ESTIMATES` via `REGRID_LOG_DC_V1` (`subs/regrid_log_dc_v1.f:96`).
+- `GAMMAS_IN` for initial electron density estimate:
+  - read by `GETELEC_V2` (`subs/getelec_v2.f:40`).
+
+E2) Optional/alternative initialization files
+- `FIN_CAL_GRID`
+  - used when `LTE_EST`/`SET_LTE_AS_INIT_ESTIMATES` is enabled in `VADAT`.
+  - opened in `new_main/mod_subs/set_new_model_estimates.f:219`.
+- `GREY_SCL_FAC_IN` fallback `GREY_SCL_FAC`
+  - used by `SCALE_GREY` (`subs/scale_grey.f:32`, fallback at `:37`).
+  - optional; missing files produce warning and no scaling.
+
+E3) AUTO_ADD fallback for missing `*_IN`
+- `AUTO_ADD_ION` is called in `new_main/mod_subs/set_new_model_estimates.f:154`.
+- If enabled (default true unless overridden), missing `*_IN` files can be synthesized by `SUB_GUESS_DC`.
+- `SUB_GUESS_DC` documents required helper files:
+  - `EDDFACTOR`
+  - `EDDFACTOR_INFO`
+  - `RVTJ`
+  - `<ION_ID>_F_OSCDAT`
+  - and sometimes reference ion `*_IN`
+  (`new_main/subs/sub_guess_dc.f`, comments near header and open calls).
+- This is a fallback path, not a guaranteed substitute for a complete prepared input set.
+
+
+F. Frequency/Profile Grid Inputs
+================================
+
+F1) Continuum frequency file
+- `CFDAT` is opened in `new_main/mod_subs/set_frequency_grid_v2.f:344` when:
+  - `RD_CF_FILE` (`RD_CONT_FREQ`) is true, or
+  - impurity mode is active.
+- Missing `CFDAT` in that mode causes STOP.
+
+F2) Profile helper files (for line-profile limits)
+- `SET_FREQUENCY_GRID_V2` logic (`new_main/mod_subs/set_frequency_grid_v2.f:138+`):
+  - if `GRID_PARAMS` exists: use `SET_T_ED_GRID` (`subs/set_t_ed_grid.f:26`).
+  - else: read `PROF_T_ED` via `RD_T_ED` (`subs/rd_t_ed.f:28`).
+- Therefore, in non-fixed-Doppler profile modes, at least one of:
+  - `GRID_PARAMS`, or
+  - `PROF_T_ED`
+  must be available.
+
+
+G. Velocity Law and Structure Inputs
+====================================
+
+G1) `RDINR` (radius/velocity profile input)
+- Used conditionally by velocity-law routines when `RD_IN_R_GRID` (`RDINR`) is true in `VADAT` (`rd_control_variables.f:820`).
+- Consumers include:
+  - `subs/starpcyg_v3.f:119`
+  - `subs/rv_sn_model_v2.f:55`
+  - `new_main/subs/set_rv_hydro_model_v3.f:245`
+  - `new_main/subs/rv_sn_model_sniin.f:60`
+  - `subs/starrave.f:19` (VELTYPE 4 path).
+
+G2) VELTYPE 7 velocity file options
+- `VEL_OPT` chooses:
+  - `RVSIG_COL` (opened in `newsubs/rd_rv_file_v2.f:62`)
+  - or `deKOTER` (opened in `newsubs/rd_rv_file_v2.f:127`)
+
+G3) SN hydro-model files
+- `SN_HYDRO_DATA`:
+  - read in SN abundance/structure setup (`new_main/subs/rd_sn_data.f:91`)
+  - and in SN hydro velocity setup (`new_main/subs/set_rv_hydro_model_v3.f:117`)
+- `input_hydro.dat`:
+  - required in VELTYPE 12 path (`new_main/mod_subs/set_abund_clump.f:310`)
+  - also read by `new_main/subs/rv_sn_model_sniin.f:121` when not using `RDINR`.
+
+
+H. SN/Radioactive/Non-Thermal Inputs
+====================================
+
+H1) `NUC_DECAY_DATA`
+- Read in `RD_NUC_DECAY_DATA_V2` (`new_main/subs/rd_nuc_decay_data_v2.f:42`).
+- Open occurs only if `INCL_RADIOACTIVE_DECAY` is true (`DO_RAD_DECAYS` guard in same routine).
+
+H2) Non-thermal electron treatment inputs (when enabled)
+- `arnaud_rothenflug.dat`:
+  - opened in `new_main/subs/non_therm/read_arnaud_ion_data.f90:38`.
+- `NT_CROSEC_SCLFAC` and `NT_ION_CROSEC_SCLFAC`:
+  - opened in `new_main/subs/non_therm/rd_nt_crosec_sclfac_v2.f90:20` and `:48`
+  - only if scaling flags are enabled (`cmfgen_sub.f:687` condition).
+- `NON_THERM_DEGRADATION_SPEC`:
+  - read only if `READ_NON_THERM_SPEC` is true (`electron_non_therm_spec.f90:217`)
+  - file opened in `rd_non_therm_elec_spec_v1.f90:22`.
+
+
+I. Hydro/Regridding/Iteration-Cycle Extra Inputs
+=================================================
+
+I1) `HYDRO_DEFAULTS`
+- Required for hydrostatic-iteration mode (`DO_HYDRO` and non-SN path):
+  - checked in `new_main/subs/check_hydro_def.f:17` (STOP if missing).
+- Also read in hydro routine `new_main/subs/do_cmf_hydro_v2.f:258`.
+
+I2) `ADJUST_R_DEFAULTS`
+- Required if `REV_RGRID`/`REVISE_R_GRID` is active.
+- Opened in `new_main/mod_subs/adjust_r_grid_v4.f:105`.
+
+I3) `IT_SPECIFIER`
+- Optional per-iteration override file.
+- Open attempt in `subs/specify_it_cycle_v3.f:59`; missing file returns silently (no override).
+
+
+J. Other Optional Inputs
+========================
+
+J1) `SOL_ABUNDANCE`
+- Read by `RD_SOL_ABUND_SCAL` (`subs/rd_sol_abund_scale.f:50`) for MOD_SUM reference abundances.
+- In CMFGEN call path (`MUST_GET_SET=.FALSE.`), missing file yields warning and defaults; does not stop run.
+
+J2) `INCIDENT_INTENSITY`
+- Read by `plane/get_ibound.f:41` only in transfer configurations that invoke `GET_IBOUND`.
+- Missing file causes STOP on first `GET_IBOUND` use.
+
+
+K. Input Files That CMFGEN Also Updates
+=======================================
+
+The run may modify some control files in place (important for reproducibility tooling):
+- `VADAT` updates via `UPDATE_KEYWORD` in multiple `cmfgen_sub` and hydro paths.
+- `IN_ITS` updates (e.g., lambda-iteration toggling) in `cmfgen_sub`.
+- `HYDRO_DEFAULTS` updates (`ITS_DONE`, counters) in hydro flow.
+- `ADJUST_R_DEFAULTS` updates `N_ITS` after grid revisions.
+
+Recommendation: archive a pre-run copy of key control files before launching long sequences.
+
+
+L. Practical Minimal Checklists by Run Mode
+===========================================
+
+L1) Fresh non-SN model (new start, no hydro/regrid extras)
+- Must-have control:
+  - `MODEL_SPEC`, `VADAT`, `IN_ITS`
+- Must-have atomic/microphysics:
+  - `HYD_L_DATA`, `GBF_N_DATA`, `XRAY_PHOT_FITS`
+  - per ion: `*_F_OSCDAT`, `PHOT*_A/B/...`, `*_COL_DATA`
+  - per ion with super-level mapping: `*_F_TO_S`
+- Must-have new-model initialization:
+  - `T_IN`, `GAMMAS_IN`, and per-ion `*_IN` (unless AUTO_ADD fallback is fully supported by prior outputs/files).
+- Optional by flags:
+  - `TWO_PHOT_DATA`, `CHG_EXCH_DATA`, `DIE*`, `*_AUTO_DATA`, etc.
+
+L2) Continuation run
+- Add restart state:
+  - `POINT1` (or valid `POINT2` fallback)
+  - `SCRTEMP`
+- Keep control/atomic files consistent with original model setup.
+
+L3) SN hydro model (typical VELTYPE 11 path)
+- Include everything in L1/L2 as appropriate, plus:
+  - `SN_HYDRO_DATA`
+  - `NUC_DECAY_DATA` if `INC_RAD_DECAYS` true
+  - non-thermal files if `TRT_NON_TE` true
+
+L4) VELTYPE 12 (IIn-style path)
+- Include:
+  - `input_hydro.dat` (used in both abundance setup and velocity construction)
+  - optional `RDINR` if corresponding option is enabled
+
+
+M. Code Reference Index (primary)
+=================================
+
+- `new_main/cmfgen.f:291` -> `MODEL_SPEC`
+- `new_main/cmfgen_sub.f:545` -> `IN_ITS`
+- `new_main/mod_subs/rd_control_variables.f:46` -> `VADAT`
+- `subs/scr_read_v2.f:87`, `:106`, `:136` -> `POINT1`, `POINT2`, `SCRTEMP`
+- `newsubs/rd_hyd_bf_data.f:36`, `:103` -> `HYD_L_DATA`, `GBF_N_DATA`
+- `new_main/mod_subs/two_phot_mod.f:125` -> `TWO_PHOT_DATA`
+- `new_main/subs/chg/rd_chg_exch_v3.f:51` -> `CHG_EXCH_DATA`
+- `newsubs/xray_data_mod.f:59` -> `XRAY_PHOT_FITS`
+- `newsubs/rd_xray_spec.f:77` -> `RS_XRAY_FLUXES`
+- `newsubs/genosc_v9.f:137` -> `*_F_OSCDAT`
+- `subs/rd_f_to_s_ids_v3.f:51` -> `*_F_TO_S`
+- `newsubs/rdphot_gen_v2.f:148`, `:321` -> `PHOT<ION>_A/B/...`
+- `subs/get_col_ref.f:16` and `subs/gen_omega_rd_v2.f:150` -> `*_COL_DATA`
+- `subs/rdgendie_v4.f:97` and `newsubs/rd_phot_die_v1.f:153` -> `DIE<ION>`
+- `new_main/subs/auto/steq_auto_v2.f:84` -> `<ION>_AUTO_DATA` existence check
+- `new_main/mod_subs/set_new_model_estimates.f:163+` -> `T_IN`, `*_IN`, `GAMMAS_IN`
+- `new_main/mod_subs/set_new_model_estimates.f:219` -> `FIN_CAL_GRID`
+- `subs/scale_grey.f:32`, `:37` -> `GREY_SCL_FAC_IN`, `GREY_SCL_FAC`
+- `new_main/mod_subs/set_frequency_grid_v2.f:344` -> `CFDAT`
+- `new_main/mod_subs/set_frequency_grid_v2.f:138-143` -> `GRID_PARAMS` vs `PROF_T_ED`
+- `new_main/subs/check_hydro_def.f:17` and `new_main/subs/do_cmf_hydro_v2.f:258` -> `HYDRO_DEFAULTS`
+- `new_main/mod_subs/adjust_r_grid_v4.f:105` -> `ADJUST_R_DEFAULTS`
+- `subs/specify_it_cycle_v3.f:59` -> `IT_SPECIFIER`
+- `subs/rd_sol_abund_scale.f:50` -> `SOL_ABUNDANCE`
+- `new_main/subs/rd_nuc_decay_data_v2.f:42` -> `NUC_DECAY_DATA`
+- `new_main/subs/rd_sn_data.f:91`, `new_main/subs/set_rv_hydro_model_v3.f:117` -> `SN_HYDRO_DATA`
+- `new_main/mod_subs/set_abund_clump.f:310` and `new_main/subs/rv_sn_model_sniin.f:121` -> `input_hydro.dat`
+- `new_main/subs/non_therm/read_arnaud_ion_data.f90:38` -> `arnaud_rothenflug.dat`
+- `new_main/subs/non_therm/rd_nt_crosec_sclfac_v2.f90:20`, `:48` -> `NT_CROSEC_SCLFAC`, `NT_ION_CROSEC_SCLFAC`
+- `new_main/subs/non_therm/rd_non_therm_elec_spec_v1.f90:22` -> `NON_THERM_DEGRADATION_SPEC`
+- `plane/get_ibound.f:41` -> `INCIDENT_INTENSITY`
+
+
+N. Notes for Viewer-App Planning
+================================
+
+For a viewer/launcher companion, the most useful automation is:
+1) a preflight checker that resolves all expected filenames from selected options (`VADAT`, `MODEL_SPEC`, velocity mode, SN/non-thermal flags),
+2) a run-mode aware checklist (fresh vs continuation),
+3) explicit reporting of files that are both inputs and mutable state (`VADAT`, `IN_ITS`, `HYDRO_DEFAULTS`, `ADJUST_R_DEFAULTS`).
+
