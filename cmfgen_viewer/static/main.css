@@ -152,6 +152,7 @@ a:focus {
     border-radius: 0.4rem;
     padding: 0.75rem;
     background: #ffffff;
+    overflow: hidden;
 }
 
 .plot-title {
@@ -178,9 +179,53 @@ a:focus {
     min-width: 5.75rem;
 }
 
-.plotly-chart {
+.plotly-resizable {
+    position: relative;
     width: 100%;
     min-height: 320px;
+    height: 420px;
+    overflow: hidden;
+}
+
+.plot-wrap > .plotly-resizable {
+    width: calc(100% + 1.5rem);
+    margin-left: -0.75rem;
+    margin-bottom: -0.75rem;
+    border-top: 1px solid #e9ecef;
+}
+
+.plotly-chart {
+    width: 100%;
+    height: calc(100% - 21px);
+    min-height: 299px;
+}
+
+.plot-resize-handle {
+    position: absolute;
+    left: -1px;
+    right: -1px;
+    bottom: -1px;
+    height: 13px;
+    cursor: ns-resize;
+    touch-action: none;
+    background: #f8f9fa;
+    border-top: 1px solid #dee2e6;
+}
+
+.plot-resize-handle::before {
+    content: "";
+    display: block;
+    width: 34px;
+    height: 4px;
+    margin: 4px auto 0;
+    border-top: 1px solid #adb5bd;
+    border-bottom: 1px solid #adb5bd;
+}
+
+.plot-resizing,
+.plot-resizing * {
+    user-select: none !important;
+    cursor: ns-resize !important;
 }
 
 .docs-nav {

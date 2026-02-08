@@ -72,6 +72,8 @@
           <h6>Plots</h6>
           {% set has_plot_mode_toggle = parsed.plots|length > 1 %}
           {% set plot_mode_id = "plot-mode-" ~ parsed.parser|lower %}
+          {% set combined_mode_btn_id = plot_mode_id ~ "-combined" %}
+          {% set separate_mode_btn_id = plot_mode_id ~ "-separate" %}
           {% set combined_plot_id = "plotly-" ~ parsed.parser|lower ~ "-combined" %}
           {% set combined_wrap_id = combined_plot_id ~ "-wrap" %}
           {% set combined_x_scale_id = combined_plot_id ~ "-xscale" %}
@@ -79,12 +81,9 @@
           {% set separate_wrap_id = combined_plot_id ~ "-separate" %}
 
           {% if has_plot_mode_toggle %}
-            <div class="plot-controls mb-2">
-              <label for="{{ plot_mode_id }}" class="plot-control-label">View mode</label>
-              <select id="{{ plot_mode_id }}" class="form-select form-select-sm plot-scale-select">
-                <option value="combined" selected>Combined</option>
-                <option value="separate">Separate</option>
-              </select>
+            <div class="btn-group btn-group-sm mb-2" role="group" aria-label="Plot view mode">
+              <button id="{{ combined_mode_btn_id }}" type="button" class="btn btn-primary">Combined</button>
+              <button id="{{ separate_mode_btn_id }}" type="button" class="btn btn-outline-primary">Separate</button>
             </div>
           {% endif %}
 
@@ -102,7 +101,10 @@
                 <option value="log">Log</option>
               </select>
             </div>
-            <div id="{{ combined_plot_id }}" class="plotly-chart"></div>
+            <div class="plotly-resizable">
+              <div id="{{ combined_plot_id }}" class="plotly-chart"></div>
+              <div class="plot-resize-handle" role="separator" aria-orientation="vertical" aria-label="Resize plot"></div>
+            </div>
             <script>
               (function () {
                 var target = document.getElementById("{{ combined_plot_id }}");
@@ -116,6 +118,85 @@
 
                 function cloneObject(input) {
                   return input ? JSON.parse(JSON.stringify(input)) : {};
+                }
+
+                function bindVerticalResize(plotElement) {
+                  if (!plotElement || !window.Plotly) {
+                    return;
+                  }
+                  var container = plotElement.closest(".plotly-resizable");
+                  if (!container) {
+                    return;
+                  }
+                  if (window.ResizeObserver && !plotElement.__plotResizeObserver) {
+                    var frameId = null;
+                    var observer = new ResizeObserver(function () {
+                      if (frameId !== null) {
+                        window.cancelAnimationFrame(frameId);
+                      }
+                      frameId = window.requestAnimationFrame(function () {
+                        if (plotElement.data) {
+                          Plotly.Plots.resize(plotElement);
+                        }
+                      });
+                    });
+                    observer.observe(container);
+                    plotElement.__plotResizeObserver = observer;
+                  }
+
+                  var handle = container.querySelector(".plot-resize-handle");
+                  if (!handle || handle.__plotDragBound) {
+                    return;
+                  }
+                  handle.__plotDragBound = true;
+
+                  var dragState = null;
+                  var minHeight = 320;
+
+                  function setHeight(nextHeight) {
+                    container.style.height = Math.max(minHeight, Math.round(nextHeight)) + "px";
+                    if (plotElement.data) {
+                      Plotly.Plots.resize(plotElement);
+                    }
+                  }
+
+                  function finishDrag(event) {
+                    if (!dragState || event.pointerId !== dragState.pointerId) {
+                      return;
+                    }
+                    if (handle.releasePointerCapture) {
+                      handle.releasePointerCapture(event.pointerId);
+                    }
+                    dragState = null;
+                    document.body.classList.remove("plot-resizing");
+                  }
+
+                  handle.addEventListener("pointerdown", function (event) {
+                    if (event.button !== 0) {
+                      return;
+                    }
+                    event.preventDefault();
+                    dragState = {
+                      pointerId: event.pointerId,
+                      startY: event.clientY,
+                      startHeight: container.getBoundingClientRect().height
+                    };
+                    if (handle.setPointerCapture) {
+                      handle.setPointerCapture(event.pointerId);
+                    }
+                    document.body.classList.add("plot-resizing");
+                  });
+
+                  handle.addEventListener("pointermove", function (event) {
+                    if (!dragState || event.pointerId !== dragState.pointerId) {
+                      return;
+                    }
+                    var deltaY = event.clientY - dragState.startY;
+                    setHeight(dragState.startHeight + deltaY);
+                  });
+
+                  handle.addEventListener("pointerup", finishDrag);
+                  handle.addEventListener("pointercancel", finishDrag);
                 }
 
                 var plotItems = {{ parsed.plots | tojson }};
@@ -205,6 +286,7 @@
                   xScale.addEventListener("change", applyScale);
                   yScale.addEventListener("change", applyScale);
                   applyScale();
+                  bindVerticalResize(target);
                 });
               })();
             </script>
@@ -230,7 +312,10 @@
                       <option value="log" {% if plot.default_y_scale == 'log' %}selected{% endif %}>Log</option>
                     </select>
                   </div>
-                  <div id="{{ plot_id }}" class="plotly-chart"></div>
+                  <div class="plotly-resizable">
+                    <div id="{{ plot_id }}" class="plotly-chart"></div>
+                    <div class="plot-resize-handle" role="separator" aria-orientation="vertical" aria-label="Resize plot"></div>
+                  </div>
                   <script>
                     (function () {
                       var target = document.getElementById("{{ plot_id }}");
@@ -241,6 +326,86 @@
                         target.innerHTML = '<p class="text-muted small mb-0">Plotly failed to load.</p>';
                         return;
                       }
+
+                      function bindVerticalResize(plotElement) {
+                        if (!plotElement || !window.Plotly) {
+                          return;
+                        }
+                        var container = plotElement.closest(".plotly-resizable");
+                        if (!container) {
+                          return;
+                        }
+                        if (window.ResizeObserver && !plotElement.__plotResizeObserver) {
+                          var frameId = null;
+                          var observer = new ResizeObserver(function () {
+                            if (frameId !== null) {
+                              window.cancelAnimationFrame(frameId);
+                            }
+                            frameId = window.requestAnimationFrame(function () {
+                              if (plotElement.data) {
+                                Plotly.Plots.resize(plotElement);
+                              }
+                            });
+                          });
+                          observer.observe(container);
+                          plotElement.__plotResizeObserver = observer;
+                        }
+
+                        var handle = container.querySelector(".plot-resize-handle");
+                        if (!handle || handle.__plotDragBound) {
+                          return;
+                        }
+                        handle.__plotDragBound = true;
+
+                        var dragState = null;
+                        var minHeight = 320;
+
+                        function setHeight(nextHeight) {
+                          container.style.height = Math.max(minHeight, Math.round(nextHeight)) + "px";
+                          if (plotElement.data) {
+                            Plotly.Plots.resize(plotElement);
+                          }
+                        }
+
+                        function finishDrag(event) {
+                          if (!dragState || event.pointerId !== dragState.pointerId) {
+                            return;
+                          }
+                          if (handle.releasePointerCapture) {
+                            handle.releasePointerCapture(event.pointerId);
+                          }
+                          dragState = null;
+                          document.body.classList.remove("plot-resizing");
+                        }
+
+                        handle.addEventListener("pointerdown", function (event) {
+                          if (event.button !== 0) {
+                            return;
+                          }
+                          event.preventDefault();
+                          dragState = {
+                            pointerId: event.pointerId,
+                            startY: event.clientY,
+                            startHeight: container.getBoundingClientRect().height
+                          };
+                          if (handle.setPointerCapture) {
+                            handle.setPointerCapture(event.pointerId);
+                          }
+                          document.body.classList.add("plot-resizing");
+                        });
+
+                        handle.addEventListener("pointermove", function (event) {
+                          if (!dragState || event.pointerId !== dragState.pointerId) {
+                            return;
+                          }
+                          var deltaY = event.clientY - dragState.startY;
+                          setHeight(dragState.startHeight + deltaY);
+                        });
+
+                        handle.addEventListener("pointerup", finishDrag);
+                        handle.addEventListener("pointercancel", finishDrag);
+                      }
+
                       Plotly.newPlot(
                         target,
                         {{ plot.data | tojson }},
@@ -263,6 +428,7 @@
                         xScale.addEventListener("change", applyScale);
                         yScale.addEventListener("change", applyScale);
                         applyScale();
+                        bindVerticalResize(target);
                       });
                     })();
                   </script>
@@ -272,13 +438,15 @@
 
             <script>
               (function () {
-                var mode = document.getElementById("{{ plot_mode_id }}");
+                var combinedModeButton = document.getElementById("{{ combined_mode_btn_id }}");
+                var separateModeButton = document.getElementById("{{ separate_mode_btn_id }}");
                 var combinedWrap = document.getElementById("{{ combined_wrap_id }}");
                 var separateWrap = document.getElementById("{{ separate_wrap_id }}");
-                if (!mode || !combinedWrap || !separateWrap) {
+                if (!combinedModeButton || !separateModeButton || !combinedWrap || !separateWrap) {
                   return;
                 }
                 var plotItems = {{ parsed.plots | tojson }};
+                var activeMode = "combined";
 
                 function xAxisSignature(item) {
                   if (!item || !item.layout || !item.layout.xaxis) {
@@ -321,8 +489,22 @@
                   }
                 }
 
+                function syncModeButtons() {
+                  if (activeMode === "separate") {
+                    separateModeButton.classList.remove("btn-outline-primary");
+                    separateModeButton.classList.add("btn-primary");
+                    combinedModeButton.classList.remove("btn-primary");
+                    combinedModeButton.classList.add("btn-outline-primary");
+                  } else {
+                    combinedModeButton.classList.remove("btn-outline-primary");
+                    combinedModeButton.classList.add("btn-primary");
+                    separateModeButton.classList.remove("btn-primary");
+                    separateModeButton.classList.add("btn-outline-primary");
+                  }
+                }
+
                 function applyMode() {
-                  if (mode.value === "separate") {
+                  if (activeMode === "separate") {
                     combinedWrap.style.display = "none";
                     separateWrap.style.display = "";
                     resizeVisibleCharts(separateWrap);
@@ -331,12 +513,20 @@
                     combinedWrap.style.display = "";
                     resizeVisibleCharts(combinedWrap);
                   }
+                  syncModeButtons();
                 }
 
                 if (hasMixedXAxes(plotItems)) {
-                  mode.value = "separate";
+                  activeMode = "separate";
                 }
-                mode.addEventListener("change", applyMode);
+                combinedModeButton.addEventListener("click", function () {
+                  activeMode = "combined";
+                  applyMode();
+                });
+                separateModeButton.addEventListener("click", function () {
+                  activeMode = "separate";
+                  applyMode();
+                });
                 applyMode();
               })();
             </script>
