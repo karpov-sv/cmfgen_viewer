@@ -15,10 +15,14 @@
       <div class="container">
         <a class="navbar-brand" href="{{ url_for('viewer.index') }}">CMFGEN Viewer</a>
         {% set on_docs = request.path.startswith('/documentation') %}
+        {% set on_uploads = request.path.startswith('/uploads') %}
         {% set current_doc_slug = request.view_args.get('slug') if request.endpoint == 'viewer.documentation' and request.view_args else '' %}
         <ul class="navbar-nav ms-auto flex-row gap-2">
           <li class="nav-item">
-            <a class="nav-link {% if not on_docs %}active{% endif %}" href="{{ url_for('viewer.view', path='') }}">Browse</a>
+            <a class="nav-link {% if not on_docs and not on_uploads %}active{% endif %}" href="{{ url_for('viewer.view', path='') }}">Browse</a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link {% if on_uploads %}active{% endif %}" href="{{ url_for('viewer.uploads') }}">Uploads</a>
           </li>
           <li class="nav-item dropdown">
             <a

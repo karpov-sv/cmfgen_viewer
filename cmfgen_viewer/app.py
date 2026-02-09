@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import secrets
 from pathlib import Path
+import tempfile
 
 from flask import Flask
 
@@ -18,6 +19,7 @@ def create_app(
     app.config["CMFGEN_VIEWER"] = {
         "basepath": str(Path(basepath).expanduser().resolve()),
         "show_all": bool(show_all),
+        "upload_root": str((Path(tempfile.gettempdir()) / "cmfgen_viewer_uploads").resolve()),
     }
     app.secret_key = secret_key or secrets.token_hex(24)
 

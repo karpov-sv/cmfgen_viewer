@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+
+{% block title %}Uploads - CMFGEN Viewer{% endblock %}
+
+{% block body %}
+  <section class="mb-4">
+    <h2 class="h4 mb-1">Uploaded Spectra</h2>
+    <p class="text-muted mb-2">Storage root: <code>{{ upload_root }}</code></p>
+
+    {% if message %}
+      <div class="alert alert-success py-2">{{ message }}</div>
+    {% endif %}
+    {% if error %}
+      <div class="alert alert-danger py-2">{{ error }}</div>
+    {% endif %}
+
+    <div class="upload-inline-wrap mb-3">
+      <form method="post" action="{{ url_for('viewer.uploads_upload') }}" enctype="multipart/form-data" class="upload-inline-form">
+        <input id="uploads-file" name="observed_file" type="file" class="form-control form-control-sm upload-file-input" accept=".fits,.fit,.fts,.txt,.dat,.csv" title="Spectrum file" aria-label="Spectrum file" required>
+        <select id="uploads-flux-mode" name="flux_mode" class="form-select form-select-sm upload-mode-select" title="Flux mode" aria-label="Flux mode">
+          <option value="auto">Auto</option>
+          <option value="normalized">Normalized</option>
+          <option value="absolute">Absolute</option>
+        </select>
+        <button type="submit" class="btn btn-sm btn-primary">Upload</button>
+      </form>
+    </div>
+
+    <p class="small text-muted mb-3">Uploads are global and can be overlaid on any model from the Final Spectrum page.</p>
+
+    <div class="table-responsive">
+      <table class="table table-sm table-striped align-middle">
+        <thead>
+          <tr>
+            <th>File</th>
+            <th>Flux mode</th>
+            <th>Detected</th>
+            <th>Format</th>
+            <th>Points</th>
+            <th>Size</th>
+            <th>Created</th>
+            <th>Status</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in uploads %}
+            <tr>
+              <td><code>{{ item.filename }}</code></td>
+              <td><code>{{ item.flux_mode }}</code></td>
+              <td><code>{{ item.detected_flux_mode }}</code></td>
+              <td><code>{{ item.format }}</code></td>
+              <td><code>{{ item.points }}</code></td>
+              <td><code>{{ item.size }}</code></td>
+              <td><code>{{ item.created_at }}</code></td>
+              <td>
+                {% if item.exists %}
+                  <span class="text-success">ready</span>
+                {% else %}
+                  <span class="text-danger">missing file</span>
+                {% endif %}
+              </td>
+              <td>
+                <div class="d-flex flex-wrap gap-1">
+                  <form method="post" action="{{ url_for('viewer.uploads_delete', token=item.token) }}">
+                    <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+                  </form>
+                </div>
+              </td>
+            </tr>
+          {% else %}
+            <tr>
+              <td colspan="9" class="text-muted">No uploaded spectra yet.</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+{% endblock %}

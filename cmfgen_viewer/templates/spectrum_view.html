@@ -10,6 +10,9 @@
     <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
       <form method="get" class="d-flex align-items-center gap-2">
         <input type="hidden" name="mode" value="{{ mode }}">
+        {% for token in obs_tokens %}
+          <input type="hidden" name="obs" value="{{ token }}">
+        {% endfor %}
         <label for="fin-select" class="small text-muted mb-0">obs_fin file</label>
         <select id="fin-select" name="fin" class="form-select form-select-sm" onchange="this.form.submit()">
           {% for option in fin_options %}
@@ -21,18 +24,74 @@
       <div class="btn-group btn-group-sm ms-sm-2" role="group" aria-label="Spectrum mode">
         <a
           class="btn {% if mode == 'both' %}btn-primary{% else %}btn-outline-primary{% endif %}"
-          href="{{ url_for('viewer.spectrum', path=path, fin=selected_fin, mode='both') }}"
+          href="{{ mode_urls.both }}"
         >
           Spectrum + Continuum
         </a>
         <a
           class="btn {% if mode == 'normalized' %}btn-primary{% else %}btn-outline-primary{% endif %}"
-          href="{{ url_for('viewer.spectrum', path=path, fin=selected_fin, mode='normalized') }}"
+          href="{{ mode_urls.normalized }}"
         >
           Normalized
         </a>
       </div>
     </div>
+
+    <div class="upload-inline-wrap mb-2">
+      <form
+        method="post"
+        action="{{ url_for('viewer.spectrum_upload', path=path) }}"
+        enctype="multipart/form-data"
+        class="upload-inline-form"
+      >
+        <input type="hidden" name="fin" value="{{ selected_fin }}">
+        <input type="hidden" name="mode" value="{{ mode }}">
+        {% for token in obs_tokens %}
+          <input type="hidden" name="obs" value="{{ token }}">
+        {% endfor %}
+        <input
+          id="observed-upload"
+          name="observed_file"
+          type="file"
+          class="form-control form-control-sm upload-file-input"
+          accept=".fits,.fit,.fts,.txt,.dat,.csv"
+          title="Observed spectrum file"
+          aria-label="Observed spectrum file"
+          required
+        >
+        <select id="upload-flux-mode" name="flux_mode" class="form-select form-select-sm upload-mode-select" title="Flux mode" aria-label="Flux mode">
+          <option value="auto" {% if upload_flux_mode == "auto" %}selected{% endif %}>Auto</option>
+          <option value="normalized" {% if upload_flux_mode == "normalized" %}selected{% endif %}>Normalized</option>
+          <option value="absolute" {% if upload_flux_mode == "absolute" %}selected{% endif %}>Absolute</option>
+        </select>
+        <button type="submit" class="btn btn-sm btn-outline-primary">Upload</button>
+        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('viewer.uploads') }}">Manage Uploads</a>
+      </form>
+    </div>
+
+    <form method="get" class="d-flex flex-wrap align-items-center gap-2 mb-3">
+      <input type="hidden" name="fin" value="{{ selected_fin }}">
+      <input type="hidden" name="mode" value="{{ mode }}">
+      <label for="obs-overlay-select" class="small text-muted mb-0">Overlay uploads</label>
+      <select id="obs-overlay-select" name="obs" class="form-select form-select-sm" multiple size="4">
+        {% for item in available_uploads %}
+          <option value="{{ item.token }}" {% if item.selected %}selected{% endif %}>
+            {{ item.label }}
+          </option>
+        {% endfor %}
+      </select>
+      <button type="submit" class="btn btn-sm btn-outline-primary">Apply overlays</button>
+      <a class="btn btn-sm btn-outline-secondary" href="{{ clear_overlay_url }}">Clear</a>
+    </form>
+
+    {% if selected_observed_uploads %}
+      <div class="mb-3 small text-muted">
+        Active overlays:
+        {% for item in selected_observed_uploads %}
+          <code>{{ item.filename }}</code>{% if not loop.last %}, {% endif %}
+        {% endfor %}
+      </div>
+    {% endif %}
   </section>
 
   {% if plot_data %}
@@ -208,10 +267,16 @@
         var resetTransform = document.getElementById("{{ reset_transform_id }}");
         var transformHint = document.getElementById("{{ transform_hint_id }}");
 
+        var transformTargets = [];
         var baseData = plotData.map(function (trace) {
           var cloned = Object.assign({}, trace);
           cloned.x = Array.isArray(trace.x) ? trace.x.slice() : [];
           cloned.y = Array.isArray(trace.y) ? trace.y.slice() : [];
+          var targetKind = "model";
+          if (trace.meta && trace.meta.transform_target === "observed") {
+            targetKind = "observed";
+          }
+          transformTargets.push(targetKind);
           return cloned;
         });
         var isSyncingVelocity = false;
@@ -428,9 +493,14 @@
           for (var traceIndex = 0; traceIndex < baseData.length; traceIndex += 1) {
             var sourceX = baseData[traceIndex].x;
             var sourceY = baseData[traceIndex].y;
+            if (transformTargets[traceIndex] !== "model") {
+              transformedX.push(sourceX.slice());
+              transformedY.push(sourceY.slice());
+              continue;
+            }
+
             var nextX = new Array(sourceX.length);
             var nextY = new Array(sourceY.length);
-
             for (var i = 0; i < sourceX.length; i += 1) {
               var wavelength = sourceX[i] * wavelengthScale;
               nextX[i] = wavelength;

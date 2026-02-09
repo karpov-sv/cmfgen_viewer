@@ -3,13 +3,17 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 import re
+import time
+from urllib.parse import urlencode
 
 from flask import Blueprint, abort, current_app, redirect, render_template, request, send_file, url_for
 from markupsafe import Markup
 from pygments.formatters import HtmlFormatter
+from werkzeug.utils import secure_filename
 
 from .browser import describe_file, is_model_context_path, list_directory, make_breadcrumb, resolve_path
 from .final_spectrum import (
+    build_observed_overlay_trace,
     build_both_plot,
     build_model_summary_sections,
     build_normalized_plot,
@@ -18,6 +22,14 @@ from .final_spectrum import (
     load_obs_spectrum,
     read_model,
     spectrum_data_rows,
+)
+from .observed_spectrum import (
+    generate_upload_token,
+    is_valid_upload_token,
+    list_upload_manifests,
+    parse_uploaded_spectrum,
+    remove_upload_bundle,
+    write_upload_manifest,
 )
 from .syntax import highlight_text, syntax_css
 
@@ -100,6 +112,69 @@ def _normalize_markdown_lists(source: str) -> str:
 
 def _viewer_config() -> dict[str, object]:
     return dict(current_app.config.get("CMFGEN_VIEWER", {}))
+
+
+def _upload_root(config: dict[str, object]) -> Path:
+    root = str(config.get("upload_root", "/tmp/cmfgen_viewer_uploads"))
+    return Path(root).expanduser().resolve()
+
+
+def _normalize_spectrum_mode(raw_mode: str | None) -> str:
+    mode = (raw_mode or "both").strip().lower()
+    if mode not in {"both", "normalized"}:
+        return "both"
+    return mode
+
+
+def _collect_obs_tokens(raw_values: list[str]) -> list[str]:
+    tokens: list[str] = []
+    seen: set[str] = set()
+    for raw in raw_values:
+        for part in str(raw).split(","):
+            token = part.strip()
+            if not token or not is_valid_upload_token(token) or token in seen:
+                continue
+            tokens.append(token)
+            seen.add(token)
+    return tokens
+
+
+def _spectrum_url(
+    model_root: str,
+    *,
+    fin: str,
+    mode: str,
+    obs_tokens: list[str] | None = None,
+    upload_error: str = "",
+) -> str:
+    base = url_for("viewer.spectrum", path=model_root)
+    query: list[tuple[str, str]] = [("fin", fin), ("mode", _normalize_spectrum_mode(mode))]
+    for token in obs_tokens or []:
+        if is_valid_upload_token(token):
+            query.append(("obs", token))
+    if upload_error:
+        query.append(("upload_error", upload_error))
+    encoded = urlencode(query, doseq=True)
+    return f"{base}?{encoded}" if encoded else base
+
+
+def _spectrum_redirect(
+    model_root: str,
+    *,
+    fin: str,
+    mode: str,
+    obs_tokens: list[str] | None = None,
+    upload_error: str = "",
+):
+    return redirect(
+        _spectrum_url(
+            model_root,
+            fin=fin,
+            mode=mode,
+            obs_tokens=obs_tokens or [],
+            upload_error=upload_error,
+        )
+    )
 
 
 def _join_relpath(parent: str, child: str) -> str:
@@ -279,6 +354,220 @@ def documentation(slug: str | None):
     )
 
 
+def _format_upload_time(timestamp: object) -> str:
+    try:
+        value = float(timestamp)
+    except (TypeError, ValueError):
+        return ""
+    if value <= 0:
+        return ""
+    return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(value))
+
+
+def _upload_entry_for_display(entry: dict[str, object]) -> dict[str, object]:
+    return {
+        "token": str(entry.get("token", "")),
+        "filename": str(entry.get("filename", "")),
+        "format": str(entry.get("format", "")),
+        "flux_mode": str(entry.get("resolved_flux_mode", entry.get("requested_flux_mode", ""))),
+        "detected_flux_mode": str(entry.get("detected_flux_mode", "")),
+        "points": int(entry.get("points", 0) or 0),
+        "size": int(entry.get("size", 0) or 0),
+        "exists": bool(entry.get("exists", False)),
+        "created_at": _format_upload_time(entry.get("created_at", 0)),
+    }
+
+
+@bp.route("/uploads/")
+def uploads():
+    config = _viewer_config()
+    upload_root = _upload_root(config)
+    uploads_all = list_upload_manifests(upload_root)
+
+    upload_items: list[dict[str, object]] = []
+    for entry in uploads_all:
+        display = _upload_entry_for_display(entry)
+        upload_items.append(display)
+
+    return render_template(
+        "uploads.html",
+        upload_root=str(upload_root),
+        uploads=upload_items,
+        message=request.args.get("message", "").strip(),
+        error=request.args.get("error", "").strip(),
+    )
+
+
+@bp.route("/uploads/upload", methods=["POST"])
+def uploads_upload():
+    config = _viewer_config()
+    upload_root = _upload_root(config)
+
+    uploaded = request.files.get("observed_file")
+    if uploaded is None or not uploaded.filename:
+        return redirect(url_for("viewer.uploads", error="No file selected for upload."))
+
+    requested_flux_mode = str(request.form.get("flux_mode", "auto")).strip().lower()
+    token = generate_upload_token()
+    token_dir = upload_root / token
+    token_dir.mkdir(parents=True, exist_ok=False)
+
+    safe_name = secure_filename(uploaded.filename) or "observed-spectrum"
+    suffix = Path(safe_name).suffix.lower()
+    stored_name = f"source{suffix}" if suffix else "source.dat"
+    stored_path = token_dir / stored_name
+
+    try:
+        uploaded.save(stored_path)
+        parsed = parse_uploaded_spectrum(stored_path, flux_mode=requested_flux_mode)
+    except Exception as exc:
+        remove_upload_bundle(upload_root, token)
+        return redirect(url_for("viewer.uploads", error=f"Upload failed: {exc}"))
+
+    manifest = {
+        "token": token,
+        "filename": safe_name,
+        "stored_name": stored_name,
+        "requested_flux_mode": requested_flux_mode,
+        "detected_flux_mode": str(parsed.get("detected_flux_mode", "")),
+        "resolved_flux_mode": str(parsed.get("flux_mode", "")),
+        "format": str(parsed.get("format", "")),
+        "points": len(parsed.get("wavelength", [])),
+        "created_at": time.time(),
+    }
+    write_upload_manifest(upload_root, token, manifest)
+    return redirect(url_for("viewer.uploads", message=f"Uploaded {safe_name}."))
+
+
+@bp.route("/uploads/delete/<token>", methods=["POST"])
+def uploads_delete(token: str):
+    if not is_valid_upload_token(token):
+        abort(404)
+    config = _viewer_config()
+    upload_root = _upload_root(config)
+    remove_upload_bundle(upload_root, token)
+    return redirect(url_for("viewer.uploads", message="Upload removed."))
+
+
+@bp.route("/spectrum-upload/<path:path>", methods=["POST"])
+def spectrum_upload(path: str):
+    config = _viewer_config()
+    basepath = str(config.get("basepath", "."))
+
+    try:
+        target = resolve_path(basepath, path)
+    except FileNotFoundError:
+        abort(404)
+    if not target.is_dir():
+        abort(404)
+
+    model_root = _model_root_relpath(path)
+    if not model_root:
+        abort(404)
+    model_dir = resolve_path(basepath, model_root)
+    spectrum_files = discover_final_spectrum_files(model_dir)
+    if spectrum_files is None:
+        abort(404)
+
+    fin_files = [entry.name for entry in spectrum_files["fin_files"]]
+    if not fin_files:
+        abort(404)
+
+    selected_fin = request.form.get("fin", "").strip()
+    if selected_fin not in fin_files:
+        selected_fin = fin_files[0]
+    view_mode = _normalize_spectrum_mode(request.form.get("mode"))
+    current_obs_tokens = _collect_obs_tokens(request.form.getlist("obs"))
+
+    uploaded = request.files.get("observed_file")
+    if uploaded is None or not uploaded.filename:
+        return _spectrum_redirect(
+            model_root,
+            fin=selected_fin,
+            mode=view_mode,
+            obs_tokens=current_obs_tokens,
+            upload_error="No observed spectrum file was selected.",
+        )
+
+    requested_flux_mode = str(request.form.get("flux_mode", "auto")).strip().lower()
+    upload_root = _upload_root(config)
+    token = generate_upload_token()
+    token_dir = upload_root / token
+    token_dir.mkdir(parents=True, exist_ok=False)
+
+    safe_name = secure_filename(uploaded.filename) or "observed-spectrum"
+    suffix = Path(safe_name).suffix.lower()
+    stored_name = f"source{suffix}" if suffix else "source.dat"
+    stored_path = token_dir / stored_name
+
+    try:
+        uploaded.save(stored_path)
+        parsed = parse_uploaded_spectrum(stored_path, flux_mode=requested_flux_mode)
+    except Exception as exc:
+        remove_upload_bundle(upload_root, token)
+        return _spectrum_redirect(
+            model_root,
+            fin=selected_fin,
+            mode=view_mode,
+            obs_tokens=current_obs_tokens,
+            upload_error=f"Uploaded spectrum could not be parsed: {exc}",
+        )
+
+    manifest = {
+        "token": token,
+        "filename": safe_name,
+        "stored_name": stored_name,
+        "requested_flux_mode": requested_flux_mode,
+        "detected_flux_mode": str(parsed.get("detected_flux_mode", "")),
+        "resolved_flux_mode": str(parsed.get("flux_mode", "")),
+        "format": str(parsed.get("format", "")),
+        "points": len(parsed.get("wavelength", [])),
+        "created_at": time.time(),
+    }
+    write_upload_manifest(upload_root, token, manifest)
+
+    selected_tokens = _collect_obs_tokens(current_obs_tokens + [token])
+    return _spectrum_redirect(model_root, fin=selected_fin, mode=view_mode, obs_tokens=selected_tokens)
+
+
+@bp.route("/spectrum-upload/remove/<path:path>", methods=["POST"])
+def spectrum_upload_remove(path: str):
+    config = _viewer_config()
+    basepath = str(config.get("basepath", "."))
+
+    try:
+        target = resolve_path(basepath, path)
+    except FileNotFoundError:
+        abort(404)
+    if not target.is_dir():
+        abort(404)
+
+    model_root = _model_root_relpath(path)
+    if not model_root:
+        abort(404)
+    model_dir = resolve_path(basepath, model_root)
+    spectrum_files = discover_final_spectrum_files(model_dir)
+    if spectrum_files is None:
+        abort(404)
+    fin_files = [entry.name for entry in spectrum_files["fin_files"]]
+    if not fin_files:
+        abort(404)
+
+    selected_fin = request.form.get("fin", "").strip()
+    if selected_fin not in fin_files:
+        selected_fin = fin_files[0]
+    view_mode = _normalize_spectrum_mode(request.form.get("mode"))
+
+    token = request.form.get("token", "").strip() or request.form.get("obs", "").strip()
+    upload_root = _upload_root(config)
+    if is_valid_upload_token(token):
+        remove_upload_bundle(upload_root, token)
+
+    remaining = _collect_obs_tokens(request.form.getlist("obs"))
+    remaining = [item for item in remaining if item != token]
+    return _spectrum_redirect(model_root, fin=selected_fin, mode=view_mode, obs_tokens=remaining)
+
+
 @bp.route("/spectrum/<path:path>")
 def spectrum(path: str):
     config = _viewer_config()
@@ -308,17 +597,58 @@ def spectrum(path: str):
     if selected_fin not in fin_files:
         selected_fin = fin_files[0]
 
-    view_mode = request.args.get("mode", "both").strip().lower()
-    if view_mode not in {"both", "normalized"}:
-        view_mode = "both"
+    view_mode = _normalize_spectrum_mode(request.args.get("mode"))
+    selected_obs_tokens = _collect_obs_tokens(request.args.getlist("obs"))
+
+    warnings: list[str] = []
+    upload_error = request.args.get("upload_error", "").strip()
+    if upload_error:
+        warnings.append(upload_error)
+
+    upload_root = _upload_root(config)
+    upload_entries = list_upload_manifests(upload_root)
+    available_upload_entries = upload_entries
+
+    available_by_token = {str(entry.get("token", "")): entry for entry in available_upload_entries}
+    selected_observed_uploads: list[dict[str, object]] = []
+    selected_parsed: list[dict[str, object]] = []
+    for token in selected_obs_tokens:
+        entry = available_by_token.get(token)
+        if entry is None:
+            warnings.append(f"Uploaded spectrum token '{token}' is not available.")
+            continue
+        stored_name = str(entry.get("stored_name", ""))
+        source_path = upload_root / token / stored_name if stored_name else None
+        if source_path is None or not source_path.is_file():
+            warnings.append(f"Uploaded spectrum '{entry.get('filename', token)}' file is missing.")
+            continue
+        upload_flux_mode = str(entry.get("requested_flux_mode", "auto")).strip().lower() or "auto"
+        try:
+            parsed = parse_uploaded_spectrum(source_path, flux_mode=upload_flux_mode)
+        except Exception as exc:
+            warnings.append(f"Uploaded spectrum '{entry.get('filename', source_path.name)}' failed to load: {exc}")
+            continue
+        parsed["name"] = str(entry.get("filename", source_path.name))
+
+        selected_parsed.append(parsed)
+        selected_observed_uploads.append(_upload_entry_for_display(entry))
+        for warning in parsed.get("warnings", []):
+            warnings.append(f"Uploaded {entry.get('filename', source_path.name)}: {warning}")
 
     continuum = load_obs_spectrum(Path(spectrum_files["obs_cont"]))
     final = load_obs_spectrum(Path(spectrum_files["obs_dir"]) / selected_fin)
     plot_data = build_both_plot(continuum, final) if view_mode == "both" else build_normalized_plot(continuum, final)
 
-    warnings: list[str] = []
     if plot_data is None:
         warnings.append("Plot generation failed: insufficient overlapping spectrum points.")
+    else:
+        for observed_data in selected_parsed:
+            observed_trace, observed_warning = build_observed_overlay_trace(observed_data, mode=view_mode)
+            if observed_warning:
+                warnings.append(observed_warning)
+                continue
+            if observed_trace is not None:
+                plot_data["data"].append(observed_trace)
 
     breadcrumb = make_breadcrumb(model_root)
     if breadcrumb:
@@ -327,6 +657,23 @@ def spectrum(path: str):
 
     model_summary_sections = build_model_summary_sections(read_model(model_dir))
     fin_options = [{"name": name, "label": fin_file_label(name)} for name in fin_files]
+    selected_lookup = set(selected_obs_tokens)
+    available_uploads = []
+    for entry in available_upload_entries:
+        display = _upload_entry_for_display(entry)
+        token = str(display.get("token", ""))
+        label = str(display.get("filename", token))
+        mode_label = str(display.get("flux_mode", ""))
+        created_label = str(display.get("created_at", ""))
+        display["label"] = f"{label} [{mode_label}] {created_label}".strip()
+        display["selected"] = token in selected_lookup
+        available_uploads.append(display)
+
+    mode_urls = {
+        "both": _spectrum_url(model_root, fin=selected_fin, mode="both", obs_tokens=selected_obs_tokens),
+        "normalized": _spectrum_url(model_root, fin=selected_fin, mode="normalized", obs_tokens=selected_obs_tokens),
+    }
+    clear_overlay_url = _spectrum_url(model_root, fin=selected_fin, mode=view_mode, obs_tokens=[])
 
     context = {
         "path": model_root,
@@ -347,6 +694,12 @@ def spectrum(path: str):
         model_summary_sections=model_summary_sections,
         spectrum_summary_rows=spectrum_data_rows(continuum, final),
         warnings=warnings,
+        obs_tokens=selected_obs_tokens,
+        available_uploads=available_uploads,
+        selected_observed_uploads=selected_observed_uploads,
+        upload_flux_mode="auto",
+        mode_urls=mode_urls,
+        clear_overlay_url=clear_overlay_url,
         **context,
     )
 

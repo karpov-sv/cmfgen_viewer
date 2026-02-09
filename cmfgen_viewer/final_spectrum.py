@@ -466,6 +466,45 @@ def _jy_to_cgs_per_angstrom(wavelength: list[float], flux_jy: list[float]) -> tu
     return converted_x, converted_y
 
 
+def build_observed_overlay_trace(observed: dict[str, object], *, mode: str) -> tuple[dict[str, object] | None, str | None]:
+    wavelength = observed.get("wavelength")
+    flux = observed.get("flux")
+    flux_mode = str(observed.get("flux_mode", "")).strip().lower()
+    if not isinstance(wavelength, list) or not isinstance(flux, list):
+        return None, "Uploaded spectrum could not be plotted: missing wavelength/flux vectors."
+
+    if mode == "normalized" and flux_mode != "normalized":
+        return None, "Uploaded spectrum is absolute-flux data; it is shown only in Spectrum + Continuum mode."
+    if mode == "both" and flux_mode != "absolute":
+        return None, "Uploaded spectrum is continuum-normalized; it is shown only in Normalized mode."
+
+    x, y = downsample_xy(wavelength, flux, max_points=MAX_SERIES_POINTS)
+    if len(x) < 2:
+        return None, "Uploaded spectrum has too few valid points for plotting."
+
+    label = str(observed.get("name", "uploaded-spectrum"))
+    if mode == "normalized":
+        hover = "Wavelength=%{x:.6g} Å<br>Observed=%{y:.6g}<extra></extra>"
+        y_axis_name = "Normalized"
+    else:
+        hover = "Wavelength=%{x:.6g} Å<br>Observed Flux=%{y:.6e}<extra></extra>"
+        y_axis_name = "Flux"
+
+    return (
+        {
+            "type": "scatter",
+            "mode": "lines",
+            "name": f"Observed ({label})",
+            "x": x,
+            "y": y,
+            "line": {"color": "#212529", "width": 1.2, "dash": "solid"},
+            "hovertemplate": hover,
+            "meta": {"transform_target": "observed", "y_axis_name": y_axis_name},
+        },
+        None,
+    )
+
+
 def build_both_plot(continuum: dict[str, object], final: dict[str, object]) -> dict[str, object] | None:
     cont_x = continuum.get("wavelength")
     cont_y = continuum.get("flux")
@@ -496,6 +535,7 @@ def build_both_plot(continuum: dict[str, object], final: dict[str, object]) -> d
                 "y": fin_y_ds,
                 "line": {"color": "#1f77b4", "width": 1.6},
                 "hovertemplate": "Wavelength=%{x:.6g} Å<br>Flux=%{y:.6e} erg s^-1 cm^-2 Å^-1<extra></extra>",
+                "meta": {"transform_target": "model", "y_axis_name": "Flux"},
             },
             {
                 "type": "scatter",
@@ -505,6 +545,7 @@ def build_both_plot(continuum: dict[str, object], final: dict[str, object]) -> d
                 "y": cont_y_ds,
                 "line": {"color": "#d62728", "width": 1.3},
                 "hovertemplate": "Wavelength=%{x:.6g} Å<br>Flux=%{y:.6e} erg s^-1 cm^-2 Å^-1<extra></extra>",
+                "meta": {"transform_target": "model", "y_axis_name": "Flux"},
             },
         ],
         "layout": _plot_layout(y_label="Flux (erg s^-1 cm^-2 Å^-1)", y_scale="log"),
@@ -550,6 +591,7 @@ def build_normalized_plot(continuum: dict[str, object], final: dict[str, object]
                 "y": ratio_y_ds,
                 "line": {"color": "#198754", "width": 1.5},
                 "hovertemplate": "Wavelength=%{x:.6g} Å<br>Normalized=%{y:.6g}<extra></extra>",
+                "meta": {"transform_target": "model", "y_axis_name": "Normalized"},
             }
         ],
         "layout": _plot_layout(y_label="Normalized flux", y_scale="linear"),
