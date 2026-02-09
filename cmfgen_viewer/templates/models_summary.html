@@ -16,6 +16,49 @@
     </div>
 
     {% if rows %}
+      {% set summary_plot_id = "summary-scatter-plot" %}
+      {% set summary_x_col_id = summary_plot_id ~ "-xcol" %}
+      {% set summary_y_col_id = summary_plot_id ~ "-ycol" %}
+      {% set summary_x_scale_id = summary_plot_id ~ "-xscale" %}
+      {% set summary_y_scale_id = summary_plot_id ~ "-yscale" %}
+      {% set summary_hint_id = summary_plot_id ~ "-hint" %}
+      <div class="plot-wrap mb-3">
+        <div class="plot-title">Summary Scatter Plot</div>
+        <div class="plot-controls">
+          <label for="{{ summary_x_col_id }}" class="plot-control-label">X column</label>
+          <select id="{{ summary_x_col_id }}" class="form-select form-select-sm plot-column-select">
+            {% for column in columns %}
+              {% if loop.index0 > 0 %}
+                <option value="{{ loop.index0 }}" {% if column == "T_*" %}selected{% endif %}>{{ column }}</option>
+              {% endif %}
+            {% endfor %}
+          </select>
+          <label for="{{ summary_y_col_id }}" class="plot-control-label">Y column</label>
+          <select id="{{ summary_y_col_id }}" class="form-select form-select-sm plot-column-select">
+            {% for column in columns %}
+              {% if loop.index0 > 0 %}
+                <option value="{{ loop.index0 }}" {% if column == "LSTAR" %}selected{% endif %}>{{ column }}</option>
+              {% endif %}
+            {% endfor %}
+          </select>
+          <label for="{{ summary_x_scale_id }}" class="plot-control-label">X scale</label>
+          <select id="{{ summary_x_scale_id }}" class="form-select form-select-sm plot-scale-select">
+            <option value="linear" selected>Linear</option>
+            <option value="log">Log</option>
+          </select>
+          <label for="{{ summary_y_scale_id }}" class="plot-control-label">Y scale</label>
+          <select id="{{ summary_y_scale_id }}" class="form-select form-select-sm plot-scale-select">
+            <option value="linear">Linear</option>
+            <option value="log" selected>Log</option>
+          </select>
+        </div>
+        <div id="{{ summary_hint_id }}" class="small text-muted mb-2"></div>
+        <div class="plotly-resizable">
+          <div id="{{ summary_plot_id }}" class="plotly-chart"></div>
+          <div class="plot-resize-handle" role="separator" aria-orientation="vertical" aria-label="Resize plot"></div>
+        </div>
+      </div>
+
       <div class="table-responsive table-view-wrap mb-3">
         <table class="table table-sm table-striped" id="summary-table">
           <thead>
@@ -27,6 +70,7 @@
                     class="table-sort"
                     data-column="{{ loop.index0 }}"
                     data-type="{{ 'string' if loop.index0 == 0 else 'number' }}"
+                    data-label="{{ column }}"
                   >
                     {{ column }} <span class="sort-indicator"></span>
                   </button>

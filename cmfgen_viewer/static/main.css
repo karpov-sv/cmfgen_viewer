@@ -213,6 +213,11 @@ a:focus {
     min-width: 5.75rem;
 }
 
+.plot-column-select {
+    width: auto;
+    min-width: 9rem;
+}
+
 .plot-number-input {
     width: auto;
     min-width: 4rem;

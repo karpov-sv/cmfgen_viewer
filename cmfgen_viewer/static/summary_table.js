@@ -7,6 +7,12 @@
     const tbody = table.tBodies[0];
     const headers = Array.from(table.querySelectorAll(".table-sort"));
     const copyButton = document.getElementById("summary-copy-btn");
+    const scatterPlot = document.getElementById("summary-scatter-plot");
+    const xColumnSelect = document.getElementById("summary-scatter-plot-xcol");
+    const yColumnSelect = document.getElementById("summary-scatter-plot-ycol");
+    const xScaleSelect = document.getElementById("summary-scatter-plot-xscale");
+    const yScaleSelect = document.getElementById("summary-scatter-plot-yscale");
+    const plotHint = document.getElementById("summary-scatter-plot-hint");
     if (!headers.length) {
         return;
     }
@@ -167,5 +173,225 @@
             const copied = copyWithFallback(text);
             flashCopyState(copied ? "Copied" : "Copy Failed", copied ? "btn-outline-success" : "btn-outline-danger");
         });
+    }
+
+    function bindVerticalResize(plotElement) {
+        const container = plotElement.closest(".plotly-resizable");
+        if (!container) {
+            return;
+        }
+        if (window.ResizeObserver && !plotElement.__plotResizeObserver) {
+            let frameId = null;
+            const observer = new ResizeObserver(function () {
+                if (frameId !== null) {
+                    window.cancelAnimationFrame(frameId);
+                }
+                frameId = window.requestAnimationFrame(function () {
+                    if (plotElement.data) {
+                        Plotly.Plots.resize(plotElement);
+                    }
+                });
+            });
+            observer.observe(container);
+            plotElement.__plotResizeObserver = observer;
+        }
+
+        const handle = container.querySelector(".plot-resize-handle");
+        if (!handle || handle.__plotDragBound) {
+            return;
+        }
+        handle.__plotDragBound = true;
+
+        let dragState = null;
+        const minHeight = 320;
+
+        function setHeight(nextHeight) {
+            container.style.height = Math.max(minHeight, Math.round(nextHeight)) + "px";
+            if (plotElement.data) {
+                Plotly.Plots.resize(plotElement);
+            }
+        }
+
+        function finishDrag(event) {
+            if (!dragState || event.pointerId !== dragState.pointerId) {
+                return;
+            }
+            if (handle.releasePointerCapture) {
+                handle.releasePointerCapture(event.pointerId);
+            }
+            dragState = null;
+            document.body.classList.remove("plot-resizing");
+        }
+
+        handle.addEventListener("pointerdown", function (event) {
+            if (event.button !== 0) {
+                return;
+            }
+            event.preventDefault();
+            dragState = {
+                pointerId: event.pointerId,
+                startY: event.clientY,
+                startHeight: container.getBoundingClientRect().height,
+            };
+            if (handle.setPointerCapture) {
+                handle.setPointerCapture(event.pointerId);
+            }
+            document.body.classList.add("plot-resizing");
+        });
+
+        handle.addEventListener("pointermove", function (event) {
+            if (!dragState || event.pointerId !== dragState.pointerId) {
+                return;
+            }
+            setHeight(dragState.startHeight + (event.clientY - dragState.startY));
+        });
+
+        handle.addEventListener("pointerup", finishDrag);
+        handle.addEventListener("pointercancel", finishDrag);
+    }
+
+    function readNumericValue(row, column) {
+        const raw = String(row.dataset["col" + column] || "").trim();
+        const numeric = Number(raw);
+        return Number.isFinite(numeric) ? numeric : null;
+    }
+
+    function selectedColumnLabel(selectElement) {
+        if (!selectElement) {
+            return "";
+        }
+        const option = selectElement.options[selectElement.selectedIndex];
+        return normalizeText(option ? option.textContent : "");
+    }
+
+    function setPlotHint(message, isError) {
+        if (!plotHint) {
+            return;
+        }
+        plotHint.textContent = message;
+        plotHint.classList.toggle("text-danger", !!isError);
+        plotHint.classList.toggle("text-muted", !isError);
+    }
+
+    function renderSummaryScatter() {
+        if (!scatterPlot || !xColumnSelect || !yColumnSelect || !xScaleSelect || !yScaleSelect) {
+            return;
+        }
+        if (!window.Plotly) {
+            scatterPlot.innerHTML = '<p class="text-muted small mb-0">Plotly failed to load.</p>';
+            return;
+        }
+
+        const xColumn = Number(xColumnSelect.value);
+        const yColumn = Number(yColumnSelect.value);
+        const xScale = xScaleSelect.value || "linear";
+        const yScale = yScaleSelect.value || "linear";
+        const xLabel = selectedColumnLabel(xColumnSelect);
+        const yLabel = selectedColumnLabel(yColumnSelect);
+
+        const xValues = [];
+        const yValues = [];
+        const labels = [];
+        let skippedNonNumeric = 0;
+        let skippedScale = 0;
+
+        const rows = Array.from(tbody.querySelectorAll("tr[data-entry]"));
+        rows.forEach((row) => {
+            const xValue = readNumericValue(row, xColumn);
+            const yValue = readNumericValue(row, yColumn);
+            if (xValue === null || yValue === null) {
+                skippedNonNumeric += 1;
+                return;
+            }
+            if ((xScale === "log" && xValue <= 0) || (yScale === "log" && yValue <= 0)) {
+                skippedScale += 1;
+                return;
+            }
+            xValues.push(xValue);
+            yValues.push(yValue);
+            labels.push(String(row.dataset.col0 || "").trim());
+        });
+
+        const plotData = [];
+        if (xValues.length) {
+            plotData.push({
+                type: "scatter",
+                mode: "markers",
+                x: xValues,
+                y: yValues,
+                text: labels,
+                marker: {
+                    size: 8,
+                    color: "#0d6efd",
+                    line: {
+                        color: "#084298",
+                        width: 0.8,
+                    },
+                },
+                hovertemplate:
+                    "%{text}<br>" +
+                    xLabel +
+                    ": %{x:.6g}<br>" +
+                    yLabel +
+                    ": %{y:.6g}<extra></extra>",
+            });
+        }
+
+        const layout = {
+            margin: { l: 74, r: 18, t: 18, b: 64 },
+            xaxis: { title: xLabel, type: xScale, automargin: true },
+            yaxis: { title: yLabel, type: yScale, automargin: true },
+            hovermode: "closest",
+            showlegend: false,
+        };
+
+        if (!xValues.length) {
+            layout.annotations = [
+                {
+                    text: "No plottable points for selected columns and axis scales.",
+                    showarrow: false,
+                    xref: "paper",
+                    yref: "paper",
+                    x: 0.5,
+                    y: 0.5,
+                    font: { size: 13, color: "#6c757d" },
+                },
+            ];
+            setPlotHint("No plottable points for current selection.", true);
+        } else {
+            const skippedTotal = skippedNonNumeric + skippedScale;
+            if (skippedTotal > 0) {
+                setPlotHint(
+                    "Plotted " +
+                        xValues.length +
+                        " model(s); skipped " +
+                        skippedTotal +
+                        " (non-numeric: " +
+                        skippedNonNumeric +
+                        ", incompatible with log scale: " +
+                        skippedScale +
+                        ").",
+                    false,
+                );
+            } else {
+                setPlotHint("Plotted " + xValues.length + " model(s).", false);
+            }
+        }
+
+        const config = {
+            responsive: true,
+            displaylogo: false,
+        };
+
+        Plotly.react(scatterPlot, plotData, layout, config);
+    }
+
+    if (scatterPlot && xColumnSelect && yColumnSelect && xScaleSelect && yScaleSelect) {
+        bindVerticalResize(scatterPlot);
+        renderSummaryScatter();
+        xColumnSelect.addEventListener("change", renderSummaryScatter);
+        yColumnSelect.addEventListener("change", renderSummaryScatter);
+        xScaleSelect.addEventListener("change", renderSummaryScatter);
+        yScaleSelect.addEventListener("change", renderSummaryScatter);
     }
 })();
