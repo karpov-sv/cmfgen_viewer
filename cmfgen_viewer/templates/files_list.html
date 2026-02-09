@@ -111,7 +111,16 @@
     {% if show_bulk_selection %}
       <div class="d-flex align-items-center gap-2 mt-3">
         <span class="small text-muted">Bulk operations:</span>
-        <button type="submit" class="btn btn-sm btn-primary" id="bulk-summarize-btn" disabled>Summarize</button>
+        <button type="submit" class="btn btn-sm btn-primary bulk-action-btn" id="bulk-summarize-btn" disabled>Summarize</button>
+        <button
+          type="submit"
+          class="btn btn-sm btn-outline-primary bulk-action-btn"
+          id="bulk-spectra-btn"
+          formaction="{{ url_for('viewer.bulk_spectra', path=path) }}"
+          disabled
+        >
+          Plot Spectra
+        </button>
       </div>
       </form>
       <script>
@@ -127,14 +136,17 @@
           }
 
           var selectToggle = document.getElementById("model-select-toggle");
-          var submitButton = document.getElementById("bulk-summarize-btn");
+          var actionButtons = Array.prototype.slice.call(form.querySelectorAll(".bulk-action-btn"));
 
           function syncSubmitState() {
-            if (!submitButton) {
+            if (!actionButtons.length) {
               return;
             }
-            submitButton.disabled = !checkboxes.some(function (checkbox) {
+            var hasSelection = checkboxes.some(function (checkbox) {
               return checkbox.checked;
+            });
+            actionButtons.forEach(function (button) {
+              button.disabled = !hasSelection;
             });
           }
 

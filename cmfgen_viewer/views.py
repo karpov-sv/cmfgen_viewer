@@ -285,6 +285,71 @@ def _spectrum_redirect(
     )
 
 
+def _bulk_spectra_url(
+    path: str,
+    *,
+    selected_models: list[str],
+    mode: str,
+    obs_tokens: list[str] | None = None,
+    upload_error: str = "",
+) -> str:
+    base = url_for("viewer.bulk_spectra", path=path)
+    query: list[tuple[str, str]] = [("mode", _normalize_spectrum_mode(mode))]
+    for rel in selected_models:
+        query.append(("selected_models", rel))
+    for token in obs_tokens or []:
+        if is_valid_upload_token(token):
+            query.append(("obs", token))
+    if upload_error:
+        query.append(("upload_error", upload_error))
+    encoded = urlencode(query, doseq=True)
+    return f"{base}?{encoded}" if encoded else base
+
+
+def _bulk_spectra_redirect(
+    path: str,
+    *,
+    selected_models: list[str],
+    mode: str,
+    obs_tokens: list[str] | None = None,
+    upload_error: str = "",
+):
+    return redirect(
+        _bulk_spectra_url(
+            path,
+            selected_models=selected_models,
+            mode=mode,
+            obs_tokens=obs_tokens or [],
+            upload_error=upload_error,
+        )
+    )
+
+
+def _resolve_selected_model_dirs(
+    basepath: str,
+    directory: Path,
+    selected_paths: list[str],
+) -> tuple[list[tuple[str, Path]], list[list[str]]]:
+    valid: list[tuple[str, Path]] = []
+    skipped: list[list[str]] = []
+    for rel in selected_paths:
+        try:
+            target = resolve_path(basepath, rel)
+        except FileNotFoundError:
+            skipped.append([rel, "Not found"])
+            continue
+        if not target.is_dir():
+            skipped.append([rel, "Not a directory"])
+            continue
+        try:
+            target.relative_to(directory)
+        except ValueError:
+            skipped.append([rel, "Outside current folder"])
+            continue
+        valid.append((rel, target))
+    return valid, skipped
+
+
 def _join_relpath(parent: str, child: str) -> str:
     if not parent:
         return child
@@ -532,6 +597,306 @@ def bulk_summarize(path: str):
         selected_count=len(selected_paths),
         **context,
     )
+
+
+@bp.route("/bulk/spectra/", defaults={"path": ""}, methods=["GET", "POST"])
+@bp.route("/bulk/spectra/<path:path>", methods=["GET", "POST"])
+def bulk_spectra(path: str):
+    config = _viewer_config()
+    basepath = str(config.get("basepath", "."))
+
+    try:
+        directory = resolve_path(basepath, path)
+    except FileNotFoundError:
+        abort(404)
+    if not directory.is_dir():
+        abort(404)
+
+    if is_model_context_path(path):
+        abort(400)
+
+    selected_paths = _collect_rel_paths(request.values.getlist("selected_models"))
+    if not selected_paths:
+        return redirect(url_for("viewer.view", path=path))
+
+    view_mode = _normalize_spectrum_mode(request.values.get("mode"))
+    selected_obs_tokens = _collect_obs_tokens(request.values.getlist("obs"))
+
+    warnings: list[str] = []
+    upload_error = request.values.get("upload_error", "").strip()
+    if upload_error:
+        warnings.append(upload_error)
+
+    valid_dirs, skipped = _resolve_selected_model_dirs(basepath, directory, selected_paths)
+
+    combined_traces: list[dict[str, object]] = []
+    plotted_models: list[dict[str, str]] = []
+    plot_layout: dict[str, object] | None = None
+    plot_config: dict[str, object] | None = None
+    default_x_scale = "log"
+    default_y_scale = "log" if view_mode == "both" else "linear"
+
+    for rel, target in valid_dirs:
+        spectrum_files = discover_final_spectrum_files(target)
+        if spectrum_files is None:
+            skipped.append([rel, "Missing obs_cont and/or obs_fin* files"])
+            continue
+
+        fin_files = spectrum_files.get("fin_files")
+        if not isinstance(fin_files, list) or not fin_files:
+            skipped.append([rel, "No obs_fin* files found"])
+            continue
+        first_fin = fin_files[0]
+        if not isinstance(first_fin, Path):
+            skipped.append([rel, "Invalid obs_fin selection"])
+            continue
+
+        try:
+            continuum = load_obs_spectrum(Path(spectrum_files["obs_cont"]))
+            final = load_obs_spectrum(first_fin)
+        except Exception as exc:
+            skipped.append([rel, f"Spectrum parse failed: {exc}"])
+            continue
+
+        model_plot = build_both_plot(continuum, final) if view_mode == "both" else build_normalized_plot(continuum, final)
+        if model_plot is None:
+            skipped.append([rel, "Insufficient overlapping points for plotting"])
+            continue
+
+        traces = model_plot.get("data")
+        if not isinstance(traces, list) or not traces:
+            skipped.append([rel, "No plot traces were produced"])
+            continue
+
+        if plot_layout is None:
+            layout_raw = model_plot.get("layout")
+            config_raw = model_plot.get("config")
+            plot_layout = dict(layout_raw) if isinstance(layout_raw, dict) else {}
+            plot_config = dict(config_raw) if isinstance(config_raw, dict) else {}
+            default_x_scale = str(model_plot.get("default_x_scale", default_x_scale))
+            default_y_scale = str(model_plot.get("default_y_scale", default_y_scale))
+
+        before_count = len(combined_traces)
+        model_name = target.name
+        for trace_index, trace in enumerate(traces):
+            if not isinstance(trace, dict):
+                continue
+
+            cloned = dict(trace)
+            x_values = trace.get("x")
+            y_values = trace.get("y")
+            if isinstance(x_values, list):
+                cloned["x"] = x_values[:]
+            if isinstance(y_values, list):
+                cloned["y"] = y_values[:]
+
+            line = cloned.get("line")
+            if isinstance(line, dict):
+                line = dict(line)
+            else:
+                line = {}
+            line.pop("color", None)
+            meta = cloned.get("meta")
+            if isinstance(meta, dict):
+                meta = dict(meta)
+            else:
+                meta = {}
+            meta["transform_target"] = "model"
+
+            if view_mode == "both":
+                if trace_index == 0:
+                    cloned["name"] = f"{model_name} final ({first_fin.name})"
+                    line["width"] = 1.4
+                    meta["plot_role"] = "final"
+                else:
+                    cloned["name"] = f"{model_name} continuum"
+                    line["width"] = 1.1
+                    line["dash"] = "dot"
+                    meta["plot_role"] = "continuum"
+            else:
+                cloned["name"] = f"{model_name} ({first_fin.name}/obs_cont)"
+                line["width"] = 1.4
+                meta["plot_role"] = "final"
+
+            cloned["line"] = line
+            cloned["meta"] = meta
+            combined_traces.append(cloned)
+
+        if len(combined_traces) > before_count:
+            plotted_models.append({"name": model_name, "path": rel, "fin": first_fin.name})
+
+    upload_root = _upload_root(config)
+    upload_entries = list_upload_manifests(upload_root)
+    available_by_token = {str(entry.get("token", "")): entry for entry in upload_entries}
+
+    selected_observed_uploads: list[dict[str, object]] = []
+    selected_parsed: list[dict[str, object]] = []
+    for token in selected_obs_tokens:
+        entry = available_by_token.get(token)
+        if entry is None:
+            warnings.append(f"Uploaded spectrum token '{token}' is not available.")
+            continue
+        stored_name = str(entry.get("stored_name", ""))
+        source_path = upload_root / token / stored_name if stored_name else None
+        if source_path is None or not source_path.is_file():
+            warnings.append(f"Uploaded spectrum '{entry.get('filename', token)}' file is missing.")
+            continue
+
+        upload_flux_mode = str(entry.get("requested_flux_mode", "auto")).strip().lower() or "auto"
+        try:
+            parsed = parse_uploaded_spectrum(source_path, flux_mode=upload_flux_mode)
+        except Exception as exc:
+            warnings.append(f"Uploaded spectrum '{entry.get('filename', source_path.name)}' failed to load: {exc}")
+            continue
+        parsed["name"] = str(entry.get("filename", source_path.name))
+
+        selected_parsed.append(parsed)
+        selected_observed_uploads.append(_upload_entry_for_display(entry))
+        for warning in parsed.get("warnings", []):
+            warnings.append(f"Uploaded {entry.get('filename', source_path.name)}: {warning}")
+
+    plot_data: dict[str, object] | None = None
+    if combined_traces:
+        plot_data = {
+            "data": combined_traces,
+            "layout": plot_layout or {},
+            "config": plot_config or {},
+            "default_x_scale": default_x_scale,
+            "default_y_scale": default_y_scale,
+        }
+        for observed_data in selected_parsed:
+            observed_trace, observed_warning = build_observed_overlay_trace(observed_data, mode=view_mode)
+            if observed_warning:
+                warnings.append(observed_warning)
+                continue
+            if observed_trace is not None:
+                plot_data["data"].append(observed_trace)
+    else:
+        warnings.append("No selected models produced plottable final spectra.")
+
+    selected_lookup = set(selected_obs_tokens)
+    available_uploads = []
+    for entry in upload_entries:
+        display = _upload_entry_for_display(entry)
+        token = str(display.get("token", ""))
+        label = str(display.get("filename", token))
+        mode_label = str(display.get("flux_mode", ""))
+        created_label = str(display.get("created_at", ""))
+        display["label"] = f"{label} [{mode_label}] {created_label}".strip()
+        display["selected"] = token in selected_lookup
+        available_uploads.append(display)
+
+    mode_urls = {
+        "both": _bulk_spectra_url(path, selected_models=selected_paths, mode="both", obs_tokens=selected_obs_tokens),
+        "normalized": _bulk_spectra_url(path, selected_models=selected_paths, mode="normalized", obs_tokens=selected_obs_tokens),
+    }
+    clear_overlay_url = _bulk_spectra_url(path, selected_models=selected_paths, mode=view_mode, obs_tokens=[])
+
+    breadcrumb = make_breadcrumb(path)
+    if breadcrumb:
+        breadcrumb[-1]["path"] = path
+        breadcrumb.append({"name": "Bulk Spectra", "path": None})
+
+    context = {
+        "path": path,
+        "breadcrumb": breadcrumb,
+        "basepath": basepath,
+        "show_all": bool(config.get("show_all", False)),
+        "view_query": {},
+        "quick_links": _collect_quick_links(basepath, path),
+        "spectrum_view": _spectrum_link_context(basepath, path),
+    }
+    return render_template(
+        "bulk_spectrum_view.html",
+        selected_models=selected_paths,
+        selected_count=len(selected_paths),
+        plotted_count=len(plotted_models),
+        plotted_models=plotted_models,
+        skipped=skipped,
+        mode=view_mode,
+        plot_data=plot_data,
+        warnings=warnings,
+        obs_tokens=selected_obs_tokens,
+        available_uploads=available_uploads,
+        selected_observed_uploads=selected_observed_uploads,
+        upload_flux_mode="auto",
+        mode_urls=mode_urls,
+        clear_overlay_url=clear_overlay_url,
+        **context,
+    )
+
+
+@bp.route("/bulk/spectrum-upload/", defaults={"path": ""}, methods=["POST"])
+@bp.route("/bulk/spectrum-upload/<path:path>", methods=["POST"])
+def bulk_spectrum_upload(path: str):
+    config = _viewer_config()
+    basepath = str(config.get("basepath", "."))
+
+    try:
+        directory = resolve_path(basepath, path)
+    except FileNotFoundError:
+        abort(404)
+    if not directory.is_dir():
+        abort(404)
+    if is_model_context_path(path):
+        abort(400)
+
+    selected_paths = _collect_rel_paths(request.form.getlist("selected_models"))
+    if not selected_paths:
+        return redirect(url_for("viewer.view", path=path))
+
+    view_mode = _normalize_spectrum_mode(request.form.get("mode"))
+    current_obs_tokens = _collect_obs_tokens(request.form.getlist("obs"))
+
+    uploaded = request.files.get("observed_file")
+    if uploaded is None or not uploaded.filename:
+        return _bulk_spectra_redirect(
+            path,
+            selected_models=selected_paths,
+            mode=view_mode,
+            obs_tokens=current_obs_tokens,
+            upload_error="No observed spectrum file was selected.",
+        )
+
+    requested_flux_mode = str(request.form.get("flux_mode", "auto")).strip().lower()
+    upload_root = _upload_root(config)
+    token = generate_upload_token()
+    token_dir = upload_root / token
+    token_dir.mkdir(parents=True, exist_ok=False)
+
+    safe_name = secure_filename(uploaded.filename) or "observed-spectrum"
+    suffix = Path(safe_name).suffix.lower()
+    stored_name = f"source{suffix}" if suffix else "source.dat"
+    stored_path = token_dir / stored_name
+
+    try:
+        uploaded.save(stored_path)
+        parsed = parse_uploaded_spectrum(stored_path, flux_mode=requested_flux_mode)
+    except Exception as exc:
+        remove_upload_bundle(upload_root, token)
+        return _bulk_spectra_redirect(
+            path,
+            selected_models=selected_paths,
+            mode=view_mode,
+            obs_tokens=current_obs_tokens,
+            upload_error=f"Uploaded spectrum could not be parsed: {exc}",
+        )
+
+    manifest = {
+        "token": token,
+        "filename": safe_name,
+        "stored_name": stored_name,
+        "requested_flux_mode": requested_flux_mode,
+        "detected_flux_mode": str(parsed.get("detected_flux_mode", "")),
+        "resolved_flux_mode": str(parsed.get("flux_mode", "")),
+        "format": str(parsed.get("format", "")),
+        "points": len(parsed.get("wavelength", [])),
+        "created_at": time.time(),
+    }
+    write_upload_manifest(upload_root, token, manifest)
+
+    selected_tokens = _collect_obs_tokens(current_obs_tokens + [token])
+    return _bulk_spectra_redirect(path, selected_models=selected_paths, mode=view_mode, obs_tokens=selected_tokens)
 
 
 def _format_upload_time(timestamp: object) -> str:
