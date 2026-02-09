@@ -16,8 +16,10 @@ This project provides a practical local web UI for inspecting CMFGEN model folde
 ### In scope
 
 - Local single-user viewer (Flask app), launched against an existing run directory.
-- Structured parsing for high-value text outputs (`RVTJ`, `OBSFLUX`, `MOD_SUM`).
+- Structured parsing for many CMFGEN/CMF_FLUX text outputs (not only core files).
 - Role tagging for CMFGEN and CMF_FLUX related files using known filenames/patterns.
+- Single-model and bulk model spectrum visualization workflows.
+- Global observed-spectrum upload/overlay workflow for model comparison.
 - Documentation browser backed by markdown files in `doc/`.
 
 ### Out of scope (current)
@@ -58,6 +60,12 @@ Open `http://127.0.0.1:5567`.
 python -m cmfgen_viewer --dir /path/to/cmfgen/run
 ```
 
+### Example with spectral range filtering
+
+```bash
+python viewer.py --dir /path/to/cmfgen/run --lambda-min 1200 --lambda-max 9000
+```
+
 ### Useful flags
 
 - `--host 0.0.0.0` bind on all interfaces.
@@ -71,52 +79,52 @@ python -m cmfgen_viewer --dir /path/to/cmfgen/run
 
 ### Implemented
 
-- Secure rooted browsing:
-  - `/view/` and `/view/<path>`
-  - `/raw/<path>` and `/download/<path>`
-  - path traversal blocked by resolved-path checks
-- File table UX:
-  - sortable columns, folders listed first
-  - symlink hide/show toggle in model directories
-  - quick links under breadcrumb for key files (`VADAT`, `MODEL_SPEC`, `IN_ITS`, `MOD_SUM`, `RVTJ`, `OBSFLUX`, etc.)
-- Role classification:
-  - roles for core/optional/restart/input categories
-  - filename and pattern-based mapping (`POP*`, `*OUT`, `*_F_OSCDAT`, `PHOT*_A`, `DIE*`, etc.)
-  - extended CMF_FLUX-related file coverage
-- File preview:
-  - raw text syntax highlighting (Pygments)
-  - CMFGEN control-file lexer with aligned `value [KEY] !comment` columns
-  - unknown formats default to plain text fallback (no aggressive lexer guessing)
-  - parsed/raw mode toggle (parsed view shown by default when available)
-- Parsed views:
-  - `RVTJ`: radial vectors, validation warnings, profile plots
-  - `OBSFLUX`: wavelength-space spectrum (Å), diagnostics, interactive plots
-  - `MOD_SUM`: metadata, dimensions, key scalars, abundance/tau tables
-  - Plotly interactions: zoom/pan/hover/export, linear/log axis toggles
-- Documentation section:
-  - top-nav dropdown populated from `doc/*.md`
-  - markdown rendering with syntax-highlighted code blocks
-  - pages currently included:
-    - CMFGEN input files
-    - CMFGEN output files
-    - CMFGEN CMF_FLUX files
+- Secure rooted browsing (`/view/`, `/raw/`, `/download/`) with resolved-path checks against traversal.
+- File table UX with sortable columns, folders-first ordering, symlink hide/show toggle in model context, quick links, and multi-model selection checkboxes.
+- Bulk operations on selected model folders:
+  - `Summarize`: table output similar to legacy `list_models.py`.
+  - `Plot Spectra`: combined interactive plot using first available `obs_fin*` plus `obs/obs_cont`.
+- Role classification for CMFGEN/CMF_FLUX files, including input/output/restart/diagnostic categories.
+- Raw preview and parsed preview modes:
+  - syntax highlighting via Pygments,
+  - CMFGEN input lexer with aligned `value [KEY] !comment` style formatting,
+  - plain-text fallback for unknown files.
+- Parsed-view coverage includes core and diagnostic families such as:
+  - `RVTJ`, `OBSFLUX`, `MOD_SUM`, `MEANOPAC`, `RVSIG_COL*`, `GAMMAS*`, `OBSFRAME`, `HYDRO`, `HYDRO_PARAMS`,
+  - `OUTLTE`, `OUT_FLUX`, `OUT_PARAMS`, `TRANS_INFO`, `ML_COUNTER`, `DIAGNOSTIC_EST_*`, `TIME_PNT*`,
+  - `POP*`, `*OUT` departure files, `NETRATE`/`TOTRATE`/`EWDATA`/`LINEHEAT`, `J_COMP`, `SOB_FORCE_MULT`, `GAMFLUX`, `GAMRAY_ENERGY_DEP`, `CFDAT_OUT`, `CONT_FREQ`, `OBS_FREQ`.
+- Final spectrum tools:
+  - single-model `/spectrum/<path>` and bulk-spectrum `/bulk/spectra/<path>` views,
+  - Plotly interactivity with log/linear toggles, redshift/velocity, distance scaling, reddening `E(B-V)`, and resizable plot container,
+  - observed overlay support with flux-mode compatibility checks,
+  - bulk visibility toggles for final vs continuum traces (without removing traces).
+- Global uploads workflow:
+  - upload management page (`/uploads/`),
+  - quasi-persistent tokenized uploads under upload root,
+  - FITS parsing for common 1D/2D and table-based formats.
+- Configurable wavelength window for all displayed spectra:
+  - `--lambda-min` / `--lambda-max` bounds applied to both model spectra and uploaded overlays.
+- Documentation section with top-nav dropdown populated from `doc/*.md`, rendered as markdown with code highlighting.
 
 ### Not yet implemented
 
 - Automated test suite.
-- Parsers for many additional text outputs (`NETRATE`, `TOTRATE`, `HYDRO`, etc.).
+- Some CMFGEN output formats still rely on generic/plain text preview instead of dedicated parsers.
 - Generic direct-access/binary readers using `_INFO` sidecars.
 - Cross-file consistency checks and preflight validation workflows.
+- Automatic model fitting/scoring against uploaded observed spectra.
 
 ## Repository Layout
 
 - `viewer.py`: executable entry point.
 - `cmfgen_viewer/`:
-  - `app.py`, `cli.py`, `views.py`: app factory, CLI, routes.
-  - `browser.py`: directory/file metadata, role classification.
-  - `syntax.py`: syntax highlighting + CMFGEN input lexer.
-  - `parsers/`: parsed-view implementations (`rvtj.py`, `obsflux.py`, `mod_sum.py`).
-  - `templates/`, `static/`: Jinja templates, JS, CSS.
+  - `app.py`, `cli.py`, `views.py`: app factory, CLI, routing and UI orchestration.
+  - `browser.py`: directory/file metadata and role classification.
+  - `final_spectrum.py`: CMFGEN final-spectrum parsing, conversion, and plot assembly helpers.
+  - `observed_spectrum.py`: uploaded observed-spectrum parsing and upload-manifest lifecycle.
+  - `syntax.py`: syntax highlighting and CMFGEN input lexer.
+  - `parsers/`: parsed-view implementations for core and diagnostic file families.
+  - `templates/`, `static/`: Jinja templates, client-side JS, and CSS.
 - `doc/`: markdown docs surfaced in the Documentation menu.
 - `CMFGEN_*_investigation_*.txt`: source investigation logs.
 
