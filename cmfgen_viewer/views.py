@@ -482,7 +482,7 @@ def bulk_summarize(path: str):
     if not selected_paths:
         return redirect(url_for("viewer.view", path=path))
 
-    rows: list[list[str]] = []
+    rows: list[dict[str, object]] = []
     skipped: list[list[str]] = []
     for rel in selected_paths:
         try:
@@ -504,7 +504,12 @@ def bulk_summarize(path: str):
             continue
 
         model = read_model(target)
-        rows.append(_build_summary_row(model))
+        rows.append(
+            {
+                "values": _build_summary_row(model),
+                "path": rel,
+            }
+        )
 
     breadcrumb = make_breadcrumb(path)
     if breadcrumb:

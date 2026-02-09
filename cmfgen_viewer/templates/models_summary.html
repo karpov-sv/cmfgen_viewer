@@ -28,7 +28,7 @@
                     data-column="{{ loop.index0 }}"
                     data-type="{{ 'string' if loop.index0 == 0 else 'number' }}"
                   >
-                    <code>{{ column }}</code> <span class="sort-indicator"></span>
+                    {{ column }} <span class="sort-indicator"></span>
                   </button>
                 </th>
               {% endfor %}
@@ -38,12 +38,18 @@
             {% for row in rows %}
               <tr
                 data-entry
-                {% for value in row %}
+                {% for value in row["values"] %}
                   data-col{{ loop.index0 }}="{{ value }}"
                 {% endfor %}
               >
-                {% for value in row %}
-                  <td><code>{{ value }}</code></td>
+                {% for value in row["values"] %}
+                  <td>
+                    {% if loop.index0 == 0 %}
+                      <a href="{{ url_for('viewer.view', path=row['path']) }}"><code>{{ value }}</code></a>
+                    {% else %}
+                      <code>{{ value }}</code>
+                    {% endif %}
+                  </td>
                 {% endfor %}
               </tr>
             {% endfor %}
