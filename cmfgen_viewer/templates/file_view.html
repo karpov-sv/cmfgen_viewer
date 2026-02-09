@@ -43,7 +43,7 @@
 
         {% if parsed.summary_table and parsed.summary_table.rows %}
           <h6>{{ parsed.summary_table.title }}</h6>
-          <div class="table-responsive mb-3">
+          <div class="table-responsive table-view-wrap mb-3">
             <table class="table table-sm table-striped">
               <thead>
                 <tr>
@@ -534,7 +534,7 @@
           {% for table in parsed.tables %}
             {% if table.rows %}
               <h6>{{ table.title }}</h6>
-              <div class="table-responsive mb-3">
+              <div class="table-responsive table-view-wrap mb-3">
                 <table class="table table-sm table-striped">
                   <thead>
                     <tr>

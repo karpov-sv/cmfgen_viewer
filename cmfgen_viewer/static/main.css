@@ -147,6 +147,14 @@ a:focus {
     min-width: 1ch;
 }
 
+.table-view-wrap {
+    overflow-x: auto;
+}
+
+.table-view-wrap > table {
+    min-width: max-content;
+}
+
 .plot-wrap {
     border: 1px solid #dee2e6;
     border-radius: 0.4rem;
