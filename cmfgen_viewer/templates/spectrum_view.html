@@ -13,8 +13,8 @@
         {% for token in obs_tokens %}
           <input type="hidden" name="obs" value="{{ token }}">
         {% endfor %}
-        <label for="fin-select" class="small text-muted mb-0">obs_fin file</label>
-        <select id="fin-select" name="fin" class="form-select form-select-sm" onchange="this.form.submit()">
+        <label for="fin-select" class="small text-muted mb-0 text-nowrap flex-shrink-0">obs_fin file</label>
+        <select id="fin-select" name="fin" class="form-select form-select-sm w-auto final-fin-select" onchange="this.form.submit()">
           {% for option in fin_options %}
             <option value="{{ option.name }}" {% if option.name == selected_fin %}selected{% endif %}>{{ option.label }}</option>
           {% endfor %}

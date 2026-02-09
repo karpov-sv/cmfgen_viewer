@@ -177,6 +177,10 @@ a:focus {
     min-width: 8rem;
 }
 
+.final-fin-select {
+    min-width: 12rem;
+}
+
 .plot-wrap {
     border: 1px solid #dee2e6;
     border-radius: 0.4rem;
