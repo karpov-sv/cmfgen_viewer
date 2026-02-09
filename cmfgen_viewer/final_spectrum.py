@@ -329,8 +329,29 @@ def _trim_short_wavelength_floor(wavelengths: list[float], flux: list[float]) ->
     return wavelengths[first_keep_index:], flux[first_keep_index:], first_keep_index
 
 
+def _normalize_wavelength_bounds(
+    lambda_min: float | None,
+    lambda_max: float | None,
+) -> tuple[float | None, float | None]:
+    min_value = float(lambda_min) if isinstance(lambda_min, int | float) else None
+    max_value = float(lambda_max) if isinstance(lambda_max, int | float) else None
+    if min_value is not None and (not math.isfinite(min_value) or min_value <= 0):
+        min_value = None
+    if max_value is not None and (not math.isfinite(max_value) or max_value <= 0):
+        max_value = None
+    if min_value is not None and max_value is not None and min_value > max_value:
+        min_value, max_value = max_value, min_value
+    return min_value, max_value
+
+
 @lru_cache(maxsize=16)
-def _load_obs_spectrum_cached(path_str: str, mtime_ns: int, size: int) -> dict[str, object]:
+def _load_obs_spectrum_cached(
+    path_str: str,
+    mtime_ns: int,
+    size: int,
+    lambda_min: float | None,
+    lambda_max: float | None,
+) -> dict[str, object]:
     del mtime_ns, size
     path = Path(path_str)
     vectors: dict[str, list[float]] = {
@@ -377,22 +398,46 @@ def _load_obs_spectrum_cached(path_str: str, mtime_ns: int, size: int) -> dict[s
         wavelengths = [item[0] for item in paired]
         flux = [item[1] for item in paired]
 
+    range_skipped = 0
+    if lambda_min is not None or lambda_max is not None:
+        filtered_wavelengths: list[float] = []
+        filtered_flux: list[float] = []
+        for wavelength, intensity in zip(wavelengths, flux):
+            if lambda_min is not None and wavelength < lambda_min:
+                continue
+            if lambda_max is not None and wavelength > lambda_max:
+                continue
+            filtered_wavelengths.append(wavelength)
+            filtered_flux.append(intensity)
+        range_skipped = len(wavelengths) - len(filtered_wavelengths)
+        wavelengths = filtered_wavelengths
+        flux = filtered_flux
+
     wavelengths, flux, trimmed_points = _trim_short_wavelength_floor(wavelengths, flux)
 
     return {
         "name": path.name,
         "wavelength": wavelengths,
         "flux": flux,
+        "lambda_min": lambda_min,
+        "lambda_max": lambda_max,
         "expected_count": expected_count,
         "raw_points": size,
         "skipped_points": skipped,
+        "range_skipped_points": range_skipped,
         "trimmed_points": trimmed_points,
     }
 
 
-def load_obs_spectrum(path: Path) -> dict[str, object]:
+def load_obs_spectrum(
+    path: Path,
+    *,
+    lambda_min: float | None = None,
+    lambda_max: float | None = None,
+) -> dict[str, object]:
+    bound_min, bound_max = _normalize_wavelength_bounds(lambda_min, lambda_max)
     mtime_ns, size = _safe_stat(path)
-    return _load_obs_spectrum_cached(str(path.resolve()), mtime_ns, size)
+    return _load_obs_spectrum_cached(str(path.resolve()), mtime_ns, size, bound_min, bound_max)
 
 
 def _interp_linear(x_src: list[float], y_src: list[float], x: float) -> float | None:
@@ -609,12 +654,22 @@ def spectrum_data_rows(continuum: dict[str, object], final: dict[str, object]) -
         ["Absolute flux units", "erg s^-1 cm^-2 Å^-1"],
         ["Reference distance", "1 kpc"],
     ]
+    lambda_min = final.get("lambda_min")
+    lambda_max = final.get("lambda_max")
+    if isinstance(lambda_min, int | float) and isinstance(lambda_max, int | float):
+        rows.append(["Wavelength window (Å)", f"{format_number(lambda_min)} .. {format_number(lambda_max)}"])
     final_skipped = final.get("skipped_points")
     cont_skipped = continuum.get("skipped_points")
     if isinstance(final_skipped, int) and final_skipped > 0:
         rows.append(["Final skipped points", str(final_skipped)])
     if isinstance(cont_skipped, int) and cont_skipped > 0:
         rows.append(["Continuum skipped points", str(cont_skipped)])
+    final_range_skipped = final.get("range_skipped_points")
+    cont_range_skipped = continuum.get("range_skipped_points")
+    if isinstance(final_range_skipped, int) and final_range_skipped > 0:
+        rows.append(["Final points skipped by wavelength window", str(final_range_skipped)])
+    if isinstance(cont_range_skipped, int) and cont_range_skipped > 0:
+        rows.append(["Continuum points skipped by wavelength window", str(cont_range_skipped)])
     final_trimmed = final.get("trimmed_points")
     cont_trimmed = continuum.get("trimmed_points")
     if isinstance(final_trimmed, int) and final_trimmed > 0:

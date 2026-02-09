@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+import math
 from pathlib import Path
 import re
 import time
@@ -136,6 +137,27 @@ def _normalize_markdown_lists(source: str) -> str:
 
 def _viewer_config() -> dict[str, object]:
     return dict(current_app.config.get("CMFGEN_VIEWER", {}))
+
+
+def _spectrum_lambda_bounds(config: dict[str, object]) -> tuple[float, float]:
+    default_min = 800.0
+    default_max = 20000.0
+    try:
+        lambda_min = float(config.get("lambda_min_angstrom", default_min))
+    except (TypeError, ValueError):
+        lambda_min = default_min
+    try:
+        lambda_max = float(config.get("lambda_max_angstrom", default_max))
+    except (TypeError, ValueError):
+        lambda_max = default_max
+
+    if not math.isfinite(lambda_min) or lambda_min <= 0:
+        lambda_min = default_min
+    if not math.isfinite(lambda_max) or lambda_max <= 0:
+        lambda_max = default_max
+    if lambda_min > lambda_max:
+        lambda_min, lambda_max = lambda_max, lambda_min
+    return lambda_min, lambda_max
 
 
 def _upload_root(config: dict[str, object]) -> Path:
@@ -604,6 +626,7 @@ def bulk_summarize(path: str):
 def bulk_spectra(path: str):
     config = _viewer_config()
     basepath = str(config.get("basepath", "."))
+    lambda_min, lambda_max = _spectrum_lambda_bounds(config)
 
     try:
         directory = resolve_path(basepath, path)
@@ -652,8 +675,16 @@ def bulk_spectra(path: str):
             continue
 
         try:
-            continuum = load_obs_spectrum(Path(spectrum_files["obs_cont"]))
-            final = load_obs_spectrum(first_fin)
+            continuum = load_obs_spectrum(
+                Path(spectrum_files["obs_cont"]),
+                lambda_min=lambda_min,
+                lambda_max=lambda_max,
+            )
+            final = load_obs_spectrum(
+                first_fin,
+                lambda_min=lambda_min,
+                lambda_max=lambda_max,
+            )
         except Exception as exc:
             skipped.append([rel, f"Spectrum parse failed: {exc}"])
             continue
@@ -744,7 +775,12 @@ def bulk_spectra(path: str):
 
         upload_flux_mode = str(entry.get("requested_flux_mode", "auto")).strip().lower() or "auto"
         try:
-            parsed = parse_uploaded_spectrum(source_path, flux_mode=upload_flux_mode)
+            parsed = parse_uploaded_spectrum(
+                source_path,
+                flux_mode=upload_flux_mode,
+                lambda_min=lambda_min,
+                lambda_max=lambda_max,
+            )
         except Exception as exc:
             warnings.append(f"Uploaded spectrum '{entry.get('filename', source_path.name)}' failed to load: {exc}")
             continue
@@ -831,6 +867,7 @@ def bulk_spectra(path: str):
 def bulk_spectrum_upload(path: str):
     config = _viewer_config()
     basepath = str(config.get("basepath", "."))
+    lambda_min, lambda_max = _spectrum_lambda_bounds(config)
 
     try:
         directory = resolve_path(basepath, path)
@@ -871,7 +908,12 @@ def bulk_spectrum_upload(path: str):
 
     try:
         uploaded.save(stored_path)
-        parsed = parse_uploaded_spectrum(stored_path, flux_mode=requested_flux_mode)
+        parsed = parse_uploaded_spectrum(
+            stored_path,
+            flux_mode=requested_flux_mode,
+            lambda_min=lambda_min,
+            lambda_max=lambda_max,
+        )
     except Exception as exc:
         remove_upload_bundle(upload_root, token)
         return _bulk_spectra_redirect(
@@ -947,6 +989,7 @@ def uploads():
 def uploads_upload():
     config = _viewer_config()
     upload_root = _upload_root(config)
+    lambda_min, lambda_max = _spectrum_lambda_bounds(config)
 
     uploaded = request.files.get("observed_file")
     if uploaded is None or not uploaded.filename:
@@ -964,7 +1007,12 @@ def uploads_upload():
 
     try:
         uploaded.save(stored_path)
-        parsed = parse_uploaded_spectrum(stored_path, flux_mode=requested_flux_mode)
+        parsed = parse_uploaded_spectrum(
+            stored_path,
+            flux_mode=requested_flux_mode,
+            lambda_min=lambda_min,
+            lambda_max=lambda_max,
+        )
     except Exception as exc:
         remove_upload_bundle(upload_root, token)
         return redirect(url_for("viewer.uploads", error=f"Upload failed: {exc}"))
@@ -998,6 +1046,7 @@ def uploads_delete(token: str):
 def spectrum_upload(path: str):
     config = _viewer_config()
     basepath = str(config.get("basepath", "."))
+    lambda_min, lambda_max = _spectrum_lambda_bounds(config)
 
     try:
         target = resolve_path(basepath, path)
@@ -1047,7 +1096,12 @@ def spectrum_upload(path: str):
 
     try:
         uploaded.save(stored_path)
-        parsed = parse_uploaded_spectrum(stored_path, flux_mode=requested_flux_mode)
+        parsed = parse_uploaded_spectrum(
+            stored_path,
+            flux_mode=requested_flux_mode,
+            lambda_min=lambda_min,
+            lambda_max=lambda_max,
+        )
     except Exception as exc:
         remove_upload_bundle(upload_root, token)
         return _spectrum_redirect(
@@ -1117,6 +1171,7 @@ def spectrum_upload_remove(path: str):
 def spectrum(path: str):
     config = _viewer_config()
     basepath = str(config.get("basepath", "."))
+    lambda_min, lambda_max = _spectrum_lambda_bounds(config)
 
     try:
         target = resolve_path(basepath, path)
@@ -1169,7 +1224,12 @@ def spectrum(path: str):
             continue
         upload_flux_mode = str(entry.get("requested_flux_mode", "auto")).strip().lower() or "auto"
         try:
-            parsed = parse_uploaded_spectrum(source_path, flux_mode=upload_flux_mode)
+            parsed = parse_uploaded_spectrum(
+                source_path,
+                flux_mode=upload_flux_mode,
+                lambda_min=lambda_min,
+                lambda_max=lambda_max,
+            )
         except Exception as exc:
             warnings.append(f"Uploaded spectrum '{entry.get('filename', source_path.name)}' failed to load: {exc}")
             continue
@@ -1180,8 +1240,16 @@ def spectrum(path: str):
         for warning in parsed.get("warnings", []):
             warnings.append(f"Uploaded {entry.get('filename', source_path.name)}: {warning}")
 
-    continuum = load_obs_spectrum(Path(spectrum_files["obs_cont"]))
-    final = load_obs_spectrum(Path(spectrum_files["obs_dir"]) / selected_fin)
+    continuum = load_obs_spectrum(
+        Path(spectrum_files["obs_cont"]),
+        lambda_min=lambda_min,
+        lambda_max=lambda_max,
+    )
+    final = load_obs_spectrum(
+        Path(spectrum_files["obs_dir"]) / selected_fin,
+        lambda_min=lambda_min,
+        lambda_max=lambda_max,
+    )
     plot_data = build_both_plot(continuum, final) if view_mode == "both" else build_normalized_plot(continuum, final)
 
     if plot_data is None:

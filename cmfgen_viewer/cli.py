@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 from pathlib import Path
 
 from .app import create_app
@@ -37,6 +38,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="Show hidden files and directories",
     )
     parser.add_argument(
+        "--lambda-min",
+        dest="lambda_min",
+        type=float,
+        default=800.0,
+        help="Minimum wavelength in Angstroms for parsed/displayed spectra (default: 800)",
+    )
+    parser.add_argument(
+        "--lambda-max",
+        dest="lambda_max",
+        type=float,
+        default=20000.0,
+        help="Maximum wavelength in Angstroms for parsed/displayed spectra (default: 20000)",
+    )
+    parser.add_argument(
         "--debug",
         dest="debug",
         action="store_true",
@@ -59,10 +74,18 @@ def main(argv: list[str] | None = None) -> None:
     basepath = Path(args.basepath).expanduser().resolve()
     if not basepath.exists() or not basepath.is_dir():
         parser.error(f"--dir must point to an existing directory: {basepath}")
+    if not math.isfinite(args.lambda_min) or not math.isfinite(args.lambda_max):
+        parser.error("--lambda-min and --lambda-max must be finite numbers.")
+    if args.lambda_min <= 0 or args.lambda_max <= 0:
+        parser.error("--lambda-min and --lambda-max must be positive.")
+    if args.lambda_min >= args.lambda_max:
+        parser.error("--lambda-min must be smaller than --lambda-max.")
 
     app = create_app(
         basepath=str(basepath),
         show_all=args.show_all,
+        lambda_min_angstrom=args.lambda_min,
+        lambda_max_angstrom=args.lambda_max,
         secret_key=args.secret,
     )
     app.run(host=args.host, port=args.port, debug=args.debug)

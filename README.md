@@ -62,6 +62,8 @@ python -m cmfgen_viewer --dir /path/to/cmfgen/run
 
 - `--host 0.0.0.0` bind on all interfaces.
 - `--all` show hidden files/directories.
+- `--lambda-min 800` minimum wavelength (Angstroms) used for spectrum parsing/display.
+- `--lambda-max 20000` maximum wavelength (Angstroms) used for spectrum parsing/display.
 - `--debug` enable Flask debug and auto-reload.
 - `--secret <value>` set a fixed Flask secret key.
 

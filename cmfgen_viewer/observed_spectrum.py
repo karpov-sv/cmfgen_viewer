@@ -116,28 +116,55 @@ def list_upload_manifests(upload_root: Path) -> list[dict[str, Any]]:
     return items
 
 
-def parse_uploaded_spectrum(path: Path, *, flux_mode: str = "auto") -> dict[str, Any]:
+def parse_uploaded_spectrum(
+    path: Path,
+    *,
+    flux_mode: str = "auto",
+    lambda_min: float | None = None,
+    lambda_max: float | None = None,
+) -> dict[str, Any]:
     mode = flux_mode.strip().lower()
     if mode not in {"auto", "normalized", "absolute"}:
         raise ValueError(f"Unsupported flux mode: {flux_mode}")
+    bound_min, bound_max = _normalize_wavelength_bounds(lambda_min, lambda_max)
 
     stat = path.stat()
-    return _parse_uploaded_spectrum_cached(str(path.resolve()), stat.st_mtime_ns, stat.st_size, mode)
+    return _parse_uploaded_spectrum_cached(
+        str(path.resolve()),
+        stat.st_mtime_ns,
+        stat.st_size,
+        mode,
+        bound_min,
+        bound_max,
+    )
 
 
 @lru_cache(maxsize=32)
-def _parse_uploaded_spectrum_cached(path_str: str, mtime_ns: int, size: int, flux_mode: str) -> dict[str, Any]:
+def _parse_uploaded_spectrum_cached(
+    path_str: str,
+    mtime_ns: int,
+    size: int,
+    flux_mode: str,
+    lambda_min: float | None,
+    lambda_max: float | None,
+) -> dict[str, Any]:
     del mtime_ns, size
     path = Path(path_str)
     suffix = path.suffix.lower()
 
     if suffix in SUPPORTED_FITS_SUFFIXES:
-        return _parse_uploaded_fits(path, flux_mode=flux_mode)
+        return _parse_uploaded_fits(path, flux_mode=flux_mode, lambda_min=lambda_min, lambda_max=lambda_max)
 
     raise ValueError(f"Unsupported uploaded spectrum format: {path.suffix or path.name}")
 
 
-def _parse_uploaded_fits(path: Path, *, flux_mode: str) -> dict[str, Any]:
+def _parse_uploaded_fits(
+    path: Path,
+    *,
+    flux_mode: str,
+    lambda_min: float | None,
+    lambda_max: float | None,
+) -> dict[str, Any]:
     if fits is None or np is None:
         raise ValueError("FITS parsing requires astropy and numpy.")
 
@@ -181,17 +208,54 @@ def _parse_uploaded_fits(path: Path, *, flux_mode: str) -> dict[str, Any]:
     if flux_mode != "auto" and flux_mode != detected_mode:
         warnings.append(f"Requested flux mode '{flux_mode}' overrides detected mode '{detected_mode}'.")
 
+    range_skipped_points = 0
+    if lambda_min is not None or lambda_max is not None:
+        range_mask = np.ones(wavelength_arr.shape, dtype=bool)
+        if lambda_min is not None:
+            range_mask &= wavelength_arr >= lambda_min
+        if lambda_max is not None:
+            range_mask &= wavelength_arr <= lambda_max
+        range_skipped_points = int(wavelength_arr.size - int(range_mask.sum()))
+        wavelength_arr = wavelength_arr[range_mask]
+        flux_arr = flux_arr[range_mask]
+        if range_skipped_points > 0:
+            min_label = f"{lambda_min:g}" if lambda_min is not None else "-inf"
+            max_label = f"{lambda_max:g}" if lambda_max is not None else "inf"
+            warnings.append(
+                f"Filtered {range_skipped_points} point(s) outside wavelength window {min_label}..{max_label} Å."
+            )
+        if wavelength_arr.size < 2:
+            raise ValueError("Uploaded spectrum has too few samples within configured wavelength range.")
+
     return {
         "name": path.name,
         "format": format_name,
         "wavelength": wavelength_arr.tolist(),
         "flux": flux_arr.tolist(),
+        "lambda_min": lambda_min,
+        "lambda_max": lambda_max,
         "flux_mode": resolved_mode,
         "detected_flux_mode": detected_mode,
         "raw_points": raw_points,
         "skipped_points": skipped_points,
+        "range_skipped_points": range_skipped_points,
         "warnings": warnings,
     }
+
+
+def _normalize_wavelength_bounds(
+    lambda_min: float | None,
+    lambda_max: float | None,
+) -> tuple[float | None, float | None]:
+    min_value = float(lambda_min) if isinstance(lambda_min, int | float) else None
+    max_value = float(lambda_max) if isinstance(lambda_max, int | float) else None
+    if min_value is not None and (not math.isfinite(min_value) or min_value <= 0):
+        min_value = None
+    if max_value is not None and (not math.isfinite(max_value) or max_value <= 0):
+        max_value = None
+    if min_value is not None and max_value is not None and min_value > max_value:
+        min_value, max_value = max_value, min_value
+    return min_value, max_value
 
 
 def _first_hdu_with_data(hdul) -> Any | None:
