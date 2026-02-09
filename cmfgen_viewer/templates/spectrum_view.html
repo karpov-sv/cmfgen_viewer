@@ -103,6 +103,7 @@
     {% set y_scale_id = plot_id ~ "-yscale" %}
     {% set redshift_id = plot_id ~ "-redshift" %}
     {% set velocity_id = plot_id ~ "-velocity" %}
+    {% set ebv_id = plot_id ~ "-ebv" %}
     {% set distance_id = plot_id ~ "-distance" %}
     {% set reset_transform_id = plot_id ~ "-reset-transform" %}
     {% set transform_hint_id = plot_id ~ "-transform-hint" %}
@@ -126,6 +127,14 @@
         <label for="{{ velocity_id }}" class="plot-control-label">Radial velocity (km/s)</label>
         <input
           id="{{ velocity_id }}"
+          type="number"
+          step="any"
+          class="form-control form-control-sm plot-number-input"
+          value="0"
+        >
+        <label for="{{ ebv_id }}" class="plot-control-label">E(B-V)</label>
+        <input
+          id="{{ ebv_id }}"
           type="number"
           step="any"
           class="form-control form-control-sm plot-number-input"
@@ -256,6 +265,7 @@
         var yScale = document.getElementById("{{ y_scale_id }}");
         var redshiftInput = document.getElementById("{{ redshift_id }}");
         var velocityInput = document.getElementById("{{ velocity_id }}");
+        var ebvInput = document.getElementById("{{ ebv_id }}");
         var distanceInput = document.getElementById("{{ distance_id }}");
         var resetTransform = document.getElementById("{{ reset_transform_id }}");
         var transformHint = document.getElementById("{{ transform_hint_id }}");
@@ -318,6 +328,132 @@
           });
         }
 
+        function polyEval(coeffs, x) {
+          var value = 0;
+          for (var i = 0; i < coeffs.length; i += 1) {
+            value = value * x + coeffs[i];
+          }
+          return value;
+        }
+
+        function buildNaturalSpline(xs, ys) {
+          var n = xs.length;
+          var y2 = new Array(n).fill(0);
+          var u = new Array(n - 1).fill(0);
+          y2[0] = 0;
+          u[0] = 0;
+
+          for (var i = 1; i < n - 1; i += 1) {
+            var sig = (xs[i] - xs[i - 1]) / (xs[i + 1] - xs[i - 1]);
+            var p = sig * y2[i - 1] + 2;
+            y2[i] = (sig - 1) / p;
+            var d1 = (ys[i + 1] - ys[i]) / (xs[i + 1] - xs[i]);
+            var d0 = (ys[i] - ys[i - 1]) / (xs[i] - xs[i - 1]);
+            var dd = (6 * (d1 - d0) / (xs[i + 1] - xs[i - 1]) - sig * u[i - 1]) / p;
+            u[i] = dd;
+          }
+
+          y2[n - 1] = 0;
+          for (var k = n - 2; k >= 0; k -= 1) {
+            y2[k] = y2[k] * y2[k + 1] + u[k];
+          }
+          return {
+            xs: xs,
+            ys: ys,
+            y2: y2
+          };
+        }
+
+        function evalNaturalSpline(spline, x) {
+          var xs = spline.xs;
+          var ys = spline.ys;
+          var y2 = spline.y2;
+          var n = xs.length;
+          var xClamped = x;
+          if (xClamped <= xs[0]) {
+            xClamped = xs[0];
+          } else if (xClamped >= xs[n - 1]) {
+            xClamped = xs[n - 1];
+          }
+
+          var klo = 0;
+          var khi = n - 1;
+          while (khi - klo > 1) {
+            var mid = (khi + klo) >> 1;
+            if (xs[mid] > xClamped) {
+              khi = mid;
+            } else {
+              klo = mid;
+            }
+          }
+          var h = xs[khi] - xs[klo];
+          if (h === 0) {
+            return ys[klo];
+          }
+          var a = (xs[khi] - xClamped) / h;
+          var b = (xClamped - xs[klo]) / h;
+          return a * ys[klo] + b * ys[khi] + ((a * a * a - a) * y2[klo] + (b * b * b - b) * y2[khi]) * h * h / 6;
+        }
+
+        function buildFmCurveEvaluator(rV) {
+          var x0 = 4.596;
+          var gamma = 0.99;
+          var c4 = 0.41;
+          var c3 = 3.23;
+          var c2 = -0.824 + 4.717 / rV;
+          var c1 = 2.030 - 3.007 * c2;
+          var xcutuv = 10000 / 2700;
+          var xspluv = [10000 / 2700, 10000 / 2600];
+
+          function uvCurve(x) {
+            var xx = x * x;
+            var drudeDen = (xx - x0 * x0) * (xx - x0 * x0) + (x * gamma) * (x * gamma);
+            var y = c1 + c2 * x + c3 * xx / drudeDen;
+            var delta = Math.max(0, x - 5.9);
+            y += c4 * (0.5392 * delta * delta + 0.05644 * delta * delta * delta);
+            return y + rV;
+          }
+
+          var yspluv = [uvCurve(xspluv[0]), uvCurve(xspluv[1])];
+          var xsplopir = [0, 10000 / 26500, 10000 / 12200, 10000 / 6000, 10000 / 5470, 10000 / 4670, 10000 / 4110];
+          var ysplir = [0, 0.26469, 0.82925].map(function (value) {
+            return value * rV / 3.1;
+          });
+          var ysplop = [
+            polyEval([2.13572e-4, 1.00270, -4.22809e-1], rV),
+            polyEval([-7.35778e-5, 1.00216, -5.13540e-2], rV),
+            polyEval([-3.32598e-5, 1.00184, 7.00127e-1], rV),
+            polyEval([-4.45636e-5, 7.97809e-4, -5.46959e-3, 1.01707, 1.19456], rV)
+          ];
+          var xsSpline = xsplopir.concat(xspluv);
+          var ysSpline = ysplir.concat(ysplop).concat(yspluv);
+          var spline = buildNaturalSpline(xsSpline, ysSpline);
+
+          return function (wavelengthAngstrom) {
+            if (!Number.isFinite(wavelengthAngstrom) || wavelengthAngstrom <= 0) {
+              return 0;
+            }
+            var x = 10000 / wavelengthAngstrom;
+            if (x >= xcutuv) {
+              return uvCurve(x);
+            }
+            return evalNaturalSpline(spline, x);
+          };
+        }
+
+        var fmCurveAt = buildFmCurveEvaluator(3.1);
+        function reddeningScaleAt(wavelengthAngstrom, ebv) {
+          if (!Number.isFinite(ebv) || ebv === 0) {
+            return 1;
+          }
+          var curve = fmCurveAt(wavelengthAngstrom);
+          var factor = Math.pow(10, -0.4 * ebv * curve);
+          if (!Number.isFinite(factor) || factor <= 0) {
+            return 1;
+          }
+          return factor;
+        }
+
         function applyPhysicalTransforms() {
           var redshift = redshiftInput ? Number(redshiftInput.value) : 0;
           if (!Number.isFinite(redshift)) {
@@ -334,10 +470,16 @@
             return;
           }
 
+          var ebv = ebvInput ? Number(ebvInput.value) : 0;
+          if (!Number.isFinite(ebv)) {
+            setTransformHint("E(B-V) must be a valid number.", true);
+            return;
+          }
+
           if (spectrumMode === "both") {
-            setTransformHint("Flux is shown in erg s^-1 cm^-2 Å^-1 and scaled as 1/d^2 from the 1 kpc model reference.", false);
+            setTransformHint("Flux is shown in erg s^-1 cm^-2 Å^-1, distance-scaled as 1/d^2 (1 kpc reference), and reddened with Fitzpatrick (1999) using E(B-V).", false);
           } else {
-            setTransformHint("Normalized mode applies wavelength shift only; distance scaling cancels in F/Fc.", false);
+            setTransformHint("Normalized mode applies wavelength shift only; distance and reddening cancel in F/Fc.", false);
           }
 
           var wavelengthScale = 1 / (1 + redshift);
@@ -352,13 +494,13 @@
             var nextY = new Array(sourceY.length);
 
             for (var i = 0; i < sourceX.length; i += 1) {
-              nextX[i] = sourceX[i] * wavelengthScale;
-            }
-            if (spectrumMode === "both") {
-              for (var j = 0; j < sourceY.length; j += 1) {
-                nextY[j] = sourceY[j] * distanceScale;
+              var wavelength = sourceX[i] * wavelengthScale;
+              nextX[i] = wavelength;
+              if (spectrumMode === "both") {
+                nextY[i] = sourceY[i] * distanceScale * reddeningScaleAt(wavelength, ebv);
               }
-            } else {
+            }
+            if (spectrumMode !== "both") {
               for (var k = 0; k < sourceY.length; k += 1) {
                 nextY[k] = sourceY[k];
               }
@@ -406,6 +548,9 @@
           if (distanceInput) {
             distanceInput.addEventListener("input", scheduleTransforms);
           }
+          if (ebvInput) {
+            ebvInput.addEventListener("input", scheduleTransforms);
+          }
           if (resetTransform) {
             resetTransform.addEventListener("click", function () {
               if (redshiftInput) {
@@ -416,6 +561,9 @@
               }
               if (distanceInput) {
                 distanceInput.value = "1";
+              }
+              if (ebvInput) {
+                ebvInput.value = "0";
               }
               scheduleTransforms();
             });
