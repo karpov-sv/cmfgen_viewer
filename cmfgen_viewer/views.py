@@ -23,6 +23,7 @@ from .final_spectrum import (
     read_model,
     spectrum_data_rows,
 )
+from .parsers.common import format_number, parse_float_token
 from .observed_spectrum import (
     generate_upload_token,
     is_valid_upload_token,
@@ -66,6 +67,29 @@ _MD_ORDERED_PAREN_RE = re.compile(r"^(\s*)(\d+)\)\s+(.*)$")
 _MD_ATX_HEADING_RE = re.compile(r"^\s*#{1,6}\s+")
 _MD_SETEXT_RE = re.compile(r"^\s*[=-]{3,}\s*$")
 _MD_QUOTE_RE = re.compile(r"^\s*>")
+
+SUMMARY_COLUMNS = [
+    "MODEL",
+    "LSTAR",
+    "MDOT",
+    "T_*",
+    "RSTAR",
+    "RMAX",
+    "T_2/3",
+    "R_2/3",
+    "Eta",
+    "f",
+    "f_beg",
+    "TAU",
+    "Vinf",
+    "Beta",
+    "HYD/X",
+    "NIT/X",
+    "IRON/X",
+    "logg",
+    "OXY/X",
+    "CAR/X",
+]
 
 
 def _normalize_markdown_lists(source: str) -> str:
@@ -137,6 +161,90 @@ def _collect_obs_tokens(raw_values: list[str]) -> list[str]:
             tokens.append(token)
             seen.add(token)
     return tokens
+
+
+def _collect_rel_paths(raw_values: list[str]) -> list[str]:
+    paths: list[str] = []
+    seen: set[str] = set()
+    for raw in raw_values:
+        rel = str(raw).strip().strip("/")
+        if not rel or rel in seen:
+            continue
+        paths.append(rel)
+        seen.add(rel)
+    return paths
+
+
+def _parse_summary_float(value: object) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, int | float):
+        numeric = float(value)
+        return numeric if numeric == numeric else None
+
+    text = str(value).strip()
+    if not text:
+        return None
+    normalized = text.replace("D", "E").replace("d", "e")
+    parsed = parse_float_token(normalized)
+    if parsed is not None:
+        numeric = float(parsed)
+        return numeric if numeric == numeric else None
+
+    match = re.match(r"^([+-]?(?:\d+(?:\.\d*)?|\.\d+))([+-]\d+)$", normalized)
+    if not match:
+        return None
+    try:
+        numeric = float(f"{match.group(1)}E{match.group(2)}")
+    except ValueError:
+        return None
+    return numeric if numeric == numeric else None
+
+
+def _format_summary_value(value: object, *, default: str = "") -> str:
+    if value in (None, ""):
+        return default
+    numeric = _parse_summary_float(value)
+    if numeric is not None:
+        return format_number(numeric)
+    text = str(value).strip()
+    return text if text else default
+
+
+def _build_summary_row(model: dict[str, object]) -> list[str]:
+    params = model.get("params")
+    vadat = model.get("vadat")
+    if not isinstance(params, dict):
+        params = {}
+    if not isinstance(vadat, dict):
+        vadat = {}
+
+    cl_p_1 = params.get("CL_P_1")
+    if cl_p_1 in (None, ""):
+        cl_p_1 = "-"
+
+    return [
+        _format_summary_value(model.get("name")),
+        _format_summary_value(vadat.get("LSTAR")),
+        _format_summary_value(vadat.get("MDOT")),
+        _format_summary_value(params.get("T*(K)")),
+        _format_summary_value(vadat.get("RSTAR")),
+        _format_summary_value(vadat.get("RMAX")),
+        _format_summary_value(params.get("Teff(K)")),
+        _format_summary_value(params.get("R_/Rsun")),
+        _format_summary_value(params.get("Eta")),
+        _format_summary_value(cl_p_1, default="-"),
+        _format_summary_value(params.get("CL_P_2")),
+        _format_summary_value(params.get("Tau")),
+        _format_summary_value(params.get("Vinf1")),
+        _format_summary_value(params.get("Beta1")),
+        _format_summary_value(vadat.get("HYD/X")),
+        _format_summary_value(vadat.get("NIT/X")),
+        _format_summary_value(vadat.get("IRON/X")),
+        _format_summary_value(params.get("Log_g")),
+        _format_summary_value(vadat.get("OXY/X")),
+        _format_summary_value(vadat.get("CARB/X")),
+    ]
 
 
 def _spectrum_url(
@@ -351,6 +459,73 @@ def documentation(slug: str | None):
         active_doc=active_doc,
         doc_html=Markup(doc_html),
         doc_highlight_css=doc_highlight_css,
+    )
+
+
+@bp.route("/bulk/summarize/", defaults={"path": ""}, methods=["POST"])
+@bp.route("/bulk/summarize/<path:path>", methods=["POST"])
+def bulk_summarize(path: str):
+    config = _viewer_config()
+    basepath = str(config.get("basepath", "."))
+
+    try:
+        directory = resolve_path(basepath, path)
+    except FileNotFoundError:
+        abort(404)
+    if not directory.is_dir():
+        abort(404)
+
+    if is_model_context_path(path):
+        abort(400)
+
+    selected_paths = _collect_rel_paths(request.form.getlist("selected_models"))
+    if not selected_paths:
+        return redirect(url_for("viewer.view", path=path))
+
+    rows: list[list[str]] = []
+    skipped: list[list[str]] = []
+    for rel in selected_paths:
+        try:
+            target = resolve_path(basepath, rel)
+        except FileNotFoundError:
+            skipped.append([rel, "Not found"])
+            continue
+        if not target.is_dir():
+            skipped.append([rel, "Not a directory"])
+            continue
+        try:
+            target.relative_to(directory)
+        except ValueError:
+            skipped.append([rel, "Outside current folder"])
+            continue
+
+        if not (target / "VADAT").is_file() or not (target / "MOD_SUM").is_file():
+            skipped.append([rel, "Missing VADAT or MOD_SUM"])
+            continue
+
+        model = read_model(target)
+        rows.append(_build_summary_row(model))
+
+    breadcrumb = make_breadcrumb(path)
+    if breadcrumb:
+        breadcrumb[-1]["path"] = path
+        breadcrumb.append({"name": "Summarize", "path": None})
+    context = {
+        "path": path,
+        "breadcrumb": breadcrumb,
+        "basepath": basepath,
+        "show_all": bool(config.get("show_all", False)),
+        "view_query": {},
+        "quick_links": _collect_quick_links(basepath, path),
+        "spectrum_view": _spectrum_link_context(basepath, path),
+    }
+    return render_template(
+        "models_summary.html",
+        columns=SUMMARY_COLUMNS,
+        rows=rows,
+        skipped=skipped,
+        selected_count=len(selected_paths),
+        **context,
     )
 
 
@@ -731,7 +906,8 @@ def view(path: str):
     if target.is_dir():
         current_dir_name = target.name.lower()
         current_dir_is_model = current_dir_name.startswith("model") and current_dir_name != "models"
-        model_context = is_model_context_path(path) or is_model_context_path(str(target)) or current_dir_is_model
+        current_path_in_model = is_model_context_path(path) or is_model_context_path(str(target)) or current_dir_is_model
+        model_context = current_path_in_model
         show_symlink_toggle = model_context
         show_symlinks = (not hide_symlink_files) or (not show_symlink_toggle)
         symlink_toggle_query: dict[str, str] = {}
@@ -748,6 +924,7 @@ def view(path: str):
         context["show_symlinks"] = show_symlinks
         context["symlink_toggle_query"] = symlink_toggle_query
         context["quick_links"] = _collect_quick_links(basepath, path)
+        context["enable_multi_model_ops"] = not current_path_in_model
         return render_template("files_list.html", files=files, **context)
 
     if target.is_file():

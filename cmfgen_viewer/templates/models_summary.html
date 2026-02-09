@@ -1,0 +1,60 @@
+{% extends "files.html" %}
+
+{% block title %}Model Summary - CMFGEN Viewer{% endblock %}
+
+{% block files_body %}
+  <section class="mb-4">
+    <h2 class="h4 mb-2">Bulk Model Summary</h2>
+    <p class="text-muted mb-3">
+      Requested folders: <code>{{ selected_count }}</code>, summarized models: <code>{{ rows|length }}</code>
+    </p>
+    <a class="btn btn-sm btn-outline-secondary mb-3" href="{{ url_for('viewer.view', path=path) }}">Back to Folder</a>
+
+    {% if rows %}
+      <div class="table-responsive table-view-wrap mb-3">
+        <table class="table table-sm table-striped">
+          <thead>
+            <tr>
+              {% for column in columns %}
+                <th><code>{{ column }}</code></th>
+              {% endfor %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in rows %}
+              <tr>
+                {% for value in row %}
+                  <td><code>{{ value }}</code></td>
+                {% endfor %}
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p class="text-muted">No models could be summarized from the selected folders.</p>
+    {% endif %}
+
+    {% if skipped %}
+      <h3 class="h6 mt-3">Skipped folders</h3>
+      <div class="table-responsive table-view-wrap">
+        <table class="table table-sm table-striped">
+          <thead>
+            <tr>
+              <th>Folder</th>
+              <th>Reason</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in skipped %}
+              <tr>
+                <td><code>{{ item[0] }}</code></td>
+                <td><code>{{ item[1] }}</code></td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% endif %}
+  </section>
+{% endblock %}

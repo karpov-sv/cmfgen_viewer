@@ -9,14 +9,30 @@
       <span class="small text-muted">Symlinked files are currently {{ "shown" if show_symlinks else "hidden" }}.</span>
     </div>
   {% endif %}
+  {% set selectable_dirs = files | selectattr("is_dir") | list %}
+  {% set show_bulk_selection = enable_multi_model_ops and selectable_dirs %}
   {% if not files %}
     <p class="text-muted">No entries found.</p>
   {% else %}
+    {% if show_bulk_selection %}
+      <form id="bulk-model-form" method="post" action="{{ url_for('viewer.bulk_summarize', path=path) }}">
+    {% endif %}
     <p class="text-muted">{{ files|length }} entries</p>
     <div class="table-responsive">
       <table class="table table-sm table-hover align-middle" id="files-table">
         <thead>
           <tr>
+            {% if show_bulk_selection %}
+              <th class="col-fixed text-center">
+                <input
+                  type="checkbox"
+                  class="form-check-input"
+                  id="model-select-toggle"
+                  aria-label="Select or unselect all model folders"
+                  title="Select All"
+                >
+              </th>
+            {% endif %}
             <th class="col-name">
               <button type="button" class="table-sort" data-key="name" data-type="string">
                 Name <span class="sort-indicator"></span>
@@ -51,6 +67,18 @@
               data-modified="{{ file.modified_ts }}"
               data-is-dir="{{ 1 if file.is_dir else 0 }}"
             >
+              {% if show_bulk_selection %}
+                <td class="col-fixed text-center">
+                  {% if file.is_dir %}
+                    <input
+                      type="checkbox"
+                      class="form-check-input model-select"
+                      name="selected_models"
+                      value="{{ file.path }}"
+                    >
+                  {% endif %}
+                </td>
+              {% endif %}
               <td class="col-name">
                 <a href="{{ url_for('viewer.view', path=file.path, **view_query) }}">
                   <i
@@ -80,6 +108,73 @@
         </tbody>
       </table>
     </div>
+    {% if show_bulk_selection %}
+      <div class="d-flex align-items-center gap-2 mt-3">
+        <span class="small text-muted">Bulk operations:</span>
+        <button type="submit" class="btn btn-sm btn-primary" id="bulk-summarize-btn" disabled>Summarize</button>
+      </div>
+      </form>
+      <script>
+        (function () {
+          var form = document.getElementById("bulk-model-form");
+          if (!form) {
+            return;
+          }
+
+          var checkboxes = Array.prototype.slice.call(form.querySelectorAll(".model-select"));
+          if (!checkboxes.length) {
+            return;
+          }
+
+          var selectToggle = document.getElementById("model-select-toggle");
+          var submitButton = document.getElementById("bulk-summarize-btn");
+
+          function syncSubmitState() {
+            if (!submitButton) {
+              return;
+            }
+            submitButton.disabled = !checkboxes.some(function (checkbox) {
+              return checkbox.checked;
+            });
+          }
+
+          function syncToggleState() {
+            if (!selectToggle) {
+              return;
+            }
+            var selectedCount = checkboxes.filter(function (checkbox) {
+              return checkbox.checked;
+            }).length;
+            selectToggle.checked = selectedCount > 0 && selectedCount === checkboxes.length;
+            selectToggle.indeterminate = selectedCount > 0 && selectedCount < checkboxes.length;
+          }
+
+          function setAllCheckboxes(checked) {
+            checkboxes.forEach(function (checkbox) {
+              checkbox.checked = checked;
+            });
+            syncToggleState();
+            syncSubmitState();
+          }
+
+          if (selectToggle) {
+            selectToggle.addEventListener("change", function () {
+              setAllCheckboxes(selectToggle.checked);
+            });
+          }
+
+          checkboxes.forEach(function (checkbox) {
+            checkbox.addEventListener("change", function () {
+              syncToggleState();
+              syncSubmitState();
+            });
+          });
+
+          syncToggleState();
+          syncSubmitState();
+        })();
+      </script>
+    {% endif %}
     <script src="{{ url_for('static', filename='files_table.js') }}"></script>
   {% endif %}
 {% endblock %}
