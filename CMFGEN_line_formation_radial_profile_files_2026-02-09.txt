@@ -1,0 +1,160 @@
+CMFGEN/CMF_FLUX Line-Formation Radial-Profile Files
+Date: 2026-02-09
+Repository snapshot: /home/karpov/CMFGEN2023/cur_cmf
+
+Purpose
+-------
+This note lists the files that contain radial information for line formation
+(depth/impact-parameter/frequency diagnostics), where they are written in code,
+and how to enable them for future viewer work.
+
+Important scope note
+--------------------
+These files are produced by observer-frame post-processing (`cmf_flux`), not by
+the main CMFGEN solver output path alone.
+
+====================================================================
+1) Primary line-formation radial-profile files
+====================================================================
+
+1) dFR_DATA (+ dFR_DATA_INFO)
+- Meaning: radial contribution to observed flux as a function of frequency
+  (dF(R,nu)-type diagnostic).
+- Writer:
+  - obs/obs_frame_sub_v9.f:1190-1203 (`dFR_DATA`)
+  - obs/obs_frame_sub_v9.f:1195 (`dFR_DATA_INFO` via WRITE_DIRECT_INFO_V3)
+- Type: direct-access unformatted binary + ASCII sidecar metadata.
+- Related text derivative:
+  - obs/obs_frame_sub_v9.f:1204-1225 writes `PHOTOSPHERIC_RADIUS` from `dFR_DATA`.
+
+2) RTAU_DATA / ZTAU_DATA (+ *_INFO)
+- Meaning:
+  - `RTAU_DATA`: radius where tau reaches `TAU_REF`, as function of impact parameter and frequency.
+  - `ZTAU_DATA`: corresponding z-coordinate.
+- Computation:
+  - obs/obs_frame_sub_v9.f:1083-1117 (tau crossing and interpolation).
+- Writer:
+  - obs/obs_frame_sub_v9.f:1162-1171 (`RTAU_DATA`)
+  - obs/obs_frame_sub_v9.f:1178-1187 (`ZTAU_DATA`)
+- Type: direct-access unformatted binary + ASCII *_INFO sidecars.
+
+3) FLUX_FILE (+ FLUX_FILE_INFO)
+- Meaning: flux as function of depth and frequency from cmf solution path.
+- Writer:
+  - obs/cmf_flux_sub_v5.f:1706-1715
+- Type: direct-access unformatted binary + *_INFO.
+
+4) ETA_DATA / CHI_DATA (+ *_INFO)
+- Meaning: emissivity and opacity cubes vs depth and frequency (key physical inputs for formation analysis).
+- Writer:
+  - obs/cmf_flux_sub_v5.f:1804-1826
+- Type: direct-access unformatted binary + *_INFO.
+
+5) IP_DATA (+ IP_DATA_INFO)
+- Meaning: specific intensity I(p,nu) vs impact parameter and frequency.
+- Writer:
+  - obs/obs_frame_sub_v9.f:1144-1155
+- Type: direct-access unformatted binary + *_INFO.
+
+====================================================================
+2) Files that connect profiles to specific spectral lines
+====================================================================
+
+1) TRANS_INFO
+- Meaning: transition catalog with frequency/wavelength and transition names.
+- Writers:
+  - new_main/mod_subs/set_frequency_grid_v2.f:229-260
+  - obs/cmf_flux_sub_v5.f:834-836 (optional large output branch)
+- Type: ASCII table.
+- Use: map line IDs/names to frequencies to extract corresponding slices from
+  `dFR_DATA`, `RTAU_DATA`, `IP_DATA`, etc.
+
+2) EWDATA
+- Meaning: line list with transition name, wavelength, EW and related metrics.
+- Writers:
+  - obs/cmf_flux_sub_v5.f:2158 (open)
+  - obs/cmf_flux_sub_v5.f:2428 (WRITE_OUT_EW call)
+  - subs/write_out_ew.f:6-89 (format/content)
+- Type: ASCII table/report.
+- Use: select lines of interest, then map to frequency and pull radial profiles
+  from binary cubes.
+
+====================================================================
+3) Optional related radial diagnostics
+====================================================================
+
+1) CMF_FORCE_DATA (+ *_INFO)
+- Meaning: depth- and frequency-dependent CMF line-force multiplier M(t).
+- Writer: obs/cmf_flux_sub_v5.f:1688-1700.
+- Type: direct-access binary + *_INFO.
+
+2) SOB_FORCE_DATA (+ *_INFO) and SOB_FORCE_MULT
+- Meaning: Sobolev line-force multiplier radial data.
+- Writer:
+  - obs/cmf_flux_sub_v5.f:2389-2399 (`SOB_FORCE_DATA`)
+  - obs/cmf_flux_sub_v5.f:2447-2450 (`SOB_FORCE_MULT` ASCII summary)
+- Type: binary (+ *_INFO) and ASCII summary.
+
+3) ION_LINE_FORCE_TABLE / ION_FLUX_MEAN_OPAC
+- Meaning: ion-by-ion radial force contributions.
+- Writer: new_main/subs/out_line_force.f:28-64.
+- Type: ASCII tables.
+
+====================================================================
+4) CMF_FLUX_PARAM switches that enable profile outputs
+====================================================================
+
+Parsed in: obs/rd_cmf_flux_controls.f:214-233
+
+Key flags:
+- `[WR_TRANS]`     -> output `TRANS_INFO`
+- `[WR_IP]`        -> output `IP_DATA`
+- `[WR_RTAU]`      -> output `RTAU_DATA` and `ZTAU_DATA`
+- `[WR_dFR]`       -> output `dFR_DATA` (+ `PHOTOSPHERIC_RADIUS`)
+- `[TAU_REF]`      -> reference tau used with `[WR_RTAU]`
+- `[WR_FLUX]`      -> output `FLUX_FILE`
+- `[WR_ETA]`       -> output `ETA_DATA` and `CHI_DATA`
+- `[WR_CMF_FORCE]` -> output `CMF_FORCE_DATA`
+- `[WR_SOB_FORCE]` -> output `SOB_FORCE_DATA` and `SOB_FORCE_MULT`
+- `[WR_ION_FORCE]` -> output ion force tables
+
+Typical default behavior in model scripts: many of these are off, so profile
+files are often absent unless explicitly enabled.
+
+====================================================================
+5) Practical extraction workflow for a specific spectral line
+====================================================================
+
+1) Enable and produce diagnostics:
+- Turn on at least: `[WR_dFR]=T`, `[WR_RTAU]=T`, `[WR_IP]=T`, `[WR_TRANS]=T`
+  (plus `[TAU_REF]`).
+
+2) Identify target line:
+- Use `EWDATA` (line names/wavelengths) and/or `TRANS_INFO` (line catalog with frequencies).
+
+3) Map to profile cubes:
+- For target frequency index, extract:
+  - radial contribution from `dFR_DATA`,
+  - tau-surface radius from `RTAU_DATA`/`ZTAU_DATA`,
+  - angle-dependent intensity from `IP_DATA`.
+
+4) Use *_INFO sidecar files:
+- Required for interpreting binary record layout portably.
+
+====================================================================
+6) Retention recommendation
+====================================================================
+
+Keep these together for each analyzed run:
+- `OBSFRAME` (or `obs_fin_*` alias)
+- `TRANS_INFO`
+- `EWDATA`
+- `dFR_DATA` + `dFR_DATA_INFO`
+- `RTAU_DATA` + `RTAU_DATA_INFO`
+- `ZTAU_DATA` + `ZTAU_DATA_INFO`
+- `IP_DATA` + `IP_DATA_INFO`
+- optional: `ETA_DATA`/`CHI_DATA` (+ *_INFO), `FLUX_FILE` (+ *_INFO)
+
+Without those profile files enabled and retained, line-formation radial analysis
+is limited to indirect inference from bulk spectra.
+

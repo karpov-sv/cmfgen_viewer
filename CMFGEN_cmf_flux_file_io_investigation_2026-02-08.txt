@@ -366,6 +366,10 @@ These two names are not direct hard-coded outputs of `CMF_FLUX_SUB_V5`; they are
   - `EDDFACTOR_INFO` -> `EDDFACTOR_STORE_INFO`
   (see `misc/create_batobs_ins.f:235-236`)
 - These are workflow/staging conventions, not native filenames written by physics routines.
+- `hydro_cont` note:
+  - no `hydro_cont` filename was found in this snapshot’s source/scripts.
+  - legacy `opac/batobs.com` renames first-pass `hydro.dat` -> `hydro_fin.dat` (`opac/batobs.com:11`), but does not rename second-pass `hydro.dat` to `hydro_cont`.
+  - if `hydro_cont` exists in a run directory, it is likely user/manual or external-workflow naming rather than a built-in CMFGEN alias in this tree.
 
 
 F. Quick inventory (concise)

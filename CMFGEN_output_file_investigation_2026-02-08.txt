@@ -440,6 +440,7 @@ Beyond `obs_fin`/`obs_cont`, several helper scripts create staging aliases that 
 - `CMF_FLUX_PARAM` -> `CMF_FLUX_PARAM*`
 - optional: `EDDFACTOR` -> `EDDFACTOR_STORE`, `EDDFACTOR_INFO` -> `EDDFACTOR_STORE_INFO`
 References: `misc/create_batobs_ins.f:216-223`, `misc/create_batobs_ins.f:235-236`.
+- `hydro_cont` note: no `hydro_cont` writer/rename path was found in this snapshot. Legacy `batobs` renames first-pass `hydro.dat` to `hydro_fin.dat` (`opac/batobs.com:11`) and does not define a `hydro_cont` alias.
 
 2) Model-startup staging aliases (`cpmod`/`drad_cpmod`/`sn_update`)
 - `GAMMAS` -> `GAMMAS_IN` (`com/cpmod.sh:49`, `com/drad_cpmod.sh:53`)

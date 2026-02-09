@@ -1,0 +1,430 @@
+CMFGEN Model Run Script Review for Python Reimplementation
+Date: 2026-02-09
+Scope: /home/karpov/CMFGEN2023/models/ostar/model_Bstar1060 and shared helper scripts in /home/karpov/CMFGEN2023/models/ostar and /home/karpov/CMFGEN2023/cur_cmf/com
+
+Goal
+----
+Document the actual shell-script orchestration used to set up and run CMFGEN models so it can be re-implemented in Python with explicit file contracts and deterministic behavior.
+
+
+1) Scripts reviewed (primary)
+=============================
+Model-local orchestration
+- /home/karpov/CMFGEN2023/models/ostar/model_Bstar1060/batch.sh
+- /home/karpov/CMFGEN2023/models/ostar/model_Bstar1060/batch_ins.sh
+- /home/karpov/CMFGEN2023/models/ostar/model_Bstar1060/clean.sh
+- /home/karpov/CMFGEN2023/models/ostar/model_Bstar1060/obs/batobs.sh
+- /home/karpov/CMFGEN2023/models/ostar/model_Bstar1060/obs/bat_ins.sh
+- /home/karpov/CMFGEN2023/models/ostar/model_Bstar1060/lte/ltebat.sh
+- /home/karpov/CMFGEN2023/models/ostar/model_Bstar1060/lte/batch.sh
+- /home/karpov/CMFGEN2023/models/ostar/model_Bstar1060/lte/clean.sh
+
+Shared helpers (setup/staging)
+- /home/karpov/CMFGEN2023/models/ostar/cpmod.sh
+- /home/karpov/CMFGEN2023/models/ostar/out2in.sh
+- /home/karpov/CMFGEN2023/cur_cmf/com/aliases_for_cmfgen.sh
+
+Generator utilities that explain script structure
+- /home/karpov/CMFGEN2023/cur_cmf/misc/create_batch_ins.f
+- /home/karpov/CMFGEN2023/cur_cmf/misc/create_batobs_ins.f
+
+Executable entry-point linkage (for orchestration boundaries)
+- /home/karpov/CMFGEN2023/cur_cmf/new_main/Makefile:24-34 -> cmfgen_dev.exe
+- /home/karpov/CMFGEN2023/cur_cmf/new_main/cmfgen.f:10 -> PROGRAM CMFGEN
+- /home/karpov/CMFGEN2023/cur_cmf/obs/Makefile:40-51 -> cmf_flux.exe
+- /home/karpov/CMFGEN2023/cur_cmf/obs/cmf_flux_v5.f:10 -> PROGRAM CMF_FLUX_V5
+- /home/karpov/CMFGEN2023/cur_cmf/lte_hydro/Makefile:41,58-65 -> main_lte.exe
+- /home/karpov/CMFGEN2023/cur_cmf/lte_hydro/lte.f:10 -> PROGRAM LTE
+
+
+2) High-level call graph
+========================
+A) Main non-LTE run + observer spectra
+1. model_Bstar1060/batch.sh
+2. batch.sh sources aliases_for_cmfgen.sh (env+aliases)
+3. batch.sh creates generic H/He links + sources batch_ins.sh (bulk atomic links)
+4. batch.sh runs cmfgen_dev.exe and writes batch.log
+5. batch.sh enters obs/ and runs tcsh ./batobs.sh
+6. obs/batobs.sh calls ../batch.sh assign (link-only mode)
+7. obs/batobs.sh sources obs/bat_ins.sh (3 cmf_flux runs -> obs_fin_* variants)
+8. obs/batobs.sh runs one continuum cmf_flux pass -> obs_cont/hydro_cont/etc
+9. obs/batobs.sh cleans transient files and calls ../clean.sh
+
+B) LTE subfolder run
+1. lte/ltebat.sh
+2. ltebat.sh calls ../batch.sh ass (non-empty arg => link-only mode)
+3. ltebat.sh runs main_lte.exe and writes ltebat.log
+
+C) New model staging
+1. models/ostar/cpmod.sh old_model new_model
+2. Copies baseline files and old *OUT files to new dir
+3. Calls out2in alias/script to rename *OUT -> *_IN
+4. Optional SN-specific copies if SN files are present
+
+
+3) Detailed script behavior and file contracts
+==============================================
+
+3.1 batch.sh (main driver)
+--------------------------
+Path: /home/karpov/CMFGEN2023/models/ostar/model_Bstar1060/batch.sh
+
+Key control flow
+- Loads environment/aliases: line 11
+- Discovers its own directory with lsof: line 12
+- Sets runtime env:
+  - OMP_NUM_THREADS=5: line 14
+  - CMFGEN_PROG=$cmfdist/exe/cmfgen_dev.exe: line 15
+- Creates base symlinks for misc+H+He data: lines 31-60
+- Sources local batch_ins.sh for full atomic symlink set: line 62
+- If any argument is passed, exits after link creation: lines 74-79
+  - This is used by obs (`assign`) and lte (`ass`) as link-only mode.
+- For actual model run (no args):
+  - links T_IN -> He2_IN: line 97
+  - recreates batch.log and logs metadata: lines 117-123
+  - launches cmfgen with low priority: line 125
+  - waits: line 128
+  - enters obs and runs batobs.sh: lines 149-151
+
+Primary writes/updates by script itself
+- batch.log (overwrite + append): lines 117,119-123,126-127,130-131,133-134,156-157
+- symlinks for atomic files and T_IN
+
+Expected downstream produced files (from executable cmfgen_dev.exe)
+- CMFGEN writes model products like MODEL, RVTJ, *OUT, POP*, GAMMAS, etc.
+  - see program entry /home/karpov/CMFGEN2023/cur_cmf/new_main/cmfgen.f:10
+  - representative output opens in /home/karpov/CMFGEN2023/cur_cmf/new_main/cmfgen_sub.f:803 (MODEL), :4312 (RVTJ), :4496 (GAMMAS)
+
+
+3.2 batch_ins.sh (atomic symlink manifest)
+------------------------------------------
+Path: /home/karpov/CMFGEN2023/models/ostar/model_Bstar1060/batch_ins.sh
+
+Observed structure
+- 1004 total lines, 808 `ln -sf` lines in this file alone (plus 18 in batch.sh => 826 total link commands).
+- Covers ions beyond H/He (C through Ba) with links for:
+  - *_COL_DATA
+  - *_F_OSCDAT
+  - optional *_AUTO_DATA
+  - optional DIE*
+  - PHOT* files
+  - *_F_TO_S
+
+Important data-quality note for Python port
+- 19 link lines point to directory paths ending with `/` (missing explicit file basename), e.g.:
+  - line 122 OVIII_F_TO_S
+  - line 354 SkVIII_F_TO_S
+  - line 384 PIII_F_TO_S
+  - line 405 PSEV_F_TO_S
+  - line 410 PVIII_F_TO_S
+  - line 465 SVIII_F_TO_S
+  - line 585 KVIII_F_TO_S
+  - line 672 ScIII_F_TO_S
+  - line 677 VI_F_TO_S
+  - line 727 CrSEV_F_TO_S
+  - line 732 CrVIII_F_TO_S
+  - line 752 CrXII_F_TO_S
+  - line 757 CrXIII_F_TO_S
+  - line 762 CrXIV_F_TO_S
+  - line 913 CoVIII_F_TO_S
+  - line 978 NkXII_F_TO_S
+  - line 983 NkXIII_F_TO_S
+  - line 988 NkXIV_F_TO_S
+  - line 998 NkXSIX_F_TO_S
+- Root cause is consistent with generator logic in create_batch_ins.f when no f_to_s file is found:
+  - /home/karpov/CMFGEN2023/cur_cmf/misc/create_batch_ins.f:205-209 and :381-383
+
+Generator provenance
+- batch_ins.sh is generated by create_batch_ins.f:
+  - /home/karpov/CMFGEN2023/cur_cmf/misc/create_batch_ins.f:125 (opens batch_ins.sh)
+  - writes ln commands at :168-179 and :207-209
+
+
+3.3 obs/batobs.sh (observer-frame orchestration)
+------------------------------------------------
+Path: /home/karpov/CMFGEN2023/models/ostar/model_Bstar1060/obs/batobs.sh
+
+Key behavior
+- Loads aliases/env: line 4
+- Sets runtime env:
+  - OMP_NUM_THREADS=7: line 11
+  - PROG_CMF_OBS=$cmfdist/exe/cmf_flux.exe: line 12
+- Calls ../batch.sh assign to recreate atomic links in obs dir: line 18
+- Adds extra broadening/reference links used by cmf_flux: lines 20-25
+- Clears CMF_FLUX_PARAM then sources bat_ins.sh: lines 43-45
+  - This executes three full-line cmf_flux runs with different VTURB values.
+- Builds continuum-specific CMF_FLUX_PARAM via sed from template: lines 57-63
+- Runs cmf_flux for continuum pass: lines 76-78
+- Renames key outputs:
+  - OBSFRAME -> obs_cont: line 85
+  - TIMING -> cont_timing: line 86
+  - EWDATA -> ewdata_fin: line 87
+  - HYDRO -> hydro_cont: line 88
+- Cleans links/transients and calls parent clean.sh: lines 90-102
+
+Where these renamed files come from in code
+- OBSFRAME written by cmf_flux:
+  - /home/karpov/CMFGEN2023/cur_cmf/obs/cmf_flux_sub_v5.f:2120
+- EWDATA written by cmf_flux Sobolev EW section:
+  - /home/karpov/CMFGEN2023/cur_cmf/obs/cmf_flux_sub_v5.f:2158
+- HYDRO written by HYDRO_TERMS called from cmf_flux:
+  - call site /home/karpov/CMFGEN2023/cur_cmf/obs/cmf_flux_sub_v5.f:2001
+  - file open /home/karpov/CMFGEN2023/cur_cmf/subs/hydro_terms.f:65
+- TIMING written by TUNE() utility called throughout cmf_flux:
+  - cmf_flux calls /home/karpov/CMFGEN2023/cur_cmf/obs/cmf_flux_v5.f:664-668
+  - TUNE opens TIMING at /home/karpov/CMFGEN2023/cur_cmf/unix/tune.f:86 and appends at :177
+
+
+3.4 obs/bat_ins.sh (multi-run VTURB sweep)
+------------------------------------------
+Path: /home/karpov/CMFGEN2023/models/ostar/model_Bstar1060/obs/bat_ins.sh
+
+Key behavior
+- For each VTURB setting (15, 10, 20 km/s):
+  1) Create CMF_FLUX_PARAM from CMF_FLUX_PARAM_INIT via sed
+  2) Run cmf_flux
+  3) Rename OBSFRAME -> obs_fin_<vturb>
+  4) Rename CMF_FLUX_PARAM -> CMF_FLUX_PARAM_<vturb>
+  5) Delete transients (OBSFLUX, HYDRO, MEANOPAC, TIMING, J_COMP, ES_J_CONV*, fort.*, EDDFACTOR*)
+- Relevant lines:
+  - VTURB=15 block: 6-33
+  - VTURB=10 block: 37-64
+  - VTURB=20 block: 68-95
+
+Outputs retained by script
+- obs_fin_15, obs_fin_10, obs_fin_20
+- CMF_FLUX_PARAM_15, CMF_FLUX_PARAM_10, CMF_FLUX_PARAM_20
+
+Outputs explicitly discarded each pass
+- OBSFLUX, HYDRO, MEANOPAC, TIMING, J_COMP, ES_J_CONV*, fort.*, EDDFACTOR, EDDFACTOR_INFO
+
+
+3.5 clean.sh (main/obs/lte copies)
+-----------------------------------
+Paths:
+- /home/karpov/CMFGEN2023/models/ostar/model_Bstar1060/clean.sh
+- /home/karpov/CMFGEN2023/models/ostar/model_Bstar1060/obs/clean.sh
+- /home/karpov/CMFGEN2023/models/ostar/model_Bstar1060/lte/clean.sh
+
+Behavior
+- Removes many transient diagnostics and scratch files (rm without `-f` for most entries): lines 6-31
+- Removes symlinks via find expression: lines 32-34
+
+Python implication
+- This is destructive cleanup; implement explicit allowlist and `missing_ok=True` semantics.
+
+
+3.6 lte/ltebat.sh and lte path
+-------------------------------
+Path: /home/karpov/CMFGEN2023/models/ostar/model_Bstar1060/lte/ltebat.sh
+
+Behavior
+- Loads aliases and sets LTE executable path: lines 9-10
+- Calls ../batch.sh ass (link-only) to prepare atomic symlinks in lte dir: line 15
+- Runs main_lte.exe and logs to ltebat.log: lines 17-27
+
+Why files appear in lte/ subfolder
+- They are produced by main_lte.exe, invoked only by lte/ltebat.sh.
+- main_lte links to program LTE:
+  - /home/karpov/CMFGEN2023/cur_cmf/lte_hydro/Makefile:58-65
+  - /home/karpov/CMFGEN2023/cur_cmf/lte_hydro/lte.f:10
+- Representative LTE outputs:
+  - OUTLTE open: /home/karpov/CMFGEN2023/cur_cmf/lte_hydro/lte.f:89
+  - MODEL open: /home/karpov/CMFGEN2023/cur_cmf/lte_hydro/lte_sub.f:634
+  - RVTJ open: /home/karpov/CMFGEN2023/cur_cmf/lte_hydro/lte_sub.f:1347
+  - ROSSELAND_LTE_TAB write: /home/karpov/CMFGEN2023/cur_cmf/lte_hydro/lte_sub.f:1103
+  - GAMMAS header write: /home/karpov/CMFGEN2023/cur_cmf/lte_hydro/lte_sub.f:1496
+
+Observed note
+- lte/batch.sh is a copy of top-level batch.sh and references local batch_ins.sh (line 62), but no lte/batch_ins.sh exists in this model.
+- Actual workflow does not use lte/batch.sh; it uses ltebat.sh -> ../batch.sh ass.
+
+
+3.7 cpmod.sh + out2in.sh (model setup)
+---------------------------------------
+Paths:
+- /home/karpov/CMFGEN2023/models/ostar/cpmod.sh
+- /home/karpov/CMFGEN2023/models/ostar/out2in.sh
+
+cpmod.sh key behavior
+- Validates source/target and warns for overwrite risks: lines 14-44
+- Copies baseline files for new run:
+  - batch.sh, IN_ITS, VADAT, *OUT, GAMMAS->GAMMAS_IN, MODEL_SPEC: lines 47-52
+- Optionally copies batch_ins.sh, RVSIG_COL, HYDRO_DEFAULTS, ROSSELAND_LTE_TAB, RDINR, ADJUST_R_DEFAULTS: lines 57-89
+- Optional SN-specific copy block: lines 92-155
+- cd into target and run out2in alias/script: lines 158-163
+
+out2in.sh behavior
+- Perl script renaming all *OUT to *_IN:
+  - /home/karpov/CMFGEN2023/models/ostar/out2in.sh:5-9
+
+Python implications
+- Copy semantics should preserve executable bits for scripts.
+- Current script relies on shell glob expansion (`*OUT`) and `ls *OUT` (fragile if no matches).
+
+
+4) Files created/renamed by scripts (not directly by Fortran)
+=============================================================
+Observer-run naming layer (from bat_ins.sh and batobs.sh)
+- obs_fin_15, obs_fin_10, obs_fin_20 (renamed from OBSFRAME)
+- obs_cont (renamed from OBSFRAME)
+- hydro_cont (renamed from HYDRO)
+- cont_timing (renamed from TIMING)
+- ewdata_fin (renamed from EWDATA)
+- CMF_FLUX_PARAM_15, CMF_FLUX_PARAM_10, CMF_FLUX_PARAM_20 (snapshot params)
+
+Link-layer files created by scripts
+- ~826 symlink targets generated by batch.sh + batch_ins.sh in this model
+- additional observer links: FULL_STRK_LIST, LEMKE_HI, HeI_IR_STRK, DS_STRK, BS_HHE, REVISED_LAMBDAS
+
+Log files created by scripts
+- batch.log
+- obs/batobs.log
+- lte/ltebat.log
+
+Setup-stage files copied/renamed by cpmod/out2in
+- *_IN from *OUT
+- GAMMAS_IN from GAMMAS
+- copied control files (VADAT, IN_ITS, MODEL_SPEC, batch scripts)
+
+
+5) Are there more files like obs_cont / obs_fin / hydro_cont created by scripts?
+=================================================================================
+Yes.
+
+Evidence from script generator (create_batobs_ins.f)
+- /home/karpov/CMFGEN2023/cur_cmf/misc/create_batobs_ins.f generates bat_ins.sh and can emit additional renaming rules.
+- It always emits:
+  - `mv -f OBSFRAME obs_fin<id>`: line 216
+  - `mv -f CMF_FLUX_PARAM CMF_FLUX_PARAM<id>`: line 217
+- If KEEP_ALL option is true, it emits additional preserved outputs:
+  - `obs_cmf<id>` from OBSFLUX: line 219
+  - `hydro_fin<id>` from HYDRO: line 220
+  - `meanopac<id>` from MEANOPAC: line 221
+  - `full_timing<id>` from TIMING: line 222
+  - `J_COMP<id>` from J_COMP: line 223
+- If STORE_EDDFACTOR is selected per RUNID, it emits:
+  - EDDFACTOR_STORE and EDDFACTOR_STORE_INFO: lines 235-236
+
+Conclusion
+- `obs_cont`, `obs_fin_*`, and `hydro_cont` are part of a broader script-managed naming convention, not exhaustive.
+
+
+6) Python reimplementation blueprint (recommended)
+==================================================
+
+6.1 Module split
+----------------
+1. env.py
+- Resolve cmfdist/ATOMIC paths without tcsh aliases.
+- Read defaults from current environment, then fallback to canonical paths.
+
+2. links.py
+- Apply atomic link manifests.
+- Validate link targets and report broken/missing targets (especially *_F_TO_S).
+- Support link-only mode equivalent to `batch.sh <arg>`.
+
+3. runner_cmfgen.py
+- Reproduce batch.sh non-link behavior:
+  - create T_IN link
+  - run cmfgen_dev.exe
+  - structured logging to batch.log
+  - optional run obs stage
+
+4. runner_obs.py
+- Reproduce batobs.sh + bat_ins.sh:
+  - create additional observer links
+  - generate CMF_FLUX_PARAM from template edits
+  - run VTURB sweep list
+  - apply deterministic rename policy
+  - retain/delete transients per policy
+
+5. runner_lte.py
+- Reproduce ltebat.sh:
+  - call link-only prep in parent context
+  - run main_lte.exe
+  - log to ltebat.log
+
+6. staging.py
+- Reimplement cpmod/out2in logic with explicit file inventory and safety checks.
+
+7. cleanup.py
+- Replace blind rm lists with explicit, configurable cleanup profile.
+
+
+6.2 Data-driven config (instead of hardcoded shell)
+---------------------------------------------------
+Use YAML/TOML inputs:
+- vturb_runs: [15, 10, 20]
+- continuum_patch rules for CMF_FLUX_PARAM
+- link manifests (optionally pre-generated from batch_ins.sh)
+- cleanup keep/delete sets
+
+
+6.3 Suggested execution state machine
+-------------------------------------
+- stage_model -> prepare_links -> run_cmfgen -> run_obs_vturb -> run_obs_continuum -> cleanup
+- optional: run_lte
+- each stage writes JSON status + timestamps + command exit code
+
+
+7) Migration pitfalls to handle explicitly
+==========================================
+1. tcsh-specific behavior
+- Current scripts rely on `source`, aliases, tcsh conditionals.
+- Python should not depend on shell alias expansion.
+
+2. `batch.sh` self-path discovery via lsof
+- Current line 12 uses `/usr/bin/lsof` parsing.
+- Python should use `Path(__file__).resolve().parent`.
+
+3. Unsafe wildcard usage
+- `out2in.sh` uses `ls *OUT`; fails noisily when no match.
+- Use glob APIs with empty-list-safe handling.
+
+4. Destructive cleanup defaults
+- Existing clean scripts remove aggressively and use repeated rm/find.
+- Add dry-run mode and clear preservation policy.
+
+5. Broken/missing F_TO_S link targets
+- Must validate generated link targets before run.
+- Fail fast or downgrade with warnings by policy.
+
+6. Concurrency and logging
+- Scripts background processes then `wait`; logs mix runtime and notes.
+- Python should stream subprocess output and keep per-stage logs.
+
+7. Implicit working-directory assumptions
+- All scripts assume they run from exact model subdir.
+- Python should normalize cwd per stage and use absolute paths internally.
+
+
+8) Minimal Python parity checklist
+==================================
+- [ ] Resolve env: cmfdist, ATOMIC, executables
+- [ ] Recreate link-only mode semantics from batch.sh
+- [ ] Recreate batch_ins.sh symlink application
+- [ ] Recreate cmfgen run + batch.log semantics
+- [ ] Recreate obs VTURB sweep outputs (obs_fin_*)
+- [ ] Recreate continuum run outputs (obs_cont, hydro_cont, cont_timing, ewdata_fin)
+- [ ] Recreate lte run path (ltebat)
+- [ ] Recreate cpmod + out2in staging behavior
+- [ ] Add target validation for *_F_TO_S links
+- [ ] Add dry-run/safe cleanup controls
+
+
+9) Quick reference: observed output names in model_Bstar1060/obs
+================================================================
+Present in inspected run directory:
+- obs_fin_10
+- obs_fin_15
+- obs_fin_20
+- obs_cont
+- hydro_cont
+- cont_timing
+- CMF_FLUX_PARAM_10
+- CMF_FLUX_PARAM_15
+- CMF_FLUX_PARAM_20
+- (current/transient still present after run) OBSFLUX, OBS_FREQ, OUT_FLUX, OUT_PARAMS, fort.*
+
+These are consistent with bat_ins.sh + batobs.sh behavior and cmf_flux writer code paths referenced above.
