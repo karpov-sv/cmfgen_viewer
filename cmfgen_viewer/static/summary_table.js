@@ -8,6 +8,10 @@
     const headers = Array.from(table.querySelectorAll(".table-sort"));
     const copyButton = document.getElementById("summary-copy-btn");
     const scatterPlot = document.getElementById("summary-scatter-plot");
+    const modeHrButton = document.getElementById("summary-scatter-plot-mode-hr");
+    const modeGenericButton = document.getElementById("summary-scatter-plot-mode-generic");
+    const genericControls = document.getElementById("summary-scatter-plot-generic-controls");
+    const hrInfo = document.getElementById("summary-scatter-plot-hr-info");
     const xColumnSelect = document.getElementById("summary-scatter-plot-xcol");
     const yColumnSelect = document.getElementById("summary-scatter-plot-ycol");
     const xScaleSelect = document.getElementById("summary-scatter-plot-xscale");
@@ -256,6 +260,15 @@
         return Number.isFinite(numeric) ? numeric : null;
     }
 
+    function labelForColumn(column, fallback) {
+        const targetColumn = String(column);
+        const header = headers.find((candidate) => String(candidate.dataset.column || "") === targetColumn);
+        if (header) {
+            return normalizeText(header.dataset.label || header.textContent || "");
+        }
+        return String(fallback || targetColumn);
+    }
+
     function selectedColumnLabel(selectElement) {
         if (!selectElement) {
             return "";
@@ -273,7 +286,39 @@
         plotHint.classList.toggle("text-muted", !isError);
     }
 
-    function renderSummaryScatter() {
+    function currentRows() {
+        return Array.from(tbody.querySelectorAll("tr[data-entry]"));
+    }
+
+    function readPlotPoints(xColumn, yColumn, xScale, yScale) {
+        const points = {
+            xValues: [],
+            yValues: [],
+            labels: [],
+            skippedNonNumeric: 0,
+            skippedScale: 0,
+        };
+
+        currentRows().forEach((row) => {
+            const xValue = readNumericValue(row, xColumn);
+            const yValue = readNumericValue(row, yColumn);
+            if (xValue === null || yValue === null) {
+                points.skippedNonNumeric += 1;
+                return;
+            }
+            if ((xScale === "log" && xValue <= 0) || (yScale === "log" && yValue <= 0)) {
+                points.skippedScale += 1;
+                return;
+            }
+            points.xValues.push(xValue);
+            points.yValues.push(yValue);
+            points.labels.push(String(row.dataset.col0 || "").trim());
+        });
+
+        return points;
+    }
+
+    function renderSummaryScatter(mode) {
         if (!scatterPlot || !xColumnSelect || !yColumnSelect || !xScaleSelect || !yScaleSelect) {
             return;
         }
@@ -282,35 +327,26 @@
             return;
         }
 
-        const xColumn = Number(xColumnSelect.value);
-        const yColumn = Number(yColumnSelect.value);
-        const xScale = xScaleSelect.value || "linear";
-        const yScale = yScaleSelect.value || "linear";
-        const xLabel = selectedColumnLabel(xColumnSelect);
-        const yLabel = selectedColumnLabel(yColumnSelect);
+        const plotContainer = scatterPlot.closest(".plotly-resizable");
+        const fallbackHrX = Number(xColumnSelect.value);
+        const fallbackHrY = Number(yColumnSelect.value);
+        const hrXColumn = plotContainer ? Number(plotContainer.dataset.hrXCol || fallbackHrX) : fallbackHrX;
+        const hrYColumn = plotContainer ? Number(plotContainer.dataset.hrYCol || fallbackHrY) : fallbackHrY;
 
-        const xValues = [];
-        const yValues = [];
-        const labels = [];
-        let skippedNonNumeric = 0;
-        let skippedScale = 0;
+        const isHrMode = mode === "hr";
+        const xColumn = isHrMode ? hrXColumn : Number(xColumnSelect.value);
+        const yColumn = isHrMode ? hrYColumn : Number(yColumnSelect.value);
+        const xScale = isHrMode ? "log" : xScaleSelect.value || "linear";
+        const yScale = isHrMode ? "log" : yScaleSelect.value || "linear";
+        const xLabel = isHrMode ? labelForColumn(xColumn, "T_*") : selectedColumnLabel(xColumnSelect);
+        const yLabel = isHrMode ? labelForColumn(yColumn, "LSTAR") : selectedColumnLabel(yColumnSelect);
 
-        const rows = Array.from(tbody.querySelectorAll("tr[data-entry]"));
-        rows.forEach((row) => {
-            const xValue = readNumericValue(row, xColumn);
-            const yValue = readNumericValue(row, yColumn);
-            if (xValue === null || yValue === null) {
-                skippedNonNumeric += 1;
-                return;
-            }
-            if ((xScale === "log" && xValue <= 0) || (yScale === "log" && yValue <= 0)) {
-                skippedScale += 1;
-                return;
-            }
-            xValues.push(xValue);
-            yValues.push(yValue);
-            labels.push(String(row.dataset.col0 || "").trim());
-        });
+        const { xValues, yValues, labels, skippedNonNumeric, skippedScale } = readPlotPoints(
+            xColumn,
+            yColumn,
+            xScale,
+            yScale,
+        );
 
         const plotData = [];
         if (xValues.length) {
@@ -339,7 +375,12 @@
 
         const layout = {
             margin: { l: 74, r: 18, t: 18, b: 64 },
-            xaxis: { title: xLabel, type: xScale, automargin: true },
+            xaxis: {
+                title: xLabel,
+                type: xScale,
+                automargin: true,
+                autorange: isHrMode ? "reversed" : true,
+            },
             yaxis: { title: yLabel, type: yScale, automargin: true },
             hovermode: "closest",
             showlegend: false,
@@ -348,7 +389,9 @@
         if (!xValues.length) {
             layout.annotations = [
                 {
-                    text: "No plottable points for selected columns and axis scales.",
+                    text: isHrMode
+                        ? "No plottable points for HR diagram preset."
+                        : "No plottable points for selected columns and axis scales.",
                     showarrow: false,
                     xref: "paper",
                     yref: "paper",
@@ -357,12 +400,15 @@
                     font: { size: 13, color: "#6c757d" },
                 },
             ];
-            setPlotHint("No plottable points for current selection.", true);
+            setPlotHint(
+                isHrMode ? "No plottable points for HR diagram preset." : "No plottable points for current selection.",
+                true,
+            );
         } else {
             const skippedTotal = skippedNonNumeric + skippedScale;
             if (skippedTotal > 0) {
                 setPlotHint(
-                    "Plotted " +
+                    (isHrMode ? "HR diagram: plotted " : "Plotted ") +
                         xValues.length +
                         " model(s); skipped " +
                         skippedTotal +
@@ -374,7 +420,7 @@
                     false,
                 );
             } else {
-                setPlotHint("Plotted " + xValues.length + " model(s).", false);
+                setPlotHint((isHrMode ? "HR diagram: plotted " : "Plotted ") + xValues.length + " model(s).", false);
             }
         }
 
@@ -386,12 +432,49 @@
         Plotly.react(scatterPlot, plotData, layout, config);
     }
 
+    function setPlotMode(mode) {
+        const isHrMode = mode !== "generic";
+        if (modeHrButton) {
+            modeHrButton.classList.toggle("btn-primary", isHrMode);
+            modeHrButton.classList.toggle("btn-outline-primary", !isHrMode);
+        }
+        if (modeGenericButton) {
+            modeGenericButton.classList.toggle("btn-primary", !isHrMode);
+            modeGenericButton.classList.toggle("btn-outline-primary", isHrMode);
+        }
+        if (genericControls) {
+            genericControls.classList.toggle("d-none", isHrMode);
+        }
+        if (hrInfo) {
+            hrInfo.classList.toggle("d-none", !isHrMode);
+        }
+        renderSummaryScatter(isHrMode ? "hr" : "generic");
+    }
+
     if (scatterPlot && xColumnSelect && yColumnSelect && xScaleSelect && yScaleSelect) {
         bindVerticalResize(scatterPlot);
-        renderSummaryScatter();
-        xColumnSelect.addEventListener("change", renderSummaryScatter);
-        yColumnSelect.addEventListener("change", renderSummaryScatter);
-        xScaleSelect.addEventListener("change", renderSummaryScatter);
-        yScaleSelect.addEventListener("change", renderSummaryScatter);
+        setPlotMode("hr");
+        xColumnSelect.addEventListener("change", function () {
+            setPlotMode("generic");
+        });
+        yColumnSelect.addEventListener("change", function () {
+            setPlotMode("generic");
+        });
+        xScaleSelect.addEventListener("change", function () {
+            setPlotMode("generic");
+        });
+        yScaleSelect.addEventListener("change", function () {
+            setPlotMode("generic");
+        });
+        if (modeHrButton) {
+            modeHrButton.addEventListener("click", function () {
+                setPlotMode("hr");
+            });
+        }
+        if (modeGenericButton) {
+            modeGenericButton.addEventListener("click", function () {
+                setPlotMode("generic");
+            });
+        }
     }
 })();

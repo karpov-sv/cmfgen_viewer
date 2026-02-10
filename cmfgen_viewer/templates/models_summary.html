@@ -17,19 +17,43 @@
 
     {% if rows %}
       {% set summary_plot_id = "summary-scatter-plot" %}
+      {% set summary_mode_hr_id = summary_plot_id ~ "-mode-hr" %}
+      {% set summary_mode_generic_id = summary_plot_id ~ "-mode-generic" %}
+      {% set summary_mode_generic_controls_id = summary_plot_id ~ "-generic-controls" %}
+      {% set summary_mode_hr_info_id = summary_plot_id ~ "-hr-info" %}
       {% set summary_x_col_id = summary_plot_id ~ "-xcol" %}
       {% set summary_y_col_id = summary_plot_id ~ "-ycol" %}
       {% set summary_x_scale_id = summary_plot_id ~ "-xscale" %}
       {% set summary_y_scale_id = summary_plot_id ~ "-yscale" %}
       {% set summary_hint_id = summary_plot_id ~ "-hint" %}
+      {% set summary_defaults = namespace(hr_x=3, hr_y=1, generic_x=3, generic_y=1) %}
+      {% for column in columns %}
+        {% if column == "T_*" %}
+          {% set summary_defaults.hr_x = loop.index0 %}
+          {% set summary_defaults.generic_x = loop.index0 %}
+        {% endif %}
+        {% if column == "LSTAR" %}
+          {% set summary_defaults.hr_y = loop.index0 %}
+          {% set summary_defaults.generic_y = loop.index0 %}
+        {% endif %}
+      {% endfor %}
       <div class="plot-wrap mb-3">
         <div class="plot-title">Summary Scatter Plot</div>
         <div class="plot-controls">
+          <div class="btn-group btn-group-sm" role="group" aria-label="Summary plot mode">
+            <button id="{{ summary_mode_hr_id }}" type="button" class="btn btn-primary">HR Diagram</button>
+            <button id="{{ summary_mode_generic_id }}" type="button" class="btn btn-outline-primary">Generic Plotter</button>
+          </div>
+        </div>
+        <div id="{{ summary_mode_hr_info_id }}" class="small text-muted mb-2">
+          Preset: <code>LSTAR</code> vs <code>T_*</code>, both logarithmic axes, temperature axis reversed.
+        </div>
+        <div id="{{ summary_mode_generic_controls_id }}" class="plot-controls d-none">
           <label for="{{ summary_x_col_id }}" class="plot-control-label">X column</label>
           <select id="{{ summary_x_col_id }}" class="form-select form-select-sm plot-column-select">
             {% for column in columns %}
               {% if loop.index0 > 0 %}
-                <option value="{{ loop.index0 }}" {% if column == "T_*" %}selected{% endif %}>{{ column }}</option>
+                <option value="{{ loop.index0 }}" {% if loop.index0 == summary_defaults.generic_x %}selected{% endif %}>{{ column }}</option>
               {% endif %}
             {% endfor %}
           </select>
@@ -37,7 +61,7 @@
           <select id="{{ summary_y_col_id }}" class="form-select form-select-sm plot-column-select">
             {% for column in columns %}
               {% if loop.index0 > 0 %}
-                <option value="{{ loop.index0 }}" {% if column == "LSTAR" %}selected{% endif %}>{{ column }}</option>
+                <option value="{{ loop.index0 }}" {% if loop.index0 == summary_defaults.generic_y %}selected{% endif %}>{{ column }}</option>
               {% endif %}
             {% endfor %}
           </select>
@@ -53,7 +77,11 @@
           </select>
         </div>
         <div id="{{ summary_hint_id }}" class="small text-muted mb-2"></div>
-        <div class="plotly-resizable">
+        <div
+          class="plotly-resizable"
+          data-hr-x-col="{{ summary_defaults.hr_x }}"
+          data-hr-y-col="{{ summary_defaults.hr_y }}"
+        >
           <div id="{{ summary_plot_id }}" class="plotly-chart"></div>
           <div class="plot-resize-handle" role="separator" aria-orientation="vertical" aria-label="Resize plot"></div>
         </div>
