@@ -40,6 +40,25 @@
         return;
     }
 
+    const columnCount = headers.length;
+    const rowEntries = Array.from(tbody.querySelectorAll("tr[data-entry]")).map(function (row, index) {
+        const rawValues = [];
+        for (let column = 0; column < columnCount; column += 1) {
+            rawValues.push(String(row.dataset["col" + column] || "").trim());
+        }
+        const entry = {
+            row: row,
+            index: index,
+            modelKey: (rawValues[0] || "").toLowerCase(),
+            rawValues: rawValues,
+            stringKeys: new Array(columnCount),
+            numericKeys: new Array(columnCount),
+            numericReady: new Array(columnCount).fill(false),
+        };
+        row.__summaryEntry = entry;
+        return entry;
+    });
+
     function resetIndicators() {
         headers.forEach((header) => {
             header.classList.remove("active");
@@ -51,55 +70,98 @@
         });
     }
 
-    function readValue(row, column, type) {
-        const raw = String(row.dataset["col" + column] || "").trim();
-        if (type === "number") {
-            const numeric = Number(raw);
-            return Number.isFinite(numeric) ? numeric : null;
+    function compareModelOrder(leftEntry, rightEntry) {
+        if (leftEntry.modelKey < rightEntry.modelKey) {
+            return -1;
         }
-        return raw.toLowerCase();
+        if (leftEntry.modelKey > rightEntry.modelKey) {
+            return 1;
+        }
+        return leftEntry.index - rightEntry.index;
+    }
+
+    function readStringValue(entry, column) {
+        const cached = entry.stringKeys[column];
+        if (cached !== undefined) {
+            return cached;
+        }
+        const value = (entry.rawValues[column] || "").toLowerCase();
+        entry.stringKeys[column] = value;
+        return value;
+    }
+
+    function readNumericValueFromEntry(entry, column) {
+        if (entry.numericReady[column]) {
+            return entry.numericKeys[column];
+        }
+        const numeric = Number(entry.rawValues[column] || "");
+        const value = Number.isFinite(numeric) ? numeric : null;
+        entry.numericKeys[column] = value;
+        entry.numericReady[column] = true;
+        return value;
+    }
+
+    function applySortedRows(entries) {
+        const fragment = document.createDocumentFragment();
+        entries.forEach(function (entry) {
+            fragment.appendChild(entry.row);
+        });
+        tbody.appendChild(fragment);
     }
 
     function applySort(header) {
-        const column = header.dataset.column;
+        const column = Number(header.dataset.column || "0");
         const type = header.dataset.type || "string";
         const wasActive = header.classList.contains("active");
         const currentDirection = header.dataset.direction || "asc";
         const direction = wasActive && currentDirection === "asc" ? "desc" : "asc";
         const factor = direction === "asc" ? 1 : -1;
-
-        const rows = Array.from(tbody.querySelectorAll("tr[data-entry]"));
-        rows.sort((left, right) => {
-            const leftValue = readValue(left, column, type);
-            const rightValue = readValue(right, column, type);
-
-            if (type === "number") {
-                const leftMissing = leftValue === null;
-                const rightMissing = rightValue === null;
-                if (leftMissing !== rightMissing) {
-                    return leftMissing ? 1 : -1;
+        let nextEntries = [];
+        if (type === "number") {
+            const withValues = [];
+            const missingValues = [];
+            rowEntries.forEach(function (entry) {
+                const value = readNumericValueFromEntry(entry, column);
+                if (value === null) {
+                    missingValues.push(entry);
+                } else {
+                    withValues.push(entry);
                 }
-            }
+            });
 
-            if (leftValue < rightValue) {
-                return -1 * factor;
-            }
-            if (leftValue > rightValue) {
-                return 1 * factor;
-            }
+            withValues.sort(function (leftEntry, rightEntry) {
+                const leftValue = readNumericValueFromEntry(leftEntry, column);
+                const rightValue = readNumericValueFromEntry(rightEntry, column);
+                if (leftValue < rightValue) {
+                    return -1 * factor;
+                }
+                if (leftValue > rightValue) {
+                    return 1 * factor;
+                }
+                return compareModelOrder(leftEntry, rightEntry);
+            });
+            missingValues.sort(compareModelOrder);
+            nextEntries = withValues.concat(missingValues);
+        } else {
+            nextEntries = rowEntries.slice();
+            nextEntries.sort(function (leftEntry, rightEntry) {
+                const leftValue = readStringValue(leftEntry, column);
+                const rightValue = readStringValue(rightEntry, column);
+                if (leftValue < rightValue) {
+                    return -1 * factor;
+                }
+                if (leftValue > rightValue) {
+                    return 1 * factor;
+                }
+                return compareModelOrder(leftEntry, rightEntry);
+            });
+        }
 
-            const leftModel = readValue(left, "0", "string");
-            const rightModel = readValue(right, "0", "string");
-            if (leftModel < rightModel) {
-                return -1;
-            }
-            if (leftModel > rightModel) {
-                return 1;
-            }
-            return 0;
+        rowEntries.length = 0;
+        nextEntries.forEach(function (entry) {
+            rowEntries.push(entry);
         });
-
-        rows.forEach((row) => tbody.appendChild(row));
+        applySortedRows(rowEntries);
 
         resetIndicators();
         header.classList.add("active");
@@ -129,9 +191,8 @@
         });
         lines.push(headerValues.join(" "));
 
-        const rows = Array.from(tbody.querySelectorAll("tr[data-entry]"));
-        rows.forEach((row) => {
-            const values = Array.from(row.cells).map((cell) => {
+        rowEntries.forEach(function (entry) {
+            const values = Array.from(entry.row.cells).map((cell) => {
                 const code = cell.querySelector("code");
                 return normalizeText(code ? code.textContent : cell.textContent);
             });
@@ -274,6 +335,10 @@
     }
 
     function readNumericValue(row, column) {
+        const entry = row && row.__summaryEntry ? row.__summaryEntry : null;
+        if (entry) {
+            return readNumericValueFromEntry(entry, Number(column));
+        }
         const raw = String(row.dataset["col" + column] || "").trim();
         const numeric = Number(raw);
         return Number.isFinite(numeric) ? numeric : null;
@@ -306,7 +371,9 @@
     }
 
     function currentRows() {
-        return Array.from(tbody.querySelectorAll("tr[data-entry]"));
+        return rowEntries.map(function (entry) {
+            return entry.row;
+        });
     }
 
     function readPlotPoints(xColumn, yColumn, options) {
