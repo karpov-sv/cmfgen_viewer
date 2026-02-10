@@ -21,6 +21,9 @@
       {% set summary_mode_generic_id = summary_plot_id ~ "-mode-generic" %}
       {% set summary_mode_generic_controls_id = summary_plot_id ~ "-generic-controls" %}
       {% set summary_mode_hr_info_id = summary_plot_id ~ "-hr-info" %}
+      {% set summary_hr_overlay_wrap_id = summary_plot_id ~ "-hr-overlay-wrap" %}
+      {% set summary_hr_overlay_toggle_id = summary_plot_id ~ "-hr-overlay-toggle" %}
+      {% set summary_hr_overlay_data_id = summary_plot_id ~ "-hr-overlay-data" %}
       {% set summary_x_col_id = summary_plot_id ~ "-xcol" %}
       {% set summary_y_col_id = summary_plot_id ~ "-ycol" %}
       {% set summary_x_scale_id = summary_plot_id ~ "-xscale" %}
@@ -47,6 +50,19 @@
         </div>
         <div id="{{ summary_mode_hr_info_id }}" class="small text-muted mb-2">
           Preset: <code>LSTAR</code> vs <code>T_*</code>, both logarithmic axes, temperature axis reversed.
+          {% if hr_overlay %}
+            <span id="{{ summary_hr_overlay_wrap_id }}" class="ms-2">
+              <input
+                id="{{ summary_hr_overlay_toggle_id }}"
+                class="form-check-input me-1"
+                type="checkbox"
+                checked
+              >
+              <label for="{{ summary_hr_overlay_toggle_id }}" class="form-check-label">
+                Overlay Mamajek dwarf sequence
+              </label>
+            </span>
+          {% endif %}
         </div>
         <div id="{{ summary_mode_generic_controls_id }}" class="plot-controls d-none">
           <label for="{{ summary_x_col_id }}" class="plot-control-label">X column</label>
@@ -85,6 +101,9 @@
           <div id="{{ summary_plot_id }}" class="plotly-chart"></div>
           <div class="plot-resize-handle" role="separator" aria-orientation="vertical" aria-label="Resize plot"></div>
         </div>
+        {% if hr_overlay %}
+          <script id="{{ summary_hr_overlay_data_id }}" type="application/json">{{ hr_overlay | tojson }}</script>
+        {% endif %}
       </div>
 
       <div class="table-responsive table-view-wrap mb-3">

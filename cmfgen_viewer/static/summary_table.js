@@ -12,11 +12,26 @@
     const modeGenericButton = document.getElementById("summary-scatter-plot-mode-generic");
     const genericControls = document.getElementById("summary-scatter-plot-generic-controls");
     const hrInfo = document.getElementById("summary-scatter-plot-hr-info");
+    const hrOverlayWrap = document.getElementById("summary-scatter-plot-hr-overlay-wrap");
+    const hrOverlayToggle = document.getElementById("summary-scatter-plot-hr-overlay-toggle");
+    const hrOverlayDataNode = document.getElementById("summary-scatter-plot-hr-overlay-data");
     const xColumnSelect = document.getElementById("summary-scatter-plot-xcol");
     const yColumnSelect = document.getElementById("summary-scatter-plot-ycol");
     const xScaleSelect = document.getElementById("summary-scatter-plot-xscale");
     const yScaleSelect = document.getElementById("summary-scatter-plot-yscale");
     const plotHint = document.getElementById("summary-scatter-plot-hint");
+    let currentPlotMode = "hr";
+    let hrOverlayData = null;
+    if (hrOverlayDataNode) {
+        try {
+            const parsed = JSON.parse(hrOverlayDataNode.textContent || "null");
+            if (parsed && Array.isArray(parsed.points) && parsed.points.length) {
+                hrOverlayData = parsed;
+            }
+        } catch (err) {
+            hrOverlayData = null;
+        }
+    }
     if (!headers.length) {
         return;
     }
@@ -349,6 +364,7 @@
         );
 
         const plotData = [];
+        let overlayAdded = false;
         if (xValues.length) {
             plotData.push({
                 type: "scatter",
@@ -372,6 +388,55 @@
                     ": %{y:.6g}<extra></extra>",
             });
         }
+        const overlayEnabled =
+            isHrMode &&
+            !!hrOverlayToggle &&
+            hrOverlayToggle.checked &&
+            !!hrOverlayData &&
+            Array.isArray(hrOverlayData.points);
+        if (overlayEnabled) {
+            const overlayPoints = hrOverlayData.points
+                .map(function (point) {
+                    const teff = Number(point.teff);
+                    const luminosity = Number(point.luminosity);
+                    const spt = String(point.spt || "").trim();
+                    if (!Number.isFinite(teff) || !Number.isFinite(luminosity) || teff <= 0 || luminosity <= 0) {
+                        return null;
+                    }
+                    return { teff: teff, luminosity: luminosity, spt: spt };
+                })
+                .filter(function (point) {
+                    return point !== null;
+                });
+            if (overlayPoints.length >= 2) {
+                plotData.push({
+                    type: "scatter",
+                    mode: "lines",
+                    name: String(hrOverlayData.name || "Mamajek dwarf sequence"),
+                    x: overlayPoints.map(function (point) {
+                        return point.teff;
+                    }),
+                    y: overlayPoints.map(function (point) {
+                        return point.luminosity;
+                    }),
+                    text: overlayPoints.map(function (point) {
+                        return point.spt;
+                    }),
+                    line: {
+                        color: "#c65d00",
+                        width: 1.8,
+                    },
+                    hovertemplate:
+                        "%{text}<br>" +
+                        xLabel +
+                        ": %{x:.6g}<br>" +
+                        yLabel +
+                        ": %{y:.6g}<br>" +
+                        "<extra>Mamajek</extra>",
+                });
+                overlayAdded = true;
+            }
+        }
 
         const layout = {
             margin: { l: 74, r: 18, t: 18, b: 64 },
@@ -383,10 +448,19 @@
             },
             yaxis: { title: yLabel, type: yScale, automargin: true },
             hovermode: "closest",
-            showlegend: false,
+            showlegend: overlayAdded,
+            legend: overlayAdded
+                ? {
+                      orientation: "h",
+                      yanchor: "bottom",
+                      y: 1.02,
+                      xanchor: "right",
+                      x: 1,
+                  }
+                : undefined,
         };
 
-        if (!xValues.length) {
+        if (!xValues.length && !overlayAdded) {
             layout.annotations = [
                 {
                     text: isHrMode
@@ -404,8 +478,11 @@
                 isHrMode ? "No plottable points for HR diagram preset." : "No plottable points for current selection.",
                 true,
             );
+        } else if (!xValues.length && overlayAdded) {
+            setPlotHint("No model points are plottable; showing Mamajek overlay only.", false);
         } else {
             const skippedTotal = skippedNonNumeric + skippedScale;
+            const overlaySuffix = overlayAdded ? " Overlay: Mamajek dwarf sequence." : "";
             if (skippedTotal > 0) {
                 setPlotHint(
                     (isHrMode ? "HR diagram: plotted " : "Plotted ") +
@@ -416,11 +493,12 @@
                         skippedNonNumeric +
                         ", incompatible with log scale: " +
                         skippedScale +
-                        ").",
+                        ")." +
+                        overlaySuffix,
                     false,
                 );
             } else {
-                setPlotHint((isHrMode ? "HR diagram: plotted " : "Plotted ") + xValues.length + " model(s).", false);
+                setPlotHint((isHrMode ? "HR diagram: plotted " : "Plotted ") + xValues.length + " model(s)." + overlaySuffix, false);
             }
         }
 
@@ -434,6 +512,7 @@
 
     function setPlotMode(mode) {
         const isHrMode = mode !== "generic";
+        currentPlotMode = isHrMode ? "hr" : "generic";
         if (modeHrButton) {
             modeHrButton.classList.toggle("btn-primary", isHrMode);
             modeHrButton.classList.toggle("btn-outline-primary", !isHrMode);
@@ -448,7 +527,10 @@
         if (hrInfo) {
             hrInfo.classList.toggle("d-none", !isHrMode);
         }
-        renderSummaryScatter(isHrMode ? "hr" : "generic");
+        if (hrOverlayWrap) {
+            hrOverlayWrap.classList.toggle("d-none", !isHrMode);
+        }
+        renderSummaryScatter(currentPlotMode);
     }
 
     if (scatterPlot && xColumnSelect && yColumnSelect && xScaleSelect && yScaleSelect) {
@@ -474,6 +556,11 @@
         if (modeGenericButton) {
             modeGenericButton.addEventListener("click", function () {
                 setPlotMode("generic");
+            });
+        }
+        if (hrOverlayToggle) {
+            hrOverlayToggle.addEventListener("change", function () {
+                renderSummaryScatter(currentPlotMode);
             });
         }
     }

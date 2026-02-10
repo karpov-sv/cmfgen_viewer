@@ -1,0 +1,34 @@
+HR diagram data/planning notes
+==============================
+
+Reference data sources to reuse
+-------------------------------
+1) Empirical dwarf/main-sequence baseline (Teff/logL):
+   - Eric Mamajek dwarf sequence table
+   - URL: https://www.pas.rochester.edu/~emamajek/EEM_dwarf_UBVIJHK_colors_Teff.txt
+   - Local copy: data/EEM_dwarf_UBVIJHK_colors_Teff.txt
+
+2) Theoretical stellar loci/tracks/isochrones (log_Teff, log_L):
+   - MIST model grids: https://waps.cfa.harvard.edu/MIST/model_grids.html
+   - Mirror: https://mist.science/model_grids.html
+
+3) Alternative tracks/isochrones with broad metallicity coverage:
+   - PARSEC/COLIBRI CMD: https://stev.oapd.inaf.it/cgi-bin/cmd
+
+4) High-mass and rotation-sensitive tracks:
+   - Geneva evolution database: https://www.unige.ch/sciences/astro/evolution/en/database
+   - File formats: https://www.unige.ch/sciences/astro/evolution/en/database/file-formats
+
+5) White dwarf cooling/locus data:
+   - Montreal White Dwarf Database: https://www.montrealwhitedwarfdatabase.org/evolution.html
+
+6) Empirical class populations in near-direct HR coordinates:
+   - Gaia DR3 astrophysical parameters metadata
+   - URL: https://gaia.aip.de/metadata/gaiadr3/astrophysical_parameters/
+
+Viewer implementation direction
+------------------------------
+- Default HR mode should remain fixed to T_* (x) and LSTAR (y), log-log, reversed x.
+- Overlay from Mamajek table is useful as an empirical dwarf-sequence reference.
+- Next step: ingest selected MIST/Geneva track files and overlay as toggleable families.
+- Future: class-locus overlays (e.g. giant branch, WD cooling sequence) and styling presets.
