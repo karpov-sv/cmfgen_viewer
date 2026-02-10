@@ -160,9 +160,9 @@
                 {% for value in row["values"] %}
                   <td>
                     {% if loop.index0 == 0 %}
-                      <a href="{{ url_for('viewer.view', path=row['path']) }}"><code>{{ value }}</code></a>
+                      <a href="{{ url_for('viewer.view', path=row['path']) }}">{{ value }}</a>
                     {% else %}
-                      <code>{{ value }}</code>
+                      {{ value }}
                     {% endif %}
                   </td>
                 {% endfor %}
@@ -195,8 +195,8 @@
           <tbody>
             {% for item in skipped %}
               <tr>
-                <td><code>{{ item[0] }}</code></td>
-                <td><code>{{ item[1] }}</code></td>
+                <td>{{ item[0] }}</td>
+                <td>{{ item[1] }}</td>
               </tr>
             {% endfor %}
           </tbody>
