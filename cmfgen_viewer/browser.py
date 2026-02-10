@@ -193,13 +193,19 @@ MAX_TEXT_PREVIEW_BYTES = 512 * 1024
 
 def resolve_path(basepath: str, relpath: str = "") -> Path:
     base = Path(basepath).expanduser().resolve()
-    target = (base / relpath).resolve()
+    rel = Path(relpath)
 
-    try:
-        target.relative_to(base)
-    except ValueError as exc:
-        raise FileNotFoundError(relpath) from exc
+    # Keep URL-supplied paths lexical and safe:
+    # - reject absolute targets
+    # - reject any path traversal segments
+    # This still allows browsing symlink directories that are listed under base.
+    if rel.is_absolute() or any(part == ".." for part in rel.parts):
+        raise FileNotFoundError(relpath)
 
+    clean_parts = [part for part in rel.parts if part not in ("", ".")]
+    target = base.joinpath(*clean_parts)
+    if not target.exists():
+        raise FileNotFoundError(relpath)
     return target
 
 
