@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from functools import lru_cache
 import math
 from pathlib import Path
@@ -33,6 +34,7 @@ from .observed_spectrum import (
     remove_upload_bundle,
     write_upload_manifest,
 )
+from .summary_cache import list_model_summaries, upsert_model_summary
 from .syntax import highlight_text, syntax_css
 
 try:
@@ -92,6 +94,7 @@ SUMMARY_COLUMNS = [
     "logg",
     "OXY/X",
     "CAR/X",
+    "Last updated",
 ]
 
 
@@ -321,7 +324,13 @@ def _format_summary_value(value: object, *, default: str = "") -> str:
     return text if text else default
 
 
-def _build_summary_row(model: dict[str, object]) -> list[str]:
+def _format_summary_timestamp(timestamp: float | None) -> str:
+    if timestamp is None or not math.isfinite(timestamp):
+        return ""
+    return datetime.fromtimestamp(float(timestamp), tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _build_summary_row(model: dict[str, object], *, mod_sum_mtime: float | None = None) -> list[str]:
     params = model.get("params")
     vadat = model.get("vadat")
     if not isinstance(params, dict):
@@ -354,6 +363,7 @@ def _build_summary_row(model: dict[str, object]) -> list[str]:
         _format_summary_value(params.get("Log_g")),
         _format_summary_value(vadat.get("OXY/X")),
         _format_summary_value(vadat.get("CARB/X")),
+        _format_summary_timestamp(mod_sum_mtime),
     ]
 
 
@@ -642,6 +652,7 @@ def documentation(slug: str | None):
 def bulk_summarize(path: str):
     config = _viewer_config()
     basepath = str(config.get("basepath", "."))
+    summary_cache_db = str(config.get("summary_cache_db", "model_summary_cache.sqlite"))
 
     try:
         directory = resolve_path(basepath, path)
@@ -659,6 +670,7 @@ def bulk_summarize(path: str):
 
     rows: list[dict[str, object]] = []
     skipped: list[list[str]] = []
+    cache_update_errors = 0
     for rel in selected_paths:
         try:
             target = resolve_path(basepath, rel)
@@ -674,17 +686,34 @@ def bulk_summarize(path: str):
             skipped.append([rel, "Outside current folder"])
             continue
 
-        if not (target / "VADAT").is_file() or not (target / "MOD_SUM").is_file():
+        vadat_file = target / "VADAT"
+        mod_sum_file = target / "MOD_SUM"
+        if not vadat_file.is_file() or not mod_sum_file.is_file():
             skipped.append([rel, "Missing VADAT or MOD_SUM"])
             continue
 
         model = read_model(target)
+        mod_sum_mtime = mod_sum_file.stat().st_mtime
+        row_values = _build_summary_row(model, mod_sum_mtime=mod_sum_mtime)
         rows.append(
             {
-                "values": _build_summary_row(model),
+                "values": row_values,
                 "path": rel,
             }
         )
+        try:
+            upsert_model_summary(
+                summary_cache_db,
+                basepath=basepath,
+                relpath=rel,
+                model_dir=target,
+                model_name=str(model.get("name", target.name)),
+                values=row_values,
+                vadat_mtime=vadat_file.stat().st_mtime,
+                mod_sum_mtime=mod_sum_mtime,
+            )
+        except Exception:
+            cache_update_errors += 1
 
     breadcrumb = make_breadcrumb(path)
     if breadcrumb:
@@ -699,12 +728,59 @@ def bulk_summarize(path: str):
         "quick_links": _collect_quick_links(basepath, path),
         "spectrum_view": _spectrum_link_context(basepath, path),
     }
+    cache_notice = ""
+    if cache_update_errors:
+        cache_notice = f"Summary cache update failed for {cache_update_errors} model(s)."
     return render_template(
         "models_summary.html",
         columns=SUMMARY_COLUMNS,
         rows=rows,
         skipped=skipped,
         selected_count=len(selected_paths),
+        summary_scope="bulk",
+        cache_notice=cache_notice,
+        hr_overlay=_load_mamajek_hr_overlay(),
+        **context,
+    )
+
+
+@bp.route("/models/")
+def global_models_summary():
+    config = _viewer_config()
+    basepath = str(config.get("basepath", "."))
+    summary_cache_db = str(config.get("summary_cache_db", "model_summary_cache.sqlite"))
+
+    rows: list[dict[str, object]] = []
+    cache_notice = ""
+    try:
+        rows = list_model_summaries(
+            summary_cache_db,
+            basepath=basepath,
+            expected_columns=len(SUMMARY_COLUMNS),
+        )
+    except Exception:
+        cache_notice = "Failed to read summary cache."
+
+    context = {
+        "path": "",
+        "breadcrumb": [
+            {"name": "ROOT", "path": ""},
+            {"name": "Models", "path": None},
+        ],
+        "basepath": basepath,
+        "show_all": bool(config.get("show_all", False)),
+        "view_query": {},
+        "quick_links": [],
+        "spectrum_view": None,
+    }
+    return render_template(
+        "models_summary.html",
+        columns=SUMMARY_COLUMNS,
+        rows=rows,
+        skipped=[],
+        selected_count=len(rows),
+        summary_scope="global",
+        cache_notice=cache_notice,
         hr_overlay=_load_mamajek_hr_overlay(),
         **context,
     )

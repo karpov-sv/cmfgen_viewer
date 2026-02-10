@@ -7,3 +7,6 @@ __pycache__/
 AGENTS.md
 
 tmp/
+model_summary_cache.sqlite
+model_summary_cache.sqlite-shm
+model_summary_cache.sqlite-wal

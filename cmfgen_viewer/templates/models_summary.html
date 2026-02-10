@@ -3,17 +3,31 @@
 {% block title %}Model Summary - CMFGEN Viewer{% endblock %}
 
 {% block files_body %}
+  {% set is_global_summary = summary_scope == "global" %}
   <section class="mb-4">
-    <h2 class="h4 mb-2">Bulk Model Summary</h2>
-    <p class="text-muted mb-3">
-      Requested folders: <code>{{ selected_count }}</code>, summarized models: <code>{{ rows|length }}</code>
-    </p>
+    <h2 class="h4 mb-2">{{ "Known Models Summary" if is_global_summary else "Bulk Model Summary" }}</h2>
+    {% if is_global_summary %}
+      <p class="text-muted mb-3">
+        Cached known models: <code>{{ rows|length }}</code>
+      </p>
+    {% else %}
+      <p class="text-muted mb-3">
+        Requested folders: <code>{{ selected_count }}</code>, summarized models: <code>{{ rows|length }}</code>
+      </p>
+    {% endif %}
     <div class="d-flex align-items-center gap-2 mb-3">
-      <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('viewer.view', path=path) }}">Back to Folder</a>
+      {% if is_global_summary %}
+        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('viewer.view', path='') }}">Browse Root</a>
+      {% else %}
+        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('viewer.view', path=path) }}">Back to Folder</a>
+      {% endif %}
       {% if rows %}
         <button type="button" class="btn btn-sm btn-outline-primary" id="summary-copy-btn">Copy as Text</button>
       {% endif %}
     </div>
+    {% if cache_notice %}
+      <p class="small text-muted mb-3"><code>{{ cache_notice }}</code></p>
+    {% endif %}
 
     {% if rows %}
       {% set summary_plot_id = "summary-scatter-plot" %}
@@ -126,7 +140,7 @@
                     type="button"
                     class="table-sort"
                     data-column="{{ loop.index0 }}"
-                    data-type="{{ 'string' if loop.index0 == 0 else 'number' }}"
+                    data-type="{{ 'string' if loop.index0 == 0 or column == 'Last updated' else 'number' }}"
                     data-label="{{ column }}"
                   >
                     {{ column }} <span class="sort-indicator"></span>
@@ -159,10 +173,16 @@
       </div>
       <script src="{{ url_for('static', filename='summary_table.js') }}"></script>
     {% else %}
-      <p class="text-muted">No models could be summarized from the selected folders.</p>
+      <p class="text-muted">
+        {% if is_global_summary %}
+          No cached models yet. Use folder-level <code>Summarize</code> to populate this view.
+        {% else %}
+          No models could be summarized from the selected folders.
+        {% endif %}
+      </p>
     {% endif %}
 
-    {% if skipped %}
+    {% if skipped and not is_global_summary %}
       <h3 class="h6 mt-3">Skipped folders</h3>
       <div class="table-responsive table-view-wrap">
         <table class="table table-sm table-striped">
