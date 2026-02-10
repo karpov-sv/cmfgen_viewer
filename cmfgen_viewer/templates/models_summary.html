@@ -21,6 +21,9 @@
       {% set summary_mode_generic_id = summary_plot_id ~ "-mode-generic" %}
       {% set summary_mode_generic_controls_id = summary_plot_id ~ "-generic-controls" %}
       {% set summary_mode_hr_info_id = summary_plot_id ~ "-hr-info" %}
+      {% set summary_hr_axis_wrap_id = summary_plot_id ~ "-hr-axis-wrap" %}
+      {% set summary_hr_axis_log_id = summary_plot_id ~ "-hr-axis-log-values" %}
+      {% set summary_hr_axis_log10_id = summary_plot_id ~ "-hr-axis-log10-values" %}
       {% set summary_hr_overlay_wrap_id = summary_plot_id ~ "-hr-overlay-wrap" %}
       {% set summary_hr_overlay_toggle_id = summary_plot_id ~ "-hr-overlay-toggle" %}
       {% set summary_hr_overlay_data_id = summary_plot_id ~ "-hr-overlay-data" %}
@@ -50,6 +53,13 @@
         </div>
         <div id="{{ summary_mode_hr_info_id }}" class="small text-muted mb-2">
           Preset: <code>LSTAR</code> vs <code>T_*</code>, both logarithmic axes, temperature axis reversed.
+          <span id="{{ summary_hr_axis_wrap_id }}" class="ms-2">
+            <span class="me-1">Axes:</span>
+            <span class="btn-group btn-group-sm" role="group" aria-label="HR axis display">
+              <button id="{{ summary_hr_axis_log_id }}" type="button" class="btn btn-primary">Values on Log Axes</button>
+              <button id="{{ summary_hr_axis_log10_id }}" type="button" class="btn btn-outline-primary">log10 on Linear Axes</button>
+            </span>
+          </span>
           {% if hr_overlay %}
             <span id="{{ summary_hr_overlay_wrap_id }}" class="ms-2">
               <input

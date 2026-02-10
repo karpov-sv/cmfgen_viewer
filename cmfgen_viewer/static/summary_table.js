@@ -12,6 +12,9 @@
     const modeGenericButton = document.getElementById("summary-scatter-plot-mode-generic");
     const genericControls = document.getElementById("summary-scatter-plot-generic-controls");
     const hrInfo = document.getElementById("summary-scatter-plot-hr-info");
+    const hrAxisWrap = document.getElementById("summary-scatter-plot-hr-axis-wrap");
+    const hrAxisLogButton = document.getElementById("summary-scatter-plot-hr-axis-log-values");
+    const hrAxisLog10Button = document.getElementById("summary-scatter-plot-hr-axis-log10-values");
     const hrOverlayWrap = document.getElementById("summary-scatter-plot-hr-overlay-wrap");
     const hrOverlayToggle = document.getElementById("summary-scatter-plot-hr-overlay-toggle");
     const hrOverlayDataNode = document.getElementById("summary-scatter-plot-hr-overlay-data");
@@ -20,7 +23,8 @@
     const xScaleSelect = document.getElementById("summary-scatter-plot-xscale");
     const yScaleSelect = document.getElementById("summary-scatter-plot-yscale");
     const plotHint = document.getElementById("summary-scatter-plot-hint");
-    let currentPlotMode = "hr";
+    let currentPlotMode = "generic";
+    let currentHrAxisMode = "log_values";
     let hrOverlayData = null;
     if (hrOverlayDataNode) {
         try {
@@ -305,7 +309,20 @@
         return Array.from(tbody.querySelectorAll("tr[data-entry]"));
     }
 
-    function readPlotPoints(xColumn, yColumn, xScale, yScale) {
+    function readPlotPoints(xColumn, yColumn, options) {
+        const requirePositive = !!(options && options.requirePositive);
+        const transformX =
+            options && typeof options.transformX === "function"
+                ? options.transformX
+                : function (value) {
+                      return value;
+                  };
+        const transformY =
+            options && typeof options.transformY === "function"
+                ? options.transformY
+                : function (value) {
+                      return value;
+                  };
         const points = {
             xValues: [],
             yValues: [],
@@ -321,12 +338,18 @@
                 points.skippedNonNumeric += 1;
                 return;
             }
-            if ((xScale === "log" && xValue <= 0) || (yScale === "log" && yValue <= 0)) {
+            if (requirePositive && (xValue <= 0 || yValue <= 0)) {
                 points.skippedScale += 1;
                 return;
             }
-            points.xValues.push(xValue);
-            points.yValues.push(yValue);
+            const xMapped = transformX(xValue);
+            const yMapped = transformY(yValue);
+            if (!Number.isFinite(xMapped) || !Number.isFinite(yMapped)) {
+                points.skippedScale += 1;
+                return;
+            }
+            points.xValues.push(xMapped);
+            points.yValues.push(yMapped);
             points.labels.push(String(row.dataset.col0 || "").trim());
         });
 
@@ -349,19 +372,39 @@
         const hrYColumn = plotContainer ? Number(plotContainer.dataset.hrYCol || fallbackHrY) : fallbackHrY;
 
         const isHrMode = mode === "hr";
+        const hrLog10Mode = isHrMode && currentHrAxisMode === "log10_linear";
         const xColumn = isHrMode ? hrXColumn : Number(xColumnSelect.value);
         const yColumn = isHrMode ? hrYColumn : Number(yColumnSelect.value);
-        const xScale = isHrMode ? "log" : xScaleSelect.value || "linear";
-        const yScale = isHrMode ? "log" : yScaleSelect.value || "linear";
-        const xLabel = isHrMode ? labelForColumn(xColumn, "T_*") : selectedColumnLabel(xColumnSelect);
-        const yLabel = isHrMode ? labelForColumn(yColumn, "LSTAR") : selectedColumnLabel(yColumnSelect);
+        const xScale = isHrMode ? (hrLog10Mode ? "linear" : "log") : xScaleSelect.value || "linear";
+        const yScale = isHrMode ? (hrLog10Mode ? "linear" : "log") : yScaleSelect.value || "linear";
+        const showZeroLines = !(isHrMode && hrLog10Mode);
+        const baseXLabel = isHrMode ? labelForColumn(xColumn, "T_*") : selectedColumnLabel(xColumnSelect);
+        const baseYLabel = isHrMode ? labelForColumn(yColumn, "LSTAR") : selectedColumnLabel(yColumnSelect);
+        const xLabel = isHrMode && hrLog10Mode ? "log10(" + baseXLabel + ")" : baseXLabel;
+        const yLabel = isHrMode && hrLog10Mode ? "log10(" + baseYLabel + ")" : baseYLabel;
+        const requirePositive = isHrMode ? true : xScale === "log" || yScale === "log";
+        const transformX =
+            isHrMode && hrLog10Mode
+                ? function (value) {
+                      return Math.log10(value);
+                  }
+                : function (value) {
+                      return value;
+                  };
+        const transformY =
+            isHrMode && hrLog10Mode
+                ? function (value) {
+                      return Math.log10(value);
+                  }
+                : function (value) {
+                      return value;
+                  };
 
-        const { xValues, yValues, labels, skippedNonNumeric, skippedScale } = readPlotPoints(
-            xColumn,
-            yColumn,
-            xScale,
-            yScale,
-        );
+        const { xValues, yValues, labels, skippedNonNumeric, skippedScale } = readPlotPoints(xColumn, yColumn, {
+            requirePositive: requirePositive,
+            transformX: transformX,
+            transformY: transformY,
+        });
 
         const plotData = [];
         let overlayAdded = false;
@@ -369,6 +412,7 @@
             plotData.push({
                 type: "scatter",
                 mode: "markers",
+                name: "Models",
                 x: xValues,
                 y: yValues,
                 text: labels,
@@ -403,7 +447,15 @@
                     if (!Number.isFinite(teff) || !Number.isFinite(luminosity) || teff <= 0 || luminosity <= 0) {
                         return null;
                     }
-                    return { teff: teff, luminosity: luminosity, spt: spt };
+                    if (requirePositive && (teff <= 0 || luminosity <= 0)) {
+                        return null;
+                    }
+                    const xMapped = transformX(teff);
+                    const yMapped = transformY(luminosity);
+                    if (!Number.isFinite(xMapped) || !Number.isFinite(yMapped)) {
+                        return null;
+                    }
+                    return { x: xMapped, y: yMapped, spt: spt };
                 })
                 .filter(function (point) {
                     return point !== null;
@@ -414,10 +466,10 @@
                     mode: "lines",
                     name: String(hrOverlayData.name || "Mamajek dwarf sequence"),
                     x: overlayPoints.map(function (point) {
-                        return point.teff;
+                        return point.x;
                     }),
                     y: overlayPoints.map(function (point) {
-                        return point.luminosity;
+                        return point.y;
                     }),
                     text: overlayPoints.map(function (point) {
                         return point.spt;
@@ -445,8 +497,9 @@
                 type: xScale,
                 automargin: true,
                 autorange: isHrMode ? "reversed" : true,
+                zeroline: showZeroLines,
             },
-            yaxis: { title: yLabel, type: yScale, automargin: true },
+            yaxis: { title: yLabel, type: yScale, automargin: true, zeroline: showZeroLines },
             hovermode: "closest",
             showlegend: overlayAdded,
             legend: overlayAdded
@@ -483,6 +536,12 @@
         } else {
             const skippedTotal = skippedNonNumeric + skippedScale;
             const overlaySuffix = overlayAdded ? " Overlay: Mamajek dwarf sequence." : "";
+            const skippedScaleReason =
+                isHrMode && hrLog10Mode
+                    ? "non-positive for log10 transform"
+                    : xScale === "log" || yScale === "log"
+                      ? "incompatible with log scale"
+                      : "not plottable after transform";
             if (skippedTotal > 0) {
                 setPlotHint(
                     (isHrMode ? "HR diagram: plotted " : "Plotted ") +
@@ -491,7 +550,9 @@
                         skippedTotal +
                         " (non-numeric: " +
                         skippedNonNumeric +
-                        ", incompatible with log scale: " +
+                        ", " +
+                        skippedScaleReason +
+                        ": " +
                         skippedScale +
                         ")." +
                         overlaySuffix,
@@ -508,6 +569,22 @@
         };
 
         Plotly.react(scatterPlot, plotData, layout, config);
+    }
+
+    function setHrAxisMode(mode) {
+        const isLog10Linear = mode === "log10_linear";
+        currentHrAxisMode = isLog10Linear ? "log10_linear" : "log_values";
+        if (hrAxisLogButton) {
+            hrAxisLogButton.classList.toggle("btn-primary", !isLog10Linear);
+            hrAxisLogButton.classList.toggle("btn-outline-primary", isLog10Linear);
+        }
+        if (hrAxisLog10Button) {
+            hrAxisLog10Button.classList.toggle("btn-primary", isLog10Linear);
+            hrAxisLog10Button.classList.toggle("btn-outline-primary", !isLog10Linear);
+        }
+        if (currentPlotMode === "hr") {
+            renderSummaryScatter("hr");
+        }
     }
 
     function setPlotMode(mode) {
@@ -527,6 +604,9 @@
         if (hrInfo) {
             hrInfo.classList.toggle("d-none", !isHrMode);
         }
+        if (hrAxisWrap) {
+            hrAxisWrap.classList.toggle("d-none", !isHrMode);
+        }
         if (hrOverlayWrap) {
             hrOverlayWrap.classList.toggle("d-none", !isHrMode);
         }
@@ -535,6 +615,7 @@
 
     if (scatterPlot && xColumnSelect && yColumnSelect && xScaleSelect && yScaleSelect) {
         bindVerticalResize(scatterPlot);
+        setHrAxisMode("log_values");
         setPlotMode("hr");
         xColumnSelect.addEventListener("change", function () {
             setPlotMode("generic");
@@ -556,6 +637,16 @@
         if (modeGenericButton) {
             modeGenericButton.addEventListener("click", function () {
                 setPlotMode("generic");
+            });
+        }
+        if (hrAxisLogButton) {
+            hrAxisLogButton.addEventListener("click", function () {
+                setHrAxisMode("log_values");
+            });
+        }
+        if (hrAxisLog10Button) {
+            hrAxisLog10Button.addEventListener("click", function () {
+                setHrAxisMode("log10_linear");
             });
         }
         if (hrOverlayToggle) {
