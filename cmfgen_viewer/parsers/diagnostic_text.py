@@ -145,15 +145,42 @@ def _make_unique_labels(labels: list[str]) -> list[str]:
     return output
 
 
+def _compact_header_tokens(tokens: list[str], *, target_count: int) -> list[str]:
+    compacted = tokens[:]
+    while len(compacted) > target_count:
+        merged = False
+        for index in range(len(compacted) - 1):
+            token = compacted[index]
+            if re.search(r"[A-Za-z0-9]", token):
+                continue
+            joiner = " " if re.fullmatch(r"[^A-Za-z0-9]+", token) else ""
+            merged_label = f"{token}{joiner}{compacted[index + 1]}".strip()
+            compacted = compacted[:index] + [merged_label] + compacted[index + 2 :]
+            merged = True
+            break
+        if not merged:
+            break
+    return compacted
+
+
 def _detect_header_labels(lines: list[str], *, start_line: int, col_count: int) -> list[str] | None:
     # Search a few lines above the numeric block for a non-numeric token row that
     # matches the numeric column count (common in CMFGEN tables like MEANOPAC).
     search_start = max(0, start_line - 5)
     for index in range(start_line - 2, search_start - 1, -1):
-        candidate = lines[index].strip()
-        if not candidate:
+        raw_candidate = lines[index].strip()
+        if not raw_candidate:
             continue
-        tokens = candidate.split()
+
+        # Many CMFGEN diagnostics prefix header rows with comment markers.
+        # Strip only the leading marker run so token count matches numeric columns.
+        candidate = re.sub(r"^[!#*;]+\s*", "", raw_candidate)
+        tokens = [token.strip(",;") for token in candidate.split()]
+        if tokens and tokens[0]:
+            tokens[0] = tokens[0].lstrip("!#*;")
+            if not tokens[0]:
+                tokens = tokens[1:]
+        tokens = _compact_header_tokens(tokens, target_count=col_count)
         if len(tokens) != col_count:
             continue
         if all(parse_float_token(token) is not None for token in tokens):
@@ -168,6 +195,7 @@ def parse_numeric_diagnostic(
     parser_name: str,
     title: str,
     column_labels: list[str] | None = None,
+    detect_header_labels: bool = False,
     prefer_log_x: bool = False,
     prefer_log_y: bool = False,
 ) -> dict[str, object]:
@@ -201,11 +229,15 @@ def parse_numeric_diagnostic(
         data_rows = selected["rows"]
         col_count = int(selected["cols"])
         start_line = int(selected["start_line"])
+        detected_labels = _detect_header_labels(lines, start_line=start_line, col_count=col_count) if detect_header_labels else None
         summary_rows.append(["selected_block_start_line", str(start_line)])
         summary_rows.append(["selected_block_rows", str(len(data_rows))])
         summary_rows.append(["selected_block_columns", str(col_count)])
+        if detect_header_labels:
+            summary_rows.append(["header_labels_detected", _bool_text(bool(detected_labels))])
 
-        headers, body, table_truncated = _build_numeric_table(data_rows, column_labels=column_labels)
+        selected_labels = column_labels if column_labels is not None else detected_labels
+        headers, body, table_truncated = _build_numeric_table(data_rows, column_labels=selected_labels)
         if headers and body:
             tables.append(
                 {
@@ -440,7 +472,12 @@ def parse_meanopac(path: Path) -> dict[str, object]:
 
 
 def parse_hydro(path: Path) -> dict[str, object]:
-    return parse_numeric_diagnostic(path, parser_name="HYDRO", title="HYDRO momentum diagnostics")
+    return parse_numeric_diagnostic(
+        path,
+        parser_name="HYDRO",
+        title="HYDRO momentum diagnostics",
+        detect_header_labels=True,
+    )
 
 
 def parse_obsframe(path: Path) -> dict[str, object]:
