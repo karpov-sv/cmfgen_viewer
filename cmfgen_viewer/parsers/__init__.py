@@ -30,6 +30,7 @@ from .diagnostic_text import (
     parse_time_pointer,
     parse_trans_info,
 )
+from .correction_sum import parse_correction_sum
 from .mod_sum import parse_mod_sum
 from .obsflux import parse_obsflux
 from .rvtj import parse_rvtj
@@ -38,6 +39,7 @@ PARSERS = {
     "RVTJ": parse_rvtj,
     "OBSFLUX": parse_obsflux,
     "MOD_SUM": parse_mod_sum,
+    "CORRECTION_SUM": parse_correction_sum,
     "MEANOPAC": parse_meanopac,
     "HYDRO": parse_hydro,
     "HYDRO_PARAMS": parse_hydro_params,

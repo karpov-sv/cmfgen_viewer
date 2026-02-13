@@ -58,6 +58,7 @@ QUICK_LINK_FILES = (
     "GAMMAS",
     "OUTGEN",
     "WARNINGS",
+    "CORRECTION_SUM",
 )
 QUICK_LINK_GLOBS = (
     "obs_fin*",

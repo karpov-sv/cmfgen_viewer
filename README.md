@@ -90,7 +90,7 @@ python viewer.py --dir /path/to/cmfgen/run --lambda-min 1200 --lambda-max 9000
   - CMFGEN input lexer with aligned `value [KEY] !comment` style formatting,
   - plain-text fallback for unknown files.
 - Parsed-view coverage includes core and diagnostic families such as:
-  - `RVTJ`, `OBSFLUX`, `MOD_SUM`, `MEANOPAC`, `RVSIG_COL*`, `GAMMAS*`, `OBSFRAME`, `HYDRO`, `HYDRO_PARAMS`,
+  - `RVTJ`, `OBSFLUX`, `MOD_SUM`, `CORRECTION_SUM`, `MEANOPAC`, `RVSIG_COL*`, `GAMMAS*`, `OBSFRAME`, `HYDRO`, `HYDRO_PARAMS`,
   - `OUTLTE`, `OUT_FLUX`, `OUT_PARAMS`, `TRANS_INFO`, `ML_COUNTER`, `DIAGNOSTIC_EST_*`, `TIME_PNT*`,
   - `POP*`, `*OUT` departure files, `NETRATE`/`TOTRATE`/`EWDATA`/`LINEHEAT`, `J_COMP`, `SOB_FORCE_MULT`, `GAMFLUX`, `GAMRAY_ENERGY_DEP`, `CFDAT_OUT`, `CONT_FREQ`, `OBS_FREQ`.
 - Final spectrum tools:

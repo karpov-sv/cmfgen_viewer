@@ -151,6 +151,13 @@ Iteration equation tracing
 - Format: ASCII iterative logs/arrays.
 - Viewer relevance: low-medium unless building convergence-debug tooling.
 
+Solver correction depth summary
+- File: `CORRECTION_SUM`
+- Writer family: `solveba_v*.f` (e.g., `solveba_v13.f`).
+- Format: ASCII table with depth index and counts above multiple correction thresholds (e.g., `100.0%`, `10.0%`, ..., `0.0001%`).
+- Typical header includes `NT=<value>` and a `Depth` table heading.
+- Viewer relevance: medium-high for convergence-quality diagnostics by depth.
+
 
 Restart/State/Continuation Files (not viewer-first)
 =======================================================
@@ -341,7 +348,7 @@ Phase 2 (composition + NLTE)
 3) Parse `GAMMAS`.
 
 Phase 3 (advanced diagnostics)
-1) `MEANOPAC`, `HYDRO`, `J_COMP`, `NETRATE/TOTRATE/EWDATA/LINEHEAT`.
+1) `MEANOPAC`, `HYDRO`, `J_COMP`, `NETRATE/TOTRATE/EWDATA/LINEHEAT`, `CORRECTION_SUM`.
 2) SN/gamma set: `SN_HYDRO_FOR_NEXT_MODEL`, `GAMFLUX`, `GAMRAY_ENERGY_DEP`.
 3) Optionally add binary readers for `JH_AT_CURRENT_TIME`, `EDDFACTOR`, `ES_J_CONV` (use `_INFO` sidecars).
 
@@ -377,7 +384,7 @@ Final/species:
 - POP<species>, <ION_ID>OUT, NON_THERM_COOL
 
 Rates/diagnostics:
-- NETRATE, TOTRATE, EWDATA, LINEHEAT, NEG_OPAC, J_COMP, GREY_SCL_FACOUT
+- NETRATE, TOTRATE, EWDATA, LINEHEAT, NEG_OPAC, J_COMP, CORRECTION_SUM, GREY_SCL_FACOUT
 
 Restart/internal:
 - SCRTEMP, POINT1, POINT2, BAMAT, BAMATPNT, EDDFACTOR, EDDFACTOR_INFO,
