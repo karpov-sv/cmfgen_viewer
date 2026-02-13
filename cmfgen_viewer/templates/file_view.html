@@ -71,16 +71,25 @@
           {% set plot_mode_id = "plot-mode-" ~ parsed.parser|lower %}
           {% set combined_mode_btn_id = plot_mode_id ~ "-combined" %}
           {% set separate_mode_btn_id = plot_mode_id ~ "-separate" %}
+          {% set custom_mode_btn_id = plot_mode_id ~ "-custom" %}
           {% set combined_plot_id = "plotly-" ~ parsed.parser|lower ~ "-combined" %}
           {% set combined_wrap_id = combined_plot_id ~ "-wrap" %}
           {% set combined_x_scale_id = combined_plot_id ~ "-xscale" %}
           {% set combined_y_scale_id = combined_plot_id ~ "-yscale" %}
           {% set separate_wrap_id = combined_plot_id ~ "-separate" %}
+          {% set custom_wrap_id = combined_plot_id ~ "-custom" %}
+          {% set custom_plot_id = combined_plot_id ~ "-custom-plot" %}
+          {% set custom_x_col_id = custom_plot_id ~ "-xcol" %}
+          {% set custom_y_col_id = custom_plot_id ~ "-ycol" %}
+          {% set custom_x_scale_id = custom_plot_id ~ "-xscale" %}
+          {% set custom_y_scale_id = custom_plot_id ~ "-yscale" %}
+          {% set custom_info_id = custom_plot_id ~ "-info" %}
 
           {% if has_plot_mode_toggle %}
             <div class="btn-group btn-group-sm mb-2" role="group" aria-label="Plot view mode">
               <button id="{{ combined_mode_btn_id }}" type="button" class="btn btn-primary">Combined</button>
               <button id="{{ separate_mode_btn_id }}" type="button" class="btn btn-outline-primary">Separate</button>
+              <button id="{{ custom_mode_btn_id }}" type="button" class="btn btn-outline-primary">Custom</button>
             </div>
           {% endif %}
 
@@ -433,13 +442,336 @@
               {% endfor %}
             </div>
 
+            <div id="{{ custom_wrap_id }}" style="display: none;">
+              <div class="plot-wrap mb-4">
+                <div class="plot-title">Custom curve</div>
+                <div class="plot-controls">
+                  <label for="{{ custom_x_col_id }}" class="plot-control-label">X column</label>
+                  <select id="{{ custom_x_col_id }}" class="form-select form-select-sm plot-column-select"></select>
+                  <label for="{{ custom_y_col_id }}" class="plot-control-label">Y column</label>
+                  <select id="{{ custom_y_col_id }}" class="form-select form-select-sm plot-column-select"></select>
+                  <label for="{{ custom_x_scale_id }}" class="plot-control-label">X scale</label>
+                  <select id="{{ custom_x_scale_id }}" class="form-select form-select-sm plot-scale-select">
+                    <option value="linear" selected>Linear</option>
+                    <option value="log">Log</option>
+                  </select>
+                  <label for="{{ custom_y_scale_id }}" class="plot-control-label">Y scale</label>
+                  <select id="{{ custom_y_scale_id }}" class="form-select form-select-sm plot-scale-select">
+                    <option value="linear" selected>Linear</option>
+                    <option value="log">Log</option>
+                  </select>
+                </div>
+                <p id="{{ custom_info_id }}" class="small text-muted mb-2"></p>
+                <div class="plotly-resizable">
+                  <div id="{{ custom_plot_id }}" class="plotly-chart"></div>
+                  <div class="plot-resize-handle" role="separator" aria-orientation="vertical" aria-label="Resize plot"></div>
+                </div>
+                <script>
+                  (function () {
+                    var target = document.getElementById("{{ custom_plot_id }}");
+                    var xColumn = document.getElementById("{{ custom_x_col_id }}");
+                    var yColumn = document.getElementById("{{ custom_y_col_id }}");
+                    var xScale = document.getElementById("{{ custom_x_scale_id }}");
+                    var yScale = document.getElementById("{{ custom_y_scale_id }}");
+                    var info = document.getElementById("{{ custom_info_id }}");
+                    if (!target || !xColumn || !yColumn || !xScale || !yScale) {
+                      return;
+                    }
+                    if (!window.Plotly) {
+                      target.innerHTML = '<p class="text-muted small mb-0">Plotly failed to load.</p>';
+                      return;
+                    }
+
+                    function bindVerticalResize(plotElement) {
+                      if (!plotElement || !window.Plotly) {
+                        return;
+                      }
+                      var container = plotElement.closest(".plotly-resizable");
+                      if (!container) {
+                        return;
+                      }
+                      if (window.ResizeObserver && !plotElement.__plotResizeObserver) {
+                        var frameId = null;
+                        var observer = new ResizeObserver(function () {
+                          if (frameId !== null) {
+                            window.cancelAnimationFrame(frameId);
+                          }
+                          frameId = window.requestAnimationFrame(function () {
+                            if (plotElement.data) {
+                              Plotly.Plots.resize(plotElement);
+                            }
+                          });
+                        });
+                        observer.observe(container);
+                        plotElement.__plotResizeObserver = observer;
+                      }
+
+                      var handle = container.querySelector(".plot-resize-handle");
+                      if (!handle || handle.__plotDragBound) {
+                        return;
+                      }
+                      handle.__plotDragBound = true;
+
+                      var dragState = null;
+                      var minHeight = 320;
+
+                      function setHeight(nextHeight) {
+                        container.style.height = Math.max(minHeight, Math.round(nextHeight)) + "px";
+                        if (plotElement.data) {
+                          Plotly.Plots.resize(plotElement);
+                        }
+                      }
+
+                      function finishDrag(event) {
+                        if (!dragState || event.pointerId !== dragState.pointerId) {
+                          return;
+                        }
+                        if (handle.releasePointerCapture) {
+                          handle.releasePointerCapture(event.pointerId);
+                        }
+                        dragState = null;
+                        document.body.classList.remove("plot-resizing");
+                      }
+
+                      handle.addEventListener("pointerdown", function (event) {
+                        if (event.button !== 0) {
+                          return;
+                        }
+                        event.preventDefault();
+                        dragState = {
+                          pointerId: event.pointerId,
+                          startY: event.clientY,
+                          startHeight: container.getBoundingClientRect().height
+                        };
+                        if (handle.setPointerCapture) {
+                          handle.setPointerCapture(event.pointerId);
+                        }
+                        document.body.classList.add("plot-resizing");
+                      });
+
+                      handle.addEventListener("pointermove", function (event) {
+                        if (!dragState || event.pointerId !== dragState.pointerId) {
+                          return;
+                        }
+                        var deltaY = event.clientY - dragState.startY;
+                        setHeight(dragState.startHeight + deltaY);
+                      });
+
+                      handle.addEventListener("pointerup", finishDrag);
+                      handle.addEventListener("pointercancel", finishDrag);
+                    }
+
+                    function parseNumeric(value) {
+                      if (typeof value === "number") {
+                        return Number.isFinite(value) ? value : null;
+                      }
+                      if (typeof value !== "string") {
+                        return null;
+                      }
+                      var numeric = Number(value.trim());
+                      return Number.isFinite(numeric) ? numeric : null;
+                    }
+
+                    function analyzeTable(table) {
+                      if (!table || !Array.isArray(table.columns) || !Array.isArray(table.rows)) {
+                        return null;
+                      }
+                      if (table.columns.length < 2 || table.rows.length < 1) {
+                        return null;
+                      }
+                      var numericCounts = new Array(table.columns.length).fill(0);
+                      for (var rowIndex = 0; rowIndex < table.rows.length; rowIndex += 1) {
+                        var row = table.rows[rowIndex];
+                        if (!Array.isArray(row)) {
+                          continue;
+                        }
+                        var width = Math.min(table.columns.length, row.length);
+                        for (var columnIndex = 0; columnIndex < width; columnIndex += 1) {
+                          if (parseNumeric(row[columnIndex]) !== null) {
+                            numericCounts[columnIndex] += 1;
+                          }
+                        }
+                      }
+                      var numericIndices = [];
+                      for (var idx = 0; idx < numericCounts.length; idx += 1) {
+                        if (numericCounts[idx] >= 2) {
+                          numericIndices.push(idx);
+                        }
+                      }
+                      if (numericIndices.length < 2) {
+                        return null;
+                      }
+                      return {
+                        table: table,
+                        numericCounts: numericCounts,
+                        numericIndices: numericIndices,
+                        score: numericIndices.length * 100000 + table.columns.length * 1000 + table.rows.length
+                      };
+                    }
+
+                    function chooseSourceTable(tables) {
+                      if (!Array.isArray(tables)) {
+                        return null;
+                      }
+                      var best = null;
+                      for (var index = 0; index < tables.length; index += 1) {
+                        var analysis = analyzeTable(tables[index]);
+                        if (!analysis) {
+                          continue;
+                        }
+                        if (!best || analysis.score > best.score) {
+                          best = analysis;
+                        }
+                      }
+                      return best;
+                    }
+
+                    function selectedIndex(control, fallbackIndex) {
+                      var parsed = Number(control.value);
+                      if (Number.isInteger(parsed) && parsed >= 0) {
+                        return parsed;
+                      }
+                      return fallbackIndex;
+                    }
+
+                    function buildSeries(rows, xIndex, yIndex) {
+                      var x = [];
+                      var y = [];
+                      if (!Array.isArray(rows)) {
+                        return { x: x, y: y };
+                      }
+                      for (var index = 0; index < rows.length; index += 1) {
+                        var row = rows[index];
+                        if (!Array.isArray(row)) {
+                          continue;
+                        }
+                        var xValue = parseNumeric(row[xIndex]);
+                        var yValue = parseNumeric(row[yIndex]);
+                        if (xValue === null || yValue === null) {
+                          continue;
+                        }
+                        x.push(xValue);
+                        y.push(yValue);
+                      }
+                      return { x: x, y: y };
+                    }
+
+                    var source = chooseSourceTable({{ parsed.tables | tojson }});
+                    if (!source) {
+                      target.innerHTML = '<p class="text-muted small mb-0">No table with at least two numeric columns is available for custom plotting.</p>';
+                      if (info) {
+                        info.textContent = "Custom mode is unavailable for this file.";
+                      }
+                      xColumn.disabled = true;
+                      yColumn.disabled = true;
+                      return;
+                    }
+
+                    var sourceTable = source.table;
+                    var columns = sourceTable.columns;
+                    var rows = sourceTable.rows;
+                    var defaultX = source.numericIndices[0];
+                    var defaultY = source.numericIndices.length > 1 ? source.numericIndices[1] : Math.min(defaultX + 1, columns.length - 1);
+                    if (defaultY === defaultX && columns.length > 1) {
+                      defaultY = defaultX === 0 ? 1 : 0;
+                    }
+
+                    for (var optionIndex = 0; optionIndex < columns.length; optionIndex += 1) {
+                      var xOption = document.createElement("option");
+                      xOption.value = String(optionIndex);
+                      xOption.textContent = columns[optionIndex];
+                      xColumn.appendChild(xOption);
+
+                      var yOption = document.createElement("option");
+                      yOption.value = String(optionIndex);
+                      yOption.textContent = columns[optionIndex];
+                      yColumn.appendChild(yOption);
+                    }
+                    xColumn.value = String(defaultX);
+                    yColumn.value = String(defaultY);
+
+                    if (info) {
+                      var title = typeof sourceTable.title === "string" ? sourceTable.title : "Selected table";
+                      info.textContent = title + ": " + String(rows.length) + " row(s), " + String(columns.length) + " column(s).";
+                    }
+
+                    function applyCustomPlot() {
+                      var xIndex = selectedIndex(xColumn, defaultX);
+                      var yIndex = selectedIndex(yColumn, defaultY);
+                      if (xIndex < 0 || yIndex < 0 || xIndex >= columns.length || yIndex >= columns.length) {
+                        return;
+                      }
+                      if (xIndex === yIndex) {
+                        target.innerHTML = '<p class="text-muted small mb-0">Choose different X and Y columns.</p>';
+                        return;
+                      }
+
+                      var series = buildSeries(rows, xIndex, yIndex);
+                      if (series.x.length < 2) {
+                        target.innerHTML = '<p class="text-muted small mb-0">Selected columns do not contain at least two numeric point pairs.</p>';
+                        return;
+                      }
+
+                      var xLabel = columns[xIndex] || ("col_" + String(xIndex + 1));
+                      var yLabel = columns[yIndex] || ("col_" + String(yIndex + 1));
+                      var trace = {
+                        type: "scatter",
+                        mode: "lines",
+                        x: series.x,
+                        y: series.y,
+                        line: { color: "#0b7285", width: 1.6 },
+                        hovertemplate: xLabel + "=%{x:.6g}<br>" + yLabel + "=%{y:.6g}<extra></extra>",
+                        name: yLabel
+                      };
+                      var layout = {
+                        template: "plotly_white",
+                        margin: { l: 60, r: 24, t: 14, b: 52 },
+                        height: 400,
+                        xaxis: {
+                          title: { text: xLabel },
+                          showgrid: true,
+                          zeroline: false,
+                          type: xScale.value
+                        },
+                        yaxis: {
+                          title: { text: yLabel },
+                          showgrid: true,
+                          zeroline: false,
+                          type: yScale.value
+                        },
+                        showlegend: false,
+                        hovermode: "closest"
+                      };
+                      var config = {
+                        responsive: true,
+                        displaylogo: false,
+                        modeBarButtonsToRemove: ["lasso2d", "select2d", "autoScale2d"]
+                      };
+
+                      Plotly.react(target, [trace], layout, config).then(function () {
+                        bindVerticalResize(target);
+                      });
+                    }
+
+                    xColumn.addEventListener("change", applyCustomPlot);
+                    yColumn.addEventListener("change", applyCustomPlot);
+                    xScale.addEventListener("change", applyCustomPlot);
+                    yScale.addEventListener("change", applyCustomPlot);
+                    applyCustomPlot();
+                  })();
+                </script>
+              </div>
+            </div>
+
             <script>
               (function () {
                 var combinedModeButton = document.getElementById("{{ combined_mode_btn_id }}");
                 var separateModeButton = document.getElementById("{{ separate_mode_btn_id }}");
+                var customModeButton = document.getElementById("{{ custom_mode_btn_id }}");
                 var combinedWrap = document.getElementById("{{ combined_wrap_id }}");
                 var separateWrap = document.getElementById("{{ separate_wrap_id }}");
-                if (!combinedModeButton || !separateModeButton || !combinedWrap || !separateWrap) {
+                var customWrap = document.getElementById("{{ custom_wrap_id }}");
+                if (!combinedModeButton || !separateModeButton || !customModeButton || !combinedWrap || !separateWrap || !customWrap) {
                   return;
                 }
                 var plotItems = {{ parsed.plots | tojson }};
@@ -492,21 +824,39 @@
                     separateModeButton.classList.add("btn-primary");
                     combinedModeButton.classList.remove("btn-primary");
                     combinedModeButton.classList.add("btn-outline-primary");
+                    customModeButton.classList.remove("btn-primary");
+                    customModeButton.classList.add("btn-outline-primary");
+                  } else if (activeMode === "custom") {
+                    customModeButton.classList.remove("btn-outline-primary");
+                    customModeButton.classList.add("btn-primary");
+                    combinedModeButton.classList.remove("btn-primary");
+                    combinedModeButton.classList.add("btn-outline-primary");
+                    separateModeButton.classList.remove("btn-primary");
+                    separateModeButton.classList.add("btn-outline-primary");
                   } else {
                     combinedModeButton.classList.remove("btn-outline-primary");
                     combinedModeButton.classList.add("btn-primary");
                     separateModeButton.classList.remove("btn-primary");
                     separateModeButton.classList.add("btn-outline-primary");
+                    customModeButton.classList.remove("btn-primary");
+                    customModeButton.classList.add("btn-outline-primary");
                   }
                 }
 
                 function applyMode() {
                   if (activeMode === "separate") {
                     combinedWrap.style.display = "none";
+                    customWrap.style.display = "none";
                     separateWrap.style.display = "";
                     resizeVisibleCharts(separateWrap);
+                  } else if (activeMode === "custom") {
+                    combinedWrap.style.display = "none";
+                    separateWrap.style.display = "none";
+                    customWrap.style.display = "";
+                    resizeVisibleCharts(customWrap);
                   } else {
                     separateWrap.style.display = "none";
+                    customWrap.style.display = "none";
                     combinedWrap.style.display = "";
                     resizeVisibleCharts(combinedWrap);
                   }
@@ -522,6 +872,10 @@
                 });
                 separateModeButton.addEventListener("click", function () {
                   activeMode = "separate";
+                  applyMode();
+                });
+                customModeButton.addEventListener("click", function () {
+                  activeMode = "custom";
                   applyMode();
                 });
                 applyMode();
