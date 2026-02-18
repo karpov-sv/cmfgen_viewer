@@ -1154,6 +1154,58 @@ def build_observed_overlay_trace(observed: dict[str, object], *, mode: str) -> t
     )
 
 
+def build_uploaded_spectrum_plot(observed: dict[str, object]) -> tuple[dict[str, object] | None, str | None]:
+    wavelength = observed.get("wavelength")
+    flux = observed.get("flux")
+    flux_mode = str(observed.get("flux_mode", "")).strip().lower()
+    if not isinstance(wavelength, list) or not isinstance(flux, list):
+        return None, "Uploaded spectrum could not be plotted: missing wavelength/flux vectors."
+
+    if flux_mode not in {"absolute", "normalized"}:
+        flux_mode = "absolute"
+
+    x, y = downsample_xy(wavelength, flux, max_points=MAX_SERIES_POINTS)
+    if len(x) < 2:
+        return None, "Uploaded spectrum has too few valid points for plotting."
+
+    prefer_log_y = False
+    y_label = "Normalized flux"
+    hover = "Wavelength=%{x:.6g} Å<br>Flux=%{y:.6g}<extra></extra>"
+    y_axis_name = "Normalized"
+    if flux_mode == "absolute":
+        y_label = "Flux (uploaded units)"
+        hover = "Wavelength=%{x:.6g} Å<br>Flux=%{y:.6e}<extra></extra>"
+        y_axis_name = "Flux"
+        prefer_log_y = all(isinstance(value, int | float) and math.isfinite(float(value)) and float(value) > 0 for value in y)
+
+    y_scale = "log" if prefer_log_y else "linear"
+    warning = None
+    if flux_mode == "absolute" and not prefer_log_y:
+        warning = "Absolute-flux upload includes non-positive values; using linear y-axis."
+
+    label = str(observed.get("name", "uploaded-spectrum"))
+    trace = {
+        "type": "scatter",
+        "mode": "lines",
+        "name": f"Uploaded ({label})",
+        "x": x,
+        "y": y,
+        "line": {"color": "#212529", "width": 1.2},
+        "hovertemplate": hover,
+        "meta": {"transform_target": "model", "plot_role": "final", "y_axis_name": y_axis_name},
+    }
+    return (
+        {
+            "data": [trace],
+            "layout": _plot_layout(y_label=y_label, y_scale=y_scale),
+            "config": _plot_config(),
+            "default_x_scale": "log",
+            "default_y_scale": y_scale,
+        },
+        warning,
+    )
+
+
 def build_both_plot(continuum: dict[str, object], final: dict[str, object]) -> dict[str, object] | None:
     cont_x = continuum.get("wavelength")
     cont_y = continuum.get("flux")

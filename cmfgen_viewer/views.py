@@ -20,6 +20,7 @@ from .final_spectrum import (
     build_both_plot,
     build_model_summary_sections,
     build_normalized_plot,
+    build_uploaded_spectrum_plot,
     discover_final_spectrum_files,
     fit_model_to_observed,
     fin_file_label,
@@ -1241,6 +1242,78 @@ def _upload_entry_for_display(entry: dict[str, object]) -> dict[str, object]:
     }
 
 
+def _format_upload_size(size: object) -> str:
+    try:
+        total_bytes = int(size)
+    except (TypeError, ValueError):
+        return ""
+    if total_bytes < 0:
+        return ""
+    if total_bytes < 1024:
+        return f"{total_bytes} B"
+
+    value = float(total_bytes)
+    unit = "B"
+    for candidate in ("KB", "MB", "GB", "TB"):
+        value = value / 1024.0
+        unit = candidate
+        if value < 1024.0:
+            break
+    return f"{format_number(value)} {unit} ({total_bytes} B)"
+
+
+def _upload_format_description(format_name: str) -> str:
+    descriptions = {
+        "fits-table": "FITS table with wavelength/flux columns.",
+        "fits-1d-primary": "1D FITS array; wavelength derived from CRVAL1/CDELT1 (or CD1_1).",
+        "fits-2d-singleton": "2D FITS with singleton axis flattened to 1D; wavelength from header WCS.",
+        "fits-2d-columns": "2D FITS array; first two columns interpreted as wavelength and flux.",
+        "fits-2d-rows": "2D FITS array; first two rows interpreted as wavelength and flux.",
+    }
+    key = format_name.strip().lower()
+    return descriptions.get(key, "Custom/unknown FITS layout.")
+
+
+def _upload_spectrum_summary_rows(
+    entry: dict[str, object],
+    parsed: dict[str, object],
+    *,
+    lambda_min: float,
+    lambda_max: float,
+) -> list[list[str]]:
+    format_name = str(parsed.get("format", entry.get("format", "")))
+    flux_mode = str(parsed.get("flux_mode", entry.get("resolved_flux_mode", entry.get("requested_flux_mode", ""))))
+    detected_flux_mode = str(parsed.get("detected_flux_mode", entry.get("detected_flux_mode", "")))
+    requested_flux_mode = str(entry.get("requested_flux_mode", ""))
+    token = str(entry.get("token", ""))
+
+    wavelength = parsed.get("wavelength")
+    span_label = ""
+    if isinstance(wavelength, list):
+        finite = [float(value) for value in wavelength if isinstance(value, int | float) and math.isfinite(float(value))]
+        if finite:
+            span_label = f"{format_number(min(finite))} .. {format_number(max(finite))}"
+
+    rows = [
+        ["File", str(entry.get("filename", ""))],
+        ["Upload token", token],
+        ["Stored format", format_name],
+        ["Format details", _upload_format_description(format_name)],
+        ["Flux mode", flux_mode],
+        ["Detected flux mode", detected_flux_mode],
+        ["Requested flux mode", requested_flux_mode],
+        ["Parsed points", str(len(parsed.get("wavelength", [])))],
+        ["Raw points", str(parsed.get("raw_points", ""))],
+        ["Skipped invalid points", str(parsed.get("skipped_points", 0))],
+        ["Skipped by wavelength window", str(parsed.get("range_skipped_points", 0))],
+        ["Wavelength span (Å)", span_label],
+        ["Configured wavelength window (Å)", f"{format_number(lambda_min)} .. {format_number(lambda_max)}"],
+        ["File size", _format_upload_size(entry.get("size", 0))],
+        ["Uploaded at", _format_upload_time(entry.get("created_at", 0))],
+    ]
+    return [[label, value] for label, value in rows if value not in {"", None}]
+
+
 @bp.route("/uploads/")
 def uploads():
     config = _viewer_config()
@@ -1258,6 +1331,62 @@ def uploads():
         uploads=upload_items,
         message=request.args.get("message", "").strip(),
         error=request.args.get("error", "").strip(),
+    )
+
+
+@bp.route("/uploads/view/<token>")
+def upload_view(token: str):
+    if not is_valid_upload_token(token):
+        abort(404)
+
+    config = _viewer_config()
+    upload_root = _upload_root(config)
+    lambda_min, lambda_max = _spectrum_lambda_bounds(config)
+
+    entries = {str(item.get("token", "")): item for item in list_upload_manifests(upload_root)}
+    entry = entries.get(token)
+    if entry is None:
+        return redirect(url_for("viewer.uploads", error=f"Uploaded spectrum token '{token}' is not available."))
+
+    display_entry = _upload_entry_for_display(entry)
+    filename = str(display_entry.get("filename", token))
+    stored_name = str(entry.get("stored_name", ""))
+    source_path = upload_root / token / stored_name if stored_name else None
+    if source_path is None or not source_path.is_file():
+        return redirect(url_for("viewer.uploads", error=f"Uploaded spectrum '{filename}' file is missing."))
+
+    upload_flux_mode = str(entry.get("requested_flux_mode", "auto")).strip().lower() or "auto"
+    try:
+        parsed = parse_uploaded_spectrum(
+            source_path,
+            flux_mode=upload_flux_mode,
+            lambda_min=lambda_min,
+            lambda_max=lambda_max,
+        )
+    except Exception as exc:
+        return redirect(url_for("viewer.uploads", error=f"Uploaded spectrum '{filename}' failed to load: {exc}"))
+    parsed["name"] = filename
+
+    warnings: list[str] = [str(item) for item in parsed.get("warnings", [])]
+    plot_data, plot_warning = build_uploaded_spectrum_plot(parsed)
+    if plot_warning:
+        warnings.append(plot_warning)
+
+    spectrum_mode = "both" if str(parsed.get("flux_mode", "")).strip().lower() == "absolute" else "normalized"
+    transform_params = _normalize_transform_params(request.args.to_dict(flat=True))
+    return render_template(
+        "upload_spectrum_view.html",
+        upload=display_entry,
+        upload_summary_rows=_upload_spectrum_summary_rows(
+            entry,
+            parsed,
+            lambda_min=lambda_min,
+            lambda_max=lambda_max,
+        ),
+        mode=spectrum_mode,
+        transform_params=transform_params,
+        plot_data=plot_data,
+        warnings=warnings,
     )
 
 

@@ -62,6 +62,9 @@
               </td>
               <td>
                 <div class="d-flex flex-wrap gap-1">
+                  {% if item.exists %}
+                    <a class="btn btn-sm btn-outline-primary" href="{{ url_for('viewer.upload_view', token=item.token) }}">View</a>
+                  {% endif %}
                   <form method="post" action="{{ url_for('viewer.uploads_delete', token=item.token) }}">
                     <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
                   </form>

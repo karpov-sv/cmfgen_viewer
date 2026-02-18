@@ -1,0 +1,702 @@
+{% extends "base.html" %}
+
+{% block title %}Uploaded Spectrum - CMFGEN Viewer{% endblock %}
+
+{% block body %}
+  <section class="mb-4">
+    <h2 class="h4 mb-1">Uploaded Spectrum</h2>
+    <p class="text-muted mb-3">File: <code>{{ upload.filename }}</code></p>
+
+    <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+      <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('viewer.uploads') }}">Back to Uploads</a>
+      <form method="post" action="{{ url_for('viewer.uploads_delete', token=upload.token) }}">
+        <button type="submit" class="btn btn-sm btn-outline-danger">Delete Upload</button>
+      </form>
+      <span class="badge text-bg-light border">Flux mode: <code>{{ upload.flux_mode }}</code></span>
+      <span class="badge text-bg-light border">Format: <code>{{ upload.format }}</code></span>
+    </div>
+
+    {% if plot_data %}
+      {% set plot_id = "upload-spectrum-plot" %}
+      {% set x_scale_id = plot_id ~ "-xscale" %}
+      {% set y_scale_id = plot_id ~ "-yscale" %}
+      {% set redshift_id = plot_id ~ "-redshift" %}
+      {% set velocity_id = plot_id ~ "-velocity" %}
+      {% set broadening_id = plot_id ~ "-broadening" %}
+      {% set ebv_id = plot_id ~ "-ebv" %}
+      {% set distance_id = plot_id ~ "-distance" %}
+      {% set reset_transform_id = plot_id ~ "-reset-transform" %}
+      {% set transform_hint_id = plot_id ~ "-transform-hint" %}
+      <div class="plot-wrap mb-4">
+        <div class="plot-title">
+          {% if mode == "both" %}
+            Uploaded absolute-flux spectrum
+          {% else %}
+            Uploaded normalized spectrum
+          {% endif %}
+        </div>
+        <div class="plot-controls plot-controls-transform">
+          <label for="{{ redshift_id }}" class="plot-control-label">Redshift z</label>
+          <input
+            id="{{ redshift_id }}"
+            type="number"
+            step="any"
+            class="form-control form-control-sm plot-number-input"
+            value="{{ transform_params.redshift }}"
+          >
+          <label for="{{ velocity_id }}" class="plot-control-label">Radial velocity (km/s)</label>
+          <input
+            id="{{ velocity_id }}"
+            type="number"
+            step="any"
+            class="form-control form-control-sm plot-number-input"
+            value="{{ transform_params.velocity_km_s }}"
+          >
+          <label for="{{ broadening_id }}" class="plot-control-label">Velocity dispersion sigma (km/s)</label>
+          <input
+            id="{{ broadening_id }}"
+            type="number"
+            min="0"
+            step="any"
+            class="form-control form-control-sm plot-number-input"
+            value="{{ transform_params.broadening_km_s }}"
+          >
+          <label for="{{ ebv_id }}" class="plot-control-label">E(B-V)</label>
+          <input
+            id="{{ ebv_id }}"
+            type="number"
+            step="any"
+            class="form-control form-control-sm plot-number-input"
+            value="{{ transform_params.ebv }}"
+          >
+          <label for="{{ distance_id }}" class="plot-control-label">Distance (kpc)</label>
+          <input
+            id="{{ distance_id }}"
+            type="number"
+            min="0.000001"
+            step="any"
+            class="form-control form-control-sm plot-number-input"
+            value="{{ transform_params.distance_kpc }}"
+          >
+          <button id="{{ reset_transform_id }}" type="button" class="btn btn-outline-secondary btn-sm">Reset</button>
+        </div>
+        <div id="{{ transform_hint_id }}" class="small text-muted mb-2"></div>
+        <div class="plot-controls">
+          <label for="{{ x_scale_id }}" class="plot-control-label">X scale</label>
+          <select id="{{ x_scale_id }}" class="form-select form-select-sm plot-scale-select">
+            <option value="linear" {% if plot_data.default_x_scale != 'log' %}selected{% endif %}>Linear</option>
+            <option value="log" {% if plot_data.default_x_scale == 'log' %}selected{% endif %}>Log</option>
+          </select>
+          <label for="{{ y_scale_id }}" class="plot-control-label">Y scale</label>
+          <select id="{{ y_scale_id }}" class="form-select form-select-sm plot-scale-select">
+            <option value="linear" {% if plot_data.default_y_scale != 'log' %}selected{% endif %}>Linear</option>
+            <option value="log" {% if plot_data.default_y_scale == 'log' %}selected{% endif %}>Log</option>
+          </select>
+        </div>
+        <div class="plotly-resizable">
+          <div id="{{ plot_id }}" class="plotly-chart"></div>
+          <div class="plot-resize-handle" role="separator" aria-orientation="vertical" aria-label="Resize plot"></div>
+        </div>
+      </div>
+      <script>
+        (function () {
+          var target = document.getElementById("{{ plot_id }}");
+          if (!target || !window.Plotly) {
+            if (target) {
+              target.innerHTML = '<p class="text-muted small mb-0">Plotly failed to load.</p>';
+            }
+            return;
+          }
+
+          function bindVerticalResize(plotElement) {
+            var container = plotElement.closest(".plotly-resizable");
+            if (!container) {
+              return;
+            }
+            if (window.ResizeObserver && !plotElement.__plotResizeObserver) {
+              var frameId = null;
+              var observer = new ResizeObserver(function () {
+                if (frameId !== null) {
+                  window.cancelAnimationFrame(frameId);
+                }
+                frameId = window.requestAnimationFrame(function () {
+                  if (plotElement.data) {
+                    Plotly.Plots.resize(plotElement);
+                  }
+                });
+              });
+              observer.observe(container);
+              plotElement.__plotResizeObserver = observer;
+            }
+
+            var handle = container.querySelector(".plot-resize-handle");
+            if (!handle || handle.__plotDragBound) {
+              return;
+            }
+            handle.__plotDragBound = true;
+
+            var dragState = null;
+            var minHeight = 320;
+
+            function setHeight(nextHeight) {
+              container.style.height = Math.max(minHeight, Math.round(nextHeight)) + "px";
+              if (plotElement.data) {
+                Plotly.Plots.resize(plotElement);
+              }
+            }
+
+            function finishDrag(event) {
+              if (!dragState || event.pointerId !== dragState.pointerId) {
+                return;
+              }
+              if (handle.releasePointerCapture) {
+                handle.releasePointerCapture(event.pointerId);
+              }
+              dragState = null;
+              document.body.classList.remove("plot-resizing");
+            }
+
+            handle.addEventListener("pointerdown", function (event) {
+              if (event.button !== 0) {
+                return;
+              }
+              event.preventDefault();
+              dragState = {
+                pointerId: event.pointerId,
+                startY: event.clientY,
+                startHeight: container.getBoundingClientRect().height
+              };
+              if (handle.setPointerCapture) {
+                handle.setPointerCapture(event.pointerId);
+              }
+              document.body.classList.add("plot-resizing");
+            });
+
+            handle.addEventListener("pointermove", function (event) {
+              if (!dragState || event.pointerId !== dragState.pointerId) {
+                return;
+              }
+              setHeight(dragState.startHeight + (event.clientY - dragState.startY));
+            });
+
+            handle.addEventListener("pointerup", finishDrag);
+            handle.addEventListener("pointercancel", finishDrag);
+          }
+
+          var plotData = {{ plot_data.data | tojson }};
+          var plotLayout = {{ plot_data.layout | tojson }};
+          var plotConfig = {{ plot_data.config | tojson }};
+          var spectrumMode = "{{ mode }}";
+
+          var LIGHT_SPEED_KM_PER_S = 299792.458;
+
+          var xScale = document.getElementById("{{ x_scale_id }}");
+          var yScale = document.getElementById("{{ y_scale_id }}");
+          var redshiftInput = document.getElementById("{{ redshift_id }}");
+          var velocityInput = document.getElementById("{{ velocity_id }}");
+          var broadeningInput = document.getElementById("{{ broadening_id }}");
+          var ebvInput = document.getElementById("{{ ebv_id }}");
+          var distanceInput = document.getElementById("{{ distance_id }}");
+          var resetTransform = document.getElementById("{{ reset_transform_id }}");
+          var transformHint = document.getElementById("{{ transform_hint_id }}");
+
+          var transformTargets = [];
+          var baseData = plotData.map(function (trace) {
+            var cloned = Object.assign({}, trace);
+            cloned.x = Array.isArray(trace.x) ? trace.x.slice() : [];
+            cloned.y = Array.isArray(trace.y) ? trace.y.slice() : [];
+            var targetKind = "model";
+            if (trace.meta && trace.meta.transform_target === "observed") {
+              targetKind = "observed";
+            }
+            transformTargets.push(targetKind);
+            return cloned;
+          });
+          var isSyncingVelocity = false;
+          var transformFrame = null;
+
+          function formatNumeric(value, decimals) {
+            if (!Number.isFinite(value)) {
+              return "";
+            }
+            return Number(value.toFixed(decimals)).toString();
+          }
+
+          function setTransformHint(message, isError) {
+            if (!transformHint) {
+              return;
+            }
+            transformHint.textContent = message;
+            transformHint.classList.toggle("text-danger", !!isError);
+            transformHint.classList.toggle("text-muted", !isError);
+          }
+
+          function updateVelocityFromRedshift() {
+            if (!redshiftInput || !velocityInput) {
+              return;
+            }
+            var redshift = Number(redshiftInput.value);
+            if (!Number.isFinite(redshift)) {
+              return;
+            }
+            isSyncingVelocity = true;
+            velocityInput.value = formatNumeric(redshift * LIGHT_SPEED_KM_PER_S, 6);
+            isSyncingVelocity = false;
+          }
+
+          function updateRedshiftFromVelocity() {
+            if (!redshiftInput || !velocityInput) {
+              return;
+            }
+            var velocity = Number(velocityInput.value);
+            if (!Number.isFinite(velocity)) {
+              return;
+            }
+            isSyncingVelocity = true;
+            redshiftInput.value = formatNumeric(velocity / LIGHT_SPEED_KM_PER_S, 10);
+            isSyncingVelocity = false;
+          }
+
+          function applyAxisScale() {
+            Plotly.relayout(target, {
+              "xaxis.type": xScale.value,
+              "yaxis.type": yScale.value
+            });
+          }
+
+          function polyEval(coeffs, x) {
+            var value = 0;
+            for (var i = 0; i < coeffs.length; i += 1) {
+              value = value * x + coeffs[i];
+            }
+            return value;
+          }
+
+          function buildNaturalSpline(xs, ys) {
+            var n = xs.length;
+            var y2 = new Array(n).fill(0);
+            var u = new Array(n - 1).fill(0);
+            y2[0] = 0;
+            u[0] = 0;
+
+            for (var i = 1; i < n - 1; i += 1) {
+              var sig = (xs[i] - xs[i - 1]) / (xs[i + 1] - xs[i - 1]);
+              var p = sig * y2[i - 1] + 2;
+              y2[i] = (sig - 1) / p;
+              var d1 = (ys[i + 1] - ys[i]) / (xs[i + 1] - xs[i]);
+              var d0 = (ys[i] - ys[i - 1]) / (xs[i] - xs[i - 1]);
+              var dd = (6 * (d1 - d0) / (xs[i + 1] - xs[i - 1]) - sig * u[i - 1]) / p;
+              u[i] = dd;
+            }
+
+            y2[n - 1] = 0;
+            for (var k = n - 2; k >= 0; k -= 1) {
+              y2[k] = y2[k] * y2[k + 1] + u[k];
+            }
+            return {
+              xs: xs,
+              ys: ys,
+              y2: y2
+            };
+          }
+
+          function evalNaturalSpline(spline, x) {
+            var xs = spline.xs;
+            var ys = spline.ys;
+            var y2 = spline.y2;
+            var n = xs.length;
+            var xClamped = x;
+            if (xClamped <= xs[0]) {
+              xClamped = xs[0];
+            } else if (xClamped >= xs[n - 1]) {
+              xClamped = xs[n - 1];
+            }
+
+            var klo = 0;
+            var khi = n - 1;
+            while (khi - klo > 1) {
+              var mid = (khi + klo) >> 1;
+              if (xs[mid] > xClamped) {
+                khi = mid;
+              } else {
+                klo = mid;
+              }
+            }
+            var h = xs[khi] - xs[klo];
+            if (h === 0) {
+              return ys[klo];
+            }
+            var a = (xs[khi] - xClamped) / h;
+            var b = (xClamped - xs[klo]) / h;
+            return a * ys[klo] + b * ys[khi] + ((a * a * a - a) * y2[klo] + (b * b * b - b) * y2[khi]) * h * h / 6;
+          }
+
+          function buildFmCurveEvaluator(rV) {
+            var x0 = 4.596;
+            var gamma = 0.99;
+            var c4 = 0.41;
+            var c3 = 3.23;
+            var c2 = -0.824 + 4.717 / rV;
+            var c1 = 2.030 - 3.007 * c2;
+            var xcutuv = 10000 / 2700;
+            var xspluv = [10000 / 2700, 10000 / 2600];
+
+            function uvCurve(x) {
+              var xx = x * x;
+              var drudeDen = (xx - x0 * x0) * (xx - x0 * x0) + (x * gamma) * (x * gamma);
+              var y = c1 + c2 * x + c3 * xx / drudeDen;
+              var delta = Math.max(0, x - 5.9);
+              y += c4 * (0.5392 * delta * delta + 0.05644 * delta * delta * delta);
+              return y + rV;
+            }
+
+            var yspluv = [uvCurve(xspluv[0]), uvCurve(xspluv[1])];
+            var xsplopir = [0, 10000 / 26500, 10000 / 12200, 10000 / 6000, 10000 / 5470, 10000 / 4670, 10000 / 4110];
+            var ysplir = [0, 0.26469, 0.82925].map(function (value) {
+              return value * rV / 3.1;
+            });
+            var ysplop = [
+              polyEval([2.13572e-4, 1.00270, -4.22809e-1], rV),
+              polyEval([-7.35778e-5, 1.00216, -5.13540e-2], rV),
+              polyEval([-3.32598e-5, 1.00184, 7.00127e-1], rV),
+              polyEval([-4.45636e-5, 7.97809e-4, -5.46959e-3, 1.01707, 1.19456], rV)
+            ];
+            var xsSpline = xsplopir.concat(xspluv);
+            var ysSpline = ysplir.concat(ysplop).concat(yspluv);
+            var spline = buildNaturalSpline(xsSpline, ysSpline);
+
+            return function (wavelengthAngstrom) {
+              if (!Number.isFinite(wavelengthAngstrom) || wavelengthAngstrom <= 0) {
+                return 0;
+              }
+              var x = 10000 / wavelengthAngstrom;
+              if (x >= xcutuv) {
+                return uvCurve(x);
+              }
+              return evalNaturalSpline(spline, x);
+            };
+          }
+
+          var fmCurveAt = buildFmCurveEvaluator(3.1);
+          function reddeningScaleAt(wavelengthAngstrom, ebv) {
+            if (!Number.isFinite(ebv) || ebv === 0) {
+              return 1;
+            }
+            var curve = fmCurveAt(wavelengthAngstrom);
+            var factor = Math.pow(10, -0.4 * ebv * curve);
+            if (!Number.isFinite(factor) || factor <= 0) {
+              return 1;
+            }
+            return factor;
+          }
+
+          function gaussianBroadenAscending(wavelengths, values, sigmaKmPerS) {
+            var n = wavelengths.length;
+            if (n < 3 || values.length !== n) {
+              return values.slice();
+            }
+
+            var first = wavelengths[0];
+            var last = wavelengths[n - 1];
+            if (!Number.isFinite(first) || !Number.isFinite(last) || first <= 0 || last <= first) {
+              return values.slice();
+            }
+
+            var logMin = Math.log(first);
+            var logMax = Math.log(last);
+            var dLog = (logMax - logMin) / (n - 1);
+            if (!Number.isFinite(dLog) || dLog <= 0) {
+              return values.slice();
+            }
+
+            var sigmaLog = sigmaKmPerS / LIGHT_SPEED_KM_PER_S;
+            var sigmaPixels = sigmaLog / dLog;
+            if (!Number.isFinite(sigmaPixels) || sigmaPixels < 0.15) {
+              return values.slice();
+            }
+
+            var halfWidth = Math.max(1, Math.ceil(4 * sigmaPixels));
+            halfWidth = Math.min(halfWidth, 300);
+
+            var kernel = new Array(2 * halfWidth + 1);
+            for (var offset = -halfWidth; offset <= halfWidth; offset += 1) {
+              kernel[offset + halfWidth] = Math.exp(-0.5 * (offset * offset) / (sigmaPixels * sigmaPixels));
+            }
+
+            var sampled = new Array(n);
+            var sourceIndex = 0;
+            for (var sampleIndex = 0; sampleIndex < n; sampleIndex += 1) {
+              var sampleLog = logMin + sampleIndex * dLog;
+              var sampleX = Math.exp(sampleLog);
+              while (sourceIndex < n - 2 && wavelengths[sourceIndex + 1] < sampleX) {
+                sourceIndex += 1;
+              }
+
+              var x0 = wavelengths[sourceIndex];
+              var x1 = wavelengths[sourceIndex + 1];
+              var y0 = values[sourceIndex];
+              var y1 = values[sourceIndex + 1];
+              if (!Number.isFinite(x0) || !Number.isFinite(x1) || x1 <= x0 || !Number.isFinite(y0) || !Number.isFinite(y1)) {
+                sampled[sampleIndex] = Number.isFinite(y0) ? y0 : 0;
+                continue;
+              }
+
+              var t = (sampleX - x0) / (x1 - x0);
+              if (t < 0) {
+                t = 0;
+              } else if (t > 1) {
+                t = 1;
+              }
+              sampled[sampleIndex] = y0 + (y1 - y0) * t;
+            }
+
+            var smoothed = new Array(n);
+            for (var i = 0; i < n; i += 1) {
+              var weightedSum = 0;
+              var weightNorm = 0;
+              for (var k = -halfWidth; k <= halfWidth; k += 1) {
+                var j = i + k;
+                if (j < 0 || j >= n) {
+                  continue;
+                }
+                var yValue = sampled[j];
+                if (!Number.isFinite(yValue)) {
+                  continue;
+                }
+                var weight = kernel[k + halfWidth];
+                weightedSum += yValue * weight;
+                weightNorm += weight;
+              }
+              smoothed[i] = weightNorm > 0 ? weightedSum / weightNorm : sampled[i];
+            }
+
+            var result = new Array(n);
+            for (var p = 0; p < n; p += 1) {
+              var x = wavelengths[p];
+              if (!Number.isFinite(x) || x <= 0) {
+                result[p] = values[p];
+                continue;
+              }
+
+              var at = (Math.log(x) - logMin) / dLog;
+              if (!Number.isFinite(at)) {
+                result[p] = values[p];
+                continue;
+              }
+              if (at <= 0) {
+                result[p] = smoothed[0];
+                continue;
+              }
+              if (at >= n - 1) {
+                result[p] = smoothed[n - 1];
+                continue;
+              }
+              var lo = Math.floor(at);
+              var frac = at - lo;
+              result[p] = smoothed[lo] + (smoothed[lo + 1] - smoothed[lo]) * frac;
+            }
+
+            return result;
+          }
+
+          function gaussianBroadenByVelocity(wavelengths, values, sigmaKmPerS) {
+            if (!Number.isFinite(sigmaKmPerS) || sigmaKmPerS <= 0) {
+              return values.slice();
+            }
+            if (!Array.isArray(wavelengths) || !Array.isArray(values) || wavelengths.length !== values.length) {
+              return values.slice();
+            }
+            if (wavelengths.length < 3) {
+              return values.slice();
+            }
+            if (wavelengths[0] <= wavelengths[wavelengths.length - 1]) {
+              return gaussianBroadenAscending(wavelengths, values, sigmaKmPerS);
+            }
+            var reversedX = wavelengths.slice().reverse();
+            var reversedY = values.slice().reverse();
+            return gaussianBroadenAscending(reversedX, reversedY, sigmaKmPerS).reverse();
+          }
+
+          function applyPhysicalTransforms() {
+            var redshift = redshiftInput ? Number(redshiftInput.value) : 0;
+            if (!Number.isFinite(redshift)) {
+              redshift = 0;
+            }
+            if ((1 + redshift) <= 0) {
+              setTransformHint("Redshift must be greater than -1.", true);
+              return;
+            }
+
+            var distanceKpc = distanceInput ? Number(distanceInput.value) : 1;
+            if (!Number.isFinite(distanceKpc) || distanceKpc <= 0) {
+              setTransformHint("Distance must be a positive number in kpc.", true);
+              return;
+            }
+
+            var ebv = ebvInput ? Number(ebvInput.value) : 0;
+            if (!Number.isFinite(ebv)) {
+              setTransformHint("E(B-V) must be a valid number.", true);
+              return;
+            }
+
+            var sigmaVelocity = broadeningInput ? Number(broadeningInput.value) : 0;
+            if (!Number.isFinite(sigmaVelocity) || sigmaVelocity < 0) {
+              setTransformHint("Velocity dispersion must be zero or positive (km/s).", true);
+              return;
+            }
+
+            var broadeningText = sigmaVelocity > 0
+              ? " Gaussian line broadening uses sigma_v=" + formatNumeric(sigmaVelocity, 4) + " km/s."
+              : " Gaussian line broadening is disabled.";
+            if (spectrumMode === "both") {
+              setTransformHint("Absolute mode applies wavelength shift, reddening, distance scaling, and optional broadening." + broadeningText, false);
+            } else {
+              setTransformHint("Normalized mode applies wavelength shift and optional broadening." + broadeningText, false);
+            }
+
+            var wavelengthScale = 1 / (1 + redshift);
+            var distanceScale = 1 / (distanceKpc * distanceKpc);
+            var transformedX = [];
+            var transformedY = [];
+
+            for (var traceIndex = 0; traceIndex < baseData.length; traceIndex += 1) {
+              var sourceX = baseData[traceIndex].x;
+              var sourceY = baseData[traceIndex].y;
+              if (transformTargets[traceIndex] !== "model") {
+                transformedX.push(sourceX.slice());
+                transformedY.push(sourceY.slice());
+                continue;
+              }
+
+              var nextX = new Array(sourceX.length);
+              var nextY = new Array(sourceY.length);
+              for (var i = 0; i < sourceX.length; i += 1) {
+                var wavelength = sourceX[i] * wavelengthScale;
+                nextX[i] = wavelength;
+                if (spectrumMode === "both") {
+                  nextY[i] = sourceY[i] * distanceScale * reddeningScaleAt(wavelength, ebv);
+                }
+              }
+              if (spectrumMode !== "both") {
+                for (var k = 0; k < sourceY.length; k += 1) {
+                  nextY[k] = sourceY[k];
+                }
+              }
+              var role = baseData[traceIndex].meta && baseData[traceIndex].meta.plot_role
+                ? String(baseData[traceIndex].meta.plot_role)
+                : "";
+              var shouldBroaden = spectrumMode !== "both" || role === "final";
+              if (shouldBroaden && sigmaVelocity > 0) {
+                nextY = gaussianBroadenByVelocity(nextX, nextY, sigmaVelocity);
+              }
+
+              transformedX.push(nextX);
+              transformedY.push(nextY);
+            }
+
+            Plotly.restyle(target, {
+              x: transformedX,
+              y: transformedY
+            });
+          }
+
+          function scheduleTransforms() {
+            if (transformFrame !== null) {
+              window.cancelAnimationFrame(transformFrame);
+            }
+            transformFrame = window.requestAnimationFrame(function () {
+              transformFrame = null;
+              applyPhysicalTransforms();
+            });
+          }
+
+          Plotly.newPlot(target, plotData, plotLayout, plotConfig).then(function () {
+            xScale.addEventListener("change", applyAxisScale);
+            yScale.addEventListener("change", applyAxisScale);
+            if (redshiftInput) {
+              redshiftInput.addEventListener("input", function () {
+                if (!isSyncingVelocity) {
+                  updateVelocityFromRedshift();
+                }
+                scheduleTransforms();
+              });
+            }
+            if (velocityInput) {
+              velocityInput.addEventListener("input", function () {
+                if (!isSyncingVelocity) {
+                  updateRedshiftFromVelocity();
+                }
+                scheduleTransforms();
+              });
+            }
+            if (distanceInput) {
+              distanceInput.addEventListener("input", scheduleTransforms);
+            }
+            if (ebvInput) {
+              ebvInput.addEventListener("input", scheduleTransforms);
+            }
+            if (broadeningInput) {
+              broadeningInput.addEventListener("input", scheduleTransforms);
+            }
+            if (resetTransform) {
+              resetTransform.addEventListener("click", function () {
+                if (redshiftInput) {
+                  redshiftInput.value = "0";
+                }
+                if (velocityInput) {
+                  velocityInput.value = "0";
+                }
+                if (broadeningInput) {
+                  broadeningInput.value = "0";
+                }
+                if (distanceInput) {
+                  distanceInput.value = "1";
+                }
+                if (ebvInput) {
+                  ebvInput.value = "0";
+                }
+                scheduleTransforms();
+              });
+            }
+            updateVelocityFromRedshift();
+            applyAxisScale();
+            scheduleTransforms();
+            bindVerticalResize(target);
+          });
+        })();
+      </script>
+    {% endif %}
+
+    {% if warnings %}
+      <div class="alert alert-warning py-2 mb-3">
+        {% for warning in warnings %}
+          <div>{{ warning }}</div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </section>
+
+  {% if upload_summary_rows %}
+    <section class="mb-4">
+      <h3 class="h5 mb-2">File Details</h3>
+      <div class="table-responsive mb-3">
+        <table class="table table-sm table-striped">
+          <thead>
+            <tr>
+              <th>Field</th>
+              <th>Value</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in upload_summary_rows %}
+              <tr>
+                <td><code>{{ row[0] }}</code></td>
+                <td><code>{{ row[1] }}</code></td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  {% endif %}
+{% endblock %}
