@@ -8,11 +8,15 @@
     <p class="text-muted mb-3">Model: <code>{{ model_name }}</code></p>
 
     <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
-      <form method="get" class="d-flex align-items-center gap-2">
+      <form method="get" class="d-flex align-items-center gap-2 spectrum-transform-sync">
         <input type="hidden" name="mode" value="{{ mode }}">
         {% for token in obs_tokens %}
           <input type="hidden" name="obs" value="{{ token }}">
         {% endfor %}
+        <input type="hidden" name="redshift" class="transform-redshift-field" value="{{ transform_params.redshift }}">
+        <input type="hidden" name="broadening_km_s" class="transform-broadening-field" value="{{ transform_params.broadening_km_s }}">
+        <input type="hidden" name="ebv" class="transform-ebv-field" value="{{ transform_params.ebv }}">
+        <input type="hidden" name="distance_kpc" class="transform-distance-field" value="{{ transform_params.distance_kpc }}">
         <label for="fin-select" class="small text-muted mb-0 text-nowrap flex-shrink-0">obs_fin file</label>
         <select id="fin-select" name="fin" class="form-select form-select-sm w-auto final-fin-select" onchange="this.form.submit()">
           {% for option in fin_options %}
@@ -42,13 +46,17 @@
         method="post"
         action="{{ url_for('viewer.spectrum_upload', path=path) }}"
         enctype="multipart/form-data"
-        class="upload-inline-form"
+        class="upload-inline-form spectrum-transform-sync"
       >
         <input type="hidden" name="fin" value="{{ selected_fin }}">
         <input type="hidden" name="mode" value="{{ mode }}">
         {% for token in obs_tokens %}
           <input type="hidden" name="obs" value="{{ token }}">
         {% endfor %}
+        <input type="hidden" name="redshift" class="transform-redshift-field" value="{{ transform_params.redshift }}">
+        <input type="hidden" name="broadening_km_s" class="transform-broadening-field" value="{{ transform_params.broadening_km_s }}">
+        <input type="hidden" name="ebv" class="transform-ebv-field" value="{{ transform_params.ebv }}">
+        <input type="hidden" name="distance_kpc" class="transform-distance-field" value="{{ transform_params.distance_kpc }}">
         <input
           id="observed-upload"
           name="observed_file"
@@ -69,9 +77,13 @@
       </form>
     </div>
 
-    <form method="get" class="d-flex flex-wrap align-items-center gap-2 mb-3">
+    <form method="get" class="d-flex flex-wrap align-items-center gap-2 mb-3 spectrum-transform-sync">
       <input type="hidden" name="fin" value="{{ selected_fin }}">
       <input type="hidden" name="mode" value="{{ mode }}">
+      <input type="hidden" name="redshift" class="transform-redshift-field" value="{{ transform_params.redshift }}">
+      <input type="hidden" name="broadening_km_s" class="transform-broadening-field" value="{{ transform_params.broadening_km_s }}">
+      <input type="hidden" name="ebv" class="transform-ebv-field" value="{{ transform_params.ebv }}">
+      <input type="hidden" name="distance_kpc" class="transform-distance-field" value="{{ transform_params.distance_kpc }}">
       <label for="obs-overlay-select" class="small text-muted mb-0">Overlay uploads</label>
       <select id="obs-overlay-select" name="obs" class="form-select form-select-sm" multiple size="4">
         {% for item in available_uploads %}
@@ -91,6 +103,118 @@
           <code>{{ item.filename }}</code>{% if not loop.last %}, {% endif %}
         {% endfor %}
       </div>
+    {% endif %}
+
+    <div
+      id="fit-feedback"
+      class="alert py-2 mb-3{% if fit_notice %} alert-info{% else %} d-none{% endif %}"
+      role="status"
+      aria-live="polite"
+    >
+      {% if fit_notice %}{{ fit_notice }}{% endif %}
+    </div>
+
+    {% if fit_candidates %}
+      <form
+        method="post"
+        action="{{ url_for('viewer.spectrum_fit', path=path) }}"
+        class="d-flex flex-wrap align-items-center gap-2 mb-3 spectrum-transform-sync"
+        id="spectrum-fit-form"
+      >
+        <input type="hidden" name="fin" value="{{ selected_fin }}">
+        <input type="hidden" name="mode" value="{{ mode }}">
+        {% for token in obs_tokens %}
+          <input type="hidden" name="obs" value="{{ token }}">
+        {% endfor %}
+        <input type="hidden" name="redshift" class="transform-redshift-field" value="{{ transform_params.redshift }}">
+        <input type="hidden" name="broadening_km_s" class="transform-broadening-field" value="{{ transform_params.broadening_km_s }}">
+        <input type="hidden" name="ebv" class="transform-ebv-field" value="{{ transform_params.ebv }}">
+        <input type="hidden" name="distance_kpc" class="transform-distance-field" value="{{ transform_params.distance_kpc }}">
+        <label for="fit-obs-select" class="small text-muted mb-0">Fit to upload</label>
+        <select id="fit-obs-select" name="fit_obs_token" class="form-select form-select-sm w-auto">
+          {% for item in fit_candidates %}
+            <option value="{{ item.token }}" {% if item.token == selected_fit_token %}selected{% endif %}>{{ item.label }}</option>
+          {% endfor %}
+        </select>
+        <button type="submit" class="btn btn-sm btn-outline-success">Fit Model</button>
+        <span class="small text-muted">Configure parameter bounds:</span>
+        <label for="fit-redshift-min" class="small text-muted mb-0">z</label>
+        <input
+          id="fit-redshift-min"
+          name="fit_redshift_min"
+          type="number"
+          step="any"
+          class="form-control form-control-sm plot-number-input"
+          value="{{ fit_bounds.redshift[0] }}"
+        >
+        <span class="small text-muted">..</span>
+        <input
+          name="fit_redshift_max"
+          type="number"
+          step="any"
+          class="form-control form-control-sm plot-number-input"
+          value="{{ fit_bounds.redshift[1] }}"
+        >
+        <label for="fit-broadening-min" class="small text-muted mb-0">sigma (km/s)</label>
+        <input
+          id="fit-broadening-min"
+          name="fit_broadening_km_s_min"
+          type="number"
+          min="0"
+          step="any"
+          class="form-control form-control-sm plot-number-input"
+          value="{{ fit_bounds.broadening_km_s[0] }}"
+        >
+        <span class="small text-muted">..</span>
+        <input
+          name="fit_broadening_km_s_max"
+          type="number"
+          min="0"
+          step="any"
+          class="form-control form-control-sm plot-number-input"
+          value="{{ fit_bounds.broadening_km_s[1] }}"
+        >
+        {% if mode == "both" %}
+          <label for="fit-ebv-min" class="small text-muted mb-0">E(B-V)</label>
+          <input
+            id="fit-ebv-min"
+            name="fit_ebv_min"
+            type="number"
+            step="any"
+            class="form-control form-control-sm plot-number-input"
+            value="{{ fit_bounds.ebv[0] }}"
+          >
+          <span class="small text-muted">..</span>
+          <input
+            name="fit_ebv_max"
+            type="number"
+            step="any"
+            class="form-control form-control-sm plot-number-input"
+            value="{{ fit_bounds.ebv[1] }}"
+          >
+          <label for="fit-distance-min" class="small text-muted mb-0">distance (kpc)</label>
+          <input
+            id="fit-distance-min"
+            name="fit_distance_kpc_min"
+            type="number"
+            min="0.000001"
+            step="any"
+            class="form-control form-control-sm plot-number-input"
+            value="{{ fit_bounds.distance_kpc[0] }}"
+          >
+          <span class="small text-muted">..</span>
+          <input
+            name="fit_distance_kpc_max"
+            type="number"
+            min="0.000001"
+            step="any"
+            class="form-control form-control-sm plot-number-input"
+            value="{{ fit_bounds.distance_kpc[1] }}"
+          >
+        {% endif %}
+      </form>
+    {% elif selected_observed_uploads %}
+      <div class="small text-muted mb-3">No active overlay in this mode is eligible for server-side fitting.</div>
     {% endif %}
   </section>
 
@@ -120,7 +244,7 @@
           type="number"
           step="any"
           class="form-control form-control-sm plot-number-input"
-          value="0"
+          value="{{ transform_params.redshift }}"
         >
         <label for="{{ velocity_id }}" class="plot-control-label">Radial velocity (km/s)</label>
         <input
@@ -128,7 +252,7 @@
           type="number"
           step="any"
           class="form-control form-control-sm plot-number-input"
-          value="0"
+          value="{{ transform_params.velocity_km_s }}"
         >
         <label for="{{ broadening_id }}" class="plot-control-label">Velocity dispersion sigma (km/s)</label>
         <input
@@ -137,7 +261,7 @@
           min="0"
           step="any"
           class="form-control form-control-sm plot-number-input"
-          value="0"
+          value="{{ transform_params.broadening_km_s }}"
         >
         <label for="{{ ebv_id }}" class="plot-control-label">E(B-V)</label>
         <input
@@ -145,7 +269,7 @@
           type="number"
           step="any"
           class="form-control form-control-sm plot-number-input"
-          value="0"
+          value="{{ transform_params.ebv }}"
         >
         <label for="{{ distance_id }}" class="plot-control-label">Distance (kpc)</label>
         <input
@@ -154,7 +278,7 @@
           min="0.000001"
           step="any"
           class="form-control form-control-sm plot-number-input"
-          value="1"
+          value="{{ transform_params.distance_kpc }}"
         >
         <button id="{{ reset_transform_id }}" type="button" class="btn btn-outline-secondary btn-sm">Reset</button>
       </div>
@@ -277,6 +401,9 @@
         var distanceInput = document.getElementById("{{ distance_id }}");
         var resetTransform = document.getElementById("{{ reset_transform_id }}");
         var transformHint = document.getElementById("{{ transform_hint_id }}");
+        var transformSyncForms = document.querySelectorAll("form.spectrum-transform-sync");
+        var fitForm = document.getElementById("spectrum-fit-form");
+        var fitFeedback = document.getElementById("fit-feedback");
 
         var transformTargets = [];
         var broadeningTargets = [];
@@ -331,6 +458,44 @@
           transformHint.textContent = message;
           transformHint.classList.toggle("text-danger", !!isError);
           transformHint.classList.toggle("text-muted", !isError);
+        }
+
+        function syncTransformHiddenFields() {
+          var redshiftValue = redshiftInput ? redshiftInput.value : "";
+          var broadeningValue = broadeningInput ? broadeningInput.value : "";
+          var ebvValue = ebvInput ? ebvInput.value : "";
+          var distanceValue = distanceInput ? distanceInput.value : "";
+
+          document.querySelectorAll(".transform-redshift-field").forEach(function (field) {
+            field.value = redshiftValue;
+          });
+          document.querySelectorAll(".transform-broadening-field").forEach(function (field) {
+            field.value = broadeningValue;
+          });
+          document.querySelectorAll(".transform-ebv-field").forEach(function (field) {
+            field.value = ebvValue;
+          });
+          document.querySelectorAll(".transform-distance-field").forEach(function (field) {
+            field.value = distanceValue;
+          });
+        }
+
+        function setFitFeedback(message, isError) {
+          if (!fitFeedback) {
+            return;
+          }
+          if (!message) {
+            fitFeedback.textContent = "";
+            fitFeedback.classList.add("d-none");
+            fitFeedback.classList.remove("alert-info");
+            fitFeedback.classList.remove("alert-danger");
+            return;
+          }
+          fitFeedback.textContent = message;
+          fitFeedback.classList.remove("d-none");
+          fitFeedback.classList.remove("alert-info");
+          fitFeedback.classList.remove("alert-danger");
+          fitFeedback.classList.add(isError ? "alert-danger" : "alert-info");
         }
 
         function updateVelocityFromRedshift() {
@@ -757,8 +922,96 @@
             });
           }
           updateVelocityFromRedshift();
+          if (transformSyncForms) {
+            transformSyncForms.forEach(function (formElement) {
+              formElement.addEventListener("submit", syncTransformHiddenFields);
+            });
+          }
+          if (fitForm) {
+            fitForm.addEventListener("submit", function (event) {
+              if (!window.fetch || !window.FormData) {
+                return;
+              }
+              event.preventDefault();
+              syncTransformHiddenFields();
+
+              var submitButton = fitForm.querySelector("button[type='submit']");
+              if (submitButton) {
+                submitButton.disabled = true;
+              }
+              setFitFeedback("Running fit...", false);
+
+              var formData = new FormData(fitForm);
+              formData.set("async", "1");
+
+              fetch(fitForm.action, {
+                method: "POST",
+                body: formData,
+                headers: {
+                  "X-Requested-With": "XMLHttpRequest",
+                  "Accept": "application/json"
+                }
+              })
+                .then(function (response) {
+                  return response.text().then(function (rawText) {
+                    var payload = null;
+                    if (rawText) {
+                      try {
+                        payload = JSON.parse(rawText);
+                      } catch (error) {
+                        payload = null;
+                      }
+                    }
+                    return {
+                      ok: response.ok,
+                      payload: payload
+                    };
+                  });
+                })
+                .then(function (result) {
+                  if (!result.payload || typeof result.payload !== "object") {
+                    throw new Error("Fit failed: invalid server response.");
+                  }
+                  if (!result.ok || result.payload.ok === false) {
+                    throw new Error(String(result.payload.error || "Fit failed."));
+                  }
+
+                  var fitted = result.payload.transform_params || {};
+                  var redshiftValue = Number(fitted.redshift);
+                  var broadeningValue = Number(fitted.broadening_km_s);
+                  var ebvValue = Number(fitted.ebv);
+                  var distanceValue = Number(fitted.distance_kpc);
+                  if (redshiftInput && Number.isFinite(redshiftValue)) {
+                    redshiftInput.value = formatNumeric(redshiftValue, 10);
+                  }
+                  if (broadeningInput && Number.isFinite(broadeningValue) && broadeningValue >= 0) {
+                    broadeningInput.value = formatNumeric(broadeningValue, 6);
+                  }
+                  if (ebvInput && Number.isFinite(ebvValue)) {
+                    ebvInput.value = formatNumeric(ebvValue, 6);
+                  }
+                  if (distanceInput && Number.isFinite(distanceValue) && distanceValue > 0) {
+                    distanceInput.value = formatNumeric(distanceValue, 6);
+                  }
+
+                  updateVelocityFromRedshift();
+                  syncTransformHiddenFields();
+                  scheduleTransforms();
+                  setFitFeedback(String(result.payload.fit_notice || "Fit completed."), false);
+                })
+                .catch(function (error) {
+                  setFitFeedback(error && error.message ? error.message : "Fit failed.", true);
+                })
+                .finally(function () {
+                  if (submitButton) {
+                    submitButton.disabled = false;
+                  }
+                });
+            });
+          }
           applyAxisScale();
           scheduleTransforms();
+          syncTransformHiddenFields();
           bindVerticalResize(target);
         });
       })();

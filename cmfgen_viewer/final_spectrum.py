@@ -5,8 +5,23 @@ from functools import lru_cache
 import math
 from pathlib import Path
 import re
+from typing import Any
 
 from .parsers.common import downsample_xy, format_number, parse_float_token, parse_numeric_tokens
+
+try:
+    import numpy as np
+except ModuleNotFoundError:  # pragma: no cover - runtime dependency
+    np = None  # type: ignore[assignment]
+
+try:
+    from scipy.interpolate import CubicSpline
+    from scipy.ndimage import gaussian_filter1d
+    from scipy.optimize import least_squares
+except ModuleNotFoundError:  # pragma: no cover - optional dependency for fitting
+    CubicSpline = None  # type: ignore[assignment]
+    gaussian_filter1d = None  # type: ignore[assignment]
+    least_squares = None  # type: ignore[assignment]
 
 VADAT_ENTRY_RE = re.compile(r"^\s*(\S+)\s+\[(\S*)\]")
 COUNT_RE = re.compile(r"\((\s*\d+)\)")
@@ -17,10 +32,22 @@ LIGHT_SPEED_CM_PER_S = 2.99792458e10
 ANGSTROM_PER_CM = 1e8
 JANSKY_TO_CGS_HZ = 1e-23
 JY_TO_FLAMBDA_ANGSTROM_FACTOR = JANSKY_TO_CGS_HZ * LIGHT_SPEED_CM_PER_S * ANGSTROM_PER_CM
+LIGHT_SPEED_KM_PER_S = 299792.458
 
 MAX_MODEL_TIME_LINES = 4
 MAX_SPECIES_ROWS = 12
 MAX_SERIES_POINTS = 5000
+
+ABSOLUTE_FIT_BOUNDS = {
+    "redshift": (-0.02, 0.02),
+    "broadening_km_s": (0.0, 800.0),
+    "ebv": (0.0, 3.0),
+    "distance_kpc": (0.05, 50.0),
+}
+NORMALIZED_FIT_BOUNDS = {
+    "redshift": (-0.02, 0.02),
+    "broadening_km_s": (0.0, 800.0),
+}
 
 
 def _safe_stat(path: Path) -> tuple[int, int]:
@@ -509,6 +536,497 @@ def _jy_to_cgs_per_angstrom(wavelength: list[float], flux_jy: list[float]) -> tu
         converted_x.append(wavelength_angstrom)
         converted_y.append(flux_cgs)
     return converted_x, converted_y
+
+
+def spectrum_fit_bounds(mode: str) -> dict[str, tuple[float, float]]:
+    if mode == "both":
+        return dict(ABSOLUTE_FIT_BOUNDS)
+    return dict(NORMALIZED_FIT_BOUNDS)
+
+
+def _resolve_fit_bounds(
+    mode: str,
+    bounds_override: dict[str, tuple[float, float]] | None = None,
+) -> dict[str, tuple[float, float]]:
+    bounds = spectrum_fit_bounds(mode)
+    if not bounds_override:
+        return bounds
+
+    resolved = dict(bounds)
+    for name, value in bounds_override.items():
+        if name not in resolved:
+            continue
+        if not isinstance(value, tuple) or len(value) != 2:
+            continue
+        lo_raw, hi_raw = value
+        if not isinstance(lo_raw, int | float) or not isinstance(hi_raw, int | float):
+            continue
+        lo = float(lo_raw)
+        hi = float(hi_raw)
+        if not math.isfinite(lo) or not math.isfinite(hi):
+            continue
+        if lo > hi:
+            lo, hi = hi, lo
+        if abs(hi - lo) < 1e-12:
+            continue
+        resolved[name] = (lo, hi)
+    return resolved
+
+
+def _clean_xy_arrays(x_values: list[float], y_values: list[float]) -> tuple[Any, Any] | None:
+    if np is None:
+        return None
+    if len(x_values) < 2 or len(y_values) < 2:
+        return None
+
+    x = np.asarray(x_values, dtype=np.float64).reshape(-1)
+    y = np.asarray(y_values, dtype=np.float64).reshape(-1)
+    if x.size != y.size or x.size < 2:
+        return None
+
+    mask = np.isfinite(x) & np.isfinite(y) & (x > 0)
+    x = x[mask]
+    y = y[mask]
+    if x.size < 2:
+        return None
+
+    if x[0] > x[-1]:
+        x = x[::-1]
+        y = y[::-1]
+
+    # np.interp requires monotonic increasing x; collapse duplicate wavelengths.
+    keep = np.ones(x.shape[0], dtype=bool)
+    keep[1:] = x[1:] > x[:-1]
+    x = x[keep]
+    y = y[keep]
+    if x.size < 2:
+        return None
+    return x, y
+
+
+def _build_model_series_for_fit(
+    continuum: dict[str, object],
+    final: dict[str, object],
+    *,
+    mode: str,
+) -> tuple[Any, Any] | None:
+    if np is None:
+        return None
+
+    cont_x = continuum.get("wavelength")
+    cont_y = continuum.get("flux")
+    fin_x = final.get("wavelength")
+    fin_y = final.get("flux")
+    if not isinstance(cont_x, list) or not isinstance(cont_y, list) or not isinstance(fin_x, list) or not isinstance(fin_y, list):
+        return None
+
+    cleaned_fin = _clean_xy_arrays(fin_x, fin_y)
+    cleaned_cont = _clean_xy_arrays(cont_x, cont_y)
+    if cleaned_fin is None or cleaned_cont is None:
+        return None
+    fin_x_np, fin_y_np = cleaned_fin
+    cont_x_np, cont_y_np = cleaned_cont
+
+    if mode == "both":
+        converted_x, converted_y = _jy_to_cgs_per_angstrom(fin_x_np.tolist(), fin_y_np.tolist())
+        return _clean_xy_arrays(converted_x, converted_y)
+
+    cont_interp = np.interp(fin_x_np, cont_x_np, cont_y_np, left=np.nan, right=np.nan)
+    valid = np.isfinite(cont_interp) & np.isfinite(fin_y_np) & (cont_interp != 0)
+    if not np.any(valid):
+        return None
+    ratio_x = fin_x_np[valid]
+    ratio_y = fin_y_np[valid] / cont_interp[valid]
+    cleaned_ratio = _clean_xy_arrays(ratio_x.tolist(), ratio_y.tolist())
+    if cleaned_ratio is None:
+        return None
+    return cleaned_ratio
+
+
+def _build_observed_series_for_fit(
+    observed: dict[str, object],
+    *,
+    mode: str,
+) -> tuple[tuple[Any, Any] | None, str | None]:
+    wavelength = observed.get("wavelength")
+    flux = observed.get("flux")
+    flux_mode = str(observed.get("flux_mode", "")).strip().lower()
+    if not isinstance(wavelength, list) or not isinstance(flux, list):
+        return None, "Observed upload is missing wavelength/flux vectors."
+
+    if mode == "both" and flux_mode != "absolute":
+        return None, "Observed upload is not absolute-flux data."
+    if mode == "normalized" and flux_mode != "normalized":
+        return None, "Observed upload is not continuum-normalized data."
+
+    cleaned = _clean_xy_arrays(wavelength, flux)
+    if cleaned is None:
+        return None, "Observed upload has too few valid points."
+    return cleaned, None
+
+
+@lru_cache(maxsize=4)
+def _fm_curve_spline(r_v: float) -> Any | None:
+    if np is None or CubicSpline is None:
+        return None
+
+    xspluv = np.array([10000 / 2700, 10000 / 2600], dtype=np.float64)
+    x0 = 4.596
+    gamma = 0.99
+    c4 = 0.41
+    c3 = 3.23
+    c2 = -0.824 + 4.717 / r_v
+    c1 = 2.030 - 3.007 * c2
+
+    def uv_curve(x: Any) -> Any:
+        xx = x * x
+        drude_den = (xx - x0 * x0) * (xx - x0 * x0) + (x * gamma) * (x * gamma)
+        y = c1 + c2 * x + c3 * xx / drude_den
+        delta = np.maximum(0.0, x - 5.9)
+        y += c4 * (0.5392 * delta * delta + 0.05644 * delta * delta * delta)
+        return y + r_v
+
+    yspluv = uv_curve(xspluv)
+    xsplopir = np.array([0, 10000 / 26500, 10000 / 12200, 10000 / 6000, 10000 / 5470, 10000 / 4670, 10000 / 4110])
+    ysplir = np.array([0, 0.26469, 0.82925], dtype=np.float64) * (r_v / 3.1)
+    ysplop = np.array(
+        [
+            np.polyval([2.13572e-4, 1.00270, -4.22809e-1], r_v),
+            np.polyval([-7.35778e-5, 1.00216, -5.13540e-2], r_v),
+            np.polyval([-3.32598e-5, 1.00184, 7.00127e-1], r_v),
+            np.polyval([-4.45636e-5, 7.97809e-4, -5.46959e-3, 1.01707, 1.19456], r_v),
+        ],
+        dtype=np.float64,
+    )
+    xs_spline = np.concatenate([xsplopir, xspluv])
+    ys_spline = np.concatenate([ysplir, ysplop, yspluv])
+    return CubicSpline(xs_spline, ys_spline, bc_type="natural")
+
+
+def _reddening_scale(wavelength_angstrom: Any, ebv: float, *, r_v: float = 3.1) -> Any:
+    if np is None:
+        return None
+    if not math.isfinite(ebv) or ebv == 0:
+        return np.ones_like(wavelength_angstrom, dtype=np.float64)
+
+    wavelength = np.asarray(wavelength_angstrom, dtype=np.float64)
+    out = np.ones_like(wavelength, dtype=np.float64)
+    valid = np.isfinite(wavelength) & (wavelength > 0)
+    if not np.any(valid):
+        return out
+
+    x = 10000.0 / wavelength[valid]
+    xcutuv = 10000 / 2700
+    x0 = 4.596
+    gamma = 0.99
+    c4 = 0.41
+    c3 = 3.23
+    c2 = -0.824 + 4.717 / r_v
+    c1 = 2.030 - 3.007 * c2
+
+    xx = x * x
+    drude_den = (xx - x0 * x0) * (xx - x0 * x0) + (x * gamma) * (x * gamma)
+    uv = c1 + c2 * x + c3 * xx / drude_den
+    delta = np.maximum(0.0, x - 5.9)
+    uv += c4 * (0.5392 * delta * delta + 0.05644 * delta * delta * delta)
+    uv += r_v
+
+    curve = np.empty_like(x)
+    uv_mask = x >= xcutuv
+    if np.any(uv_mask):
+        curve[uv_mask] = uv[uv_mask]
+
+    if np.any(~uv_mask):
+        spline = _fm_curve_spline(r_v)
+        if spline is None:
+            curve[~uv_mask] = uv[~uv_mask]
+        else:
+            curve[~uv_mask] = spline(x[~uv_mask])
+
+    factor = np.power(10.0, -0.4 * ebv * curve)
+    factor[~np.isfinite(factor)] = 1.0
+    factor[factor <= 0] = 1.0
+    out[valid] = factor
+    return out
+
+
+def _gaussian_broaden_ascending(wavelength: Any, flux: Any, sigma_km_s: float) -> Any:
+    if np is None:
+        return flux
+    if gaussian_filter1d is None or sigma_km_s <= 0:
+        return flux.copy()
+    if wavelength.size < 3 or flux.size != wavelength.size:
+        return flux.copy()
+
+    first = float(wavelength[0])
+    last = float(wavelength[-1])
+    if not math.isfinite(first) or not math.isfinite(last) or first <= 0 or last <= first:
+        return flux.copy()
+
+    log_min = math.log(first)
+    log_max = math.log(last)
+    d_log = (log_max - log_min) / float(wavelength.size - 1)
+    if not math.isfinite(d_log) or d_log <= 0:
+        return flux.copy()
+
+    sigma_log = sigma_km_s / LIGHT_SPEED_KM_PER_S
+    sigma_pixels = sigma_log / d_log
+    if not math.isfinite(sigma_pixels) or sigma_pixels < 0.15:
+        return flux.copy()
+
+    log_grid = np.linspace(log_min, log_max, wavelength.size, dtype=np.float64)
+    sample_x = np.exp(log_grid)
+    sampled = np.interp(sample_x, wavelength, flux)
+    smoothed = gaussian_filter1d(sampled, sigma=sigma_pixels, mode="nearest", truncate=4.0)
+    position = (np.log(wavelength) - log_min) / d_log
+    return np.interp(position, np.arange(wavelength.size, dtype=np.float64), smoothed)
+
+
+def _gaussian_broaden_by_velocity(wavelength: Any, flux: Any, sigma_km_s: float) -> Any:
+    if np is None:
+        return flux
+    if sigma_km_s <= 0 or wavelength.size < 3:
+        return flux.copy()
+    if wavelength[0] <= wavelength[-1]:
+        return _gaussian_broaden_ascending(wavelength, flux, sigma_km_s)
+    return _gaussian_broaden_ascending(wavelength[::-1], flux[::-1], sigma_km_s)[::-1]
+
+
+def apply_spectrum_transform(
+    wavelength: list[float],
+    flux: list[float],
+    *,
+    mode: str,
+    redshift: float,
+    broadening_km_s: float,
+    ebv: float,
+    distance_kpc: float,
+) -> tuple[list[float], list[float]] | None:
+    """
+    Mirror browser-side transforms used in the final-spectrum view:
+    redshift -> distance/reddening (absolute mode only) -> Gaussian broadening.
+    """
+    cleaned = _clean_xy_arrays(wavelength, flux)
+    if cleaned is None:
+        return None
+    x, y = cleaned
+    transformed = _apply_transform_arrays(
+        x,
+        y,
+        mode=mode,
+        redshift=redshift,
+        broadening_km_s=broadening_km_s,
+        ebv=ebv,
+        distance_kpc=distance_kpc,
+    )
+    if transformed is None:
+        return None
+    transformed_x, transformed_y = transformed
+    return transformed_x.tolist(), transformed_y.tolist()
+
+
+def _apply_transform_arrays(
+    wavelength: Any,
+    flux: Any,
+    *,
+    mode: str,
+    redshift: float,
+    broadening_km_s: float,
+    ebv: float,
+    distance_kpc: float,
+) -> tuple[Any, Any] | None:
+    if np is None:
+        return None
+    if not math.isfinite(redshift) or (1.0 + redshift) <= 0:
+        return None
+    if not math.isfinite(broadening_km_s) or broadening_km_s < 0:
+        return None
+    if not math.isfinite(ebv):
+        return None
+    if not math.isfinite(distance_kpc) or distance_kpc <= 0:
+        return None
+
+    wavelength_scale = 1.0 / (1.0 + redshift)
+    transformed_x = wavelength * wavelength_scale
+    transformed_y = flux.copy()
+
+    if mode == "both":
+        transformed_y = transformed_y / (distance_kpc * distance_kpc)
+        transformed_y = transformed_y * _reddening_scale(transformed_x, ebv)
+
+    if broadening_km_s > 0:
+        transformed_y = _gaussian_broaden_by_velocity(transformed_x, transformed_y, broadening_km_s)
+
+    return transformed_x, transformed_y
+
+
+def fit_model_to_observed(
+    continuum: dict[str, object],
+    final: dict[str, object],
+    observed: dict[str, object],
+    *,
+    mode: str,
+    initial_params: dict[str, float] | None = None,
+    bounds_override: dict[str, tuple[float, float]] | None = None,
+) -> tuple[dict[str, float] | None, dict[str, object] | None, str | None]:
+    if np is None or least_squares is None:
+        return None, None, "Server-side fitting requires numpy and scipy."
+
+    normalized_mode = "both" if mode == "both" else "normalized"
+    model_series = _build_model_series_for_fit(continuum, final, mode=normalized_mode)
+    if model_series is None:
+        return None, None, "Model spectrum data could not be prepared for fitting."
+    model_x, model_y = model_series
+
+    observed_series, observed_error = _build_observed_series_for_fit(observed, mode=normalized_mode)
+    if observed_error:
+        return None, None, observed_error
+    if observed_series is None:
+        return None, None, "Observed upload could not be prepared for fitting."
+    observed_x, observed_y = observed_series
+
+    if observed_x.size > MAX_SERIES_POINTS:
+        sample_idx = np.linspace(0, observed_x.size - 1, MAX_SERIES_POINTS, dtype=int)
+        observed_x = observed_x[sample_idx]
+        observed_y = observed_y[sample_idx]
+
+    obs_scale = 1.0
+    norm_weights = np.ones_like(observed_y, dtype=np.float64)
+    if normalized_mode != "both":
+        finite_obs = observed_y[np.isfinite(observed_y)]
+        if finite_obs.size:
+            scale_candidate = float(np.median(np.abs(finite_obs)))
+            if math.isfinite(scale_candidate) and scale_candidate > 0:
+                obs_scale = scale_candidate
+            continuum_level = float(np.median(finite_obs))
+            signal = np.abs(observed_y - continuum_level)
+            signal_finite = signal[np.isfinite(signal)]
+            if signal_finite.size:
+                signal_scale = float(np.percentile(signal_finite, 90))
+                if math.isfinite(signal_scale) and signal_scale > 0:
+                    norm_weights = 1.0 + 4.0 * np.clip(signal / signal_scale, 0.0, 1.0)
+
+    bounds = _resolve_fit_bounds(normalized_mode, bounds_override)
+    names = list(bounds.keys())
+    lower = np.array([bounds[name][0] for name in names], dtype=np.float64)
+    upper = np.array([bounds[name][1] for name in names], dtype=np.float64)
+
+    initial = dict(initial_params or {})
+    default_distance = 1.0
+    initial_distance_raw = initial.get("distance_kpc")
+    initial_distance_ok = False
+    if isinstance(initial_distance_raw, int | float):
+        initial_distance_ok = math.isfinite(float(initial_distance_raw))
+    if normalized_mode == "both" and not initial_distance_ok:
+        model_on_obs = np.interp(observed_x, model_x, model_y, left=np.nan, right=np.nan)
+        valid_scale = np.isfinite(model_on_obs) & np.isfinite(observed_y) & (model_on_obs > 0) & (observed_y > 0)
+        if np.count_nonzero(valid_scale) > 20:
+            ratio = np.median(model_on_obs[valid_scale] / observed_y[valid_scale])
+            if math.isfinite(float(ratio)) and ratio > 0:
+                default_distance = math.sqrt(float(ratio))
+
+    x0_values: list[float] = []
+    for index, name in enumerate(names):
+        default = 0.0
+        if name == "distance_kpc":
+            default = default_distance
+        raw = initial.get(name, default)
+        value = float(raw) if isinstance(raw, int | float) else default
+        if not math.isfinite(value):
+            value = default
+        value = min(max(value, float(lower[index])), float(upper[index]))
+        if name == "redshift" and abs(value) < 1e-10:
+            value = min(max(5e-4, float(lower[index])), float(upper[index]))
+        elif name == "broadening_km_s" and value < 1e-9:
+            value = min(max(20.0, float(lower[index])), float(upper[index]))
+        elif name == "ebv" and normalized_mode == "both" and value < 1e-9:
+            value = min(max(0.05, float(lower[index])), float(upper[index]))
+        x0_values.append(value)
+    x0 = np.array(x0_values, dtype=np.float64)
+    diff_step = np.array([1e-4, 1.0, 0.01, 0.05], dtype=np.float64) if normalized_mode == "both" else np.array([1e-4, 1.0], dtype=np.float64)
+
+    min_valid_points = max(30, int(0.12 * observed_x.size))
+
+    def residual_vector(theta: Any, *, with_valid_count: bool = False) -> Any:
+        redshift = float(theta[0])
+        broadening_km_s = float(theta[1])
+        ebv = float(theta[2]) if normalized_mode == "both" else float(initial.get("ebv", 0.0))
+        distance_kpc = float(theta[3]) if normalized_mode == "both" else float(initial.get("distance_kpc", 1.0))
+
+        transformed = _apply_transform_arrays(
+            model_x,
+            model_y,
+            mode=normalized_mode,
+            redshift=redshift,
+            broadening_km_s=broadening_km_s,
+            ebv=ebv,
+            distance_kpc=distance_kpc,
+        )
+        if transformed is None:
+            residual = np.full(observed_x.shape, 20.0, dtype=np.float64)
+            return (residual, 0) if with_valid_count else residual
+
+        model_transformed_x, model_transformed_y = transformed
+        model_on_obs = np.interp(observed_x, model_transformed_x, model_transformed_y, left=np.nan, right=np.nan)
+        valid = np.isfinite(model_on_obs) & np.isfinite(observed_y)
+        if normalized_mode == "both":
+            valid &= (model_on_obs > 0) & (observed_y > 0)
+
+        residual = np.full(observed_x.shape, 4.0, dtype=np.float64)
+        valid_count = int(np.count_nonzero(valid))
+        if valid_count < min_valid_points:
+            return (residual, valid_count) if with_valid_count else residual
+
+        if normalized_mode == "both":
+            residual[valid] = np.log10(model_on_obs[valid]) - np.log10(observed_y[valid])
+        else:
+            residual[valid] = ((model_on_obs[valid] - observed_y[valid]) / obs_scale) * norm_weights[valid]
+        residual[~valid] = 2.0
+        return (residual, valid_count) if with_valid_count else residual
+
+    try:
+        result = least_squares(
+            residual_vector,
+            x0,
+            bounds=(lower, upper),
+            method="trf",
+            loss="soft_l1",
+            f_scale=0.35 if normalized_mode == "both" else 1.0,
+            diff_step=diff_step,
+            max_nfev=120,
+        )
+    except Exception as exc:
+        return None, None, f"Optimization failed: {exc}"
+
+    if not np.all(np.isfinite(result.x)):
+        return None, None, "Optimization returned non-finite parameters."
+
+    best = result.x
+    final_residual, final_valid_count = residual_vector(best, with_valid_count=True)
+    if final_valid_count < min_valid_points:
+        return None, None, "Optimization did not find a usable overlap between model and observed spectra."
+
+    redshift_value = float(best[0])
+    broadening_value = float(best[1])
+    ebv_value = float(best[2]) if normalized_mode == "both" else float(initial.get("ebv", 0.0))
+    distance_value = float(best[3]) if normalized_mode == "both" else float(initial.get("distance_kpc", 1.0))
+
+    params = {
+        "redshift": redshift_value,
+        "broadening_km_s": broadening_value,
+        "ebv": ebv_value,
+        "distance_kpc": distance_value,
+    }
+    metrics = {
+        "success": bool(result.success),
+        "message": str(result.message),
+        "nfev": int(getattr(result, "nfev", 0)),
+        "cost": float(getattr(result, "cost", math.nan)),
+        "rmse": float(np.sqrt(np.mean(final_residual * final_residual))),
+        "points": int(final_valid_count),
+        "mode": normalized_mode,
+    }
+    return params, metrics, None
 
 
 def build_observed_overlay_trace(observed: dict[str, object], *, mode: str) -> tuple[dict[str, object] | None, str | None]:

@@ -8,21 +8,24 @@ import re
 import time
 from urllib.parse import urlencode
 
-from flask import Blueprint, abort, current_app, redirect, render_template, request, send_file, url_for
+from flask import Blueprint, abort, current_app, jsonify, redirect, render_template, request, send_file, url_for
 from markupsafe import Markup
 from pygments.formatters import HtmlFormatter
 from werkzeug.utils import secure_filename
 
 from .browser import describe_file, is_model_context_path, list_directory, make_breadcrumb, resolve_path
 from .final_spectrum import (
+    LIGHT_SPEED_KM_PER_S,
     build_observed_overlay_trace,
     build_both_plot,
     build_model_summary_sections,
     build_normalized_plot,
     discover_final_spectrum_files,
+    fit_model_to_observed,
     fin_file_label,
     load_obs_spectrum,
     read_model,
+    spectrum_fit_bounds,
     spectrum_data_rows,
 )
 from .parsers.common import format_number, parse_float_token
@@ -97,6 +100,13 @@ SUMMARY_COLUMNS = [
     "CAR/X",
     "Last updated",
 ]
+
+SPECTRUM_TRANSFORM_DEFAULTS = {
+    "redshift": 0.0,
+    "broadening_km_s": 0.0,
+    "ebv": 0.0,
+    "distance_kpc": 1.0,
+}
 
 
 @lru_cache(maxsize=1)
@@ -368,6 +378,97 @@ def _build_summary_row(model: dict[str, object], *, mod_sum_mtime: float | None 
     ]
 
 
+def _normalize_transform_params(params: dict[str, object] | None = None) -> dict[str, float]:
+    redshift = SPECTRUM_TRANSFORM_DEFAULTS["redshift"]
+    broadening = SPECTRUM_TRANSFORM_DEFAULTS["broadening_km_s"]
+    ebv = SPECTRUM_TRANSFORM_DEFAULTS["ebv"]
+    distance = SPECTRUM_TRANSFORM_DEFAULTS["distance_kpc"]
+    values = params or {}
+
+    redshift_raw = _parse_summary_float(values.get("redshift"))
+    if redshift_raw is None:
+        redshift_raw = _parse_summary_float(values.get("z"))
+    if redshift_raw is not None and math.isfinite(redshift_raw):
+        redshift = max(redshift_raw, -0.999999)
+
+    broadening_raw = _parse_summary_float(values.get("broadening_km_s"))
+    if broadening_raw is None:
+        broadening_raw = _parse_summary_float(values.get("broadening"))
+    if broadening_raw is None:
+        broadening_raw = _parse_summary_float(values.get("sigma"))
+    if broadening_raw is not None and math.isfinite(broadening_raw):
+        broadening = max(0.0, broadening_raw)
+
+    ebv_raw = _parse_summary_float(values.get("ebv"))
+    if ebv_raw is not None and math.isfinite(ebv_raw):
+        ebv = ebv_raw
+
+    distance_raw = _parse_summary_float(values.get("distance_kpc"))
+    if distance_raw is None:
+        distance_raw = _parse_summary_float(values.get("distance"))
+    if distance_raw is not None and math.isfinite(distance_raw) and distance_raw > 0:
+        distance = distance_raw
+
+    return {
+        "redshift": redshift,
+        "velocity_km_s": redshift * LIGHT_SPEED_KM_PER_S,
+        "broadening_km_s": broadening,
+        "ebv": ebv,
+        "distance_kpc": distance,
+    }
+
+
+def _normalize_fit_bounds(params: dict[str, object] | None = None, *, mode: str) -> dict[str, tuple[float, float]]:
+    defaults = spectrum_fit_bounds(mode)
+    values = params or {}
+    normalized: dict[str, tuple[float, float]] = {}
+    for name, (default_min, default_max) in defaults.items():
+        min_raw = _parse_summary_float(values.get(f"fit_{name}_min"))
+        max_raw = _parse_summary_float(values.get(f"fit_{name}_max"))
+
+        min_value = float(min_raw) if min_raw is not None and math.isfinite(min_raw) else float(default_min)
+        max_value = float(max_raw) if max_raw is not None and math.isfinite(max_raw) else float(default_max)
+        if min_value > max_value:
+            min_value, max_value = max_value, min_value
+
+        if name == "broadening_km_s":
+            min_value = max(0.0, min_value)
+            max_value = max(min_value + 1e-9, max_value)
+        elif name == "distance_kpc":
+            min_value = max(1e-6, min_value)
+            max_value = max(min_value + 1e-9, max_value)
+        elif abs(max_value - min_value) < 1e-12:
+            min_value = float(default_min)
+            max_value = float(default_max)
+
+        normalized[name] = (min_value, max_value)
+    return normalized
+
+
+def _format_query_float(value: float, *, digits: int = 12) -> str:
+    if not math.isfinite(value):
+        return "0"
+    return f"{value:.{digits}g}"
+
+
+def _append_transform_query(query: list[tuple[str, str]], transform_params: dict[str, object] | None) -> None:
+    if transform_params is None:
+        return
+    params = _normalize_transform_params(transform_params)
+    default = _normalize_transform_params()
+    if (
+        abs(params["redshift"] - default["redshift"]) < 1e-18
+        and abs(params["broadening_km_s"] - default["broadening_km_s"]) < 1e-18
+        and abs(params["ebv"] - default["ebv"]) < 1e-18
+        and abs(params["distance_kpc"] - default["distance_kpc"]) < 1e-18
+    ):
+        return
+    query.append(("redshift", _format_query_float(params["redshift"])))
+    query.append(("broadening_km_s", _format_query_float(params["broadening_km_s"])))
+    query.append(("ebv", _format_query_float(params["ebv"])))
+    query.append(("distance_kpc", _format_query_float(params["distance_kpc"])))
+
+
 def _spectrum_url(
     model_root: str,
     *,
@@ -375,14 +476,19 @@ def _spectrum_url(
     mode: str,
     obs_tokens: list[str] | None = None,
     upload_error: str = "",
+    transform_params: dict[str, object] | None = None,
+    fit_notice: str = "",
 ) -> str:
     base = url_for("viewer.spectrum", path=model_root)
     query: list[tuple[str, str]] = [("fin", fin), ("mode", _normalize_spectrum_mode(mode))]
     for token in obs_tokens or []:
         if is_valid_upload_token(token):
             query.append(("obs", token))
+    _append_transform_query(query, transform_params)
     if upload_error:
         query.append(("upload_error", upload_error))
+    if fit_notice:
+        query.append(("fit_notice", fit_notice))
     encoded = urlencode(query, doseq=True)
     return f"{base}?{encoded}" if encoded else base
 
@@ -394,6 +500,8 @@ def _spectrum_redirect(
     mode: str,
     obs_tokens: list[str] | None = None,
     upload_error: str = "",
+    transform_params: dict[str, object] | None = None,
+    fit_notice: str = "",
 ):
     return redirect(
         _spectrum_url(
@@ -402,6 +510,8 @@ def _spectrum_redirect(
             mode=mode,
             obs_tokens=obs_tokens or [],
             upload_error=upload_error,
+            transform_params=transform_params,
+            fit_notice=fit_notice,
         )
     )
 
@@ -1238,6 +1348,7 @@ def spectrum_upload(path: str):
         selected_fin = fin_files[0]
     view_mode = _normalize_spectrum_mode(request.form.get("mode"))
     current_obs_tokens = _collect_obs_tokens(request.form.getlist("obs"))
+    transform_params = _normalize_transform_params(request.form.to_dict(flat=True))
 
     uploaded = request.files.get("observed_file")
     if uploaded is None or not uploaded.filename:
@@ -1247,6 +1358,7 @@ def spectrum_upload(path: str):
             mode=view_mode,
             obs_tokens=current_obs_tokens,
             upload_error="No observed spectrum file was selected.",
+            transform_params=transform_params,
         )
 
     requested_flux_mode = str(request.form.get("flux_mode", "auto")).strip().lower()
@@ -1276,6 +1388,7 @@ def spectrum_upload(path: str):
             mode=view_mode,
             obs_tokens=current_obs_tokens,
             upload_error=f"Uploaded spectrum could not be parsed: {exc}",
+            transform_params=transform_params,
         )
 
     manifest = {
@@ -1292,7 +1405,13 @@ def spectrum_upload(path: str):
     write_upload_manifest(upload_root, token, manifest)
 
     selected_tokens = _collect_obs_tokens(current_obs_tokens + [token])
-    return _spectrum_redirect(model_root, fin=selected_fin, mode=view_mode, obs_tokens=selected_tokens)
+    return _spectrum_redirect(
+        model_root,
+        fin=selected_fin,
+        mode=view_mode,
+        obs_tokens=selected_tokens,
+        transform_params=transform_params,
+    )
 
 
 @bp.route("/spectrum-upload/remove/<path:path>", methods=["POST"])
@@ -1322,6 +1441,7 @@ def spectrum_upload_remove(path: str):
     if selected_fin not in fin_files:
         selected_fin = fin_files[0]
     view_mode = _normalize_spectrum_mode(request.form.get("mode"))
+    transform_params = _normalize_transform_params(request.form.to_dict(flat=True))
 
     token = request.form.get("token", "").strip() or request.form.get("obs", "").strip()
     upload_root = _upload_root(config)
@@ -1330,7 +1450,167 @@ def spectrum_upload_remove(path: str):
 
     remaining = _collect_obs_tokens(request.form.getlist("obs"))
     remaining = [item for item in remaining if item != token]
-    return _spectrum_redirect(model_root, fin=selected_fin, mode=view_mode, obs_tokens=remaining)
+    return _spectrum_redirect(
+        model_root,
+        fin=selected_fin,
+        mode=view_mode,
+        obs_tokens=remaining,
+        transform_params=transform_params,
+    )
+
+
+@bp.route("/spectrum-fit/<path:path>", methods=["POST"])
+def spectrum_fit(path: str):
+    config = _viewer_config()
+    basepath = str(config.get("basepath", "."))
+    lambda_min, lambda_max = _spectrum_lambda_bounds(config)
+
+    try:
+        target = resolve_path(basepath, path)
+    except FileNotFoundError:
+        abort(404)
+    if not target.is_dir():
+        abort(404)
+
+    model_root = _model_root_relpath(path)
+    if not model_root:
+        abort(404)
+    model_dir = resolve_path(basepath, model_root)
+    spectrum_files = discover_final_spectrum_files(model_dir)
+    if spectrum_files is None:
+        abort(404)
+    fin_files = [entry.name for entry in spectrum_files["fin_files"]]
+    if not fin_files:
+        abort(404)
+
+    selected_fin = request.form.get("fin", "").strip()
+    if selected_fin not in fin_files:
+        selected_fin = fin_files[0]
+    view_mode = _normalize_spectrum_mode(request.form.get("mode"))
+    selected_obs_tokens = _collect_obs_tokens(request.form.getlist("obs"))
+    transform_params = _normalize_transform_params(request.form.to_dict(flat=True))
+    fit_bounds = _normalize_fit_bounds(request.form.to_dict(flat=True), mode=view_mode)
+    async_requested = (
+        request.form.get("async", "").strip() == "1"
+        or request.headers.get("X-Requested-With", "").strip().lower() == "xmlhttprequest"
+    )
+
+    def fit_error_response(message: str, *, status_code: int = 400):
+        if async_requested:
+            return jsonify({"ok": False, "error": message}), status_code
+        return _spectrum_redirect(
+            model_root,
+            fin=selected_fin,
+            mode=view_mode,
+            obs_tokens=selected_obs_tokens,
+            upload_error=message,
+            transform_params=transform_params,
+        )
+
+    fit_token = request.form.get("fit_obs_token", "").strip()
+    if not is_valid_upload_token(fit_token):
+        return fit_error_response("Choose an observed overlay to fit.")
+    if fit_token not in selected_obs_tokens:
+        return fit_error_response("The selected observed overlay is not currently active.")
+
+    upload_root = _upload_root(config)
+    entries = {str(item.get("token", "")): item for item in list_upload_manifests(upload_root)}
+    selected_entry = entries.get(fit_token)
+    if selected_entry is None:
+        return fit_error_response("Selected observed overlay is no longer available.")
+
+    stored_name = str(selected_entry.get("stored_name", ""))
+    source_path = upload_root / fit_token / stored_name if stored_name else None
+    if source_path is None or not source_path.is_file():
+        return fit_error_response("Selected observed overlay file is missing.")
+
+    upload_flux_mode = str(selected_entry.get("requested_flux_mode", "auto")).strip().lower() or "auto"
+    try:
+        observed = parse_uploaded_spectrum(
+            source_path,
+            flux_mode=upload_flux_mode,
+            lambda_min=lambda_min,
+            lambda_max=lambda_max,
+        )
+    except Exception as exc:
+        return fit_error_response(f"Could not load selected observed overlay: {exc}")
+    observed["name"] = str(selected_entry.get("filename", source_path.name))
+
+    continuum = load_obs_spectrum(
+        Path(spectrum_files["obs_cont"]),
+        lambda_min=lambda_min,
+        lambda_max=lambda_max,
+    )
+    final = load_obs_spectrum(
+        Path(spectrum_files["obs_dir"]) / selected_fin,
+        lambda_min=lambda_min,
+        lambda_max=lambda_max,
+    )
+
+    initial_params = {
+        "redshift": transform_params["redshift"],
+        "broadening_km_s": transform_params["broadening_km_s"],
+        "ebv": transform_params["ebv"],
+        "distance_kpc": transform_params["distance_kpc"],
+    }
+    best_params, metrics, fit_error = fit_model_to_observed(
+        continuum,
+        final,
+        observed,
+        mode=view_mode,
+        initial_params=initial_params,
+        bounds_override=fit_bounds,
+    )
+    if fit_error or best_params is None:
+        return fit_error_response(f"Fit failed: {fit_error or 'unknown error'}")
+
+    fitted_transform = {
+        "redshift": best_params["redshift"],
+        "broadening_km_s": best_params["broadening_km_s"],
+        "ebv": best_params["ebv"],
+        "distance_kpc": best_params["distance_kpc"],
+    }
+    label = str(observed.get("name", fit_token))
+    if view_mode == "both":
+        fit_notice = (
+            f"Fit completed vs {label}: "
+            f"z={format_number(best_params['redshift'])}, "
+            f"sigma={format_number(best_params['broadening_km_s'])} km/s, "
+            f"E(B-V)={format_number(best_params['ebv'])}, "
+            f"d={format_number(best_params['distance_kpc'])} kpc."
+        )
+    else:
+        fit_notice = (
+            f"Fit completed vs {label}: "
+            f"z={format_number(best_params['redshift'])}, "
+            f"sigma={format_number(best_params['broadening_km_s'])} km/s."
+        )
+    if isinstance(metrics, dict):
+        rmse = metrics.get("rmse")
+        nfev = metrics.get("nfev")
+        if isinstance(rmse, int | float) and math.isfinite(float(rmse)):
+            fit_notice += f" RMSE={format_number(float(rmse))}."
+        if isinstance(nfev, int):
+            fit_notice += f" Iter={nfev}."
+
+    if async_requested:
+        payload: dict[str, object] = {
+            "ok": True,
+            "fit_notice": fit_notice,
+            "transform_params": fitted_transform,
+        }
+        if isinstance(metrics, dict):
+            payload["metrics"] = metrics
+        return jsonify(payload)
+
+    return _spectrum_redirect(
+        model_root,
+        fin=selected_fin,
+        mode=view_mode,
+        obs_tokens=selected_obs_tokens,
+        transform_params=fitted_transform,
+        fit_notice=fit_notice,
+    )
 
 
 @bp.route("/spectrum/<path:path>")
@@ -1364,12 +1644,14 @@ def spectrum(path: str):
         selected_fin = fin_files[0]
 
     view_mode = _normalize_spectrum_mode(request.args.get("mode"))
+    transform_params = _normalize_transform_params(request.args.to_dict(flat=True))
     selected_obs_tokens = _collect_obs_tokens(request.args.getlist("obs"))
 
     warnings: list[str] = []
     upload_error = request.args.get("upload_error", "").strip()
     if upload_error:
         warnings.append(upload_error)
+    fit_notice = request.args.get("fit_notice", "").strip()
 
     upload_root = _upload_root(config)
     upload_entries = list_upload_manifests(upload_root)
@@ -1400,6 +1682,7 @@ def spectrum(path: str):
             warnings.append(f"Uploaded spectrum '{entry.get('filename', source_path.name)}' failed to load: {exc}")
             continue
         parsed["name"] = str(entry.get("filename", source_path.name))
+        parsed["token"] = token
 
         selected_parsed.append(parsed)
         selected_observed_uploads.append(_upload_entry_for_display(entry))
@@ -1449,10 +1732,47 @@ def spectrum(path: str):
         available_uploads.append(display)
 
     mode_urls = {
-        "both": _spectrum_url(model_root, fin=selected_fin, mode="both", obs_tokens=selected_obs_tokens),
-        "normalized": _spectrum_url(model_root, fin=selected_fin, mode="normalized", obs_tokens=selected_obs_tokens),
+        "both": _spectrum_url(
+            model_root,
+            fin=selected_fin,
+            mode="both",
+            obs_tokens=selected_obs_tokens,
+            transform_params=transform_params,
+        ),
+        "normalized": _spectrum_url(
+            model_root,
+            fin=selected_fin,
+            mode="normalized",
+            obs_tokens=selected_obs_tokens,
+            transform_params=transform_params,
+        ),
     }
-    clear_overlay_url = _spectrum_url(model_root, fin=selected_fin, mode=view_mode, obs_tokens=[])
+    clear_overlay_url = _spectrum_url(
+        model_root,
+        fin=selected_fin,
+        mode=view_mode,
+        obs_tokens=[],
+        transform_params=transform_params,
+    )
+
+    fit_candidates: list[dict[str, str]] = []
+    for parsed in selected_parsed:
+        token = str(parsed.get("token", ""))
+        if not token:
+            continue
+        flux_mode = str(parsed.get("flux_mode", "")).strip().lower()
+        if view_mode == "both" and flux_mode != "absolute":
+            continue
+        if view_mode == "normalized" and flux_mode != "normalized":
+            continue
+        label = str(parsed.get("name", token))
+        fit_candidates.append({"token": token, "label": f"{label} [{flux_mode}]"})
+
+    selected_fit_token = request.args.get("fit_obs", "").strip()
+    if not any(item["token"] == selected_fit_token for item in fit_candidates):
+        selected_fit_token = fit_candidates[0]["token"] if fit_candidates else ""
+
+    fit_bounds = _normalize_fit_bounds(request.args.to_dict(flat=True), mode=view_mode)
 
     context = {
         "path": model_root,
@@ -1473,12 +1793,17 @@ def spectrum(path: str):
         model_summary_sections=model_summary_sections,
         spectrum_summary_rows=spectrum_data_rows(continuum, final),
         warnings=warnings,
+        fit_notice=fit_notice,
         obs_tokens=selected_obs_tokens,
         available_uploads=available_uploads,
         selected_observed_uploads=selected_observed_uploads,
+        fit_candidates=fit_candidates,
+        selected_fit_token=selected_fit_token,
+        fit_bounds=fit_bounds,
         upload_flux_mode="auto",
         mode_urls=mode_urls,
         clear_overlay_url=clear_overlay_url,
+        transform_params=transform_params,
         **context,
     )
 
