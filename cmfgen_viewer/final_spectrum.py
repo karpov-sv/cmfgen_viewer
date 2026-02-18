@@ -935,24 +935,37 @@ def fit_model_to_observed(
         if not math.isfinite(value):
             value = default
         value = min(max(value, float(lower[index])), float(upper[index]))
-        if name == "redshift" and abs(value) < 1e-10:
+        if normalized_mode != "both" and name == "redshift" and abs(value) < 1e-10:
             value = min(max(5e-4, float(lower[index])), float(upper[index]))
-        elif name == "broadening_km_s" and value < 1e-9:
+        elif normalized_mode != "both" and name == "broadening_km_s" and value < 1e-9:
             value = min(max(20.0, float(lower[index])), float(upper[index]))
         elif name == "ebv" and normalized_mode == "both" and value < 1e-9:
             value = min(max(0.05, float(lower[index])), float(upper[index]))
         x0_values.append(value)
     x0 = np.array(x0_values, dtype=np.float64)
     diff_step = np.array([1e-4, 1.0, 0.01, 0.05], dtype=np.float64) if normalized_mode == "both" else np.array([1e-4, 1.0], dtype=np.float64)
+    name_to_index = {name: index for index, name in enumerate(names)}
 
     min_valid_points = max(30, int(0.12 * observed_x.size))
+    initial_ebv = float(initial.get("ebv", 0.0)) if isinstance(initial.get("ebv"), int | float) else 0.0
+    if not math.isfinite(initial_ebv):
+        initial_ebv = 0.0
+    initial_distance = (
+        float(initial.get("distance_kpc", 1.0))
+        if isinstance(initial.get("distance_kpc"), int | float)
+        else 1.0
+    )
+    if not math.isfinite(initial_distance) or initial_distance <= 0:
+        initial_distance = 1.0
 
-    def residual_vector(theta: Any, *, with_valid_count: bool = False) -> Any:
-        redshift = float(theta[0])
-        broadening_km_s = float(theta[1])
-        ebv = float(theta[2]) if normalized_mode == "both" else float(initial.get("ebv", 0.0))
-        distance_kpc = float(theta[3]) if normalized_mode == "both" else float(initial.get("distance_kpc", 1.0))
-
+    def residual_for_params(
+        *,
+        redshift: float,
+        broadening_km_s: float,
+        ebv: float,
+        distance_kpc: float,
+        with_valid_count: bool = False,
+    ) -> Any:
         transformed = _apply_transform_arrays(
             model_x,
             model_y,
@@ -983,6 +996,76 @@ def fit_model_to_observed(
             residual[valid] = ((model_on_obs[valid] - observed_y[valid]) / obs_scale) * norm_weights[valid]
         residual[~valid] = 2.0
         return (residual, valid_count) if with_valid_count else residual
+
+    def parameter_from_theta(theta: Any, name: str, fallback: float) -> float:
+        idx = name_to_index.get(name)
+        if idx is None or idx >= len(theta):
+            return fallback
+        value = float(theta[idx])
+        if not math.isfinite(value):
+            return fallback
+        return value
+
+    def residual_vector(theta: Any, *, with_valid_count: bool = False) -> Any:
+        return residual_for_params(
+            redshift=parameter_from_theta(theta, "redshift", 0.0),
+            broadening_km_s=parameter_from_theta(theta, "broadening_km_s", 0.0),
+            ebv=parameter_from_theta(theta, "ebv", initial_ebv),
+            distance_kpc=parameter_from_theta(theta, "distance_kpc", initial_distance),
+            with_valid_count=with_valid_count,
+        )
+
+    stage1_result: Any | None = None
+    if normalized_mode == "both":
+        redshift_index = name_to_index.get("redshift")
+        broadening_index = name_to_index.get("broadening_km_s")
+        ebv_index = name_to_index.get("ebv")
+        distance_index = name_to_index.get("distance_kpc")
+
+        if redshift_index is not None:
+            x0[redshift_index] = min(max(0.0, float(lower[redshift_index])), float(upper[redshift_index]))
+        if broadening_index is not None:
+            x0[broadening_index] = min(max(0.0, float(lower[broadening_index])), float(upper[broadening_index]))
+
+        if ebv_index is not None and distance_index is not None:
+            stage1_x0 = np.array([x0[ebv_index], x0[distance_index]], dtype=np.float64)
+            stage1_lower = np.array([lower[ebv_index], lower[distance_index]], dtype=np.float64)
+            stage1_upper = np.array([upper[ebv_index], upper[distance_index]], dtype=np.float64)
+            stage1_diff_step = np.array([diff_step[ebv_index], diff_step[distance_index]], dtype=np.float64)
+
+            def stage1_residual(stage_theta: Any) -> Any:
+                return residual_for_params(
+                    redshift=0.0,
+                    broadening_km_s=0.0,
+                    ebv=float(stage_theta[0]),
+                    distance_kpc=float(stage_theta[1]),
+                    with_valid_count=False,
+                )
+
+            try:
+                stage1_result = least_squares(
+                    stage1_residual,
+                    stage1_x0,
+                    bounds=(stage1_lower, stage1_upper),
+                    method="trf",
+                    loss="soft_l1",
+                    f_scale=0.35,
+                    diff_step=stage1_diff_step,
+                    max_nfev=80,
+                )
+                if np.all(np.isfinite(stage1_result.x)):
+                    _, stage1_valid_count = residual_for_params(
+                        redshift=0.0,
+                        broadening_km_s=0.0,
+                        ebv=float(stage1_result.x[0]),
+                        distance_kpc=float(stage1_result.x[1]),
+                        with_valid_count=True,
+                    )
+                    if stage1_valid_count >= min_valid_points:
+                        x0[ebv_index] = float(stage1_result.x[0])
+                        x0[distance_index] = float(stage1_result.x[1])
+            except Exception:
+                stage1_result = None
 
     try:
         result = least_squares(
@@ -1026,6 +1109,9 @@ def fit_model_to_observed(
         "points": int(final_valid_count),
         "mode": normalized_mode,
     }
+    if stage1_result is not None:
+        metrics["stage1_success"] = bool(getattr(stage1_result, "success", False))
+        metrics["stage1_nfev"] = int(getattr(stage1_result, "nfev", 0))
     return params, metrics, None
 
 
