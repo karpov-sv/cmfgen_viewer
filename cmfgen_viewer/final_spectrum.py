@@ -580,7 +580,7 @@ def build_both_plot(continuum: dict[str, object], final: dict[str, object]) -> d
                 "y": fin_y_ds,
                 "line": {"color": "#1f77b4", "width": 1.6},
                 "hovertemplate": "Wavelength=%{x:.6g} Å<br>Flux=%{y:.6e} erg s^-1 cm^-2 Å^-1<extra></extra>",
-                "meta": {"transform_target": "model", "y_axis_name": "Flux"},
+                "meta": {"transform_target": "model", "plot_role": "final", "y_axis_name": "Flux"},
             },
             {
                 "type": "scatter",
@@ -590,7 +590,7 @@ def build_both_plot(continuum: dict[str, object], final: dict[str, object]) -> d
                 "y": cont_y_ds,
                 "line": {"color": "#d62728", "width": 1.3},
                 "hovertemplate": "Wavelength=%{x:.6g} Å<br>Flux=%{y:.6e} erg s^-1 cm^-2 Å^-1<extra></extra>",
-                "meta": {"transform_target": "model", "y_axis_name": "Flux"},
+                "meta": {"transform_target": "model", "plot_role": "continuum", "y_axis_name": "Flux"},
             },
         ],
         "layout": _plot_layout(y_label="Flux (erg s^-1 cm^-2 Å^-1)", y_scale="log"),
@@ -636,7 +636,7 @@ def build_normalized_plot(continuum: dict[str, object], final: dict[str, object]
                 "y": ratio_y_ds,
                 "line": {"color": "#198754", "width": 1.5},
                 "hovertemplate": "Wavelength=%{x:.6g} Å<br>Normalized=%{y:.6g}<extra></extra>",
-                "meta": {"transform_target": "model", "y_axis_name": "Normalized"},
+                "meta": {"transform_target": "model", "plot_role": "final", "y_axis_name": "Normalized"},
             }
         ],
         "layout": _plot_layout(y_label="Normalized flux", y_scale="linear"),

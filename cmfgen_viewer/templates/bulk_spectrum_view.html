@@ -97,6 +97,7 @@
     {% set y_scale_id = plot_id ~ "-yscale" %}
     {% set redshift_id = plot_id ~ "-redshift" %}
     {% set velocity_id = plot_id ~ "-velocity" %}
+    {% set broadening_id = plot_id ~ "-broadening" %}
     {% set ebv_id = plot_id ~ "-ebv" %}
     {% set distance_id = plot_id ~ "-distance" %}
     {% set reset_transform_id = plot_id ~ "-reset-transform" %}
@@ -124,6 +125,15 @@
         <input
           id="{{ velocity_id }}"
           type="number"
+          step="any"
+          class="form-control form-control-sm plot-number-input"
+          value="0"
+        >
+        <label for="{{ broadening_id }}" class="plot-control-label">Velocity dispersion sigma (km/s)</label>
+        <input
+          id="{{ broadening_id }}"
+          type="number"
+          min="0"
           step="any"
           class="form-control form-control-sm plot-number-input"
           value="0"
@@ -267,6 +277,7 @@
         var yScale = document.getElementById("{{ y_scale_id }}");
         var redshiftInput = document.getElementById("{{ redshift_id }}");
         var velocityInput = document.getElementById("{{ velocity_id }}");
+        var broadeningInput = document.getElementById("{{ broadening_id }}");
         var ebvInput = document.getElementById("{{ ebv_id }}");
         var distanceInput = document.getElementById("{{ distance_id }}");
         var resetTransform = document.getElementById("{{ reset_transform_id }}");
@@ -497,6 +508,133 @@
           return factor;
         }
 
+        function gaussianBroadenAscending(wavelengths, values, sigmaKmPerS) {
+          var n = wavelengths.length;
+          if (n < 3 || values.length !== n) {
+            return values.slice();
+          }
+
+          var first = wavelengths[0];
+          var last = wavelengths[n - 1];
+          if (!Number.isFinite(first) || !Number.isFinite(last) || first <= 0 || last <= first) {
+            return values.slice();
+          }
+
+          var logMin = Math.log(first);
+          var logMax = Math.log(last);
+          var dLog = (logMax - logMin) / (n - 1);
+          if (!Number.isFinite(dLog) || dLog <= 0) {
+            return values.slice();
+          }
+
+          var sigmaLog = sigmaKmPerS / LIGHT_SPEED_KM_PER_S;
+          var sigmaPixels = sigmaLog / dLog;
+          if (!Number.isFinite(sigmaPixels) || sigmaPixels < 0.15) {
+            return values.slice();
+          }
+
+          var halfWidth = Math.max(1, Math.ceil(4 * sigmaPixels));
+          halfWidth = Math.min(halfWidth, 300);
+
+          var kernel = new Array(2 * halfWidth + 1);
+          for (var offset = -halfWidth; offset <= halfWidth; offset += 1) {
+            kernel[offset + halfWidth] = Math.exp(-0.5 * (offset * offset) / (sigmaPixels * sigmaPixels));
+          }
+
+          var sampled = new Array(n);
+          var sourceIndex = 0;
+          for (var sampleIndex = 0; sampleIndex < n; sampleIndex += 1) {
+            var sampleLog = logMin + sampleIndex * dLog;
+            var sampleX = Math.exp(sampleLog);
+            while (sourceIndex < n - 2 && wavelengths[sourceIndex + 1] < sampleX) {
+              sourceIndex += 1;
+            }
+
+            var x0 = wavelengths[sourceIndex];
+            var x1 = wavelengths[sourceIndex + 1];
+            var y0 = values[sourceIndex];
+            var y1 = values[sourceIndex + 1];
+            if (!Number.isFinite(x0) || !Number.isFinite(x1) || x1 <= x0 || !Number.isFinite(y0) || !Number.isFinite(y1)) {
+              sampled[sampleIndex] = Number.isFinite(y0) ? y0 : 0;
+              continue;
+            }
+
+            var t = (sampleX - x0) / (x1 - x0);
+            if (t < 0) {
+              t = 0;
+            } else if (t > 1) {
+              t = 1;
+            }
+            sampled[sampleIndex] = y0 + (y1 - y0) * t;
+          }
+
+          var smoothed = new Array(n);
+          for (var i = 0; i < n; i += 1) {
+            var weightedSum = 0;
+            var weightNorm = 0;
+            for (var k = -halfWidth; k <= halfWidth; k += 1) {
+              var j = i + k;
+              if (j < 0 || j >= n) {
+                continue;
+              }
+              var yValue = sampled[j];
+              if (!Number.isFinite(yValue)) {
+                continue;
+              }
+              var weight = kernel[k + halfWidth];
+              weightedSum += yValue * weight;
+              weightNorm += weight;
+            }
+            smoothed[i] = weightNorm > 0 ? weightedSum / weightNorm : sampled[i];
+          }
+
+          var result = new Array(n);
+          for (var p = 0; p < n; p += 1) {
+            var x = wavelengths[p];
+            if (!Number.isFinite(x) || x <= 0) {
+              result[p] = values[p];
+              continue;
+            }
+
+            var at = (Math.log(x) - logMin) / dLog;
+            if (!Number.isFinite(at)) {
+              result[p] = values[p];
+              continue;
+            }
+            if (at <= 0) {
+              result[p] = smoothed[0];
+              continue;
+            }
+            if (at >= n - 1) {
+              result[p] = smoothed[n - 1];
+              continue;
+            }
+            var lo = Math.floor(at);
+            var frac = at - lo;
+            result[p] = smoothed[lo] + (smoothed[lo + 1] - smoothed[lo]) * frac;
+          }
+
+          return result;
+        }
+
+        function gaussianBroadenByVelocity(wavelengths, values, sigmaKmPerS) {
+          if (!Number.isFinite(sigmaKmPerS) || sigmaKmPerS <= 0) {
+            return values.slice();
+          }
+          if (!Array.isArray(wavelengths) || !Array.isArray(values) || wavelengths.length !== values.length) {
+            return values.slice();
+          }
+          if (wavelengths.length < 3) {
+            return values.slice();
+          }
+          if (wavelengths[0] <= wavelengths[wavelengths.length - 1]) {
+            return gaussianBroadenAscending(wavelengths, values, sigmaKmPerS);
+          }
+          var reversedX = wavelengths.slice().reverse();
+          var reversedY = values.slice().reverse();
+          return gaussianBroadenAscending(reversedX, reversedY, sigmaKmPerS).reverse();
+        }
+
         function applyPhysicalTransforms() {
           var redshift = redshiftInput ? Number(redshiftInput.value) : 0;
           if (!Number.isFinite(redshift)) {
@@ -519,10 +657,19 @@
             return;
           }
 
+          var sigmaVelocity = broadeningInput ? Number(broadeningInput.value) : 0;
+          if (!Number.isFinite(sigmaVelocity) || sigmaVelocity < 0) {
+            setTransformHint("Velocity dispersion must be zero or positive (km/s).", true);
+            return;
+          }
+
+          var broadeningText = sigmaVelocity > 0
+            ? " Gaussian line broadening uses sigma_v=" + formatNumeric(sigmaVelocity, 4) + " km/s."
+            : " Gaussian line broadening is disabled.";
           if (spectrumMode === "both") {
-            setTransformHint("Flux is shown in erg s^-1 cm^-2 Å^-1, distance-scaled as 1/d^2 (1 kpc reference), and reddened with Fitzpatrick (1999) using E(B-V).", false);
+            setTransformHint("Flux is shown in erg s^-1 cm^-2 Å^-1, distance-scaled as 1/d^2 (1 kpc reference), and reddened with Fitzpatrick (1999) using E(B-V)." + broadeningText, false);
           } else {
-            setTransformHint("Normalized mode applies wavelength shift only; distance and reddening cancel in F/Fc.", false);
+            setTransformHint("Normalized mode applies wavelength shift only; distance and reddening cancel in F/Fc." + broadeningText, false);
           }
 
           var wavelengthScale = 1 / (1 + redshift);
@@ -552,6 +699,13 @@
               for (var k = 0; k < sourceY.length; k += 1) {
                 nextY[k] = sourceY[k];
               }
+            }
+            var role = baseData[traceIndex].meta && baseData[traceIndex].meta.plot_role
+              ? String(baseData[traceIndex].meta.plot_role)
+              : "";
+            var shouldBroaden = spectrumMode !== "both" || role === "final";
+            if (shouldBroaden && sigmaVelocity > 0) {
+              nextY = gaussianBroadenByVelocity(nextX, nextY, sigmaVelocity);
             }
 
             transformedX.push(nextX);
@@ -611,6 +765,9 @@
           if (ebvInput) {
             ebvInput.addEventListener("input", scheduleTransforms);
           }
+          if (broadeningInput) {
+            broadeningInput.addEventListener("input", scheduleTransforms);
+          }
           if (resetTransform) {
             resetTransform.addEventListener("click", function () {
               if (redshiftInput) {
@@ -618,6 +775,9 @@
               }
               if (velocityInput) {
                 velocityInput.value = "0";
+              }
+              if (broadeningInput) {
+                broadeningInput.value = "0";
               }
               if (distanceInput) {
                 distanceInput.value = "1";
