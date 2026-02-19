@@ -1440,12 +1440,46 @@ def _grid_search_job_update(job_id: str, **fields: object) -> bool:
     return True
 
 
+def _grid_search_job_cancel_requested(job_id: str) -> bool:
+    with GRID_SEARCH_JOBS_LOCK:
+        job = GRID_SEARCH_JOBS.get(job_id)
+        if not isinstance(job, dict):
+            return False
+        return bool(job.get("cancel_requested", False))
+
+
 def _grid_search_job_snapshot(job_id: str) -> dict[str, object] | None:
     with GRID_SEARCH_JOBS_LOCK:
         job = GRID_SEARCH_JOBS.get(job_id)
         if not isinstance(job, dict):
             return None
         return copy.deepcopy(job)
+
+
+def _grid_search_active_job_for_upload(upload_token: str) -> dict[str, object] | None:
+    with GRID_SEARCH_JOBS_LOCK:
+        latest: tuple[str, dict[str, object]] | None = None
+        latest_created = -1.0
+        for job_id, job in GRID_SEARCH_JOBS.items():
+            if not isinstance(job, dict):
+                continue
+            if str(job.get("upload_token", "")) != upload_token:
+                continue
+            if str(job.get("status", "")) != "running":
+                continue
+            try:
+                created_at = float(job.get("created_at", 0.0))
+            except (TypeError, ValueError):
+                created_at = 0.0
+            if latest is None or created_at > latest_created:
+                latest = (job_id, copy.deepcopy(job))
+                latest_created = created_at
+
+    if latest is None:
+        return None
+    job_id, payload = latest
+    payload["job_id"] = job_id
+    return payload
 
 
 def _grid_search_job_create(
@@ -1473,6 +1507,8 @@ def _grid_search_job_create(
         "created_at": now,
         "started_at": now,
         "finished_at": 0.0,
+        "cancel_requested": False,
+        "cancel_requested_at": 0.0,
         "error": "",
         "result": {},
     }
@@ -1495,6 +1531,36 @@ def _run_upload_grid_search_job(
     lambda_max: float,
 ) -> None:
     try:
+        def finish_canceled(
+            *,
+            processed: int,
+            successful: int,
+            failed: int,
+            elapsed_seconds: float,
+            top_models: list[dict[str, object]],
+            best_model: dict[str, object] | None,
+        ) -> None:
+            result_payload: dict[str, object] = {
+                "mode": mode,
+                "upload_token": upload_token,
+                "model_name_pattern": str(model_name_pattern or "").strip(),
+                "fit_bounds": _fit_bounds_payload(fit_bounds),
+                "elapsed_seconds": elapsed_seconds,
+                "best_model": best_model,
+                "top_models": top_models,
+            }
+            _grid_search_job_update(
+                job_id,
+                status="canceled",
+                processed=processed,
+                successful=successful,
+                failed=failed,
+                current_model="",
+                result=result_payload,
+                finished_at=time.time(),
+                error="Grid search canceled by user.",
+            )
+
         total = len(model_candidates)
         successful = 0
         failed = 0
@@ -1510,6 +1576,16 @@ def _run_upload_grid_search_job(
                 successful=successful,
                 failed=failed,
             )
+            if _grid_search_job_cancel_requested(job_id):
+                finish_canceled(
+                    processed=index - 1,
+                    successful=successful,
+                    failed=failed,
+                    elapsed_seconds=max(0.0, time.time() - started_at),
+                    top_models=top_models,
+                    best_model=best_model,
+                )
+                return
 
             model_dir = Path(model_path_str)
             spectrum_files = discover_final_spectrum_files(model_dir)
@@ -1582,6 +1658,17 @@ def _run_upload_grid_search_job(
 
             if best_model is None or float(item["rmse"]) < float(best_model.get("rmse", math.inf)):
                 best_model = dict(item)
+
+        if _grid_search_job_cancel_requested(job_id):
+            finish_canceled(
+                processed=total,
+                successful=successful,
+                failed=failed,
+                elapsed_seconds=max(0.0, time.time() - started_at),
+                top_models=top_models,
+                best_model=best_model,
+            )
+            return
 
         elapsed_seconds = max(0.0, time.time() - started_at)
         result_payload: dict[str, object] = {
@@ -1681,6 +1768,30 @@ def upload_view(token: str):
     transform_params = _normalize_transform_params(request.args.to_dict(flat=True))
     fit_bounds = _normalize_fit_bounds(request.args.to_dict(flat=True), mode=spectrum_mode)
     model_name_pattern = str(request.args.get("model_name_pattern", "")).strip()
+    active_job = _grid_search_active_job_for_upload(token)
+    if not model_name_pattern and isinstance(active_job, dict):
+        model_name_pattern = str(active_job.get("model_name_pattern", "")).strip()
+
+    active_grid_job: dict[str, object] | None = None
+    if isinstance(active_job, dict):
+        total = int(active_job.get("total", 0) or 0)
+        processed = int(active_job.get("processed", 0) or 0)
+        progress_percent = 0.0
+        if total > 0:
+            progress_percent = min(100.0, max(0.0, 100.0 * processed / total))
+        active_grid_job = {
+            "job_id": str(active_job.get("job_id", "")),
+            "status": str(active_job.get("status", "")),
+            "processed": processed,
+            "total": total,
+            "successful": int(active_job.get("successful", 0) or 0),
+            "failed": int(active_job.get("failed", 0) or 0),
+            "current_model": str(active_job.get("current_model", "")),
+            "cancel_requested": bool(active_job.get("cancel_requested", False)),
+            "progress_percent": progress_percent,
+            "model_name_pattern": str(active_job.get("model_name_pattern", "")).strip(),
+        }
+
     return render_template(
         "upload_spectrum_view.html",
         upload=display_entry,
@@ -1694,6 +1805,7 @@ def upload_view(token: str):
         transform_params=transform_params,
         fit_bounds=fit_bounds,
         model_name_pattern=model_name_pattern,
+        active_grid_job=active_grid_job,
         plot_data=plot_data,
         warnings=warnings,
     )
@@ -1735,6 +1847,23 @@ def upload_fit_grid(token: str):
     mode = "both" if str(observed.get("flux_mode", "")).strip().lower() == "absolute" else "normalized"
     fit_bounds = _normalize_fit_bounds(request.form.to_dict(flat=True), mode=mode)
     model_name_pattern = str(request.form.get("model_name_pattern", "")).strip()
+
+    active_job = _grid_search_active_job_for_upload(token)
+    if isinstance(active_job, dict):
+        active_job_id = str(active_job.get("job_id", "")).strip()
+        total_models = int(active_job.get("total", 0) or 0)
+        return jsonify(
+            {
+                "ok": True,
+                "job_id": active_job_id,
+                "mode": str(active_job.get("mode", mode)),
+                "total_models": total_models,
+                "fit_bounds": active_job.get("fit_bounds", _fit_bounds_payload(fit_bounds)),
+                "model_name_pattern": str(active_job.get("model_name_pattern", model_name_pattern)),
+                "existing_job": True,
+            }
+        )
+
     model_dirs, discover_error = _discover_model_grid_from_cache(
         basepath,
         summary_cache_db=summary_cache_db,
@@ -1797,11 +1926,12 @@ def upload_fit_grid_status(job_id: str):
     total = int(snapshot.get("total", 0) or 0)
     successful = int(snapshot.get("successful", 0) or 0)
     failed = int(snapshot.get("failed", 0) or 0)
+    cancel_requested = bool(snapshot.get("cancel_requested", False))
 
     progress_percent = 0.0
     if total > 0:
         progress_percent = min(100.0, max(0.0, 100.0 * processed / total))
-    if status == "completed":
+    if status in {"completed", "canceled"}:
         progress_percent = 100.0
 
     payload: dict[str, object] = {
@@ -1813,13 +1943,15 @@ def upload_fit_grid_status(job_id: str):
         "failed": failed,
         "current_model": str(snapshot.get("current_model", "")),
         "progress_percent": progress_percent,
+        "cancel_requested": cancel_requested,
+        "can_cancel": status == "running" and not cancel_requested,
     }
 
     if status == "failed":
         payload["error"] = str(snapshot.get("error", "Grid search failed."))
         return jsonify(payload), 500
 
-    if status == "completed":
+    if status in {"completed", "canceled"}:
         result = snapshot.get("result")
         if isinstance(result, dict):
             result_payload = copy.deepcopy(result)
@@ -1841,8 +1973,24 @@ def upload_fit_grid_status(job_id: str):
                     best_model["browse_url"] = url_for("viewer.view", path=best_path)
                 result_payload["best_model"] = best_model
             payload["result"] = result_payload
+        if status == "canceled":
+            payload["message"] = "Grid search canceled."
 
     return jsonify(payload)
+
+
+@bp.route("/uploads/fit-grid/cancel/<job_id>", methods=["POST"])
+def upload_fit_grid_cancel(job_id: str):
+    with GRID_SEARCH_JOBS_LOCK:
+        job = GRID_SEARCH_JOBS.get(job_id)
+        if not isinstance(job, dict):
+            return jsonify({"ok": False, "error": "Grid search job is not available."}), 404
+        status = str(job.get("status", ""))
+        if status != "running":
+            return jsonify({"ok": True, "status": status, "cancel_requested": bool(job.get("cancel_requested", False))})
+        job["cancel_requested"] = True
+        job["cancel_requested_at"] = time.time()
+        return jsonify({"ok": True, "status": status, "cancel_requested": True})
 
 
 @bp.route("/uploads/fit-grid/match-count/<token>")

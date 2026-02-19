@@ -767,6 +767,7 @@
           >
         {% endif %}
         <button type="submit" class="btn btn-sm btn-outline-success">Find Best Model</button>
+        <button id="grid-fit-cancel" type="button" class="btn btn-sm btn-outline-danger d-none">Stop Search</button>
       </form>
 
       <div id="grid-fit-feedback" class="alert py-2 mb-3 d-none" role="status" aria-live="polite"></div>
@@ -830,6 +831,7 @@
       }
 
       var statusUrlTemplate = "{{ url_for('viewer.upload_fit_grid_status', job_id='__JOB_ID__') }}";
+      var cancelUrlTemplate = "{{ url_for('viewer.upload_fit_grid_cancel', job_id='__JOB_ID__') }}";
       var feedback = document.getElementById("grid-fit-feedback");
       var progressWrap = document.getElementById("grid-fit-progress-wrap");
       var progressBar = document.getElementById("grid-fit-progress-bar");
@@ -837,10 +839,14 @@
       var resultWrap = document.getElementById("grid-fit-result");
       var resultBody = document.getElementById("grid-fit-result-body");
       var submitButton = form.querySelector("button[type='submit']");
+      var cancelButton = document.getElementById("grid-fit-cancel");
       var patternInput = document.getElementById("grid-model-pattern");
       var patternMatch = document.getElementById("grid-pattern-match");
       var matchCountUrl = "{{ url_for('viewer.upload_fit_grid_match_count', token=upload.token) }}";
+      var initialActiveJob = {{ active_grid_job | tojson if active_grid_job else "null" }};
       var matchCountTimer = null;
+      var activeJobId = "";
+      var cancelInFlight = false;
 
       function asFiniteNumber(value, fallback) {
         var numeric = Number(value);
@@ -891,6 +897,26 @@
         progressBar.textContent = Math.round(bounded) + "%";
         progressBar.classList.toggle("progress-bar-animated", !!isRunning);
         progressText.textContent = text || "";
+      }
+
+      function setCancelControl(isRunning, isCancelRequested) {
+        if (!cancelButton) {
+          return;
+        }
+        if (!isRunning) {
+          cancelButton.classList.add("d-none");
+          cancelButton.disabled = false;
+          cancelButton.textContent = "Stop Search";
+          return;
+        }
+        cancelButton.classList.remove("d-none");
+        if (isCancelRequested || cancelInFlight) {
+          cancelButton.disabled = true;
+          cancelButton.textContent = "Stopping...";
+          return;
+        }
+        cancelButton.disabled = false;
+        cancelButton.textContent = "Stop Search";
       }
 
       function resetResult() {
@@ -1078,7 +1104,39 @@
         }, 220);
       }
 
+      function requestCancelActiveJob() {
+        if (!activeJobId || cancelInFlight) {
+          return;
+        }
+        cancelInFlight = true;
+        setCancelControl(true, true);
+        var cancelUrl = cancelUrlTemplate.replace("__JOB_ID__", encodeURIComponent(activeJobId));
+        fetch(cancelUrl, {
+          method: "POST",
+          headers: {
+            "X-Requested-With": "XMLHttpRequest",
+            "Accept": "application/json"
+          }
+        })
+          .then(parseJsonResponse)
+          .then(function (result) {
+            if (!result.payload || typeof result.payload !== "object") {
+              throw new Error("Could not request cancellation.");
+            }
+            if (!result.ok || result.payload.ok === false) {
+              throw new Error(String(result.payload.error || "Could not request cancellation."));
+            }
+            setFeedback("Stopping grid fit...", false);
+          })
+          .catch(function (error) {
+            cancelInFlight = false;
+            setCancelControl(true, false);
+            setFeedback(error && error.message ? error.message : "Could not request cancellation.", true);
+          });
+      }
+
       function pollJob(jobId) {
+        activeJobId = jobId;
         var statusUrl = statusUrlTemplate.replace("__JOB_ID__", encodeURIComponent(jobId));
         fetch(statusUrl, {
           method: "GET",
@@ -1102,6 +1160,7 @@
             var failed = asFiniteNumber(payload.failed, 0);
             var status = String(payload.status || "");
             var percentage = asFiniteNumber(payload.progress_percent, total > 0 ? (100 * processed / total) : 0);
+            var cancelRequested = !!payload.cancel_requested;
             var current = String(payload.current_model || "");
             var progressLine = "Processed " + processed + "/" + total + " models; valid fits: " + successful + "; failed/skipped: " + failed + ".";
             if (current) {
@@ -1110,12 +1169,16 @@
             setProgress(percentage, progressLine, status === "running");
 
             if (status === "running") {
+              setCancelControl(true, cancelRequested);
               window.setTimeout(function () {
                 pollJob(jobId);
               }, 900);
               return;
             }
 
+            activeJobId = "";
+            cancelInFlight = false;
+            setCancelControl(false, false);
             if (submitButton) {
               submitButton.disabled = false;
             }
@@ -1126,16 +1189,30 @@
 
             var completedResult = payload.result && typeof payload.result === "object" ? payload.result : {};
             renderResult(completedResult);
-            var best = completedResult.best_model && typeof completedResult.best_model === "object"
-              ? completedResult.best_model
-              : null;
-            if (best && best.model_path) {
-              setFeedback("Grid fit completed. Best model: " + String(best.model_path) + " (RMSE=" + formatRmse(best.rmse) + ").", false);
+            if (status === "canceled") {
+              var canceledBest = completedResult.best_model && typeof completedResult.best_model === "object"
+                ? completedResult.best_model
+                : null;
+              if (canceledBest && canceledBest.model_path) {
+                setFeedback("Grid fit canceled. Best-so-far model: " + String(canceledBest.model_path) + " (RMSE=" + formatRmse(canceledBest.rmse) + ").", false);
+              } else {
+                setFeedback(String(payload.message || "Grid fit canceled."), false);
+              }
             } else {
-              setFeedback("Grid fit completed. No valid fit was found.", false);
+              var best = completedResult.best_model && typeof completedResult.best_model === "object"
+                ? completedResult.best_model
+                : null;
+              if (best && best.model_path) {
+                setFeedback("Grid fit completed. Best model: " + String(best.model_path) + " (RMSE=" + formatRmse(best.rmse) + ").", false);
+              } else {
+                setFeedback("Grid fit completed. No valid fit was found.", false);
+              }
             }
           })
           .catch(function (error) {
+            activeJobId = "";
+            cancelInFlight = false;
+            setCancelControl(false, false);
             if (submitButton) {
               submitButton.disabled = false;
             }
@@ -1152,6 +1229,9 @@
         resetResult();
         setFeedback("", false);
         setProgress(0, "Starting grid fit...", true);
+        activeJobId = "";
+        cancelInFlight = false;
+        setCancelControl(false, false);
         if (submitButton) {
           submitButton.disabled = true;
         }
@@ -1179,10 +1259,18 @@
             if (!jobId) {
               throw new Error("Grid fit failed: missing job id.");
             }
-            setFeedback("Grid fit started across " + String(result.payload.total_models || 0) + " cached models.", false);
+            if (result.payload.existing_job) {
+              setFeedback("A grid fit is already running for this upload. Re-attaching to active search.", false);
+            } else {
+              setFeedback("Grid fit started across " + String(result.payload.total_models || 0) + " cached models.", false);
+            }
+            setCancelControl(true, false);
             pollJob(jobId);
           })
           .catch(function (error) {
+            activeJobId = "";
+            cancelInFlight = false;
+            setCancelControl(false, false);
             if (submitButton) {
               submitButton.disabled = false;
             }
@@ -1195,7 +1283,36 @@
         patternInput.addEventListener("input", schedulePatternMatchCount);
         patternInput.addEventListener("change", schedulePatternMatchCount);
       }
+      if (cancelButton) {
+        cancelButton.addEventListener("click", requestCancelActiveJob);
+      }
+      setCancelControl(false, false);
       fetchPatternMatchCount();
+
+      if (initialActiveJob && typeof initialActiveJob === "object") {
+        var initialJobId = String(initialActiveJob.job_id || "");
+        if (initialJobId) {
+          var initialProcessed = asFiniteNumber(initialActiveJob.processed, 0);
+          var initialTotal = asFiniteNumber(initialActiveJob.total, 0);
+          var initialSuccessful = asFiniteNumber(initialActiveJob.successful, 0);
+          var initialFailed = asFiniteNumber(initialActiveJob.failed, 0);
+          var initialProgress = asFiniteNumber(initialActiveJob.progress_percent, initialTotal > 0 ? (100 * initialProcessed / initialTotal) : 0);
+          var initialCurrent = String(initialActiveJob.current_model || "");
+          var initialCancelRequested = !!initialActiveJob.cancel_requested;
+          var initialText = "Processed " + initialProcessed + "/" + initialTotal + " models; valid fits: " + initialSuccessful + "; failed/skipped: " + initialFailed + ".";
+          if (initialCurrent) {
+            initialText += " Current: " + initialCurrent;
+          }
+          if (initialCancelRequested) {
+            setFeedback("An active grid fit is stopping; waiting for cancellation to finalize.", false);
+          } else {
+            setFeedback("Resuming active grid fit for this upload.", false);
+          }
+          setProgress(initialProgress, initialText, true);
+          setCancelControl(true, initialCancelRequested);
+          pollJob(initialJobId);
+        }
+      }
     })();
   </script>
 {% endblock %}
