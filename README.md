@@ -19,7 +19,7 @@ This project provides a practical local web UI for inspecting CMFGEN model folde
 - Structured parsing for many CMFGEN/CMF_FLUX text outputs (not only core files).
 - Role tagging for CMFGEN and CMF_FLUX related files using known filenames/patterns.
 - Single-model and bulk model spectrum visualization workflows.
-- Global observed-spectrum upload/overlay workflow for model comparison.
+- Global observed-spectrum upload/overlay workflow, including async model-grid fitting against uploaded spectra.
 - Documentation browser backed by markdown files in `doc/`.
 
 ### Out of scope (current)
@@ -72,6 +72,7 @@ python viewer.py --dir /path/to/cmfgen/run --lambda-min 1200 --lambda-max 9000
 - `--all` show hidden files/directories.
 - `--lambda-min 800` minimum wavelength (Angstroms) used for spectrum parsing/display.
 - `--lambda-max 20000` maximum wavelength (Angstroms) used for spectrum parsing/display.
+- `--fit-pool-size 0` max worker processes for upload grid fitting (`0` = auto/CPU count).
 - `--debug` enable Flask debug and auto-reload.
 - `--secret <value>` set a fixed Flask secret key.
 
@@ -101,7 +102,26 @@ python viewer.py --dir /path/to/cmfgen/run --lambda-min 1200 --lambda-max 9000
 - Global uploads workflow:
   - upload management page (`/uploads/`),
   - quasi-persistent tokenized uploads under upload root,
-  - FITS parsing for common 1D/2D and table-based formats.
+  - upload detail page (`/uploads/view/<token>`) with file/format summary, parsed point counts, skipped-point diagnostics, and configured wavelength window display,
+  - interactive uploaded-spectrum viewer with redshift/velocity sync, broadening, reddening, distance scaling, axis controls, and a resizable plot area,
+  - FITS parsing for common 1D/2D and table-based formats,
+  - normalized-spectrum safety filter: uploaded points with negative flux are treated as invalid.
+- Upload model-grid fitting:
+  - async server-side fit job API (`/uploads/fit-grid/...`) with progress polling and result payloads,
+  - model discovery is DB-backed only via `model_summary_cache.sqlite` (no direct filesystem crawl during fit),
+  - optional `model_name_pattern` filtering (shell-style pattern matching via `fnmatch.fnmatch`),
+  - live indication of currently matched model count while editing the pattern,
+  - configurable fit bounds (`z`, `sigma`, and in absolute mode also `E(B-V)` and distance),
+  - optional fit wavelength limits (`fit_lambda_min`/`fit_lambda_max`), plus a `Use Plot Range` shortcut,
+  - fit range visualization on the upload plot via vertical marker lines when range limits are set,
+  - live "current best candidate" updates while the search runs,
+  - best-so-far and final best-fit model overplot on the uploaded spectrum (final spectrum only, clipped to observed wavelength coverage),
+  - active-search resume on page reload for the same upload token,
+  - user-triggered cancellation (`Stop Search`) with immediate pool termination in parallel mode,
+  - result reporting includes both redshift and corresponding velocity (`v = z * c`).
+- Parallel upload grid fitting:
+  - optional multiprocessing worker pool controlled by `--fit-pool-size` (`0` means auto),
+  - sequential fallback remains available when resolved worker count is 1.
 - Configurable wavelength window for all displayed spectra:
   - `--lambda-min` / `--lambda-max` bounds applied to both model spectra and uploaded overlays.
 - Documentation section with top-nav dropdown populated from `doc/*.md`, rendered as markdown with code highlighting.
@@ -112,7 +132,7 @@ python viewer.py --dir /path/to/cmfgen/run --lambda-min 1200 --lambda-max 9000
 - Some CMFGEN output formats still rely on generic/plain text preview instead of dedicated parsers.
 - Generic direct-access/binary readers using `_INFO` sidecars.
 - Cross-file consistency checks and preflight validation workflows.
-- Automatic model fitting/scoring against uploaded observed spectra.
+- Persisting grid-fit jobs/results across Flask process restarts.
 
 ## Repository Layout
 
@@ -133,3 +153,4 @@ python viewer.py --dir /path/to/cmfgen/run --lambda-min 1200 --lambda-max 9000
 - The UI is optimized for local analysis workflows and iterative parser development.
 - Large-file parsing is guarded (`MAX_PARSE_FILE_BYTES`) to avoid heavy accidental loads.
 - Documentation pages are generated from repository markdown; update files in `doc/` to extend in-app docs.
+- Upload grid fitting requires a populated summary cache database (`model_summary_cache.sqlite`), typically produced by the `Summarize` workflow.

@@ -1393,15 +1393,18 @@
         setFeedback("Fit wavelength range set from plot view: " + minText + " .. " + maxText + " Å.", false);
       }
 
-      function setProgress(percentage, text, isRunning) {
+      function setProgress(percentage, text, isRunning, stateClass) {
         if (!progressWrap || !progressBar || !progressText) {
           return;
         }
         var bounded = Math.max(0, Math.min(100, asFiniteNumber(percentage, 0)));
+        var state = String(stateClass || "").toLowerCase();
         progressWrap.classList.remove("d-none");
         progressBar.style.width = bounded.toFixed(1) + "%";
         progressBar.textContent = Math.round(bounded) + "%";
         progressBar.classList.toggle("progress-bar-animated", !!isRunning);
+        progressBar.classList.toggle("bg-success", !isRunning && state === "success");
+        progressBar.classList.toggle("bg-danger", !isRunning && state === "danger");
         progressText.textContent = text || "";
       }
 
@@ -1730,7 +1733,14 @@
             if (current) {
               progressLine += " Current: " + current;
             }
-            setProgress(percentage, progressLine, status === "running");
+            setProgress(
+              percentage,
+              progressLine,
+              status === "running",
+              status === "running"
+                ? ""
+                : (status === "canceled" || status === "failed" ? "danger" : "success")
+            );
 
             if (status === "running") {
               renderBestSoFar(bestSoFar);
@@ -1826,7 +1836,7 @@
               submitButton.disabled = false;
             }
             clearOverlayTrace();
-            setProgress(0, "", false);
+            setProgress(0, "", false, "danger");
             setFeedback(error && error.message ? error.message : "Grid fit failed.", true);
           });
       }
@@ -1840,7 +1850,7 @@
         resetBestSoFar();
         clearOverlayTrace();
         setFeedback("", false);
-        setProgress(0, "Starting grid fit...", true);
+        setProgress(0, "Starting grid fit...", true, "");
         activeJobId = "";
         cancelInFlight = false;
         setCancelControl(false, false);
@@ -1888,7 +1898,7 @@
             }
             resetBestSoFar();
             clearOverlayTrace();
-            setProgress(0, "", false);
+            setProgress(0, "", false, "danger");
             setFeedback(error && error.message ? error.message : "Grid fit failed.", true);
           });
       });
@@ -1941,7 +1951,7 @@
           } else {
             setFeedback("Resuming active grid fit for this upload.", false);
           }
-          setProgress(initialProgress, initialText, true);
+          setProgress(initialProgress, initialText, true, "");
           renderBestSoFar(initialBestSoFar);
           if (initialBestSoFar) {
             ensureOverlayForModel(initialJobId, initialBestSoFar, "best_so_far", false);
