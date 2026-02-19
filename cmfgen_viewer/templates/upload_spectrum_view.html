@@ -667,6 +667,129 @@
       </script>
     {% endif %}
 
+    <section class="mb-4">
+      <h3 class="h5 mb-2">Grid Fit</h3>
+      <p class="small text-muted mb-2">
+        Run server-side fitting across cached models and select the model with the smallest residual.
+      </p>
+      <form
+        id="grid-fit-form"
+        method="post"
+        action="{{ url_for('viewer.upload_fit_grid', token=upload.token) }}"
+        class="d-flex flex-wrap align-items-center gap-2 mb-3"
+      >
+        <input type="hidden" name="async" value="1">
+        <label for="grid-model-pattern" class="small text-muted mb-0">
+          Model name pattern (shell-like).
+          <span id="grid-pattern-match">...</span>
+        </label>
+        <input
+          id="grid-model-pattern"
+          name="model_name_pattern"
+          type="text"
+          class="form-control form-control-sm"
+          value="{{ model_name_pattern }}"
+          placeholder="e.g. model_Bstar* or model_1[012]*"
+        >
+        <span class="small text-muted">Fit bounds:</span>
+        <label for="grid-fit-redshift-min" class="small text-muted mb-0">z</label>
+        <input
+          id="grid-fit-redshift-min"
+          name="fit_redshift_min"
+          type="number"
+          step="any"
+          class="form-control form-control-sm plot-number-input"
+          value="{{ fit_bounds.redshift[0] }}"
+        >
+        <span class="small text-muted">..</span>
+        <input
+          name="fit_redshift_max"
+          type="number"
+          step="any"
+          class="form-control form-control-sm plot-number-input"
+          value="{{ fit_bounds.redshift[1] }}"
+        >
+        <label for="grid-fit-broadening-min" class="small text-muted mb-0">sigma (km/s)</label>
+        <input
+          id="grid-fit-broadening-min"
+          name="fit_broadening_km_s_min"
+          type="number"
+          min="0"
+          step="any"
+          class="form-control form-control-sm plot-number-input"
+          value="{{ fit_bounds.broadening_km_s[0] }}"
+        >
+        <span class="small text-muted">..</span>
+        <input
+          name="fit_broadening_km_s_max"
+          type="number"
+          min="0"
+          step="any"
+          class="form-control form-control-sm plot-number-input"
+          value="{{ fit_bounds.broadening_km_s[1] }}"
+        >
+        {% if mode == "both" %}
+          <label for="grid-fit-ebv-min" class="small text-muted mb-0">E(B-V)</label>
+          <input
+            id="grid-fit-ebv-min"
+            name="fit_ebv_min"
+            type="number"
+            step="any"
+            class="form-control form-control-sm plot-number-input"
+            value="{{ fit_bounds.ebv[0] }}"
+          >
+          <span class="small text-muted">..</span>
+          <input
+            name="fit_ebv_max"
+            type="number"
+            step="any"
+            class="form-control form-control-sm plot-number-input"
+            value="{{ fit_bounds.ebv[1] }}"
+          >
+          <label for="grid-fit-distance-min" class="small text-muted mb-0">distance (kpc)</label>
+          <input
+            id="grid-fit-distance-min"
+            name="fit_distance_kpc_min"
+            type="number"
+            min="0.000001"
+            step="any"
+            class="form-control form-control-sm plot-number-input"
+            value="{{ fit_bounds.distance_kpc[0] }}"
+          >
+          <span class="small text-muted">..</span>
+          <input
+            name="fit_distance_kpc_max"
+            type="number"
+            min="0.000001"
+            step="any"
+            class="form-control form-control-sm plot-number-input"
+            value="{{ fit_bounds.distance_kpc[1] }}"
+          >
+        {% endif %}
+        <button type="submit" class="btn btn-sm btn-outline-success">Find Best Model</button>
+      </form>
+
+      <div id="grid-fit-feedback" class="alert py-2 mb-3 d-none" role="status" aria-live="polite"></div>
+
+      <div id="grid-fit-progress-wrap" class="d-none mb-3">
+        <div class="progress mb-2" role="progressbar" aria-label="Grid fit progress" aria-valuemin="0" aria-valuemax="100">
+          <div
+            id="grid-fit-progress-bar"
+            class="progress-bar progress-bar-striped progress-bar-animated"
+            style="width: 0%"
+          >
+            0%
+          </div>
+        </div>
+        <div id="grid-fit-progress-text" class="small text-muted"></div>
+      </div>
+
+      <div id="grid-fit-result" class="d-none">
+        <h4 class="h6 mb-2">Best Fit Result</h4>
+        <div id="grid-fit-result-body"></div>
+      </div>
+    </section>
+
     {% if warnings %}
       <div class="alert alert-warning py-2 mb-3">
         {% for warning in warnings %}
@@ -699,4 +822,380 @@
       </div>
     </section>
   {% endif %}
+  <script>
+    (function () {
+      var form = document.getElementById("grid-fit-form");
+      if (!form || !window.fetch || !window.FormData) {
+        return;
+      }
+
+      var statusUrlTemplate = "{{ url_for('viewer.upload_fit_grid_status', job_id='__JOB_ID__') }}";
+      var feedback = document.getElementById("grid-fit-feedback");
+      var progressWrap = document.getElementById("grid-fit-progress-wrap");
+      var progressBar = document.getElementById("grid-fit-progress-bar");
+      var progressText = document.getElementById("grid-fit-progress-text");
+      var resultWrap = document.getElementById("grid-fit-result");
+      var resultBody = document.getElementById("grid-fit-result-body");
+      var submitButton = form.querySelector("button[type='submit']");
+      var patternInput = document.getElementById("grid-model-pattern");
+      var patternMatch = document.getElementById("grid-pattern-match");
+      var matchCountUrl = "{{ url_for('viewer.upload_fit_grid_match_count', token=upload.token) }}";
+      var matchCountTimer = null;
+
+      function asFiniteNumber(value, fallback) {
+        var numeric = Number(value);
+        return Number.isFinite(numeric) ? numeric : fallback;
+      }
+
+      function formatRmse(value) {
+        var numeric = Number(value);
+        if (!Number.isFinite(numeric)) {
+          return "";
+        }
+        return numeric.toExponential(4);
+      }
+
+      function formatParam(value) {
+        var numeric = Number(value);
+        if (!Number.isFinite(numeric)) {
+          return "";
+        }
+        return Number(numeric.toFixed(6)).toString();
+      }
+
+      function setFeedback(message, isError) {
+        if (!feedback) {
+          return;
+        }
+        if (!message) {
+          feedback.textContent = "";
+          feedback.classList.add("d-none");
+          feedback.classList.remove("alert-danger");
+          feedback.classList.remove("alert-info");
+          return;
+        }
+        feedback.textContent = message;
+        feedback.classList.remove("d-none");
+        feedback.classList.remove("alert-danger");
+        feedback.classList.remove("alert-info");
+        feedback.classList.add(isError ? "alert-danger" : "alert-info");
+      }
+
+      function setProgress(percentage, text, isRunning) {
+        if (!progressWrap || !progressBar || !progressText) {
+          return;
+        }
+        var bounded = Math.max(0, Math.min(100, asFiniteNumber(percentage, 0)));
+        progressWrap.classList.remove("d-none");
+        progressBar.style.width = bounded.toFixed(1) + "%";
+        progressBar.textContent = Math.round(bounded) + "%";
+        progressBar.classList.toggle("progress-bar-animated", !!isRunning);
+        progressText.textContent = text || "";
+      }
+
+      function resetResult() {
+        if (resultWrap) {
+          resultWrap.classList.add("d-none");
+        }
+        if (resultBody) {
+          resultBody.innerHTML = "";
+        }
+      }
+
+      function codeElement(text) {
+        var code = document.createElement("code");
+        code.textContent = text;
+        return code;
+      }
+
+      function addSummaryLine(container, label, value) {
+        var row = document.createElement("div");
+        row.className = "mb-1";
+        row.appendChild(codeElement(label));
+        row.appendChild(document.createTextNode(": "));
+        row.appendChild(codeElement(value));
+        container.appendChild(row);
+      }
+
+      function renderResult(result) {
+        if (!resultWrap || !resultBody) {
+          return;
+        }
+        resultBody.innerHTML = "";
+        resultWrap.classList.remove("d-none");
+
+        var elapsed = asFiniteNumber(result && result.elapsed_seconds, 0);
+        addSummaryLine(resultBody, "Elapsed (s)", elapsed.toFixed(2));
+
+        var best = result && typeof result.best_model === "object" ? result.best_model : null;
+        if (!best) {
+          var empty = document.createElement("div");
+          empty.className = "text-muted";
+          empty.textContent = "No model produced a valid fit result with the current settings.";
+          resultBody.appendChild(empty);
+          return;
+        }
+
+        addSummaryLine(resultBody, "Best model", String(best.model_path || best.model_name || ""));
+        addSummaryLine(resultBody, "Best RMSE", formatRmse(best.rmse));
+        addSummaryLine(resultBody, "Fit points", String(best.points || ""));
+
+        var params = best.fit_params && typeof best.fit_params === "object" ? best.fit_params : {};
+        addSummaryLine(resultBody, "z", formatParam(params.redshift));
+        addSummaryLine(resultBody, "sigma (km/s)", formatParam(params.broadening_km_s));
+        if ("{{ mode }}" === "both") {
+          addSummaryLine(resultBody, "E(B-V)", formatParam(params.ebv));
+          addSummaryLine(resultBody, "distance (kpc)", formatParam(params.distance_kpc));
+        }
+
+        var linksRow = document.createElement("div");
+        linksRow.className = "d-flex flex-wrap gap-2 mb-2";
+        if (best.spectrum_url) {
+          var spectrumLink = document.createElement("a");
+          spectrumLink.className = "btn btn-sm btn-outline-success";
+          spectrumLink.href = String(best.spectrum_url);
+          spectrumLink.textContent = "Open Best Model Spectrum";
+          linksRow.appendChild(spectrumLink);
+        }
+        if (best.browse_url) {
+          var browseLink = document.createElement("a");
+          browseLink.className = "btn btn-sm btn-outline-secondary";
+          browseLink.href = String(best.browse_url);
+          browseLink.textContent = "Open Model Folder";
+          linksRow.appendChild(browseLink);
+        }
+        if (linksRow.children.length) {
+          resultBody.appendChild(linksRow);
+        }
+
+        var topModels = Array.isArray(result.top_models) ? result.top_models : [];
+        if (!topModels.length) {
+          return;
+        }
+
+        var title = document.createElement("div");
+        title.className = "small text-muted mb-1";
+        title.textContent = "Top candidate models by RMSE";
+        resultBody.appendChild(title);
+
+        var tableWrap = document.createElement("div");
+        tableWrap.className = "table-responsive";
+        var table = document.createElement("table");
+        table.className = "table table-sm table-striped mb-0";
+        var thead = document.createElement("thead");
+        thead.innerHTML = "<tr><th>Model</th><th>RMSE</th><th>Points</th><th>obs_fin</th></tr>";
+        table.appendChild(thead);
+
+        var tbody = document.createElement("tbody");
+        for (var i = 0; i < topModels.length; i += 1) {
+          var item = topModels[i] || {};
+          var tr = document.createElement("tr");
+
+          var tdModel = document.createElement("td");
+          tdModel.appendChild(codeElement(String(item.model_path || item.model_name || "")));
+          tr.appendChild(tdModel);
+
+          var tdRmse = document.createElement("td");
+          tdRmse.appendChild(codeElement(formatRmse(item.rmse)));
+          tr.appendChild(tdRmse);
+
+          var tdPoints = document.createElement("td");
+          tdPoints.appendChild(codeElement(String(item.points || "")));
+          tr.appendChild(tdPoints);
+
+          var tdFin = document.createElement("td");
+          tdFin.appendChild(codeElement(String(item.fin || "")));
+          tr.appendChild(tdFin);
+
+          tbody.appendChild(tr);
+        }
+        table.appendChild(tbody);
+        tableWrap.appendChild(table);
+        resultBody.appendChild(tableWrap);
+      }
+
+      function parseJsonResponse(response) {
+        return response.text().then(function (rawText) {
+          var payload = null;
+          if (rawText) {
+            try {
+              payload = JSON.parse(rawText);
+            } catch (_error) {
+              payload = null;
+            }
+          }
+          return {
+            ok: response.ok,
+            payload: payload
+          };
+        });
+      }
+
+      function setPatternMatch(message, isError) {
+        if (!patternMatch) {
+          return;
+        }
+        patternMatch.textContent = message;
+        patternMatch.classList.toggle("text-danger", !!isError);
+        patternMatch.classList.toggle("text-muted", !isError);
+      }
+
+      function fetchPatternMatchCount() {
+        if (!patternInput) {
+          return;
+        }
+        var patternValue = String(patternInput.value || "").trim();
+        var url = matchCountUrl + "?model_name_pattern=" + encodeURIComponent(patternValue);
+        fetch(url, {
+          method: "GET",
+          headers: {
+            "Accept": "application/json"
+          }
+        })
+          .then(parseJsonResponse)
+          .then(function (result) {
+            if (!result.payload || typeof result.payload !== "object") {
+              throw new Error("Could not determine pattern matches.");
+            }
+            if (!result.ok || result.payload.ok === false) {
+              throw new Error(String(result.payload.error || "Could not determine pattern matches."));
+            }
+            var count = asFiniteNumber(result.payload.total_models, 0);
+            setPatternMatch("Matching cached models: " + String(count), false);
+          })
+          .catch(function (error) {
+            setPatternMatch(error && error.message ? error.message : "Could not determine pattern matches.", true);
+          });
+      }
+
+      function schedulePatternMatchCount() {
+        if (matchCountTimer !== null) {
+          window.clearTimeout(matchCountTimer);
+        }
+        matchCountTimer = window.setTimeout(function () {
+          matchCountTimer = null;
+          fetchPatternMatchCount();
+        }, 220);
+      }
+
+      function pollJob(jobId) {
+        var statusUrl = statusUrlTemplate.replace("__JOB_ID__", encodeURIComponent(jobId));
+        fetch(statusUrl, {
+          method: "GET",
+          headers: {
+            "Accept": "application/json"
+          }
+        })
+          .then(parseJsonResponse)
+          .then(function (result) {
+            if (!result.payload || typeof result.payload !== "object") {
+              throw new Error("Grid fit failed: invalid server response.");
+            }
+            var payload = result.payload;
+            if (!result.ok || payload.ok === false) {
+              throw new Error(String(payload.error || "Grid fit failed."));
+            }
+
+            var processed = asFiniteNumber(payload.processed, 0);
+            var total = asFiniteNumber(payload.total, 0);
+            var successful = asFiniteNumber(payload.successful, 0);
+            var failed = asFiniteNumber(payload.failed, 0);
+            var status = String(payload.status || "");
+            var percentage = asFiniteNumber(payload.progress_percent, total > 0 ? (100 * processed / total) : 0);
+            var current = String(payload.current_model || "");
+            var progressLine = "Processed " + processed + "/" + total + " models; valid fits: " + successful + "; failed/skipped: " + failed + ".";
+            if (current) {
+              progressLine += " Current: " + current;
+            }
+            setProgress(percentage, progressLine, status === "running");
+
+            if (status === "running") {
+              window.setTimeout(function () {
+                pollJob(jobId);
+              }, 900);
+              return;
+            }
+
+            if (submitButton) {
+              submitButton.disabled = false;
+            }
+
+            if (status === "failed") {
+              throw new Error(String(payload.error || "Grid fit failed."));
+            }
+
+            var completedResult = payload.result && typeof payload.result === "object" ? payload.result : {};
+            renderResult(completedResult);
+            var best = completedResult.best_model && typeof completedResult.best_model === "object"
+              ? completedResult.best_model
+              : null;
+            if (best && best.model_path) {
+              setFeedback("Grid fit completed. Best model: " + String(best.model_path) + " (RMSE=" + formatRmse(best.rmse) + ").", false);
+            } else {
+              setFeedback("Grid fit completed. No valid fit was found.", false);
+            }
+          })
+          .catch(function (error) {
+            if (submitButton) {
+              submitButton.disabled = false;
+            }
+            setProgress(0, "", false);
+            setFeedback(error && error.message ? error.message : "Grid fit failed.", true);
+          });
+      }
+
+      form.addEventListener("submit", function (event) {
+        if (!window.fetch || !window.FormData) {
+          return;
+        }
+        event.preventDefault();
+        resetResult();
+        setFeedback("", false);
+        setProgress(0, "Starting grid fit...", true);
+        if (submitButton) {
+          submitButton.disabled = true;
+        }
+
+        var formData = new FormData(form);
+        formData.set("async", "1");
+
+        fetch(form.action, {
+          method: "POST",
+          body: formData,
+          headers: {
+            "X-Requested-With": "XMLHttpRequest",
+            "Accept": "application/json"
+          }
+        })
+          .then(parseJsonResponse)
+          .then(function (result) {
+            if (!result.payload || typeof result.payload !== "object") {
+              throw new Error("Grid fit failed: invalid server response.");
+            }
+            if (!result.ok || result.payload.ok === false) {
+              throw new Error(String(result.payload.error || "Grid fit failed."));
+            }
+            var jobId = String(result.payload.job_id || "");
+            if (!jobId) {
+              throw new Error("Grid fit failed: missing job id.");
+            }
+            setFeedback("Grid fit started across " + String(result.payload.total_models || 0) + " cached models.", false);
+            pollJob(jobId);
+          })
+          .catch(function (error) {
+            if (submitButton) {
+              submitButton.disabled = false;
+            }
+            setProgress(0, "", false);
+            setFeedback(error && error.message ? error.message : "Grid fit failed.", true);
+          });
+      });
+
+      if (patternInput) {
+        patternInput.addEventListener("input", schedulePatternMatchCount);
+        patternInput.addEventListener("change", schedulePatternMatchCount);
+      }
+      fetchPatternMatchCount();
+    })();
+  </script>
 {% endblock %}

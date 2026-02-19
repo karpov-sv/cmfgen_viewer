@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import copy
 from datetime import datetime, timezone
+import fnmatch
 from functools import lru_cache
 import math
 from pathlib import Path
 import re
+import secrets
+from threading import Lock, Thread
 import time
 from urllib.parse import urlencode
 
@@ -108,6 +112,12 @@ SPECTRUM_TRANSFORM_DEFAULTS = {
     "ebv": 0.0,
     "distance_kpc": 1.0,
 }
+
+GRID_SEARCH_JOB_TTL_SECONDS = 6 * 60 * 60
+GRID_SEARCH_MAX_JOBS = 32
+GRID_SEARCH_TOP_RESULTS = 12
+GRID_SEARCH_JOBS: dict[str, dict[str, object]] = {}
+GRID_SEARCH_JOBS_LOCK = Lock()
 
 
 @lru_cache(maxsize=1)
@@ -1314,6 +1324,296 @@ def _upload_spectrum_summary_rows(
     return [[label, value] for label, value in rows if value not in {"", None}]
 
 
+def _fit_bounds_payload(bounds: dict[str, tuple[float, float]]) -> dict[str, list[float]]:
+    return {
+        name: [float(min_value), float(max_value)]
+        for name, (min_value, max_value) in bounds.items()
+    }
+
+
+def _discover_model_grid_from_cache(
+    basepath: str,
+    *,
+    summary_cache_db: str,
+    model_name_pattern: str,
+) -> tuple[list[tuple[str, str, Path]], str | None]:
+    try:
+        cache_rows = list_model_summaries(
+            summary_cache_db,
+            basepath=basepath,
+            expected_columns=len(SUMMARY_COLUMNS),
+        )
+    except Exception as exc:
+        return [], f"Failed to read model summary cache: {exc}"
+
+    if not cache_rows:
+        return [], "Model summary cache is empty; build model summaries first."
+
+    pattern = str(model_name_pattern or "").strip()
+    candidates: list[tuple[str, str, Path]] = []
+    seen_relpaths: set[str] = set()
+    missing_entries = 0
+    for row in cache_rows:
+        relpath = str(row.get("path", "")).strip().strip("/")
+        if not relpath or relpath in seen_relpaths:
+            continue
+        seen_relpaths.add(relpath)
+
+        values = row.get("values")
+        model_name = str(values[0]).strip() if isinstance(values, list) and values else ""
+        if not model_name:
+            model_name = Path(relpath).name
+
+        if pattern and not fnmatch.fnmatch(model_name, pattern):
+            continue
+
+        try:
+            model_dir = resolve_path(basepath, relpath)
+        except FileNotFoundError:
+            missing_entries += 1
+            continue
+        if not model_dir.is_dir():
+            missing_entries += 1
+            continue
+
+        candidates.append((model_name, relpath, model_dir))
+
+    candidates.sort(key=lambda item: (item[0].lower(), item[1].lower()))
+    if candidates:
+        return candidates, None
+
+    if pattern:
+        if missing_entries > 0:
+            return [], (
+                f"No cached models matched pattern '{pattern}' with an accessible directory. "
+                f"{missing_entries} cached entry(ies) were missing on disk."
+            )
+        return [], f"No cached models matched pattern '{pattern}'."
+
+    if missing_entries > 0:
+        return [], (
+            "No cached models with accessible directories were found. "
+            f"{missing_entries} cached entry(ies) were missing on disk."
+        )
+    return [], "No cached models are available for grid search."
+
+
+def _grid_search_prune_locked(now: float) -> None:
+    expired_ids: list[str] = []
+    for job_id, job in GRID_SEARCH_JOBS.items():
+        if str(job.get("status", "")) == "running":
+            continue
+        finished_at_raw = job.get("finished_at", job.get("created_at", 0.0))
+        try:
+            finished_at = float(finished_at_raw)
+        except (TypeError, ValueError):
+            finished_at = 0.0
+        if finished_at > 0 and (now - finished_at) > GRID_SEARCH_JOB_TTL_SECONDS:
+            expired_ids.append(job_id)
+    for job_id in expired_ids:
+        GRID_SEARCH_JOBS.pop(job_id, None)
+
+    if len(GRID_SEARCH_JOBS) <= GRID_SEARCH_MAX_JOBS:
+        return
+
+    finished_jobs = [
+        (
+            job_id,
+            float(job.get("finished_at", job.get("created_at", 0.0)) or 0.0),
+        )
+        for job_id, job in GRID_SEARCH_JOBS.items()
+        if str(job.get("status", "")) != "running"
+    ]
+    finished_jobs.sort(key=lambda item: item[1])
+    while len(GRID_SEARCH_JOBS) > GRID_SEARCH_MAX_JOBS and finished_jobs:
+        job_id, _timestamp = finished_jobs.pop(0)
+        GRID_SEARCH_JOBS.pop(job_id, None)
+
+
+def _grid_search_job_update(job_id: str, **fields: object) -> bool:
+    with GRID_SEARCH_JOBS_LOCK:
+        job = GRID_SEARCH_JOBS.get(job_id)
+        if not isinstance(job, dict):
+            return False
+        for key, value in fields.items():
+            job[key] = value
+    return True
+
+
+def _grid_search_job_snapshot(job_id: str) -> dict[str, object] | None:
+    with GRID_SEARCH_JOBS_LOCK:
+        job = GRID_SEARCH_JOBS.get(job_id)
+        if not isinstance(job, dict):
+            return None
+        return copy.deepcopy(job)
+
+
+def _grid_search_job_create(
+    *,
+    upload_token: str,
+    mode: str,
+    fit_bounds: dict[str, tuple[float, float]],
+    model_name_pattern: str,
+    total_models: int,
+) -> str:
+    job_id = secrets.token_urlsafe(12)
+    now = time.time()
+    payload: dict[str, object] = {
+        "job_id": job_id,
+        "status": "running",
+        "upload_token": upload_token,
+        "mode": mode,
+        "model_name_pattern": str(model_name_pattern or "").strip(),
+        "fit_bounds": _fit_bounds_payload(fit_bounds),
+        "total": int(total_models),
+        "processed": 0,
+        "successful": 0,
+        "failed": 0,
+        "current_model": "",
+        "created_at": now,
+        "started_at": now,
+        "finished_at": 0.0,
+        "error": "",
+        "result": {},
+    }
+    with GRID_SEARCH_JOBS_LOCK:
+        _grid_search_prune_locked(now)
+        GRID_SEARCH_JOBS[job_id] = payload
+    return job_id
+
+
+def _run_upload_grid_search_job(
+    job_id: str,
+    *,
+    upload_token: str,
+    mode: str,
+    observed: dict[str, object],
+    fit_bounds: dict[str, tuple[float, float]],
+    model_name_pattern: str,
+    model_candidates: list[tuple[str, str, str]],
+    lambda_min: float,
+    lambda_max: float,
+) -> None:
+    try:
+        total = len(model_candidates)
+        successful = 0
+        failed = 0
+        best_model: dict[str, object] | None = None
+        top_models: list[dict[str, object]] = []
+        started_at = time.time()
+
+        for index, (model_name, model_relpath, model_path_str) in enumerate(model_candidates, start=1):
+            _grid_search_job_update(
+                job_id,
+                current_model=f"{model_name} ({model_relpath})",
+                processed=index - 1,
+                successful=successful,
+                failed=failed,
+            )
+
+            model_dir = Path(model_path_str)
+            spectrum_files = discover_final_spectrum_files(model_dir)
+            if spectrum_files is None:
+                failed += 1
+                continue
+
+            fin_files = spectrum_files.get("fin_files")
+            if not isinstance(fin_files, list) or not fin_files:
+                failed += 1
+                continue
+            selected_fin = fin_files[0]
+            if not isinstance(selected_fin, Path):
+                failed += 1
+                continue
+
+            try:
+                continuum = load_obs_spectrum(
+                    Path(spectrum_files["obs_cont"]),
+                    lambda_min=lambda_min,
+                    lambda_max=lambda_max,
+                )
+                final = load_obs_spectrum(
+                    selected_fin,
+                    lambda_min=lambda_min,
+                    lambda_max=lambda_max,
+                )
+            except Exception:
+                failed += 1
+                continue
+
+            best_params, metrics, fit_error = fit_model_to_observed(
+                continuum,
+                final,
+                observed,
+                mode=mode,
+                initial_params=SPECTRUM_TRANSFORM_DEFAULTS,
+                bounds_override=fit_bounds,
+            )
+            if fit_error or best_params is None or not isinstance(metrics, dict):
+                failed += 1
+                continue
+
+            rmse_raw = metrics.get("rmse")
+            if not isinstance(rmse_raw, int | float) or not math.isfinite(float(rmse_raw)):
+                failed += 1
+                continue
+
+            points_raw = metrics.get("points", 0)
+            points = int(points_raw) if isinstance(points_raw, int | float) else 0
+            item = {
+                "model_name": model_name,
+                "model_path": model_relpath,
+                "fin": selected_fin.name,
+                "rmse": float(rmse_raw),
+                "points": points,
+                "fit_params": {
+                    "redshift": float(best_params.get("redshift", 0.0)),
+                    "broadening_km_s": float(best_params.get("broadening_km_s", 0.0)),
+                    "ebv": float(best_params.get("ebv", 0.0)),
+                    "distance_kpc": float(best_params.get("distance_kpc", 1.0)),
+                },
+            }
+            successful += 1
+
+            top_models.append(item)
+            top_models.sort(key=lambda candidate: float(candidate.get("rmse", math.inf)))
+            if len(top_models) > GRID_SEARCH_TOP_RESULTS:
+                top_models = top_models[:GRID_SEARCH_TOP_RESULTS]
+
+            if best_model is None or float(item["rmse"]) < float(best_model.get("rmse", math.inf)):
+                best_model = dict(item)
+
+        elapsed_seconds = max(0.0, time.time() - started_at)
+        result_payload: dict[str, object] = {
+            "mode": mode,
+            "upload_token": upload_token,
+            "model_name_pattern": str(model_name_pattern or "").strip(),
+            "fit_bounds": _fit_bounds_payload(fit_bounds),
+            "elapsed_seconds": elapsed_seconds,
+            "best_model": best_model,
+            "top_models": top_models,
+        }
+
+        _grid_search_job_update(
+            job_id,
+            status="completed",
+            processed=total,
+            successful=successful,
+            failed=failed,
+            current_model="",
+            result=result_payload,
+            finished_at=time.time(),
+            error="",
+        )
+    except Exception as exc:
+        _grid_search_job_update(
+            job_id,
+            status="failed",
+            finished_at=time.time(),
+            error=f"Grid search failed: {exc}",
+        )
+
+
 @bp.route("/uploads/")
 def uploads():
     config = _viewer_config()
@@ -1367,13 +1667,20 @@ def upload_view(token: str):
         return redirect(url_for("viewer.uploads", error=f"Uploaded spectrum '{filename}' failed to load: {exc}"))
     parsed["name"] = filename
 
-    warnings: list[str] = [str(item) for item in parsed.get("warnings", [])]
+    warnings: list[str] = []
+    upload_error = request.args.get("error", "").strip()
+    if upload_error:
+        warnings.append(upload_error)
+    warnings.extend(str(item) for item in parsed.get("warnings", []))
+
     plot_data, plot_warning = build_uploaded_spectrum_plot(parsed)
     if plot_warning:
         warnings.append(plot_warning)
 
     spectrum_mode = "both" if str(parsed.get("flux_mode", "")).strip().lower() == "absolute" else "normalized"
     transform_params = _normalize_transform_params(request.args.to_dict(flat=True))
+    fit_bounds = _normalize_fit_bounds(request.args.to_dict(flat=True), mode=spectrum_mode)
+    model_name_pattern = str(request.args.get("model_name_pattern", "")).strip()
     return render_template(
         "upload_spectrum_view.html",
         upload=display_entry,
@@ -1385,8 +1692,198 @@ def upload_view(token: str):
         ),
         mode=spectrum_mode,
         transform_params=transform_params,
+        fit_bounds=fit_bounds,
+        model_name_pattern=model_name_pattern,
         plot_data=plot_data,
         warnings=warnings,
+    )
+
+
+@bp.route("/uploads/fit-grid/<token>", methods=["POST"])
+def upload_fit_grid(token: str):
+    if not is_valid_upload_token(token):
+        abort(404)
+
+    config = _viewer_config()
+    basepath = str(config.get("basepath", "."))
+    summary_cache_db = str(config.get("summary_cache_db", "model_summary_cache.sqlite"))
+    upload_root = _upload_root(config)
+    lambda_min, lambda_max = _spectrum_lambda_bounds(config)
+
+    entries = {str(item.get("token", "")): item for item in list_upload_manifests(upload_root)}
+    entry = entries.get(token)
+    if entry is None:
+        return jsonify({"ok": False, "error": "Uploaded spectrum token is not available."}), 404
+
+    stored_name = str(entry.get("stored_name", ""))
+    source_path = upload_root / token / stored_name if stored_name else None
+    if source_path is None or not source_path.is_file():
+        return jsonify({"ok": False, "error": "Uploaded spectrum file is missing."}), 404
+
+    upload_flux_mode = str(entry.get("requested_flux_mode", "auto")).strip().lower() or "auto"
+    try:
+        observed = parse_uploaded_spectrum(
+            source_path,
+            flux_mode=upload_flux_mode,
+            lambda_min=lambda_min,
+            lambda_max=lambda_max,
+        )
+    except Exception as exc:
+        return jsonify({"ok": False, "error": f"Could not parse uploaded spectrum: {exc}"}), 400
+    observed["name"] = str(entry.get("filename", source_path.name))
+
+    mode = "both" if str(observed.get("flux_mode", "")).strip().lower() == "absolute" else "normalized"
+    fit_bounds = _normalize_fit_bounds(request.form.to_dict(flat=True), mode=mode)
+    model_name_pattern = str(request.form.get("model_name_pattern", "")).strip()
+    model_dirs, discover_error = _discover_model_grid_from_cache(
+        basepath,
+        summary_cache_db=summary_cache_db,
+        model_name_pattern=model_name_pattern,
+    )
+    if discover_error:
+        return jsonify({"ok": False, "error": discover_error}), 400
+    if not model_dirs:
+        return jsonify({"ok": False, "error": "No cached models were available for grid search."}), 400
+
+    serialized_candidates = [
+        (model_name, relpath, str(path.resolve()))
+        for model_name, relpath, path in model_dirs
+    ]
+    job_id = _grid_search_job_create(
+        upload_token=token,
+        mode=mode,
+        fit_bounds=fit_bounds,
+        model_name_pattern=model_name_pattern,
+        total_models=len(serialized_candidates),
+    )
+
+    worker = Thread(
+        target=_run_upload_grid_search_job,
+        kwargs={
+            "job_id": job_id,
+            "upload_token": token,
+            "mode": mode,
+            "observed": observed,
+            "fit_bounds": fit_bounds,
+            "model_name_pattern": model_name_pattern,
+            "model_candidates": serialized_candidates,
+            "lambda_min": lambda_min,
+            "lambda_max": lambda_max,
+        },
+        daemon=True,
+    )
+    worker.start()
+
+    return jsonify(
+        {
+            "ok": True,
+            "job_id": job_id,
+            "mode": mode,
+            "total_models": len(serialized_candidates),
+            "fit_bounds": _fit_bounds_payload(fit_bounds),
+            "model_name_pattern": model_name_pattern,
+        }
+    )
+
+
+@bp.route("/uploads/fit-grid/status/<job_id>")
+def upload_fit_grid_status(job_id: str):
+    snapshot = _grid_search_job_snapshot(job_id)
+    if snapshot is None:
+        return jsonify({"ok": False, "error": "Grid search job is not available."}), 404
+
+    status = str(snapshot.get("status", ""))
+    processed = int(snapshot.get("processed", 0) or 0)
+    total = int(snapshot.get("total", 0) or 0)
+    successful = int(snapshot.get("successful", 0) or 0)
+    failed = int(snapshot.get("failed", 0) or 0)
+
+    progress_percent = 0.0
+    if total > 0:
+        progress_percent = min(100.0, max(0.0, 100.0 * processed / total))
+    if status == "completed":
+        progress_percent = 100.0
+
+    payload: dict[str, object] = {
+        "ok": True,
+        "status": status,
+        "processed": processed,
+        "total": total,
+        "successful": successful,
+        "failed": failed,
+        "current_model": str(snapshot.get("current_model", "")),
+        "progress_percent": progress_percent,
+    }
+
+    if status == "failed":
+        payload["error"] = str(snapshot.get("error", "Grid search failed."))
+        return jsonify(payload), 500
+
+    if status == "completed":
+        result = snapshot.get("result")
+        if isinstance(result, dict):
+            result_payload = copy.deepcopy(result)
+            best_model = result_payload.get("best_model")
+            if isinstance(best_model, dict):
+                best_path = str(best_model.get("model_path", ""))
+                best_fin = str(best_model.get("fin", ""))
+                mode = str(result_payload.get("mode", snapshot.get("mode", "both")))
+                fit_params = best_model.get("fit_params")
+                if isinstance(fit_params, dict) and best_path and best_fin:
+                    best_model["spectrum_url"] = _spectrum_url(
+                        best_path,
+                        fin=best_fin,
+                        mode=mode,
+                        obs_tokens=[str(snapshot.get("upload_token", ""))],
+                        transform_params=fit_params,
+                    )
+                if best_path:
+                    best_model["browse_url"] = url_for("viewer.view", path=best_path)
+                result_payload["best_model"] = best_model
+            payload["result"] = result_payload
+
+    return jsonify(payload)
+
+
+@bp.route("/uploads/fit-grid/match-count/<token>")
+def upload_fit_grid_match_count(token: str):
+    if not is_valid_upload_token(token):
+        abort(404)
+
+    config = _viewer_config()
+    basepath = str(config.get("basepath", "."))
+    summary_cache_db = str(config.get("summary_cache_db", "model_summary_cache.sqlite"))
+    upload_root = _upload_root(config)
+
+    entries = {str(item.get("token", "")): item for item in list_upload_manifests(upload_root)}
+    if token not in entries:
+        return jsonify({"ok": False, "error": "Uploaded spectrum token is not available.", "total_models": 0}), 404
+
+    model_name_pattern = str(request.args.get("model_name_pattern", "")).strip()
+    model_dirs, discover_error = _discover_model_grid_from_cache(
+        basepath,
+        summary_cache_db=summary_cache_db,
+        model_name_pattern=model_name_pattern,
+    )
+    if discover_error:
+        return (
+            jsonify(
+                {
+                    "ok": False,
+                    "error": discover_error,
+                    "model_name_pattern": model_name_pattern,
+                    "total_models": 0,
+                }
+            ),
+            400,
+        )
+
+    return jsonify(
+        {
+            "ok": True,
+            "model_name_pattern": model_name_pattern,
+            "total_models": len(model_dirs),
+        }
     )
 
 
