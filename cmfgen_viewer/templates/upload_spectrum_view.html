@@ -214,6 +214,17 @@
             return cloned;
           }
 
+          function cloneLayoutShape(shape) {
+            if (!shape || typeof shape !== "object") {
+              return shape;
+            }
+            var cloned = Object.assign({}, shape);
+            if (shape.line && typeof shape.line === "object") {
+              cloned.line = Object.assign({}, shape.line);
+            }
+            return cloned;
+          }
+
           function transformTargetForTrace(trace) {
             if (trace && trace.meta && trace.meta.transform_target === "observed") {
               return "observed";
@@ -227,8 +238,13 @@
             baseData.push(cloneTraceWithArrays(plotData[baseTraceIndex]));
             transformTargets.push(transformTargetForTrace(plotData[baseTraceIndex]));
           }
+          var baseLayoutShapes = Array.isArray(plotLayout.shapes)
+            ? plotLayout.shapes.map(cloneLayoutShape)
+            : [];
           var gridOverlayIndex = -1;
           var pendingOverlayAction = null;
+          var pendingFitRangeAction = null;
+          var fitRangeSignature = "";
           var isSyncingVelocity = false;
           var transformFrame = null;
 
@@ -237,6 +253,104 @@
               return "";
             }
             return Number(value.toFixed(decimals)).toString();
+          }
+
+          function normalizeFitRangeValue(value) {
+            if (value === null || value === undefined || String(value).trim() === "") {
+              return null;
+            }
+            var numeric = Number(value);
+            if (!Number.isFinite(numeric) || numeric <= 0) {
+              return null;
+            }
+            return numeric;
+          }
+
+          function fitRangeMarkerSignature(minValue, maxValue) {
+            var minText = minValue === null ? "" : formatNumeric(minValue, 6);
+            var maxText = maxValue === null ? "" : formatNumeric(maxValue, 6);
+            return minText + "|" + maxText;
+          }
+
+          function buildFitRangeShapes(minValue, maxValue) {
+            var nextShapes = baseLayoutShapes.map(cloneLayoutShape);
+            var baseLine = {
+              color: "#198754",
+              width: 1.2,
+              dash: "dot"
+            };
+            if (minValue !== null) {
+              nextShapes.push({
+                type: "line",
+                xref: "x",
+                yref: "paper",
+                x0: minValue,
+                x1: minValue,
+                y0: 0,
+                y1: 1,
+                line: Object.assign({}, baseLine)
+              });
+            }
+            if (maxValue !== null) {
+              nextShapes.push({
+                type: "line",
+                xref: "x",
+                yref: "paper",
+                x0: maxValue,
+                x1: maxValue,
+                y0: 0,
+                y1: 1,
+                line: Object.assign({}, baseLine)
+              });
+            }
+            return nextShapes;
+          }
+
+          function applyFitRangeMarkersNow(minValue, maxValue) {
+            if (!target.data || !target.layout) {
+              return;
+            }
+            var normalizedMin = normalizeFitRangeValue(minValue);
+            var normalizedMax = normalizeFitRangeValue(maxValue);
+            if (normalizedMin !== null && normalizedMax !== null && normalizedMin > normalizedMax) {
+              var swap = normalizedMin;
+              normalizedMin = normalizedMax;
+              normalizedMax = swap;
+            }
+            var signature = fitRangeMarkerSignature(normalizedMin, normalizedMax);
+            if (signature === fitRangeSignature) {
+              return;
+            }
+            fitRangeSignature = signature;
+            var nextShapes = buildFitRangeShapes(normalizedMin, normalizedMax);
+            plotLayout.shapes = nextShapes.map(cloneLayoutShape);
+            Plotly.relayout(target, {
+              shapes: nextShapes
+            });
+          }
+
+          function setFitRangeMarkers(minValue, maxValue) {
+            if (!target.data || !target.layout) {
+              pendingFitRangeAction = {
+                min: minValue,
+                max: maxValue
+              };
+              return;
+            }
+            applyFitRangeMarkersNow(minValue, maxValue);
+          }
+
+          function clearFitRangeMarkers() {
+            setFitRangeMarkers(null, null);
+          }
+
+          function applyPendingFitRangeAction() {
+            if (!pendingFitRangeAction) {
+              return;
+            }
+            var bounds = pendingFitRangeAction;
+            pendingFitRangeAction = null;
+            setFitRangeMarkers(bounds.min, bounds.max);
           }
 
           function setTransformHint(message, isError) {
@@ -391,6 +505,12 @@
             },
             clear: function () {
               clearGridOverlayTrace();
+            },
+            setFitRange: function (minValue, maxValue) {
+              setFitRangeMarkers(minValue, maxValue);
+            },
+            clearFitRange: function () {
+              clearFitRangeMarkers();
             }
           };
 
@@ -826,6 +946,7 @@
             scheduleTransforms();
             bindVerticalResize(target);
             applyPendingOverlayAction();
+            applyPendingFitRangeAction();
           });
         })();
       </script>
@@ -1200,6 +1321,31 @@
         return Number(numeric.toFixed(6)).toString();
       }
 
+      function parseFitRangeInputValue(input) {
+        if (!input) {
+          return null;
+        }
+        var text = String(input.value || "").trim();
+        if (!text) {
+          return null;
+        }
+        var numeric = Number(text);
+        if (!Number.isFinite(numeric) || numeric <= 0) {
+          return null;
+        }
+        return numeric;
+      }
+
+      function syncFitRangeMarkers() {
+        var controller = overlayController();
+        if (!controller || typeof controller.setFitRange !== "function") {
+          return;
+        }
+        var minValue = parseFitRangeInputValue(lambdaMinInput);
+        var maxValue = parseFitRangeInputValue(lambdaMaxInput);
+        controller.setFitRange(minValue, maxValue);
+      }
+
       function readCurrentPlotXRange() {
         if (!uploadPlot || !uploadPlot._fullLayout || !uploadPlot._fullLayout.xaxis) {
           return null;
@@ -1243,6 +1389,7 @@
         var maxText = formatRangeValue(range[1]);
         lambdaMinInput.value = minText;
         lambdaMaxInput.value = maxText;
+        syncFitRangeMarkers();
         setFeedback("Fit wavelength range set from plot view: " + minText + " .. " + maxText + " Å.", false);
       }
 
@@ -1750,6 +1897,14 @@
         patternInput.addEventListener("input", schedulePatternMatchCount);
         patternInput.addEventListener("change", schedulePatternMatchCount);
       }
+      if (lambdaMinInput) {
+        lambdaMinInput.addEventListener("input", syncFitRangeMarkers);
+        lambdaMinInput.addEventListener("change", syncFitRangeMarkers);
+      }
+      if (lambdaMaxInput) {
+        lambdaMaxInput.addEventListener("input", syncFitRangeMarkers);
+        lambdaMaxInput.addEventListener("change", syncFitRangeMarkers);
+      }
       if (usePlotRangeButton) {
         usePlotRangeButton.addEventListener("click", applyPlotRangeToFitInputs);
         if (!uploadPlot) {
@@ -1762,6 +1917,7 @@
       }
       setCancelControl(false, false);
       fetchPatternMatchCount();
+      syncFitRangeMarkers();
 
       if (initialActiveJob && typeof initialActiveJob === "object") {
         var initialJobId = String(initialActiveJob.job_id || "");
