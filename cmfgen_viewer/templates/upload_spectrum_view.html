@@ -783,6 +783,10 @@
           </div>
         </div>
         <div id="grid-fit-progress-text" class="small text-muted"></div>
+        <div id="grid-fit-best-wrap" class="border rounded bg-light p-2 mt-2 d-none">
+          <div class="small text-muted mb-1">Current best candidate</div>
+          <div id="grid-fit-best-body"></div>
+        </div>
       </div>
 
       <div id="grid-fit-result" class="d-none">
@@ -836,6 +840,8 @@
       var progressWrap = document.getElementById("grid-fit-progress-wrap");
       var progressBar = document.getElementById("grid-fit-progress-bar");
       var progressText = document.getElementById("grid-fit-progress-text");
+      var bestWrap = document.getElementById("grid-fit-best-wrap");
+      var bestBody = document.getElementById("grid-fit-best-body");
       var resultWrap = document.getElementById("grid-fit-result");
       var resultBody = document.getElementById("grid-fit-result-body");
       var submitButton = form.querySelector("button[type='submit']");
@@ -941,6 +947,59 @@
         row.appendChild(document.createTextNode(": "));
         row.appendChild(codeElement(value));
         container.appendChild(row);
+      }
+
+      function resetBestSoFar() {
+        if (bestWrap) {
+          bestWrap.classList.add("d-none");
+        }
+        if (bestBody) {
+          bestBody.innerHTML = "";
+        }
+      }
+
+      function renderBestSoFar(best) {
+        if (!bestWrap || !bestBody) {
+          return;
+        }
+        if (!best || typeof best !== "object") {
+          resetBestSoFar();
+          return;
+        }
+
+        bestBody.innerHTML = "";
+        bestWrap.classList.remove("d-none");
+        addSummaryLine(bestBody, "Model", String(best.model_path || best.model_name || ""));
+        addSummaryLine(bestBody, "RMSE", formatRmse(best.rmse));
+        addSummaryLine(bestBody, "Fit points", String(best.points || ""));
+
+        var params = best.fit_params && typeof best.fit_params === "object" ? best.fit_params : {};
+        addSummaryLine(bestBody, "z", formatParam(params.redshift));
+        addSummaryLine(bestBody, "sigma (km/s)", formatParam(params.broadening_km_s));
+        if ("{{ mode }}" === "both") {
+          addSummaryLine(bestBody, "E(B-V)", formatParam(params.ebv));
+          addSummaryLine(bestBody, "distance (kpc)", formatParam(params.distance_kpc));
+        }
+
+        var linksRow = document.createElement("div");
+        linksRow.className = "d-flex flex-wrap gap-2 mt-2";
+        if (best.spectrum_url) {
+          var spectrumLink = document.createElement("a");
+          spectrumLink.className = "btn btn-sm btn-outline-success";
+          spectrumLink.href = String(best.spectrum_url);
+          spectrumLink.textContent = "Preview Best-So-Far Spectrum";
+          linksRow.appendChild(spectrumLink);
+        }
+        if (best.browse_url) {
+          var browseLink = document.createElement("a");
+          browseLink.className = "btn btn-sm btn-outline-secondary";
+          browseLink.href = String(best.browse_url);
+          browseLink.textContent = "Open Model Folder";
+          linksRow.appendChild(browseLink);
+        }
+        if (linksRow.children.length) {
+          bestBody.appendChild(linksRow);
+        }
       }
 
       function renderResult(result) {
@@ -1162,6 +1221,9 @@
             var percentage = asFiniteNumber(payload.progress_percent, total > 0 ? (100 * processed / total) : 0);
             var cancelRequested = !!payload.cancel_requested;
             var current = String(payload.current_model || "");
+            var bestSoFar = payload.best_so_far && typeof payload.best_so_far === "object"
+              ? payload.best_so_far
+              : null;
             var progressLine = "Processed " + processed + "/" + total + " models; valid fits: " + successful + "; failed/skipped: " + failed + ".";
             if (current) {
               progressLine += " Current: " + current;
@@ -1169,6 +1231,7 @@
             setProgress(percentage, progressLine, status === "running");
 
             if (status === "running") {
+              renderBestSoFar(bestSoFar);
               setCancelControl(true, cancelRequested);
               window.setTimeout(function () {
                 pollJob(jobId);
@@ -1178,6 +1241,7 @@
 
             activeJobId = "";
             cancelInFlight = false;
+            resetBestSoFar();
             setCancelControl(false, false);
             if (submitButton) {
               submitButton.disabled = false;
@@ -1227,6 +1291,7 @@
         }
         event.preventDefault();
         resetResult();
+        resetBestSoFar();
         setFeedback("", false);
         setProgress(0, "Starting grid fit...", true);
         activeJobId = "";
@@ -1274,6 +1339,7 @@
             if (submitButton) {
               submitButton.disabled = false;
             }
+            resetBestSoFar();
             setProgress(0, "", false);
             setFeedback(error && error.message ? error.message : "Grid fit failed.", true);
           });
@@ -1298,6 +1364,9 @@
           var initialFailed = asFiniteNumber(initialActiveJob.failed, 0);
           var initialProgress = asFiniteNumber(initialActiveJob.progress_percent, initialTotal > 0 ? (100 * initialProcessed / initialTotal) : 0);
           var initialCurrent = String(initialActiveJob.current_model || "");
+          var initialBestSoFar = initialActiveJob.best_so_far && typeof initialActiveJob.best_so_far === "object"
+            ? initialActiveJob.best_so_far
+            : null;
           var initialCancelRequested = !!initialActiveJob.cancel_requested;
           var initialText = "Processed " + initialProcessed + "/" + initialTotal + " models; valid fits: " + initialSuccessful + "; failed/skipped: " + initialFailed + ".";
           if (initialCurrent) {
@@ -1309,6 +1378,7 @@
             setFeedback("Resuming active grid fit for this upload.", false);
           }
           setProgress(initialProgress, initialText, true);
+          renderBestSoFar(initialBestSoFar);
           setCancelControl(true, initialCancelRequested);
           pollJob(initialJobId);
         }

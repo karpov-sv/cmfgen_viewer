@@ -1505,6 +1505,7 @@ def _grid_search_job_create(
         "successful": 0,
         "failed": 0,
         "current_model": "",
+        "best_so_far": {},
         "created_at": now,
         "started_at": now,
         "finished_at": 0.0,
@@ -1532,6 +1533,17 @@ def _run_upload_grid_search_job(
     lambda_max: float,
 ) -> None:
     try:
+        def update_iteration_progress(processed: int, *, current_model: str | None = None) -> None:
+            fields: dict[str, object] = {
+                "processed": processed,
+                "successful": successful,
+                "failed": failed,
+                "best_so_far": copy.deepcopy(best_model) if best_model is not None else {},
+            }
+            if current_model is not None:
+                fields["current_model"] = current_model
+            _grid_search_job_update(job_id, **fields)
+
         def finish_canceled(
             *,
             processed: int,
@@ -1557,6 +1569,7 @@ def _run_upload_grid_search_job(
                 successful=successful,
                 failed=failed,
                 current_model="",
+                best_so_far=copy.deepcopy(best_model) if best_model is not None else {},
                 result=result_payload,
                 finished_at=time.time(),
                 error="Grid search canceled by user.",
@@ -1592,15 +1605,18 @@ def _run_upload_grid_search_job(
             spectrum_files = discover_final_spectrum_files(model_dir)
             if spectrum_files is None:
                 failed += 1
+                update_iteration_progress(index, current_model="")
                 continue
 
             fin_files = spectrum_files.get("fin_files")
             if not isinstance(fin_files, list) or not fin_files:
                 failed += 1
+                update_iteration_progress(index, current_model="")
                 continue
             selected_fin = fin_files[0]
             if not isinstance(selected_fin, Path):
                 failed += 1
+                update_iteration_progress(index, current_model="")
                 continue
 
             try:
@@ -1616,6 +1632,7 @@ def _run_upload_grid_search_job(
                 )
             except Exception:
                 failed += 1
+                update_iteration_progress(index, current_model="")
                 continue
 
             best_params, metrics, fit_error = fit_model_to_observed(
@@ -1639,11 +1656,13 @@ def _run_upload_grid_search_job(
                 return
             if fit_error or best_params is None or not isinstance(metrics, dict):
                 failed += 1
+                update_iteration_progress(index, current_model="")
                 continue
 
             rmse_raw = metrics.get("rmse")
             if not isinstance(rmse_raw, int | float) or not math.isfinite(float(rmse_raw)):
                 failed += 1
+                update_iteration_progress(index, current_model="")
                 continue
 
             points_raw = metrics.get("points", 0)
@@ -1670,6 +1689,7 @@ def _run_upload_grid_search_job(
 
             if best_model is None or float(item["rmse"]) < float(best_model.get("rmse", math.inf)):
                 best_model = dict(item)
+            update_iteration_progress(index, current_model="")
 
         if _grid_search_job_cancel_requested(job_id):
             finish_canceled(
@@ -1700,6 +1720,7 @@ def _run_upload_grid_search_job(
             successful=successful,
             failed=failed,
             current_model="",
+            best_so_far=copy.deepcopy(best_model) if best_model is not None else {},
             result=result_payload,
             finished_at=time.time(),
             error="",
@@ -1791,6 +1812,14 @@ def upload_view(token: str):
         progress_percent = 0.0
         if total > 0:
             progress_percent = min(100.0, max(0.0, 100.0 * processed / total))
+        best_so_far_payload: dict[str, object] = {}
+        best_so_far = active_job.get("best_so_far")
+        if isinstance(best_so_far, dict) and best_so_far:
+            best_so_far_payload = _grid_search_model_links(
+                best_so_far,
+                mode=spectrum_mode,
+                upload_token=token,
+            )
         active_grid_job = {
             "job_id": str(active_job.get("job_id", "")),
             "status": str(active_job.get("status", "")),
@@ -1802,6 +1831,7 @@ def upload_view(token: str):
             "cancel_requested": bool(active_job.get("cancel_requested", False)),
             "progress_percent": progress_percent,
             "model_name_pattern": str(active_job.get("model_name_pattern", "")).strip(),
+            "best_so_far": best_so_far_payload,
         }
 
     return render_template(
@@ -1927,6 +1957,29 @@ def upload_fit_grid(token: str):
     )
 
 
+def _grid_search_model_links(
+    model_entry: dict[str, object],
+    *,
+    mode: str,
+    upload_token: str,
+) -> dict[str, object]:
+    enriched = copy.deepcopy(model_entry)
+    best_path = str(enriched.get("model_path", ""))
+    best_fin = str(enriched.get("fin", ""))
+    fit_params = enriched.get("fit_params")
+    if isinstance(fit_params, dict) and best_path and best_fin and upload_token:
+        enriched["spectrum_url"] = _spectrum_url(
+            best_path,
+            fin=best_fin,
+            mode=mode,
+            obs_tokens=[upload_token],
+            transform_params=fit_params,
+        )
+    if best_path:
+        enriched["browse_url"] = url_for("viewer.view", path=best_path)
+    return enriched
+
+
 @bp.route("/uploads/fit-grid/status/<job_id>")
 def upload_fit_grid_status(job_id: str):
     snapshot = _grid_search_job_snapshot(job_id)
@@ -1959,6 +2012,16 @@ def upload_fit_grid_status(job_id: str):
         "can_cancel": status == "running" and not cancel_requested,
     }
 
+    upload_token = str(snapshot.get("upload_token", ""))
+    running_mode = str(snapshot.get("mode", "both"))
+    best_so_far = snapshot.get("best_so_far")
+    if isinstance(best_so_far, dict) and best_so_far:
+        payload["best_so_far"] = _grid_search_model_links(
+            best_so_far,
+            mode=running_mode,
+            upload_token=upload_token,
+        )
+
     if status == "failed":
         payload["error"] = str(snapshot.get("error", "Grid search failed."))
         return jsonify(payload), 500
@@ -1969,21 +2032,11 @@ def upload_fit_grid_status(job_id: str):
             result_payload = copy.deepcopy(result)
             best_model = result_payload.get("best_model")
             if isinstance(best_model, dict):
-                best_path = str(best_model.get("model_path", ""))
-                best_fin = str(best_model.get("fin", ""))
-                mode = str(result_payload.get("mode", snapshot.get("mode", "both")))
-                fit_params = best_model.get("fit_params")
-                if isinstance(fit_params, dict) and best_path and best_fin:
-                    best_model["spectrum_url"] = _spectrum_url(
-                        best_path,
-                        fin=best_fin,
-                        mode=mode,
-                        obs_tokens=[str(snapshot.get("upload_token", ""))],
-                        transform_params=fit_params,
-                    )
-                if best_path:
-                    best_model["browse_url"] = url_for("viewer.view", path=best_path)
-                result_payload["best_model"] = best_model
+                result_payload["best_model"] = _grid_search_model_links(
+                    best_model,
+                    mode=str(result_payload.get("mode", snapshot.get("mode", "both"))),
+                    upload_token=upload_token,
+                )
             payload["result"] = result_payload
         if status == "canceled":
             payload["message"] = "Grid search canceled."
