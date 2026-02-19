@@ -548,6 +548,7 @@ def _spectrum_url(
     upload_error: str = "",
     transform_params: dict[str, object] | None = None,
     fit_notice: str = "",
+    fit_wavelength_inputs: dict[str, str] | None = None,
 ) -> str:
     base = url_for("viewer.spectrum", path=model_root)
     query: list[tuple[str, str]] = [("fin", fin), ("mode", _normalize_spectrum_mode(mode))]
@@ -555,6 +556,13 @@ def _spectrum_url(
         if is_valid_upload_token(token):
             query.append(("obs", token))
     _append_transform_query(query, transform_params)
+    if isinstance(fit_wavelength_inputs, dict):
+        fit_min = str(fit_wavelength_inputs.get("min", "")).strip()
+        fit_max = str(fit_wavelength_inputs.get("max", "")).strip()
+        if fit_min:
+            query.append(("fit_lambda_min", fit_min))
+        if fit_max:
+            query.append(("fit_lambda_max", fit_max))
     if upload_error:
         query.append(("upload_error", upload_error))
     if fit_notice:
@@ -572,6 +580,7 @@ def _spectrum_redirect(
     upload_error: str = "",
     transform_params: dict[str, object] | None = None,
     fit_notice: str = "",
+    fit_wavelength_inputs: dict[str, str] | None = None,
 ):
     return redirect(
         _spectrum_url(
@@ -582,6 +591,7 @@ def _spectrum_redirect(
             upload_error=upload_error,
             transform_params=transform_params,
             fit_notice=fit_notice,
+            fit_wavelength_inputs=fit_wavelength_inputs,
         )
     )
 
@@ -2656,6 +2666,10 @@ def spectrum_upload(path: str):
     view_mode = _normalize_spectrum_mode(request.form.get("mode"))
     current_obs_tokens = _collect_obs_tokens(request.form.getlist("obs"))
     transform_params = _normalize_transform_params(request.form.to_dict(flat=True))
+    fit_wavelength_inputs = {
+        "min": str(request.form.get("fit_lambda_min", "")).strip(),
+        "max": str(request.form.get("fit_lambda_max", "")).strip(),
+    }
 
     uploaded = request.files.get("observed_file")
     if uploaded is None or not uploaded.filename:
@@ -2666,6 +2680,7 @@ def spectrum_upload(path: str):
             obs_tokens=current_obs_tokens,
             upload_error="No observed spectrum file was selected.",
             transform_params=transform_params,
+            fit_wavelength_inputs=fit_wavelength_inputs,
         )
 
     requested_flux_mode = str(request.form.get("flux_mode", "auto")).strip().lower()
@@ -2696,6 +2711,7 @@ def spectrum_upload(path: str):
             obs_tokens=current_obs_tokens,
             upload_error=f"Uploaded spectrum could not be parsed: {exc}",
             transform_params=transform_params,
+            fit_wavelength_inputs=fit_wavelength_inputs,
         )
 
     manifest = {
@@ -2718,6 +2734,7 @@ def spectrum_upload(path: str):
         mode=view_mode,
         obs_tokens=selected_tokens,
         transform_params=transform_params,
+        fit_wavelength_inputs=fit_wavelength_inputs,
     )
 
 
@@ -2749,6 +2766,10 @@ def spectrum_upload_remove(path: str):
         selected_fin = fin_files[0]
     view_mode = _normalize_spectrum_mode(request.form.get("mode"))
     transform_params = _normalize_transform_params(request.form.to_dict(flat=True))
+    fit_wavelength_inputs = {
+        "min": str(request.form.get("fit_lambda_min", "")).strip(),
+        "max": str(request.form.get("fit_lambda_max", "")).strip(),
+    }
 
     token = request.form.get("token", "").strip() or request.form.get("obs", "").strip()
     upload_root = _upload_root(config)
@@ -2763,6 +2784,7 @@ def spectrum_upload_remove(path: str):
         mode=view_mode,
         obs_tokens=remaining,
         transform_params=transform_params,
+        fit_wavelength_inputs=fit_wavelength_inputs,
     )
 
 
@@ -2801,6 +2823,29 @@ def spectrum_fit(path: str):
         request.form.get("async", "").strip() == "1"
         or request.headers.get("X-Requested-With", "").strip().lower() == "xmlhttprequest"
     )
+    fit_wavelength_inputs = {
+        "min": str(request.form.get("fit_lambda_min", "")).strip(),
+        "max": str(request.form.get("fit_lambda_max", "")).strip(),
+    }
+    fit_wavelength_range, fit_wavelength_error = _normalize_fit_wavelength_range(
+        request.form.to_dict(flat=True),
+        configured_min=lambda_min,
+        configured_max=lambda_max,
+    )
+    if fit_wavelength_error:
+        if async_requested:
+            return jsonify({"ok": False, "error": fit_wavelength_error}), 400
+        return _spectrum_redirect(
+            model_root,
+            fin=selected_fin,
+            mode=view_mode,
+            obs_tokens=selected_obs_tokens,
+            upload_error=fit_wavelength_error,
+            transform_params=transform_params,
+            fit_wavelength_inputs=fit_wavelength_inputs,
+        )
+    effective_lambda_min = fit_wavelength_range[0] if fit_wavelength_range is not None else lambda_min
+    effective_lambda_max = fit_wavelength_range[1] if fit_wavelength_range is not None else lambda_max
 
     def fit_error_response(message: str, *, status_code: int = 400):
         if async_requested:
@@ -2812,6 +2857,7 @@ def spectrum_fit(path: str):
             obs_tokens=selected_obs_tokens,
             upload_error=message,
             transform_params=transform_params,
+            fit_wavelength_inputs=fit_wavelength_inputs,
         )
 
     fit_token = request.form.get("fit_obs_token", "").strip()
@@ -2836,8 +2882,8 @@ def spectrum_fit(path: str):
         observed = parse_uploaded_spectrum(
             source_path,
             flux_mode=upload_flux_mode,
-            lambda_min=lambda_min,
-            lambda_max=lambda_max,
+            lambda_min=effective_lambda_min,
+            lambda_max=effective_lambda_max,
         )
     except Exception as exc:
         return fit_error_response(f"Could not load selected observed overlay: {exc}")
@@ -2845,13 +2891,13 @@ def spectrum_fit(path: str):
 
     continuum = load_obs_spectrum(
         Path(spectrum_files["obs_cont"]),
-        lambda_min=lambda_min,
-        lambda_max=lambda_max,
+        lambda_min=effective_lambda_min,
+        lambda_max=effective_lambda_max,
     )
     final = load_obs_spectrum(
         Path(spectrum_files["obs_dir"]) / selected_fin,
-        lambda_min=lambda_min,
-        lambda_max=lambda_max,
+        lambda_min=effective_lambda_min,
+        lambda_max=effective_lambda_max,
     )
 
     initial_params = {
@@ -2917,6 +2963,7 @@ def spectrum_fit(path: str):
         obs_tokens=selected_obs_tokens,
         transform_params=fitted_transform,
         fit_notice=fit_notice,
+        fit_wavelength_inputs=fit_wavelength_inputs,
     )
 
 
@@ -2953,6 +3000,10 @@ def spectrum(path: str):
     view_mode = _normalize_spectrum_mode(request.args.get("mode"))
     transform_params = _normalize_transform_params(request.args.to_dict(flat=True))
     selected_obs_tokens = _collect_obs_tokens(request.args.getlist("obs"))
+    fit_wavelength_inputs = {
+        "min": str(request.args.get("fit_lambda_min", "")).strip(),
+        "max": str(request.args.get("fit_lambda_max", "")).strip(),
+    }
 
     warnings: list[str] = []
     upload_error = request.args.get("upload_error", "").strip()
@@ -3045,6 +3096,7 @@ def spectrum(path: str):
             mode="both",
             obs_tokens=selected_obs_tokens,
             transform_params=transform_params,
+            fit_wavelength_inputs=fit_wavelength_inputs,
         ),
         "normalized": _spectrum_url(
             model_root,
@@ -3052,6 +3104,7 @@ def spectrum(path: str):
             mode="normalized",
             obs_tokens=selected_obs_tokens,
             transform_params=transform_params,
+            fit_wavelength_inputs=fit_wavelength_inputs,
         ),
     }
     clear_overlay_url = _spectrum_url(
@@ -3060,6 +3113,7 @@ def spectrum(path: str):
         mode=view_mode,
         obs_tokens=[],
         transform_params=transform_params,
+        fit_wavelength_inputs=fit_wavelength_inputs,
     )
 
     fit_candidates: list[dict[str, str]] = []
@@ -3107,6 +3161,7 @@ def spectrum(path: str):
         fit_candidates=fit_candidates,
         selected_fit_token=selected_fit_token,
         fit_bounds=fit_bounds,
+        fit_wavelength_inputs=fit_wavelength_inputs,
         upload_flux_mode="auto",
         mode_urls=mode_urls,
         clear_overlay_url=clear_overlay_url,

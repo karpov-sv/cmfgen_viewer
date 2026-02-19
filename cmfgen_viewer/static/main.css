@@ -229,18 +229,18 @@ a:focus {
 
 .plot-controls.plot-controls-transform .plot-number-input {
     box-sizing: border-box;
-    flex: 0 1 calc(8ch + 1.25rem);
-    width: clamp(calc(6ch + 1.25rem), 8vw, calc(8ch + 1.25rem));
-    min-width: calc(6ch + 1.25rem);
-    max-width: calc(8ch + 1.25rem);
+    flex: 0 1 calc(12ch + 1.25rem);
+    width: clamp(calc(7ch + 1.25rem), 13vw, calc(12ch + 1.25rem));
+    min-width: calc(7ch + 1.25rem);
+    max-width: calc(12ch + 1.25rem);
 }
 
 .grid-fit-range-input {
     box-sizing: border-box;
-    flex: 0 1 calc(9ch + 1.25rem);
-    width: clamp(calc(7ch + 1.25rem), 10vw, calc(9ch + 1.25rem));
-    min-width: calc(7ch + 1.25rem);
-    max-width: calc(9ch + 1.25rem);
+    flex: 0 1 calc(13ch + 1.25rem);
+    width: clamp(calc(8ch + 1.25rem), 14vw, calc(13ch + 1.25rem));
+    min-width: calc(8ch + 1.25rem);
+    max-width: calc(13ch + 1.25rem);
 }
 
 .plotly-resizable {

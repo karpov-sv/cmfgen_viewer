@@ -13,6 +13,8 @@
         {% for token in obs_tokens %}
           <input type="hidden" name="obs" value="{{ token }}">
         {% endfor %}
+        <input type="hidden" name="fit_lambda_min" class="fit-lambda-min-field" value="{{ fit_wavelength_inputs.min }}">
+        <input type="hidden" name="fit_lambda_max" class="fit-lambda-max-field" value="{{ fit_wavelength_inputs.max }}">
         <input type="hidden" name="redshift" class="transform-redshift-field" value="{{ transform_params.redshift }}">
         <input type="hidden" name="broadening_km_s" class="transform-broadening-field" value="{{ transform_params.broadening_km_s }}">
         <input type="hidden" name="ebv" class="transform-ebv-field" value="{{ transform_params.ebv }}">
@@ -53,6 +55,8 @@
         {% for token in obs_tokens %}
           <input type="hidden" name="obs" value="{{ token }}">
         {% endfor %}
+        <input type="hidden" name="fit_lambda_min" class="fit-lambda-min-field" value="{{ fit_wavelength_inputs.min }}">
+        <input type="hidden" name="fit_lambda_max" class="fit-lambda-max-field" value="{{ fit_wavelength_inputs.max }}">
         <input type="hidden" name="redshift" class="transform-redshift-field" value="{{ transform_params.redshift }}">
         <input type="hidden" name="broadening_km_s" class="transform-broadening-field" value="{{ transform_params.broadening_km_s }}">
         <input type="hidden" name="ebv" class="transform-ebv-field" value="{{ transform_params.ebv }}">
@@ -80,6 +84,8 @@
     <form method="get" class="d-flex flex-wrap align-items-center gap-2 mb-3 spectrum-transform-sync">
       <input type="hidden" name="fin" value="{{ selected_fin }}">
       <input type="hidden" name="mode" value="{{ mode }}">
+      <input type="hidden" name="fit_lambda_min" class="fit-lambda-min-field" value="{{ fit_wavelength_inputs.min }}">
+      <input type="hidden" name="fit_lambda_max" class="fit-lambda-max-field" value="{{ fit_wavelength_inputs.max }}">
       <input type="hidden" name="redshift" class="transform-redshift-field" value="{{ transform_params.redshift }}">
       <input type="hidden" name="broadening_km_s" class="transform-broadening-field" value="{{ transform_params.broadening_km_s }}">
       <input type="hidden" name="ebv" class="transform-ebv-field" value="{{ transform_params.ebv }}">
@@ -118,7 +124,7 @@
       <form
         method="post"
         action="{{ url_for('viewer.spectrum_fit', path=path) }}"
-        class="d-flex flex-wrap align-items-center gap-2 mb-3 spectrum-transform-sync"
+        class="mb-3 spectrum-transform-sync"
         id="spectrum-fit-form"
       >
         <input type="hidden" name="fin" value="{{ selected_fin }}">
@@ -130,88 +136,118 @@
         <input type="hidden" name="broadening_km_s" class="transform-broadening-field" value="{{ transform_params.broadening_km_s }}">
         <input type="hidden" name="ebv" class="transform-ebv-field" value="{{ transform_params.ebv }}">
         <input type="hidden" name="distance_kpc" class="transform-distance-field" value="{{ transform_params.distance_kpc }}">
-        <label for="fit-obs-select" class="small text-muted mb-0">Fit to upload</label>
-        <select id="fit-obs-select" name="fit_obs_token" class="form-select form-select-sm w-auto">
-          {% for item in fit_candidates %}
-            <option value="{{ item.token }}" {% if item.token == selected_fit_token %}selected{% endif %}>{{ item.label }}</option>
-          {% endfor %}
-        </select>
-        <button type="submit" class="btn btn-sm btn-outline-success">Fit Model</button>
-        <span class="small text-muted">Configure parameter bounds:</span>
-        <label for="fit-redshift-min" class="small text-muted mb-0">z</label>
-        <input
-          id="fit-redshift-min"
-          name="fit_redshift_min"
-          type="number"
-          step="any"
-          class="form-control form-control-sm plot-number-input"
-          value="{{ fit_bounds.redshift[0] }}"
-        >
-        <span class="small text-muted">..</span>
-        <input
-          name="fit_redshift_max"
-          type="number"
-          step="any"
-          class="form-control form-control-sm plot-number-input"
-          value="{{ fit_bounds.redshift[1] }}"
-        >
-        <label for="fit-broadening-min" class="small text-muted mb-0">sigma (km/s)</label>
-        <input
-          id="fit-broadening-min"
-          name="fit_broadening_km_s_min"
-          type="number"
-          min="0"
-          step="any"
-          class="form-control form-control-sm plot-number-input"
-          value="{{ fit_bounds.broadening_km_s[0] }}"
-        >
-        <span class="small text-muted">..</span>
-        <input
-          name="fit_broadening_km_s_max"
-          type="number"
-          min="0"
-          step="any"
-          class="form-control form-control-sm plot-number-input"
-          value="{{ fit_bounds.broadening_km_s[1] }}"
-        >
-        {% if mode == "both" %}
-          <label for="fit-ebv-min" class="small text-muted mb-0">E(B-V)</label>
+        <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+          <label for="fit-obs-select" class="small text-muted mb-0">Fit to:</label>
+          <select id="fit-obs-select" name="fit_obs_token" class="form-select form-select-sm w-auto">
+            {% for item in fit_candidates %}
+              <option value="{{ item.token }}" {% if item.token == selected_fit_token %}selected{% endif %}>{{ item.label }}</option>
+            {% endfor %}
+          </select>
+          <button type="submit" class="btn btn-sm btn-outline-success">Fit Model</button>
+        </div>
+        <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+          <span class="small text-muted">Fit wavelength range (Å, optional):</span>
+          <label for="fit-lambda-min" class="small text-muted mb-0">min</label>
           <input
-            id="fit-ebv-min"
-            name="fit_ebv_min"
-            type="number"
-            step="any"
-            class="form-control form-control-sm plot-number-input"
-            value="{{ fit_bounds.ebv[0] }}"
-          >
-          <span class="small text-muted">..</span>
-          <input
-            name="fit_ebv_max"
-            type="number"
-            step="any"
-            class="form-control form-control-sm plot-number-input"
-            value="{{ fit_bounds.ebv[1] }}"
-          >
-          <label for="fit-distance-min" class="small text-muted mb-0">distance (kpc)</label>
-          <input
-            id="fit-distance-min"
-            name="fit_distance_kpc_min"
+            id="fit-lambda-min"
+            name="fit_lambda_min"
             type="number"
             min="0.000001"
             step="any"
-            class="form-control form-control-sm plot-number-input"
-            value="{{ fit_bounds.distance_kpc[0] }}"
+            class="form-control form-control-sm grid-fit-range-input"
+            value="{{ fit_wavelength_inputs.min }}"
+            placeholder="auto"
           >
           <span class="small text-muted">..</span>
           <input
-            name="fit_distance_kpc_max"
+            id="fit-lambda-max"
+            name="fit_lambda_max"
             type="number"
             min="0.000001"
             step="any"
-            class="form-control form-control-sm plot-number-input"
-            value="{{ fit_bounds.distance_kpc[1] }}"
+            class="form-control form-control-sm grid-fit-range-input"
+            value="{{ fit_wavelength_inputs.max }}"
+            placeholder="auto"
           >
-        {% endif %}
+          <button id="fit-use-plot-range" type="button" class="btn btn-sm btn-outline-secondary">Use Plot Range</button>
+        </div>
+        <div class="d-flex flex-wrap align-items-center gap-2">
+          <span class="small text-muted">Configure parameter bounds:</span>
+          <label for="fit-redshift-min" class="small text-muted mb-0">z</label>
+          <input
+            id="fit-redshift-min"
+            name="fit_redshift_min"
+            type="number"
+            step="any"
+            class="form-control form-control-sm grid-fit-range-input"
+            value="{{ fit_bounds.redshift[0] }}"
+          >
+          <span class="small text-muted">..</span>
+          <input
+            name="fit_redshift_max"
+            type="number"
+            step="any"
+            class="form-control form-control-sm grid-fit-range-input"
+            value="{{ fit_bounds.redshift[1] }}"
+          >
+          <label for="fit-broadening-min" class="small text-muted mb-0">sigma (km/s)</label>
+          <input
+            id="fit-broadening-min"
+            name="fit_broadening_km_s_min"
+            type="number"
+            min="0"
+            step="any"
+            class="form-control form-control-sm grid-fit-range-input"
+            value="{{ fit_bounds.broadening_km_s[0] }}"
+          >
+          <span class="small text-muted">..</span>
+          <input
+            name="fit_broadening_km_s_max"
+            type="number"
+            min="0"
+            step="any"
+            class="form-control form-control-sm grid-fit-range-input"
+            value="{{ fit_bounds.broadening_km_s[1] }}"
+          >
+          {% if mode == "both" %}
+            <label for="fit-ebv-min" class="small text-muted mb-0">E(B-V)</label>
+            <input
+              id="fit-ebv-min"
+              name="fit_ebv_min"
+              type="number"
+              step="any"
+              class="form-control form-control-sm grid-fit-range-input"
+              value="{{ fit_bounds.ebv[0] }}"
+            >
+            <span class="small text-muted">..</span>
+            <input
+              name="fit_ebv_max"
+              type="number"
+              step="any"
+              class="form-control form-control-sm grid-fit-range-input"
+              value="{{ fit_bounds.ebv[1] }}"
+            >
+            <label for="fit-distance-min" class="small text-muted mb-0">distance (kpc)</label>
+            <input
+              id="fit-distance-min"
+              name="fit_distance_kpc_min"
+              type="number"
+              min="0.000001"
+              step="any"
+              class="form-control form-control-sm grid-fit-range-input"
+              value="{{ fit_bounds.distance_kpc[0] }}"
+            >
+            <span class="small text-muted">..</span>
+            <input
+              name="fit_distance_kpc_max"
+              type="number"
+              min="0.000001"
+              step="any"
+              class="form-control form-control-sm grid-fit-range-input"
+              value="{{ fit_bounds.distance_kpc[1] }}"
+            >
+          {% endif %}
+        </div>
       </form>
     {% elif selected_observed_uploads %}
       <div class="small text-muted mb-3">No active overlay in this mode is eligible for server-side fitting.</div>
@@ -254,7 +290,7 @@
           class="form-control form-control-sm plot-number-input"
           value="{{ transform_params.velocity_km_s }}"
         >
-        <label for="{{ broadening_id }}" class="plot-control-label">Velocity dispersion sigma (km/s)</label>
+        <label for="{{ broadening_id }}" class="plot-control-label">Velocity dispersion (km/s)</label>
         <input
           id="{{ broadening_id }}"
           type="number"
@@ -404,10 +440,28 @@
         var transformSyncForms = document.querySelectorAll("form.spectrum-transform-sync");
         var fitForm = document.getElementById("spectrum-fit-form");
         var fitFeedback = document.getElementById("fit-feedback");
+        var fitLambdaMinInput = document.getElementById("fit-lambda-min");
+        var fitLambdaMaxInput = document.getElementById("fit-lambda-max");
+        var fitUsePlotRangeButton = document.getElementById("fit-use-plot-range");
+
+        function cloneLayoutShape(shape) {
+          if (!shape || typeof shape !== "object") {
+            return shape;
+          }
+          var cloned = Object.assign({}, shape);
+          if (shape.line && typeof shape.line === "object") {
+            cloned.line = Object.assign({}, shape.line);
+          }
+          return cloned;
+        }
 
         var transformTargets = [];
         var broadeningTargets = [];
         var seenModelTraces = 0;
+        var baseLayoutShapes = Array.isArray(plotLayout.shapes)
+          ? plotLayout.shapes.map(cloneLayoutShape)
+          : [];
+        var fitRangeSignature = "";
         var baseData = plotData.map(function (trace) {
           var cloned = Object.assign({}, trace);
           cloned.x = Array.isArray(trace.x) ? trace.x.slice() : [];
@@ -478,6 +532,16 @@
           document.querySelectorAll(".transform-distance-field").forEach(function (field) {
             field.value = distanceValue;
           });
+          if (fitLambdaMinInput) {
+            document.querySelectorAll(".fit-lambda-min-field").forEach(function (field) {
+              field.value = fitLambdaMinInput.value;
+            });
+          }
+          if (fitLambdaMaxInput) {
+            document.querySelectorAll(".fit-lambda-max-field").forEach(function (field) {
+              field.value = fitLambdaMaxInput.value;
+            });
+          }
         }
 
         function setFitFeedback(message, isError) {
@@ -496,6 +560,159 @@
           fitFeedback.classList.remove("alert-info");
           fitFeedback.classList.remove("alert-danger");
           fitFeedback.classList.add(isError ? "alert-danger" : "alert-info");
+        }
+
+        function formatRangeValue(value) {
+          var numeric = Number(value);
+          if (!Number.isFinite(numeric)) {
+            return "";
+          }
+          return Number(numeric.toFixed(6)).toString();
+        }
+
+        function normalizeFitRangeValue(value) {
+          if (value === null || value === undefined || String(value).trim() === "") {
+            return null;
+          }
+          var numeric = Number(value);
+          if (!Number.isFinite(numeric) || numeric <= 0) {
+            return null;
+          }
+          return numeric;
+        }
+
+        function parseFitRangeInputValue(input) {
+          if (!input) {
+            return null;
+          }
+          var text = String(input.value || "").trim();
+          if (!text) {
+            return null;
+          }
+          var numeric = Number(text);
+          if (!Number.isFinite(numeric) || numeric <= 0) {
+            return null;
+          }
+          return numeric;
+        }
+
+        function fitRangeMarkerSignature(minValue, maxValue) {
+          var minText = minValue === null ? "" : formatRangeValue(minValue);
+          var maxText = maxValue === null ? "" : formatRangeValue(maxValue);
+          return minText + "|" + maxText;
+        }
+
+        function buildFitRangeShapes(minValue, maxValue) {
+          var nextShapes = baseLayoutShapes.map(cloneLayoutShape);
+          var baseLine = {
+            color: "#198754",
+            width: 1.2,
+            dash: "dot"
+          };
+          if (minValue !== null) {
+            nextShapes.push({
+              type: "line",
+              xref: "x",
+              yref: "paper",
+              x0: minValue,
+              x1: minValue,
+              y0: 0,
+              y1: 1,
+              line: Object.assign({}, baseLine)
+            });
+          }
+          if (maxValue !== null) {
+            nextShapes.push({
+              type: "line",
+              xref: "x",
+              yref: "paper",
+              x0: maxValue,
+              x1: maxValue,
+              y0: 0,
+              y1: 1,
+              line: Object.assign({}, baseLine)
+            });
+          }
+          return nextShapes;
+        }
+
+        function readCurrentPlotXRange() {
+          if (!target || !target._fullLayout || !target._fullLayout.xaxis) {
+            return null;
+          }
+          var xaxis = target._fullLayout.xaxis;
+          var range = xaxis.range;
+          if (!Array.isArray(range) || range.length < 2) {
+            return null;
+          }
+          var first = Number(range[0]);
+          var second = Number(range[1]);
+          if (!Number.isFinite(first) || !Number.isFinite(second)) {
+            return null;
+          }
+          var axisType = String(xaxis.type || "").toLowerCase();
+          if (axisType === "log") {
+            first = Math.pow(10, first);
+            second = Math.pow(10, second);
+          }
+          if (!Number.isFinite(first) || !Number.isFinite(second)) {
+            return null;
+          }
+          var lower = Math.min(first, second);
+          var upper = Math.max(first, second);
+          if (lower <= 0 || upper <= lower) {
+            return null;
+          }
+          return [lower, upper];
+        }
+
+        function applyFitRangeMarkers(minValue, maxValue) {
+          if (!target.data || !target.layout) {
+            return;
+          }
+          var normalizedMin = normalizeFitRangeValue(minValue);
+          var normalizedMax = normalizeFitRangeValue(maxValue);
+          if (normalizedMin !== null && normalizedMax !== null && normalizedMin > normalizedMax) {
+            var swap = normalizedMin;
+            normalizedMin = normalizedMax;
+            normalizedMax = swap;
+          }
+          var signature = fitRangeMarkerSignature(normalizedMin, normalizedMax);
+          if (signature === fitRangeSignature) {
+            return;
+          }
+          fitRangeSignature = signature;
+          var nextShapes = buildFitRangeShapes(normalizedMin, normalizedMax);
+          plotLayout.shapes = nextShapes.map(cloneLayoutShape);
+          Plotly.relayout(target, {
+            shapes: nextShapes
+          });
+        }
+
+        function syncFitRangeMarkers() {
+          if (!fitLambdaMinInput || !fitLambdaMaxInput) {
+            return;
+          }
+          var minValue = parseFitRangeInputValue(fitLambdaMinInput);
+          var maxValue = parseFitRangeInputValue(fitLambdaMaxInput);
+          applyFitRangeMarkers(minValue, maxValue);
+        }
+
+        function applyPlotRangeToFitInputs() {
+          if (!fitLambdaMinInput || !fitLambdaMaxInput) {
+            return;
+          }
+          var range = readCurrentPlotXRange();
+          if (!range) {
+            setFitFeedback("Could not read the current plot range. Zoom or pan the spectrum plot first.", true);
+            return;
+          }
+          var minText = formatRangeValue(range[0]);
+          var maxText = formatRangeValue(range[1]);
+          fitLambdaMinInput.value = minText;
+          fitLambdaMaxInput.value = maxText;
+          syncFitRangeMarkers();
+          setFitFeedback("Fit wavelength range set from plot view: " + minText + " .. " + maxText + " Å.", false);
         }
 
         function updateVelocityFromRedshift() {
@@ -921,6 +1138,21 @@
               scheduleTransforms();
             });
           }
+          if (fitLambdaMinInput) {
+            fitLambdaMinInput.addEventListener("input", syncFitRangeMarkers);
+            fitLambdaMinInput.addEventListener("change", syncFitRangeMarkers);
+          }
+          if (fitLambdaMaxInput) {
+            fitLambdaMaxInput.addEventListener("input", syncFitRangeMarkers);
+            fitLambdaMaxInput.addEventListener("change", syncFitRangeMarkers);
+          }
+          if (fitUsePlotRangeButton) {
+            fitUsePlotRangeButton.addEventListener("click", applyPlotRangeToFitInputs);
+            if (!fitLambdaMinInput || !fitLambdaMaxInput) {
+              fitUsePlotRangeButton.disabled = true;
+              fitUsePlotRangeButton.title = "Fit wavelength controls are not available.";
+            }
+          }
           updateVelocityFromRedshift();
           if (transformSyncForms) {
             transformSyncForms.forEach(function (formElement) {
@@ -1013,6 +1245,7 @@
           scheduleTransforms();
           syncTransformHiddenFields();
           bindVerticalResize(target);
+          syncFitRangeMarkers();
         });
       })();
     </script>
