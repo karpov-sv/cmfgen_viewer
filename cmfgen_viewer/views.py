@@ -459,6 +459,60 @@ def _normalize_fit_bounds(params: dict[str, object] | None = None, *, mode: str)
     return normalized
 
 
+def _normalize_fit_wavelength_range(
+    params: dict[str, object] | None = None,
+    *,
+    configured_min: float,
+    configured_max: float,
+) -> tuple[tuple[float, float] | None, str | None]:
+    values = params or {}
+    min_text = str(values.get("fit_lambda_min", "")).strip()
+    max_text = str(values.get("fit_lambda_max", "")).strip()
+
+    min_value: float | None = None
+    max_value: float | None = None
+
+    if min_text:
+        min_raw = _parse_summary_float(min_text)
+        if min_raw is None or not math.isfinite(min_raw) or min_raw <= 0:
+            return None, "Fit wavelength minimum must be a positive number."
+        min_value = float(min_raw)
+
+    if max_text:
+        max_raw = _parse_summary_float(max_text)
+        if max_raw is None or not math.isfinite(max_raw) or max_raw <= 0:
+            return None, "Fit wavelength maximum must be a positive number."
+        max_value = float(max_raw)
+
+    if min_value is None and max_value is None:
+        return None, None
+
+    try:
+        window_min = float(configured_min)
+        window_max = float(configured_max)
+    except (TypeError, ValueError):
+        return None, "Configured wavelength window is invalid."
+    if not math.isfinite(window_min) or not math.isfinite(window_max):
+        return None, "Configured wavelength window is invalid."
+    if window_min > window_max:
+        window_min, window_max = window_max, window_min
+
+    effective_min = min_value if min_value is not None else window_min
+    effective_max = max_value if max_value is not None else window_max
+    if effective_min > effective_max:
+        effective_min, effective_max = effective_max, effective_min
+
+    effective_min = max(window_min, effective_min)
+    effective_max = min(window_max, effective_max)
+    if effective_min >= effective_max:
+        return (
+            None,
+            "Fit wavelength range does not overlap the configured window "
+            f"{format_number(window_min)} .. {format_number(window_max)} Å.",
+        )
+    return (effective_min, effective_max), None
+
+
 def _format_query_float(value: float, *, digits: int = 12) -> str:
     if not math.isfinite(value):
         return "0"
@@ -1334,6 +1388,30 @@ def _fit_bounds_payload(bounds: dict[str, tuple[float, float]]) -> dict[str, lis
     }
 
 
+def _fit_wavelength_range_payload(bounds: tuple[float, float] | None) -> dict[str, float]:
+    if bounds is None:
+        return {}
+    return {"min": float(bounds[0]), "max": float(bounds[1])}
+
+
+def _fit_wavelength_range_from_payload(payload: object) -> tuple[float, float] | None:
+    if not isinstance(payload, dict):
+        return None
+    min_raw = payload.get("min")
+    max_raw = payload.get("max")
+    if not isinstance(min_raw, int | float) or not isinstance(max_raw, int | float):
+        return None
+    min_value = float(min_raw)
+    max_value = float(max_raw)
+    if not math.isfinite(min_value) or not math.isfinite(max_value):
+        return None
+    if min_value > max_value:
+        min_value, max_value = max_value, min_value
+    if min_value <= 0 or min_value >= max_value:
+        return None
+    return min_value, max_value
+
+
 def _discover_model_grid_from_cache(
     basepath: str,
     *,
@@ -1490,6 +1568,7 @@ def _grid_search_job_create(
     upload_token: str,
     mode: str,
     fit_bounds: dict[str, tuple[float, float]],
+    fit_wavelength_range: tuple[float, float] | None,
     model_name_pattern: str,
     total_models: int,
 ) -> str:
@@ -1502,6 +1581,7 @@ def _grid_search_job_create(
         "mode": mode,
         "model_name_pattern": str(model_name_pattern or "").strip(),
         "fit_bounds": _fit_bounds_payload(fit_bounds),
+        "fit_wavelength_range": _fit_wavelength_range_payload(fit_wavelength_range),
         "total": int(total_models),
         "processed": 0,
         "successful": 0,
@@ -1529,6 +1609,7 @@ def _run_upload_grid_search_job(
     mode: str,
     observed: dict[str, object],
     fit_bounds: dict[str, tuple[float, float]],
+    fit_wavelength_range: tuple[float, float] | None,
     model_name_pattern: str,
     model_candidates: list[tuple[str, str, str]],
     lambda_min: float,
@@ -1560,6 +1641,7 @@ def _run_upload_grid_search_job(
                 "upload_token": upload_token,
                 "model_name_pattern": str(model_name_pattern or "").strip(),
                 "fit_bounds": _fit_bounds_payload(fit_bounds),
+                "fit_wavelength_range": _fit_wavelength_range_payload(fit_wavelength_range),
                 "elapsed_seconds": elapsed_seconds,
                 "best_model": best_model,
                 "top_models": top_models,
@@ -1710,6 +1792,7 @@ def _run_upload_grid_search_job(
             "upload_token": upload_token,
             "model_name_pattern": str(model_name_pattern or "").strip(),
             "fit_bounds": _fit_bounds_payload(fit_bounds),
+            "fit_wavelength_range": _fit_wavelength_range_payload(fit_wavelength_range),
             "elapsed_seconds": elapsed_seconds,
             "best_model": best_model,
             "top_models": top_models,
@@ -1802,10 +1885,21 @@ def upload_view(token: str):
     spectrum_mode = "both" if str(parsed.get("flux_mode", "")).strip().lower() == "absolute" else "normalized"
     transform_params = _normalize_transform_params(request.args.to_dict(flat=True))
     fit_bounds = _normalize_fit_bounds(request.args.to_dict(flat=True), mode=spectrum_mode)
+    fit_wavelength_inputs = {
+        "min": str(request.args.get("fit_lambda_min", "")).strip(),
+        "max": str(request.args.get("fit_lambda_max", "")).strip(),
+    }
     model_name_pattern = str(request.args.get("model_name_pattern", "")).strip()
     active_job = _grid_search_active_job_for_upload(token)
     if not model_name_pattern and isinstance(active_job, dict):
         model_name_pattern = str(active_job.get("model_name_pattern", "")).strip()
+    if isinstance(active_job, dict):
+        active_fit_wavelength_range = _fit_wavelength_range_from_payload(active_job.get("fit_wavelength_range"))
+        if active_fit_wavelength_range is not None:
+            if not fit_wavelength_inputs["min"]:
+                fit_wavelength_inputs["min"] = _format_query_float(active_fit_wavelength_range[0])
+            if not fit_wavelength_inputs["max"]:
+                fit_wavelength_inputs["max"] = _format_query_float(active_fit_wavelength_range[1])
 
     active_grid_job: dict[str, object] | None = None
     if isinstance(active_job, dict):
@@ -1822,6 +1916,7 @@ def upload_view(token: str):
                 mode=spectrum_mode,
                 upload_token=token,
             )
+        active_fit_wavelength_range = _fit_wavelength_range_from_payload(active_job.get("fit_wavelength_range"))
         active_grid_job = {
             "job_id": str(active_job.get("job_id", "")),
             "status": str(active_job.get("status", "")),
@@ -1833,6 +1928,7 @@ def upload_view(token: str):
             "cancel_requested": bool(active_job.get("cancel_requested", False)),
             "progress_percent": progress_percent,
             "model_name_pattern": str(active_job.get("model_name_pattern", "")).strip(),
+            "fit_wavelength_range": _fit_wavelength_range_payload(active_fit_wavelength_range),
             "best_so_far": best_so_far_payload,
         }
 
@@ -1848,6 +1944,7 @@ def upload_view(token: str):
         mode=spectrum_mode,
         transform_params=transform_params,
         fit_bounds=fit_bounds,
+        fit_wavelength_inputs=fit_wavelength_inputs,
         model_name_pattern=model_name_pattern,
         active_grid_job=active_grid_job,
         plot_data=plot_data,
@@ -1865,6 +1962,15 @@ def upload_fit_grid(token: str):
     summary_cache_db = str(config.get("summary_cache_db", "model_summary_cache.sqlite"))
     upload_root = _upload_root(config)
     lambda_min, lambda_max = _spectrum_lambda_bounds(config)
+    fit_wavelength_range, fit_wavelength_error = _normalize_fit_wavelength_range(
+        request.form.to_dict(flat=True),
+        configured_min=lambda_min,
+        configured_max=lambda_max,
+    )
+    if fit_wavelength_error:
+        return jsonify({"ok": False, "error": fit_wavelength_error}), 400
+    effective_lambda_min = fit_wavelength_range[0] if fit_wavelength_range is not None else lambda_min
+    effective_lambda_max = fit_wavelength_range[1] if fit_wavelength_range is not None else lambda_max
 
     entries = {str(item.get("token", "")): item for item in list_upload_manifests(upload_root)}
     entry = entries.get(token)
@@ -1881,8 +1987,8 @@ def upload_fit_grid(token: str):
         observed = parse_uploaded_spectrum(
             source_path,
             flux_mode=upload_flux_mode,
-            lambda_min=lambda_min,
-            lambda_max=lambda_max,
+            lambda_min=effective_lambda_min,
+            lambda_max=effective_lambda_max,
         )
     except Exception as exc:
         return jsonify({"ok": False, "error": f"Could not parse uploaded spectrum: {exc}"}), 400
@@ -1903,6 +2009,10 @@ def upload_fit_grid(token: str):
                 "mode": str(active_job.get("mode", mode)),
                 "total_models": total_models,
                 "fit_bounds": active_job.get("fit_bounds", _fit_bounds_payload(fit_bounds)),
+                "fit_wavelength_range": active_job.get(
+                    "fit_wavelength_range",
+                    _fit_wavelength_range_payload(fit_wavelength_range),
+                ),
                 "model_name_pattern": str(active_job.get("model_name_pattern", model_name_pattern)),
                 "existing_job": True,
             }
@@ -1926,6 +2036,7 @@ def upload_fit_grid(token: str):
         upload_token=token,
         mode=mode,
         fit_bounds=fit_bounds,
+        fit_wavelength_range=fit_wavelength_range,
         model_name_pattern=model_name_pattern,
         total_models=len(serialized_candidates),
     )
@@ -1938,10 +2049,11 @@ def upload_fit_grid(token: str):
             "mode": mode,
             "observed": observed,
             "fit_bounds": fit_bounds,
+            "fit_wavelength_range": fit_wavelength_range,
             "model_name_pattern": model_name_pattern,
             "model_candidates": serialized_candidates,
-            "lambda_min": lambda_min,
-            "lambda_max": lambda_max,
+            "lambda_min": effective_lambda_min,
+            "lambda_max": effective_lambda_max,
         },
         daemon=True,
     )
@@ -1954,6 +2066,7 @@ def upload_fit_grid(token: str):
             "mode": mode,
             "total_models": len(serialized_candidates),
             "fit_bounds": _fit_bounds_payload(fit_bounds),
+            "fit_wavelength_range": _fit_wavelength_range_payload(fit_wavelength_range),
             "model_name_pattern": model_name_pattern,
         }
     )
@@ -2172,6 +2285,7 @@ def upload_fit_grid_status(job_id: str):
         "progress_percent": progress_percent,
         "cancel_requested": cancel_requested,
         "can_cancel": status == "running" and not cancel_requested,
+        "fit_wavelength_range": snapshot.get("fit_wavelength_range", {}),
     }
 
     upload_token = str(snapshot.get("upload_token", ""))

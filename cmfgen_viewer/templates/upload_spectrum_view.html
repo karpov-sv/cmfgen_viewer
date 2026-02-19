@@ -855,6 +855,29 @@
           value="{{ model_name_pattern }}"
           placeholder="e.g. model_Bstar* or model_1[012]*"
         >
+        <span class="small text-muted">Fit wavelength range (Å, optional):</span>
+        <label for="grid-fit-lambda-min" class="small text-muted mb-0">min</label>
+        <input
+          id="grid-fit-lambda-min"
+          name="fit_lambda_min"
+          type="number"
+          min="0.000001"
+          step="any"
+          class="form-control form-control-sm plot-number-input"
+          value="{{ fit_wavelength_inputs.min }}"
+          placeholder="auto"
+        >
+        <span class="small text-muted">..</span>
+        <input
+          id="grid-fit-lambda-max"
+          name="fit_lambda_max"
+          type="number"
+          min="0.000001"
+          step="any"
+          class="form-control form-control-sm plot-number-input"
+          value="{{ fit_wavelength_inputs.max }}"
+          placeholder="auto"
+        >
         <span class="small text-muted">Fit bounds:</span>
         <label for="grid-fit-redshift-min" class="small text-muted mb-0">z</label>
         <input
@@ -1020,6 +1043,7 @@
       var cancelInFlight = false;
       var overlaySignature = "";
       var overlayRequestId = 0;
+      var LIGHT_SPEED_KM_PER_S = 299792.458;
 
       function asFiniteNumber(value, fallback) {
         var numeric = Number(value);
@@ -1040,6 +1064,18 @@
           return "";
         }
         return Number(numeric.toFixed(6)).toString();
+      }
+
+      function formatVelocityFromRedshift(redshiftValue) {
+        var redshift = Number(redshiftValue);
+        if (!Number.isFinite(redshift)) {
+          return "";
+        }
+        var velocity = redshift * LIGHT_SPEED_KM_PER_S;
+        if (!Number.isFinite(velocity)) {
+          return "";
+        }
+        return Number(velocity.toFixed(6)).toString();
       }
 
       function overlayController() {
@@ -1227,6 +1263,7 @@
 
         var params = best.fit_params && typeof best.fit_params === "object" ? best.fit_params : {};
         addSummaryLine(bestBody, "z", formatParam(params.redshift));
+        addSummaryLine(bestBody, "v(z) (km/s)", formatVelocityFromRedshift(params.redshift));
         addSummaryLine(bestBody, "sigma (km/s)", formatParam(params.broadening_km_s));
         if ("{{ mode }}" === "both") {
           addSummaryLine(bestBody, "E(B-V)", formatParam(params.ebv));
@@ -1279,6 +1316,7 @@
 
         var params = best.fit_params && typeof best.fit_params === "object" ? best.fit_params : {};
         addSummaryLine(resultBody, "z", formatParam(params.redshift));
+        addSummaryLine(resultBody, "v(z) (km/s)", formatVelocityFromRedshift(params.redshift));
         addSummaryLine(resultBody, "sigma (km/s)", formatParam(params.broadening_km_s));
         if ("{{ mode }}" === "both") {
           addSummaryLine(resultBody, "E(B-V)", formatParam(params.ebv));
@@ -1523,7 +1561,22 @@
                 ? completedResult.best_model
                 : null;
               if (canceledBest && canceledBest.model_path) {
-                setFeedback("Grid fit canceled. Best-so-far model: " + String(canceledBest.model_path) + " (RMSE=" + formatRmse(canceledBest.rmse) + ").", false);
+                var canceledParams = canceledBest.fit_params && typeof canceledBest.fit_params === "object"
+                  ? canceledBest.fit_params
+                  : {};
+                var canceledZ = formatParam(canceledParams.redshift);
+                var canceledV = formatVelocityFromRedshift(canceledParams.redshift);
+                var canceledFitText = "";
+                if (canceledZ || canceledV) {
+                  canceledFitText = " z=" + (canceledZ || "?");
+                  if (canceledV) {
+                    canceledFitText += ", v=" + canceledV + " km/s";
+                  }
+                }
+                setFeedback(
+                  "Grid fit canceled. Best-so-far model: " + String(canceledBest.model_path) + " (RMSE=" + formatRmse(canceledBest.rmse) + ")." + canceledFitText,
+                  false
+                );
               } else {
                 setFeedback(String(payload.message || "Grid fit canceled."), false);
               }
@@ -1532,7 +1585,22 @@
                 ? completedResult.best_model
                 : null;
               if (best && best.model_path) {
-                setFeedback("Grid fit completed. Best model: " + String(best.model_path) + " (RMSE=" + formatRmse(best.rmse) + ").", false);
+                var bestParams = best.fit_params && typeof best.fit_params === "object"
+                  ? best.fit_params
+                  : {};
+                var bestZ = formatParam(bestParams.redshift);
+                var bestV = formatVelocityFromRedshift(bestParams.redshift);
+                var bestFitText = "";
+                if (bestZ || bestV) {
+                  bestFitText = " z=" + (bestZ || "?");
+                  if (bestV) {
+                    bestFitText += ", v=" + bestV + " km/s";
+                  }
+                }
+                setFeedback(
+                  "Grid fit completed. Best model: " + String(best.model_path) + " (RMSE=" + formatRmse(best.rmse) + ")." + bestFitText,
+                  false
+                );
               } else {
                 setFeedback("Grid fit completed. No valid fit was found.", false);
               }
