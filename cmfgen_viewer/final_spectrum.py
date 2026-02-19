@@ -1222,6 +1222,36 @@ def build_uploaded_spectrum_plot(observed: dict[str, object]) -> tuple[dict[str,
     )
 
 
+def build_final_model_series(
+    continuum: dict[str, object],
+    final: dict[str, object],
+    *,
+    mode: str,
+    max_points: int = MAX_SERIES_POINTS,
+) -> tuple[list[float], list[float]] | None:
+    """
+    Build the model's final-spectrum-only series in the requested plotting mode.
+
+    - `both`: absolute final flux converted to CGS per Angstrom.
+    - `normalized`: final/continuum ratio.
+    """
+    normalized_mode = "both" if mode == "both" else "normalized"
+    prepared = _build_model_series_for_fit(continuum, final, mode=normalized_mode)
+    if prepared is None:
+        return None
+
+    model_x, model_y = prepared
+    x_values = model_x.tolist()
+    y_values = model_y.tolist()
+    if len(x_values) < 2 or len(y_values) < 2:
+        return None
+
+    x_ds, y_ds = downsample_xy(x_values, y_values, max_points=max_points)
+    if len(x_ds) < 2 or len(y_ds) < 2:
+        return None
+    return x_ds, y_ds
+
+
 def build_both_plot(continuum: dict[str, object], final: dict[str, object]) -> dict[str, object] | None:
     cont_x = continuum.get("wavelength")
     cont_y = continuum.get("flux")

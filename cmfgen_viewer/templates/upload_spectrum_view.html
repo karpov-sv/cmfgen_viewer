@@ -187,6 +187,7 @@
           var plotLayout = {{ plot_data.layout | tojson }};
           var plotConfig = {{ plot_data.config | tojson }};
           var spectrumMode = "{{ mode }}";
+          var yAxisName = spectrumMode === "both" ? "Flux" : "Normalized";
 
           var LIGHT_SPEED_KM_PER_S = 299792.458;
 
@@ -200,18 +201,34 @@
           var resetTransform = document.getElementById("{{ reset_transform_id }}");
           var transformHint = document.getElementById("{{ transform_hint_id }}");
 
-          var transformTargets = [];
-          var baseData = plotData.map(function (trace) {
+          function cloneTraceWithArrays(trace) {
             var cloned = Object.assign({}, trace);
+            if (trace.line && typeof trace.line === "object") {
+              cloned.line = Object.assign({}, trace.line);
+            }
+            if (trace.meta && typeof trace.meta === "object") {
+              cloned.meta = Object.assign({}, trace.meta);
+            }
             cloned.x = Array.isArray(trace.x) ? trace.x.slice() : [];
             cloned.y = Array.isArray(trace.y) ? trace.y.slice() : [];
-            var targetKind = "model";
-            if (trace.meta && trace.meta.transform_target === "observed") {
-              targetKind = "observed";
-            }
-            transformTargets.push(targetKind);
             return cloned;
-          });
+          }
+
+          function transformTargetForTrace(trace) {
+            if (trace && trace.meta && trace.meta.transform_target === "observed") {
+              return "observed";
+            }
+            return "model";
+          }
+
+          var transformTargets = [];
+          var baseData = [];
+          for (var baseTraceIndex = 0; baseTraceIndex < plotData.length; baseTraceIndex += 1) {
+            baseData.push(cloneTraceWithArrays(plotData[baseTraceIndex]));
+            transformTargets.push(transformTargetForTrace(plotData[baseTraceIndex]));
+          }
+          var gridOverlayIndex = -1;
+          var pendingOverlayAction = null;
           var isSyncingVelocity = false;
           var transformFrame = null;
 
@@ -230,6 +247,152 @@
             transformHint.classList.toggle("text-danger", !!isError);
             transformHint.classList.toggle("text-muted", !isError);
           }
+
+          function formatOverlayRmse(value) {
+            var numeric = Number(value);
+            if (!Number.isFinite(numeric)) {
+              return "";
+            }
+            return numeric.toExponential(4);
+          }
+
+          function buildGridOverlayTrace(overlay, isFinal) {
+            if (!overlay || typeof overlay !== "object") {
+              return null;
+            }
+            var xValues = Array.isArray(overlay.x) ? overlay.x.slice() : [];
+            var yValues = Array.isArray(overlay.y) ? overlay.y.slice() : [];
+            if (xValues.length < 2 || yValues.length < 2 || xValues.length !== yValues.length) {
+              return null;
+            }
+
+            var modelPath = String(overlay.model_path || overlay.model_name || "");
+            var rmseText = formatOverlayRmse(overlay.rmse);
+            var label = isFinal ? "Best Fit Model" : "Best-So-Far Model";
+            if (modelPath) {
+              label += " (" + modelPath + ")";
+            }
+            if (rmseText) {
+              label += " RMSE=" + rmseText;
+            }
+            var yLabel = yAxisName === "Flux" ? "Flux" : "Normalized";
+            var hover = yAxisName === "Flux"
+              ? "Wavelength=%{x:.6g} Å<br>Best Model Flux=%{y:.6e}<extra></extra>"
+              : "Wavelength=%{x:.6g} Å<br>Best Model Normalized=%{y:.6g}<extra></extra>";
+
+            return {
+              type: "scatter",
+              mode: "lines",
+              name: label,
+              x: xValues,
+              y: yValues,
+              line: {
+                color: isFinal ? "#fd7e14" : "#0d6efd",
+                width: isFinal ? 1.8 : 1.5,
+                dash: isFinal ? "solid" : "dash"
+              },
+              hovertemplate: hover,
+              meta: {
+                transform_target: "observed",
+                plot_role: "grid_fit_best",
+                y_axis_name: yLabel
+              }
+            };
+          }
+
+          function applyGridOverlayTraceNow(overlay, isFinal) {
+            if (!target.data) {
+              return;
+            }
+            var trace = buildGridOverlayTrace(overlay, isFinal);
+            if (!trace) {
+              clearGridOverlayTraceNow();
+              return;
+            }
+            var cloned = cloneTraceWithArrays(trace);
+            if (gridOverlayIndex >= 0 && gridOverlayIndex < baseData.length) {
+              baseData[gridOverlayIndex] = cloned;
+              transformTargets[gridOverlayIndex] = "observed";
+              Plotly.restyle(target, {
+                x: [trace.x],
+                y: [trace.y],
+                name: [trace.name],
+                line: [trace.line],
+                hovertemplate: [trace.hovertemplate],
+                meta: [trace.meta]
+              }, [gridOverlayIndex]).then(function () {
+                scheduleTransforms();
+              });
+              return;
+            }
+            gridOverlayIndex = baseData.length;
+            baseData.push(cloned);
+            transformTargets.push("observed");
+            Plotly.addTraces(target, [trace]).then(function () {
+              scheduleTransforms();
+            });
+          }
+
+          function clearGridOverlayTraceNow() {
+            if (!target.data) {
+              return;
+            }
+            if (gridOverlayIndex < 0 || gridOverlayIndex >= baseData.length) {
+              gridOverlayIndex = -1;
+              return;
+            }
+            var deleteIndex = gridOverlayIndex;
+            baseData.splice(deleteIndex, 1);
+            transformTargets.splice(deleteIndex, 1);
+            gridOverlayIndex = -1;
+            Plotly.deleteTraces(target, [deleteIndex]).then(function () {
+              scheduleTransforms();
+            });
+          }
+
+          function setGridOverlayTrace(overlay, isFinal) {
+            if (!target.data) {
+              pendingOverlayAction = {
+                type: "set",
+                overlay: overlay,
+                isFinal: !!isFinal
+              };
+              return;
+            }
+            applyGridOverlayTraceNow(overlay, !!isFinal);
+          }
+
+          function clearGridOverlayTrace() {
+            if (!target.data) {
+              pendingOverlayAction = { type: "clear" };
+              return;
+            }
+            clearGridOverlayTraceNow();
+          }
+
+          function applyPendingOverlayAction() {
+            if (!pendingOverlayAction) {
+              return;
+            }
+            var action = pendingOverlayAction;
+            pendingOverlayAction = null;
+            if (action.type === "clear") {
+              clearGridOverlayTrace();
+              return;
+            }
+            if (action.type === "set") {
+              setGridOverlayTrace(action.overlay, !!action.isFinal);
+            }
+          }
+
+          window.uploadSpectrumGridOverlay = {
+            set: function (overlay, isFinal) {
+              setGridOverlayTrace(overlay, !!isFinal);
+            },
+            clear: function () {
+              clearGridOverlayTrace();
+            }
+          };
 
           function updateVelocityFromRedshift() {
             if (!redshiftInput || !velocityInput) {
@@ -662,6 +825,7 @@
             applyAxisScale();
             scheduleTransforms();
             bindVerticalResize(target);
+            applyPendingOverlayAction();
           });
         })();
       </script>
@@ -836,6 +1000,7 @@
 
       var statusUrlTemplate = "{{ url_for('viewer.upload_fit_grid_status', job_id='__JOB_ID__') }}";
       var cancelUrlTemplate = "{{ url_for('viewer.upload_fit_grid_cancel', job_id='__JOB_ID__') }}";
+      var overlayUrlTemplate = "{{ url_for('viewer.upload_fit_grid_overlay', job_id='__JOB_ID__') }}";
       var feedback = document.getElementById("grid-fit-feedback");
       var progressWrap = document.getElementById("grid-fit-progress-wrap");
       var progressBar = document.getElementById("grid-fit-progress-bar");
@@ -853,6 +1018,8 @@
       var matchCountTimer = null;
       var activeJobId = "";
       var cancelInFlight = false;
+      var overlaySignature = "";
+      var overlayRequestId = 0;
 
       function asFiniteNumber(value, fallback) {
         var numeric = Number(value);
@@ -873,6 +1040,91 @@
           return "";
         }
         return Number(numeric.toFixed(6)).toString();
+      }
+
+      function overlayController() {
+        var controller = window.uploadSpectrumGridOverlay;
+        if (!controller || typeof controller !== "object") {
+          return null;
+        }
+        return controller;
+      }
+
+      function clearOverlayTrace() {
+        overlaySignature = "";
+        overlayRequestId += 1;
+        var controller = overlayController();
+        if (controller && typeof controller.clear === "function") {
+          controller.clear();
+        }
+      }
+
+      function modelSignature(model) {
+        if (!model || typeof model !== "object") {
+          return "";
+        }
+        var fitParams = model.fit_params && typeof model.fit_params === "object"
+          ? model.fit_params
+          : {};
+        return JSON.stringify({
+          model_path: String(model.model_path || model.model_name || ""),
+          fin: String(model.fin || ""),
+          redshift: asFiniteNumber(fitParams.redshift, 0),
+          broadening_km_s: asFiniteNumber(fitParams.broadening_km_s, 0),
+          ebv: asFiniteNumber(fitParams.ebv, 0),
+          distance_kpc: asFiniteNumber(fitParams.distance_kpc, 1)
+        });
+      }
+
+      function fetchOverlayTrace(jobId, which, signature, isFinal) {
+        if (!jobId || !signature) {
+          return;
+        }
+        overlayRequestId += 1;
+        var requestId = overlayRequestId;
+        var overlayUrl = overlayUrlTemplate.replace("__JOB_ID__", encodeURIComponent(jobId)) + "?which=" + encodeURIComponent(which);
+        fetch(overlayUrl, {
+          method: "GET",
+          headers: {
+            "Accept": "application/json"
+          }
+        })
+          .then(parseJsonResponse)
+          .then(function (result) {
+            if (requestId !== overlayRequestId) {
+              return;
+            }
+            if (!result.payload || typeof result.payload !== "object") {
+              return;
+            }
+            if (!result.ok || result.payload.ok === false) {
+              return;
+            }
+            if (signature !== overlaySignature) {
+              return;
+            }
+            var trace = result.payload.trace;
+            var controller = overlayController();
+            if (!controller || typeof controller.set !== "function") {
+              return;
+            }
+            controller.set(trace, !!isFinal);
+          })
+          .catch(function () {
+          });
+      }
+
+      function ensureOverlayForModel(jobId, model, which, isFinal) {
+        var signature = modelSignature(model);
+        if (!signature) {
+          clearOverlayTrace();
+          return;
+        }
+        if (!isFinal && signature === overlaySignature) {
+          return;
+        }
+        overlaySignature = signature;
+        fetchOverlayTrace(jobId, which, signature, !!isFinal);
       }
 
       function setFeedback(message, isError) {
@@ -1232,6 +1484,11 @@
 
             if (status === "running") {
               renderBestSoFar(bestSoFar);
+              if (bestSoFar) {
+                ensureOverlayForModel(jobId, bestSoFar, "best_so_far", false);
+              } else {
+                clearOverlayTrace();
+              }
               setCancelControl(true, cancelRequested);
               window.setTimeout(function () {
                 pollJob(jobId);
@@ -1253,6 +1510,14 @@
 
             var completedResult = payload.result && typeof payload.result === "object" ? payload.result : {};
             renderResult(completedResult);
+            var completedBest = completedResult.best_model && typeof completedResult.best_model === "object"
+              ? completedResult.best_model
+              : null;
+            if (completedBest) {
+              ensureOverlayForModel(jobId, completedBest, "final", status === "completed");
+            } else {
+              clearOverlayTrace();
+            }
             if (status === "canceled") {
               var canceledBest = completedResult.best_model && typeof completedResult.best_model === "object"
                 ? completedResult.best_model
@@ -1280,6 +1545,7 @@
             if (submitButton) {
               submitButton.disabled = false;
             }
+            clearOverlayTrace();
             setProgress(0, "", false);
             setFeedback(error && error.message ? error.message : "Grid fit failed.", true);
           });
@@ -1292,6 +1558,7 @@
         event.preventDefault();
         resetResult();
         resetBestSoFar();
+        clearOverlayTrace();
         setFeedback("", false);
         setProgress(0, "Starting grid fit...", true);
         activeJobId = "";
@@ -1340,6 +1607,7 @@
               submitButton.disabled = false;
             }
             resetBestSoFar();
+            clearOverlayTrace();
             setProgress(0, "", false);
             setFeedback(error && error.message ? error.message : "Grid fit failed.", true);
           });
@@ -1379,6 +1647,11 @@
           }
           setProgress(initialProgress, initialText, true);
           renderBestSoFar(initialBestSoFar);
+          if (initialBestSoFar) {
+            ensureOverlayForModel(initialJobId, initialBestSoFar, "best_so_far", false);
+          } else {
+            clearOverlayTrace();
+          }
           setCancelControl(true, initialCancelRequested);
           pollJob(initialJobId);
         }

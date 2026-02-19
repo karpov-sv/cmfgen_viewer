@@ -21,6 +21,8 @@ from .browser import describe_file, is_model_context_path, list_directory, make_
 from .final_spectrum import (
     FIT_CANCELED_MESSAGE,
     LIGHT_SPEED_KM_PER_S,
+    apply_spectrum_transform,
+    build_final_model_series,
     build_observed_overlay_trace,
     build_both_plot,
     build_model_summary_sections,
@@ -34,7 +36,7 @@ from .final_spectrum import (
     spectrum_fit_bounds,
     spectrum_data_rows,
 )
-from .parsers.common import format_number, parse_float_token
+from .parsers.common import downsample_xy, format_number, parse_float_token
 from .observed_spectrum import (
     generate_upload_token,
     is_valid_upload_token,
@@ -1980,6 +1982,166 @@ def _grid_search_model_links(
     return enriched
 
 
+def _finite_wavelength_bounds(values: object) -> tuple[float, float] | None:
+    if not isinstance(values, list):
+        return None
+    min_value = math.inf
+    max_value = -math.inf
+    count = 0
+    for raw in values:
+        if not isinstance(raw, int | float):
+            continue
+        numeric = float(raw)
+        if not math.isfinite(numeric) or numeric <= 0:
+            continue
+        count += 1
+        if numeric < min_value:
+            min_value = numeric
+        if numeric > max_value:
+            max_value = numeric
+    if count < 2 or not math.isfinite(min_value) or not math.isfinite(max_value) or min_value >= max_value:
+        return None
+    return min_value, max_value
+
+
+def _build_upload_grid_overlay_trace(
+    *,
+    config: dict[str, object],
+    snapshot: dict[str, object],
+    model_entry: dict[str, object],
+) -> tuple[dict[str, object] | None, str | None]:
+    upload_token = str(snapshot.get("upload_token", "")).strip()
+    if not is_valid_upload_token(upload_token):
+        return None, "Grid search upload token is invalid."
+
+    upload_root = _upload_root(config)
+    entries = {str(item.get("token", "")): item for item in list_upload_manifests(upload_root)}
+    entry = entries.get(upload_token)
+    if entry is None:
+        return None, "Uploaded spectrum is no longer available."
+
+    stored_name = str(entry.get("stored_name", ""))
+    source_path = upload_root / upload_token / stored_name if stored_name else None
+    if source_path is None or not source_path.is_file():
+        return None, "Uploaded spectrum file is missing."
+
+    lambda_min, lambda_max = _spectrum_lambda_bounds(config)
+    upload_flux_mode = str(entry.get("requested_flux_mode", "auto")).strip().lower() or "auto"
+    try:
+        observed = parse_uploaded_spectrum(
+            source_path,
+            flux_mode=upload_flux_mode,
+            lambda_min=lambda_min,
+            lambda_max=lambda_max,
+        )
+    except Exception as exc:
+        return None, f"Could not parse uploaded spectrum: {exc}"
+    observed_range = _finite_wavelength_bounds(observed.get("wavelength"))
+    if observed_range is None:
+        return None, "Uploaded spectrum does not have enough valid wavelength points."
+    observed_min, observed_max = observed_range
+
+    mode = "both" if str(snapshot.get("mode", "")).strip().lower() == "both" else "normalized"
+    fit_params_raw = model_entry.get("fit_params")
+    if not isinstance(fit_params_raw, dict):
+        return None, "Best-fit model is missing fit parameters."
+    fit_params = _normalize_transform_params(fit_params_raw)
+
+    model_relpath = str(model_entry.get("model_path", "")).strip()
+    fin_name = str(model_entry.get("fin", "")).strip()
+    if not model_relpath or not fin_name:
+        return None, "Best-fit model entry is incomplete."
+
+    basepath = str(config.get("basepath", "."))
+    try:
+        model_dir = resolve_path(basepath, model_relpath)
+    except FileNotFoundError:
+        return None, f"Best-fit model path '{model_relpath}' is not available."
+    if not model_dir.is_dir():
+        return None, f"Best-fit model path '{model_relpath}' is not available."
+
+    spectrum_files = discover_final_spectrum_files(model_dir)
+    if spectrum_files is None:
+        return None, f"Final spectrum files are missing for model '{model_relpath}'."
+
+    obs_dir = spectrum_files.get("obs_dir")
+    obs_cont = spectrum_files.get("obs_cont")
+    if not isinstance(obs_dir, Path) or not isinstance(obs_cont, Path):
+        return None, f"Final spectrum paths are invalid for model '{model_relpath}'."
+    fin_path = obs_dir / fin_name
+    if not fin_path.is_file():
+        return None, f"Final spectrum '{fin_name}' is missing for model '{model_relpath}'."
+
+    try:
+        continuum = load_obs_spectrum(
+            obs_cont,
+            lambda_min=lambda_min,
+            lambda_max=lambda_max,
+        )
+        final = load_obs_spectrum(
+            fin_path,
+            lambda_min=lambda_min,
+            lambda_max=lambda_max,
+        )
+    except Exception as exc:
+        return None, f"Could not load model spectrum data: {exc}"
+
+    model_series = build_final_model_series(continuum, final, mode=mode)
+    if model_series is None:
+        return None, "Could not prepare final model series for overlay."
+    model_x, model_y = model_series
+
+    transformed = apply_spectrum_transform(
+        model_x,
+        model_y,
+        mode=mode,
+        redshift=fit_params["redshift"],
+        broadening_km_s=fit_params["broadening_km_s"],
+        ebv=fit_params["ebv"],
+        distance_kpc=fit_params["distance_kpc"],
+    )
+    if transformed is None:
+        return None, "Could not transform model spectrum for overlay."
+    transformed_x, transformed_y = transformed
+
+    clipped_x: list[float] = []
+    clipped_y: list[float] = []
+    for wavelength, flux in zip(transformed_x, transformed_y):
+        if not isinstance(wavelength, int | float) or not isinstance(flux, int | float):
+            continue
+        x_value = float(wavelength)
+        y_value = float(flux)
+        if not math.isfinite(x_value) or not math.isfinite(y_value):
+            continue
+        if x_value < observed_min or x_value > observed_max:
+            continue
+        clipped_x.append(x_value)
+        clipped_y.append(y_value)
+
+    clipped_x, clipped_y = downsample_xy(clipped_x, clipped_y, max_points=5000)
+    if len(clipped_x) < 2 or len(clipped_y) < 2:
+        return None, "No transformed model points overlap the observed wavelength range."
+
+    rmse_raw = model_entry.get("rmse")
+    rmse = float(rmse_raw) if isinstance(rmse_raw, int | float) and math.isfinite(float(rmse_raw)) else None
+
+    return (
+        {
+            "mode": mode,
+            "model_name": str(model_entry.get("model_name", "")),
+            "model_path": model_relpath,
+            "fin": fin_name,
+            "rmse": rmse,
+            "fit_params": fit_params,
+            "x": clipped_x,
+            "y": clipped_y,
+            "observed_lambda_min": observed_min,
+            "observed_lambda_max": observed_max,
+        },
+        None,
+    )
+
+
 @bp.route("/uploads/fit-grid/status/<job_id>")
 def upload_fit_grid_status(job_id: str):
     snapshot = _grid_search_job_snapshot(job_id)
@@ -2042,6 +2204,43 @@ def upload_fit_grid_status(job_id: str):
             payload["message"] = "Grid search canceled."
 
     return jsonify(payload)
+
+
+@bp.route("/uploads/fit-grid/overlay/<job_id>")
+def upload_fit_grid_overlay(job_id: str):
+    snapshot = _grid_search_job_snapshot(job_id)
+    if snapshot is None:
+        return jsonify({"ok": False, "error": "Grid search job is not available."}), 404
+
+    which = str(request.args.get("which", "best_so_far")).strip().lower()
+    model_entry: dict[str, object] | None = None
+    if which == "final":
+        result = snapshot.get("result")
+        if isinstance(result, dict):
+            best_model = result.get("best_model")
+            if isinstance(best_model, dict) and best_model:
+                model_entry = best_model
+
+    if model_entry is None:
+        best_so_far = snapshot.get("best_so_far")
+        if isinstance(best_so_far, dict) and best_so_far:
+            model_entry = best_so_far
+            if which != "final":
+                which = "best_so_far"
+
+    if model_entry is None:
+        return jsonify({"ok": False, "error": "No best-fit model is available yet."}), 404
+
+    trace_payload, overlay_error = _build_upload_grid_overlay_trace(
+        config=_viewer_config(),
+        snapshot=snapshot,
+        model_entry=model_entry,
+    )
+    if overlay_error:
+        return jsonify({"ok": False, "error": overlay_error}), 400
+    if trace_payload is None:
+        return jsonify({"ok": False, "error": "Could not prepare best-fit overlay trace."}), 400
+    return jsonify({"ok": True, "which": which, "trace": trace_payload})
 
 
 @bp.route("/uploads/fit-grid/cancel/<job_id>", methods=["POST"])
