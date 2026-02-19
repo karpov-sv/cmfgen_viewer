@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 import fnmatch
 from functools import lru_cache
 import math
+import multiprocessing as mp
+import os
 from pathlib import Path
 import re
 import secrets
@@ -1412,6 +1414,141 @@ def _fit_wavelength_range_from_payload(payload: object) -> tuple[float, float] |
     return min_value, max_value
 
 
+def _resolve_grid_fit_pool_size(max_pool_size: int, total_models: int) -> int:
+    if total_models <= 1:
+        return 1
+    resolved = int(max_pool_size) if isinstance(max_pool_size, int | float) else 0
+    if resolved <= 0:
+        cpu_count = os.cpu_count()
+        resolved = cpu_count if isinstance(cpu_count, int) and cpu_count > 0 else 1
+    resolved = max(1, resolved)
+    return min(int(total_models), resolved)
+
+
+def _fit_single_model_candidate(
+    *,
+    model_name: str,
+    model_relpath: str,
+    model_path_str: str,
+    observed: dict[str, object],
+    mode: str,
+    fit_bounds: dict[str, tuple[float, float]],
+    lambda_min: float,
+    lambda_max: float,
+    should_cancel: object | None = None,
+) -> dict[str, object]:
+    model_dir = Path(model_path_str)
+    spectrum_files = discover_final_spectrum_files(model_dir)
+    if spectrum_files is None:
+        return {"status": "failed"}
+
+    fin_files = spectrum_files.get("fin_files")
+    if not isinstance(fin_files, list) or not fin_files:
+        return {"status": "failed"}
+    selected_fin = fin_files[0]
+    if not isinstance(selected_fin, Path):
+        return {"status": "failed"}
+
+    try:
+        continuum = load_obs_spectrum(
+            Path(spectrum_files["obs_cont"]),
+            lambda_min=lambda_min,
+            lambda_max=lambda_max,
+        )
+        final = load_obs_spectrum(
+            selected_fin,
+            lambda_min=lambda_min,
+            lambda_max=lambda_max,
+        )
+    except Exception:
+        return {"status": "failed"}
+
+    best_params, metrics, fit_error = fit_model_to_observed(
+        continuum,
+        final,
+        observed,
+        mode=mode,
+        initial_params=SPECTRUM_TRANSFORM_DEFAULTS,
+        bounds_override=fit_bounds,
+        should_cancel=should_cancel,
+    )
+    if fit_error == FIT_CANCELED_MESSAGE:
+        return {"status": "canceled"}
+    if fit_error or best_params is None or not isinstance(metrics, dict):
+        return {"status": "failed"}
+
+    rmse_raw = metrics.get("rmse")
+    if not isinstance(rmse_raw, int | float) or not math.isfinite(float(rmse_raw)):
+        return {"status": "failed"}
+
+    points_raw = metrics.get("points", 0)
+    points = int(points_raw) if isinstance(points_raw, int | float) else 0
+    return {
+        "status": "success",
+        "item": {
+            "model_name": model_name,
+            "model_path": model_relpath,
+            "fin": selected_fin.name,
+            "rmse": float(rmse_raw),
+            "points": points,
+            "fit_params": {
+                "redshift": float(best_params.get("redshift", 0.0)),
+                "broadening_km_s": float(best_params.get("broadening_km_s", 0.0)),
+                "ebv": float(best_params.get("ebv", 0.0)),
+                "distance_kpc": float(best_params.get("distance_kpc", 1.0)),
+            },
+        },
+    }
+
+
+_GRID_FIT_WORKER_CONTEXT: dict[str, object] = {}
+
+
+def _grid_fit_worker_init(
+    observed: dict[str, object],
+    mode: str,
+    fit_bounds: dict[str, tuple[float, float]],
+    lambda_min: float,
+    lambda_max: float,
+) -> None:
+    global _GRID_FIT_WORKER_CONTEXT
+    _GRID_FIT_WORKER_CONTEXT = {
+        "observed": observed,
+        "mode": mode,
+        "fit_bounds": fit_bounds,
+        "lambda_min": float(lambda_min),
+        "lambda_max": float(lambda_max),
+    }
+
+
+def _grid_fit_worker_task(model_candidate: tuple[str, str, str]) -> dict[str, object]:
+    observed = _GRID_FIT_WORKER_CONTEXT.get("observed")
+    mode = _GRID_FIT_WORKER_CONTEXT.get("mode")
+    fit_bounds = _GRID_FIT_WORKER_CONTEXT.get("fit_bounds")
+    lambda_min = _GRID_FIT_WORKER_CONTEXT.get("lambda_min")
+    lambda_max = _GRID_FIT_WORKER_CONTEXT.get("lambda_max")
+    if not isinstance(observed, dict):
+        return {"status": "failed"}
+    if not isinstance(mode, str):
+        return {"status": "failed"}
+    if not isinstance(fit_bounds, dict):
+        return {"status": "failed"}
+    if not isinstance(lambda_min, int | float) or not isinstance(lambda_max, int | float):
+        return {"status": "failed"}
+    model_name, model_relpath, model_path_str = model_candidate
+    return _fit_single_model_candidate(
+        model_name=model_name,
+        model_relpath=model_relpath,
+        model_path_str=model_path_str,
+        observed=observed,
+        mode=mode,
+        fit_bounds=fit_bounds,
+        lambda_min=float(lambda_min),
+        lambda_max=float(lambda_max),
+        should_cancel=None,
+    )
+
+
 def _discover_model_grid_from_cache(
     basepath: str,
     *,
@@ -1614,6 +1751,7 @@ def _run_upload_grid_search_job(
     model_candidates: list[tuple[str, str, str]],
     lambda_min: float,
     lambda_max: float,
+    max_pool_size: int,
 ) -> None:
     try:
         def update_iteration_progress(processed: int, *, current_model: str | None = None) -> None:
@@ -1665,107 +1803,29 @@ def _run_upload_grid_search_job(
         best_model: dict[str, object] | None = None
         top_models: list[dict[str, object]] = []
         started_at = time.time()
+        worker_count = _resolve_grid_fit_pool_size(max_pool_size, total)
 
-        for index, (model_name, model_relpath, model_path_str) in enumerate(model_candidates, start=1):
-            _grid_search_job_update(
-                job_id,
-                current_model=f"{model_name} ({model_relpath})",
-                processed=index - 1,
-                successful=successful,
-                failed=failed,
-            )
-            if _grid_search_job_cancel_requested(job_id):
+        def apply_candidate_result(candidate_result: dict[str, object], *, processed: int) -> bool:
+            nonlocal successful, failed, best_model, top_models
+            status = str(candidate_result.get("status", "failed"))
+            if status == "canceled":
                 finish_canceled(
-                    processed=index - 1,
+                    processed=max(0, processed - 1),
                     successful=successful,
                     failed=failed,
                     elapsed_seconds=max(0.0, time.time() - started_at),
                     top_models=top_models,
                     best_model=best_model,
                 )
-                return
+                return True
 
-            model_dir = Path(model_path_str)
-            spectrum_files = discover_final_spectrum_files(model_dir)
-            if spectrum_files is None:
+            item = candidate_result.get("item")
+            if status != "success" or not isinstance(item, dict):
                 failed += 1
-                update_iteration_progress(index, current_model="")
-                continue
+                update_iteration_progress(processed, current_model="")
+                return False
 
-            fin_files = spectrum_files.get("fin_files")
-            if not isinstance(fin_files, list) or not fin_files:
-                failed += 1
-                update_iteration_progress(index, current_model="")
-                continue
-            selected_fin = fin_files[0]
-            if not isinstance(selected_fin, Path):
-                failed += 1
-                update_iteration_progress(index, current_model="")
-                continue
-
-            try:
-                continuum = load_obs_spectrum(
-                    Path(spectrum_files["obs_cont"]),
-                    lambda_min=lambda_min,
-                    lambda_max=lambda_max,
-                )
-                final = load_obs_spectrum(
-                    selected_fin,
-                    lambda_min=lambda_min,
-                    lambda_max=lambda_max,
-                )
-            except Exception:
-                failed += 1
-                update_iteration_progress(index, current_model="")
-                continue
-
-            best_params, metrics, fit_error = fit_model_to_observed(
-                continuum,
-                final,
-                observed,
-                mode=mode,
-                initial_params=SPECTRUM_TRANSFORM_DEFAULTS,
-                bounds_override=fit_bounds,
-                should_cancel=lambda: _grid_search_job_cancel_requested(job_id),
-            )
-            if fit_error == FIT_CANCELED_MESSAGE:
-                finish_canceled(
-                    processed=index - 1,
-                    successful=successful,
-                    failed=failed,
-                    elapsed_seconds=max(0.0, time.time() - started_at),
-                    top_models=top_models,
-                    best_model=best_model,
-                )
-                return
-            if fit_error or best_params is None or not isinstance(metrics, dict):
-                failed += 1
-                update_iteration_progress(index, current_model="")
-                continue
-
-            rmse_raw = metrics.get("rmse")
-            if not isinstance(rmse_raw, int | float) or not math.isfinite(float(rmse_raw)):
-                failed += 1
-                update_iteration_progress(index, current_model="")
-                continue
-
-            points_raw = metrics.get("points", 0)
-            points = int(points_raw) if isinstance(points_raw, int | float) else 0
-            item = {
-                "model_name": model_name,
-                "model_path": model_relpath,
-                "fin": selected_fin.name,
-                "rmse": float(rmse_raw),
-                "points": points,
-                "fit_params": {
-                    "redshift": float(best_params.get("redshift", 0.0)),
-                    "broadening_km_s": float(best_params.get("broadening_km_s", 0.0)),
-                    "ebv": float(best_params.get("ebv", 0.0)),
-                    "distance_kpc": float(best_params.get("distance_kpc", 1.0)),
-                },
-            }
             successful += 1
-
             top_models.append(item)
             top_models.sort(key=lambda candidate: float(candidate.get("rmse", math.inf)))
             if len(top_models) > GRID_SEARCH_TOP_RESULTS:
@@ -1773,7 +1833,95 @@ def _run_upload_grid_search_job(
 
             if best_model is None or float(item["rmse"]) < float(best_model.get("rmse", math.inf)):
                 best_model = dict(item)
-            update_iteration_progress(index, current_model="")
+            update_iteration_progress(processed, current_model="")
+            return False
+
+        if worker_count <= 1:
+            for index, (model_name, model_relpath, model_path_str) in enumerate(model_candidates, start=1):
+                _grid_search_job_update(
+                    job_id,
+                    current_model=f"{model_name} ({model_relpath})",
+                    processed=index - 1,
+                    successful=successful,
+                    failed=failed,
+                )
+                if _grid_search_job_cancel_requested(job_id):
+                    finish_canceled(
+                        processed=index - 1,
+                        successful=successful,
+                        failed=failed,
+                        elapsed_seconds=max(0.0, time.time() - started_at),
+                        top_models=top_models,
+                        best_model=best_model,
+                    )
+                    return
+
+                candidate_result = _fit_single_model_candidate(
+                    model_name=model_name,
+                    model_relpath=model_relpath,
+                    model_path_str=model_path_str,
+                    observed=observed,
+                    mode=mode,
+                    fit_bounds=fit_bounds,
+                    lambda_min=lambda_min,
+                    lambda_max=lambda_max,
+                    should_cancel=lambda: _grid_search_job_cancel_requested(job_id),
+                )
+                was_canceled = apply_candidate_result(candidate_result, processed=index)
+                if was_canceled:
+                    return
+        else:
+            _grid_search_job_update(
+                job_id,
+                current_model=f"Parallel fitting across {worker_count} workers.",
+                processed=0,
+                successful=successful,
+                failed=failed,
+            )
+            pool: object | None = None
+            try:
+                context = mp.get_context("spawn")
+                pool = context.Pool(
+                    processes=worker_count,
+                    initializer=_grid_fit_worker_init,
+                    initargs=(observed, mode, fit_bounds, lambda_min, lambda_max),
+                )
+                iterator = pool.imap_unordered(_grid_fit_worker_task, model_candidates, chunksize=1)
+                processed = 0
+                while processed < total:
+                    if _grid_search_job_cancel_requested(job_id):
+                        pool.terminate()
+                        pool.join()
+                        pool = None
+                        finish_canceled(
+                            processed=processed,
+                            successful=successful,
+                            failed=failed,
+                            elapsed_seconds=max(0.0, time.time() - started_at),
+                            top_models=top_models,
+                            best_model=best_model,
+                        )
+                        return
+                    try:
+                        candidate_result = iterator.next(timeout=0.25)
+                    except mp.TimeoutError:
+                        continue
+                    except StopIteration:
+                        break
+                    processed += 1
+                    was_canceled = apply_candidate_result(candidate_result, processed=processed)
+                    if was_canceled:
+                        pool.terminate()
+                        pool.join()
+                        pool = None
+                        return
+                pool.close()
+                pool.join()
+                pool = None
+            finally:
+                if pool is not None:
+                    pool.terminate()
+                    pool.join()
 
         if _grid_search_job_cancel_requested(job_id):
             finish_canceled(
@@ -1960,6 +2108,12 @@ def upload_fit_grid(token: str):
     config = _viewer_config()
     basepath = str(config.get("basepath", "."))
     summary_cache_db = str(config.get("summary_cache_db", "model_summary_cache.sqlite"))
+    fit_pool_size_raw = config.get("fit_pool_size_max", 0)
+    try:
+        fit_pool_size = int(fit_pool_size_raw)
+    except (TypeError, ValueError):
+        fit_pool_size = 0
+    fit_pool_size = max(0, fit_pool_size)
     upload_root = _upload_root(config)
     lambda_min, lambda_max = _spectrum_lambda_bounds(config)
     fit_wavelength_range, fit_wavelength_error = _normalize_fit_wavelength_range(
@@ -2054,6 +2208,7 @@ def upload_fit_grid(token: str):
             "model_candidates": serialized_candidates,
             "lambda_min": effective_lambda_min,
             "lambda_max": effective_lambda_max,
+            "max_pool_size": fit_pool_size,
         },
         daemon=True,
     )

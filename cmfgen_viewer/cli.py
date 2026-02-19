@@ -52,6 +52,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Maximum wavelength in Angstroms for parsed/displayed spectra (default: 20000)",
     )
     parser.add_argument(
+        "--fit-pool-size",
+        dest="fit_pool_size",
+        type=int,
+        default=0,
+        help=(
+            "Maximum worker processes for upload grid fitting "
+            "(0 = auto based on CPU count, default: 0)"
+        ),
+    )
+    parser.add_argument(
         "--debug",
         dest="debug",
         action="store_true",
@@ -80,12 +90,15 @@ def main(argv: list[str] | None = None) -> None:
         parser.error("--lambda-min and --lambda-max must be positive.")
     if args.lambda_min >= args.lambda_max:
         parser.error("--lambda-min must be smaller than --lambda-max.")
+    if args.fit_pool_size < 0:
+        parser.error("--fit-pool-size must be zero or a positive integer.")
 
     app = create_app(
         basepath=str(basepath),
         show_all=args.show_all,
         lambda_min_angstrom=args.lambda_min,
         lambda_max_angstrom=args.lambda_max,
+        fit_pool_size_max=args.fit_pool_size,
         secret_key=args.secret,
     )
     app.run(host=args.host, port=args.port, debug=args.debug)
