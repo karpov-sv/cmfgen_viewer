@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import hmac
 import secrets
 from pathlib import Path
 import tempfile
 
-from flask import Flask
+from flask import Flask, Response, request
 
 
 def create_app(
@@ -15,10 +16,17 @@ def create_app(
     lambda_max_angstrom: float = 20000.0,
     secret_key: str | None = None,
     fit_pool_size_max: int = 0,
+    auth_username: str | None = None,
+    auth_password: str | None = None,
+    auth_realm: str = "CMFGEN Viewer",
 ) -> Flask:
     """Create Flask app for browsing CMFGEN model outputs."""
     app = Flask(__name__)
     default_summary_cache_db = (Path(__file__).resolve().parent.parent / "model_summary_cache.sqlite").resolve()
+    auth_user = auth_username if isinstance(auth_username, str) else ""
+    auth_pass = auth_password if isinstance(auth_password, str) else ""
+    auth_enabled = bool(auth_user and auth_pass)
+    auth_realm_text = str(auth_realm or "CMFGEN Viewer")
 
     app.config["CMFGEN_VIEWER"] = {
         "basepath": str(Path(basepath).expanduser().resolve()),
@@ -28,8 +36,36 @@ def create_app(
         "fit_pool_size_max": max(0, int(fit_pool_size_max)),
         "upload_root": str((Path(tempfile.gettempdir()) / "cmfgen_viewer_uploads").resolve()),
         "summary_cache_db": str(default_summary_cache_db),
+        "auth_enabled": auth_enabled,
+        "auth_realm": auth_realm_text,
     }
     app.secret_key = secret_key or secrets.token_hex(24)
+
+    if auth_enabled:
+
+        def auth_challenge_response() -> Response:
+            return Response(
+                "Authorization required.\n",
+                401,
+                {
+                    "WWW-Authenticate": f'Basic realm="{auth_realm_text}"',
+                    "Cache-Control": "no-store",
+                },
+            )
+
+        @app.before_request
+        def _require_http_basic_auth() -> Response | None:
+            auth = request.authorization
+            if auth is None or str(auth.type or "").lower() != "basic":
+                return auth_challenge_response()
+
+            username = str(auth.username or "")
+            password = str(auth.password or "")
+            if not hmac.compare_digest(username, auth_user):
+                return auth_challenge_response()
+            if not hmac.compare_digest(password, auth_pass):
+                return auth_challenge_response()
+            return None
 
     from .views import bp
 

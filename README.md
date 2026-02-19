@@ -73,6 +73,9 @@ python viewer.py --dir /path/to/cmfgen/run --lambda-min 1200 --lambda-max 9000
 - `--lambda-min 800` minimum wavelength (Angstroms) used for spectrum parsing/display.
 - `--lambda-max 20000` maximum wavelength (Angstroms) used for spectrum parsing/display.
 - `--fit-pool-size 0` max worker processes for upload grid fitting (`0` = auto/CPU count).
+- `--auth-user <name>` enable HTTP Basic Auth (must be paired with `--auth-password`).
+- `--auth-password <value>` HTTP Basic Auth password (must be paired with `--auth-user`).
+- `--auth-realm <label>` auth prompt realm text (default: `CMFGEN Viewer`).
 - `--debug` enable Flask debug and auto-reload.
 - `--secret <value>` set a fixed Flask secret key.
 
@@ -154,3 +157,4 @@ python viewer.py --dir /path/to/cmfgen/run --lambda-min 1200 --lambda-max 9000
 - Large-file parsing is guarded (`MAX_PARSE_FILE_BYTES`) to avoid heavy accidental loads.
 - Documentation pages are generated from repository markdown; update files in `doc/` to extend in-app docs.
 - Upload grid fitting requires a populated summary cache database (`model_summary_cache.sqlite`), typically produced by the `Summarize` workflow.
+- Optional app-wide HTTP Basic Auth can be enabled from CLI using `--auth-user` and `--auth-password`.

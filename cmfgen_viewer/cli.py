@@ -62,6 +62,24 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--auth-user",
+        dest="auth_user",
+        default=None,
+        help="Enable HTTP Basic Auth with this username (requires --auth-password)",
+    )
+    parser.add_argument(
+        "--auth-password",
+        dest="auth_password",
+        default=None,
+        help="HTTP Basic Auth password (requires --auth-user)",
+    )
+    parser.add_argument(
+        "--auth-realm",
+        dest="auth_realm",
+        default="CMFGEN Viewer",
+        help="HTTP Basic Auth realm label (default: CMFGEN Viewer)",
+    )
+    parser.add_argument(
         "--debug",
         dest="debug",
         action="store_true",
@@ -93,6 +111,21 @@ def main(argv: list[str] | None = None) -> None:
     if args.fit_pool_size < 0:
         parser.error("--fit-pool-size must be zero or a positive integer.")
 
+    auth_user_provided = args.auth_user is not None
+    auth_password_provided = args.auth_password is not None
+    if auth_user_provided != auth_password_provided:
+        parser.error("--auth-user and --auth-password must be provided together.")
+
+    auth_user: str | None = None
+    auth_password: str | None = None
+    if auth_user_provided and auth_password_provided:
+        auth_user = str(args.auth_user).strip()
+        auth_password = str(args.auth_password)
+        if not auth_user:
+            parser.error("--auth-user must not be empty.")
+        if not auth_password:
+            parser.error("--auth-password must not be empty.")
+
     app = create_app(
         basepath=str(basepath),
         show_all=args.show_all,
@@ -100,5 +133,8 @@ def main(argv: list[str] | None = None) -> None:
         lambda_max_angstrom=args.lambda_max,
         fit_pool_size_max=args.fit_pool_size,
         secret_key=args.secret,
+        auth_username=auth_user,
+        auth_password=auth_password,
+        auth_realm=str(args.auth_realm or "CMFGEN Viewer"),
     )
     app.run(host=args.host, port=args.port, debug=args.debug)
