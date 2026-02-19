@@ -66,8 +66,34 @@ python -m cmfgen_viewer --dir /path/to/cmfgen/run
 python viewer.py --dir /path/to/cmfgen/run --lambda-min 1200 --lambda-max 9000
 ```
 
+### Example with config file
+
+```bash
+python viewer.py --config viewer.toml
+```
+
+`viewer.toml` (equivalent to CLI options):
+
+```toml
+[cmfgen_viewer]
+dir = "/path/to/cmfgen/run"
+port = 5567
+host = "127.0.0.1"
+all = false
+lambda_min = 800
+lambda_max = 20000
+fit_pool_size = 0
+debug = false
+# Optional:
+# secret = "fixed-secret"
+# auth_user = "viewer"
+# auth_password = "change-me"
+# auth_realm = "CMFGEN Viewer"
+```
+
 ### Useful flags
 
+- `--config <path>` load defaults from a JSON/TOML config file (`[cmfgen_viewer]` section is supported for TOML).
 - `--host 0.0.0.0` bind on all interfaces.
 - `--all` show hidden files/directories.
 - `--lambda-min 800` minimum wavelength (Angstroms) used for spectrum parsing/display.

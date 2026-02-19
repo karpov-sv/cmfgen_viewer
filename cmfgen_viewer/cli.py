@@ -1,14 +1,181 @@
 from __future__ import annotations
 
 import argparse
+import json
 import math
 from pathlib import Path
 
 from .app import create_app
 
+try:
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - Python 3.11+ provides tomllib
+    tomllib = None
+
+
+CONFIG_KEY_ALIASES: dict[str, str] = {
+    "dir": "basepath",
+    "basepath": "basepath",
+    "port": "port",
+    "host": "host",
+    "all": "show_all",
+    "show_all": "show_all",
+    "lambda_min": "lambda_min",
+    "lambda_max": "lambda_max",
+    "fit_pool_size": "fit_pool_size",
+    "debug": "debug",
+    "secret": "secret",
+    "auth_user": "auth_user",
+    "auth_password": "auth_password",
+    "auth_realm": "auth_realm",
+}
+
+
+def _parse_bool_config_value(name: str, value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int) and value in {0, 1}:
+        return bool(value)
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if text in {"1", "true", "yes", "on"}:
+            return True
+        if text in {"0", "false", "no", "off"}:
+            return False
+    raise ValueError(f"Config option '{name}' must be a boolean value.")
+
+
+def _parse_int_config_value(name: str, value: object) -> int:
+    if isinstance(value, bool):
+        raise ValueError(f"Config option '{name}' must be an integer.")
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        if math.isfinite(value) and value.is_integer():
+            return int(value)
+        raise ValueError(f"Config option '{name}' must be an integer.")
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            raise ValueError(f"Config option '{name}' must be an integer.")
+        try:
+            return int(text, 10)
+        except ValueError as exc:
+            raise ValueError(f"Config option '{name}' must be an integer.") from exc
+    raise ValueError(f"Config option '{name}' must be an integer.")
+
+
+def _parse_float_config_value(name: str, value: object) -> float:
+    if isinstance(value, bool):
+        raise ValueError(f"Config option '{name}' must be a number.")
+    if isinstance(value, int | float):
+        numeric = float(value)
+        if math.isfinite(numeric):
+            return numeric
+        raise ValueError(f"Config option '{name}' must be a finite number.")
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            raise ValueError(f"Config option '{name}' must be a number.")
+        try:
+            numeric = float(text)
+        except ValueError as exc:
+            raise ValueError(f"Config option '{name}' must be a number.") from exc
+        if math.isfinite(numeric):
+            return numeric
+        raise ValueError(f"Config option '{name}' must be a finite number.")
+    raise ValueError(f"Config option '{name}' must be a number.")
+
+
+def _load_config_defaults(config_path: str) -> dict[str, object]:
+    path = Path(config_path).expanduser().resolve()
+    if not path.exists() or not path.is_file():
+        raise ValueError(f"--config must point to an existing file: {path}")
+
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ValueError(f"Could not read config file '{path}': {exc}") from exc
+
+    suffix = path.suffix.lower()
+    parsed: object
+    if suffix == ".json":
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"Failed to parse JSON config '{path}': {exc}") from exc
+    elif suffix in {".toml", ".tml"}:
+        if tomllib is None:
+            raise ValueError("TOML config is not supported on this Python version.")
+        try:
+            parsed = tomllib.loads(text)
+        except Exception as exc:
+            raise ValueError(f"Failed to parse TOML config '{path}': {exc}") from exc
+    else:
+        parse_errors: list[str] = []
+        parsed = None
+        if tomllib is not None:
+            try:
+                parsed = tomllib.loads(text)
+            except Exception as exc:
+                parse_errors.append(f"TOML: {exc}")
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError as exc:
+            parse_errors.append(f"JSON: {exc}")
+        if parsed is None:
+            joined = "; ".join(parse_errors) if parse_errors else "unsupported format"
+            raise ValueError(
+                f"Could not parse config '{path}'. Use .json or .toml file extension. Details: {joined}"
+            )
+
+    if not isinstance(parsed, dict):
+        raise ValueError(f"Config file '{path}' must contain a JSON object or TOML table.")
+
+    section: dict[str, object] = parsed
+    for section_name in ("cmfgen_viewer", "viewer"):
+        candidate = parsed.get(section_name)
+        if isinstance(candidate, dict):
+            section = candidate
+            break
+
+    defaults: dict[str, object] = {}
+    unknown_keys: list[str] = []
+    for raw_key, raw_value in section.items():
+        normalized_key = str(raw_key).strip().lower().replace("-", "_")
+        dest = CONFIG_KEY_ALIASES.get(normalized_key)
+        if dest is None:
+            unknown_keys.append(str(raw_key))
+            continue
+        defaults[dest] = raw_value
+
+    if unknown_keys:
+        keys = ", ".join(sorted(unknown_keys))
+        raise ValueError(f"Unsupported config option(s): {keys}")
+
+    normalized_defaults: dict[str, object] = {}
+    for key, value in defaults.items():
+        if key in {"show_all", "debug"}:
+            normalized_defaults[key] = _parse_bool_config_value(key, value)
+        elif key in {"port", "fit_pool_size"}:
+            normalized_defaults[key] = _parse_int_config_value(key, value)
+        elif key in {"lambda_min", "lambda_max"}:
+            normalized_defaults[key] = _parse_float_config_value(key, value)
+        elif key in {"basepath", "host", "auth_realm"}:
+            normalized_defaults[key] = str(value)
+        elif key in {"secret", "auth_user", "auth_password"}:
+            normalized_defaults[key] = None if value is None else str(value)
+    return normalized_defaults
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="CMFGEN model results viewer")
+    parser.add_argument(
+        "--config",
+        dest="config_path",
+        default=None,
+        help="Path to JSON/TOML config file with the same options as CLI flags",
+    )
     parser.add_argument(
         "-d",
         "--dir",
@@ -96,7 +263,23 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> None:
+    pre_parser = argparse.ArgumentParser(add_help=False)
+    pre_parser.add_argument("--config", dest="config_path", default=None)
+    pre_args, _unknown_args = pre_parser.parse_known_args(argv)
+
+    config_defaults: dict[str, object] = {}
+    config_error = ""
+    if pre_args.config_path:
+        try:
+            config_defaults = _load_config_defaults(str(pre_args.config_path))
+        except ValueError as exc:
+            config_error = str(exc)
+
     parser = build_parser()
+    if config_error:
+        parser.error(config_error)
+    if config_defaults:
+        parser.set_defaults(**config_defaults)
     args = parser.parse_args(argv)
 
     basepath = Path(args.basepath).expanduser().resolve()
