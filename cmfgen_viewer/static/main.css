@@ -235,6 +235,14 @@ a:focus {
     max-width: calc(8ch + 1.25rem);
 }
 
+.grid-fit-range-input {
+    box-sizing: border-box;
+    flex: 0 1 calc(9ch + 1.25rem);
+    width: clamp(calc(7ch + 1.25rem), 10vw, calc(9ch + 1.25rem));
+    min-width: calc(7ch + 1.25rem);
+    max-width: calc(9ch + 1.25rem);
+}
+
 .plotly-resizable {
     position: relative;
     width: 100%;

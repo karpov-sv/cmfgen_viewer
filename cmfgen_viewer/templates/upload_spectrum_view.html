@@ -987,7 +987,7 @@
             type="number"
             min="0.000001"
             step="any"
-            class="form-control form-control-sm plot-number-input"
+            class="form-control form-control-sm grid-fit-range-input"
             value="{{ fit_wavelength_inputs.min }}"
             placeholder="auto"
           >
@@ -998,7 +998,7 @@
             type="number"
             min="0.000001"
             step="any"
-            class="form-control form-control-sm plot-number-input"
+            class="form-control form-control-sm grid-fit-range-input"
             value="{{ fit_wavelength_inputs.max }}"
             placeholder="auto"
           >
@@ -1012,7 +1012,7 @@
             name="fit_redshift_min"
             type="number"
             step="any"
-            class="form-control form-control-sm plot-number-input"
+            class="form-control form-control-sm grid-fit-range-input"
             value="{{ fit_bounds.redshift[0] }}"
           >
           <span class="small text-muted">..</span>
@@ -1020,7 +1020,7 @@
             name="fit_redshift_max"
             type="number"
             step="any"
-            class="form-control form-control-sm plot-number-input"
+            class="form-control form-control-sm grid-fit-range-input"
             value="{{ fit_bounds.redshift[1] }}"
           >
           <label for="grid-fit-broadening-min" class="small text-muted mb-0">sigma (km/s)</label>
@@ -1030,7 +1030,7 @@
             type="number"
             min="0"
             step="any"
-            class="form-control form-control-sm plot-number-input"
+            class="form-control form-control-sm grid-fit-range-input"
             value="{{ fit_bounds.broadening_km_s[0] }}"
           >
           <span class="small text-muted">..</span>
@@ -1039,7 +1039,7 @@
             type="number"
             min="0"
             step="any"
-            class="form-control form-control-sm plot-number-input"
+            class="form-control form-control-sm grid-fit-range-input"
             value="{{ fit_bounds.broadening_km_s[1] }}"
           >
           {% if mode == "both" %}
@@ -1049,7 +1049,7 @@
               name="fit_ebv_min"
               type="number"
               step="any"
-              class="form-control form-control-sm plot-number-input"
+              class="form-control form-control-sm grid-fit-range-input"
               value="{{ fit_bounds.ebv[0] }}"
             >
             <span class="small text-muted">..</span>
@@ -1057,7 +1057,7 @@
               name="fit_ebv_max"
               type="number"
               step="any"
-              class="form-control form-control-sm plot-number-input"
+              class="form-control form-control-sm grid-fit-range-input"
               value="{{ fit_bounds.ebv[1] }}"
             >
             <label for="grid-fit-distance-min" class="small text-muted mb-0">distance (kpc)</label>
@@ -1067,7 +1067,7 @@
               type="number"
               min="0.000001"
               step="any"
-              class="form-control form-control-sm plot-number-input"
+              class="form-control form-control-sm grid-fit-range-input"
               value="{{ fit_bounds.distance_kpc[0] }}"
             >
             <span class="small text-muted">..</span>
@@ -1076,7 +1076,7 @@
               type="number"
               min="0.000001"
               step="any"
-              class="form-control form-control-sm plot-number-input"
+              class="form-control form-control-sm grid-fit-range-input"
               value="{{ fit_bounds.distance_kpc[1] }}"
             >
           {% endif %}
