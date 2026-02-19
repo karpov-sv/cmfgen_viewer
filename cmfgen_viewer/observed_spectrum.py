@@ -208,6 +208,18 @@ def _parse_uploaded_fits(
     if flux_mode != "auto" and flux_mode != detected_mode:
         warnings.append(f"Requested flux mode '{flux_mode}' overrides detected mode '{detected_mode}'.")
 
+    negative_flux_skipped = 0
+    if resolved_mode == "normalized":
+        non_negative_mask = flux_arr >= 0
+        negative_flux_skipped = int(flux_arr.size - int(non_negative_mask.sum()))
+        if negative_flux_skipped > 0:
+            wavelength_arr = wavelength_arr[non_negative_mask]
+            flux_arr = flux_arr[non_negative_mask]
+            skipped_points += negative_flux_skipped
+            warnings.append(f"Filtered {negative_flux_skipped} normalized point(s) with negative flux.")
+            if wavelength_arr.size < 2:
+                raise ValueError("Uploaded normalized spectrum has too few non-negative samples after filtering.")
+
     range_skipped_points = 0
     if lambda_min is not None or lambda_max is not None:
         range_mask = np.ones(wavelength_arr.shape, dtype=bool)

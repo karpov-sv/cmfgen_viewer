@@ -840,121 +840,128 @@
         id="grid-fit-form"
         method="post"
         action="{{ url_for('viewer.upload_fit_grid', token=upload.token) }}"
-        class="d-flex flex-wrap align-items-center gap-2 mb-3"
+        class="mb-3"
       >
         <input type="hidden" name="async" value="1">
-        <label for="grid-model-pattern" class="small text-muted mb-0">
-          Model name pattern (shell-like).
-          <span id="grid-pattern-match">...</span>
-        </label>
-        <input
-          id="grid-model-pattern"
-          name="model_name_pattern"
-          type="text"
-          class="form-control form-control-sm"
-          value="{{ model_name_pattern }}"
-          placeholder="e.g. model_Bstar* or model_1[012]*"
-        >
-        <span class="small text-muted">Fit wavelength range (Å, optional):</span>
-        <label for="grid-fit-lambda-min" class="small text-muted mb-0">min</label>
-        <input
-          id="grid-fit-lambda-min"
-          name="fit_lambda_min"
-          type="number"
-          min="0.000001"
-          step="any"
-          class="form-control form-control-sm plot-number-input"
-          value="{{ fit_wavelength_inputs.min }}"
-          placeholder="auto"
-        >
-        <span class="small text-muted">..</span>
-        <input
-          id="grid-fit-lambda-max"
-          name="fit_lambda_max"
-          type="number"
-          min="0.000001"
-          step="any"
-          class="form-control form-control-sm plot-number-input"
-          value="{{ fit_wavelength_inputs.max }}"
-          placeholder="auto"
-        >
-        <span class="small text-muted">Fit bounds:</span>
-        <label for="grid-fit-redshift-min" class="small text-muted mb-0">z</label>
-        <input
-          id="grid-fit-redshift-min"
-          name="fit_redshift_min"
-          type="number"
-          step="any"
-          class="form-control form-control-sm plot-number-input"
-          value="{{ fit_bounds.redshift[0] }}"
-        >
-        <span class="small text-muted">..</span>
-        <input
-          name="fit_redshift_max"
-          type="number"
-          step="any"
-          class="form-control form-control-sm plot-number-input"
-          value="{{ fit_bounds.redshift[1] }}"
-        >
-        <label for="grid-fit-broadening-min" class="small text-muted mb-0">sigma (km/s)</label>
-        <input
-          id="grid-fit-broadening-min"
-          name="fit_broadening_km_s_min"
-          type="number"
-          min="0"
-          step="any"
-          class="form-control form-control-sm plot-number-input"
-          value="{{ fit_bounds.broadening_km_s[0] }}"
-        >
-        <span class="small text-muted">..</span>
-        <input
-          name="fit_broadening_km_s_max"
-          type="number"
-          min="0"
-          step="any"
-          class="form-control form-control-sm plot-number-input"
-          value="{{ fit_bounds.broadening_km_s[1] }}"
-        >
-        {% if mode == "both" %}
-          <label for="grid-fit-ebv-min" class="small text-muted mb-0">E(B-V)</label>
+        <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+          <label for="grid-model-pattern" class="small text-muted mb-0">
+            Model name pattern (shell-like).
+            <span id="grid-pattern-match">...</span>
+          </label>
           <input
-            id="grid-fit-ebv-min"
-            name="fit_ebv_min"
-            type="number"
-            step="any"
-            class="form-control form-control-sm plot-number-input"
-            value="{{ fit_bounds.ebv[0] }}"
+            id="grid-model-pattern"
+            name="model_name_pattern"
+            type="text"
+            class="form-control form-control-sm"
+            value="{{ model_name_pattern }}"
+            placeholder="e.g. model_Bstar* or model_1[012]*"
           >
-          <span class="small text-muted">..</span>
+        </div>
+        <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+          <span class="small text-muted">Fit wavelength range (Å, optional):</span>
+          <label for="grid-fit-lambda-min" class="small text-muted mb-0">min</label>
           <input
-            name="fit_ebv_max"
-            type="number"
-            step="any"
-            class="form-control form-control-sm plot-number-input"
-            value="{{ fit_bounds.ebv[1] }}"
-          >
-          <label for="grid-fit-distance-min" class="small text-muted mb-0">distance (kpc)</label>
-          <input
-            id="grid-fit-distance-min"
-            name="fit_distance_kpc_min"
+            id="grid-fit-lambda-min"
+            name="fit_lambda_min"
             type="number"
             min="0.000001"
             step="any"
             class="form-control form-control-sm plot-number-input"
-            value="{{ fit_bounds.distance_kpc[0] }}"
+            value="{{ fit_wavelength_inputs.min }}"
+            placeholder="auto"
           >
           <span class="small text-muted">..</span>
           <input
-            name="fit_distance_kpc_max"
+            id="grid-fit-lambda-max"
+            name="fit_lambda_max"
             type="number"
             min="0.000001"
             step="any"
             class="form-control form-control-sm plot-number-input"
-            value="{{ fit_bounds.distance_kpc[1] }}"
+            value="{{ fit_wavelength_inputs.max }}"
+            placeholder="auto"
           >
-        {% endif %}
-        <button type="submit" class="btn btn-sm btn-outline-success">Find Best Model</button>
-        <button id="grid-fit-cancel" type="button" class="btn btn-sm btn-outline-danger d-none">Stop Search</button>
+          <button id="grid-fit-use-plot-range" type="button" class="btn btn-sm btn-outline-secondary">Use Plot Range</button>
+        </div>
+        <div class="d-flex flex-wrap align-items-center gap-2">
+          <span class="small text-muted">Fit bounds:</span>
+          <label for="grid-fit-redshift-min" class="small text-muted mb-0">z</label>
+          <input
+            id="grid-fit-redshift-min"
+            name="fit_redshift_min"
+            type="number"
+            step="any"
+            class="form-control form-control-sm plot-number-input"
+            value="{{ fit_bounds.redshift[0] }}"
+          >
+          <span class="small text-muted">..</span>
+          <input
+            name="fit_redshift_max"
+            type="number"
+            step="any"
+            class="form-control form-control-sm plot-number-input"
+            value="{{ fit_bounds.redshift[1] }}"
+          >
+          <label for="grid-fit-broadening-min" class="small text-muted mb-0">sigma (km/s)</label>
+          <input
+            id="grid-fit-broadening-min"
+            name="fit_broadening_km_s_min"
+            type="number"
+            min="0"
+            step="any"
+            class="form-control form-control-sm plot-number-input"
+            value="{{ fit_bounds.broadening_km_s[0] }}"
+          >
+          <span class="small text-muted">..</span>
+          <input
+            name="fit_broadening_km_s_max"
+            type="number"
+            min="0"
+            step="any"
+            class="form-control form-control-sm plot-number-input"
+            value="{{ fit_bounds.broadening_km_s[1] }}"
+          >
+          {% if mode == "both" %}
+            <label for="grid-fit-ebv-min" class="small text-muted mb-0">E(B-V)</label>
+            <input
+              id="grid-fit-ebv-min"
+              name="fit_ebv_min"
+              type="number"
+              step="any"
+              class="form-control form-control-sm plot-number-input"
+              value="{{ fit_bounds.ebv[0] }}"
+            >
+            <span class="small text-muted">..</span>
+            <input
+              name="fit_ebv_max"
+              type="number"
+              step="any"
+              class="form-control form-control-sm plot-number-input"
+              value="{{ fit_bounds.ebv[1] }}"
+            >
+            <label for="grid-fit-distance-min" class="small text-muted mb-0">distance (kpc)</label>
+            <input
+              id="grid-fit-distance-min"
+              name="fit_distance_kpc_min"
+              type="number"
+              min="0.000001"
+              step="any"
+              class="form-control form-control-sm plot-number-input"
+              value="{{ fit_bounds.distance_kpc[0] }}"
+            >
+            <span class="small text-muted">..</span>
+            <input
+              name="fit_distance_kpc_max"
+              type="number"
+              min="0.000001"
+              step="any"
+              class="form-control form-control-sm plot-number-input"
+              value="{{ fit_bounds.distance_kpc[1] }}"
+            >
+          {% endif %}
+          <button type="submit" class="btn btn-sm btn-outline-success">Find Best Model</button>
+          <button id="grid-fit-cancel" type="button" class="btn btn-sm btn-outline-danger d-none">Stop Search</button>
+        </div>
       </form>
 
       <div id="grid-fit-feedback" class="alert py-2 mb-3 d-none" role="status" aria-live="polite"></div>
@@ -1036,6 +1043,10 @@
       var cancelButton = document.getElementById("grid-fit-cancel");
       var patternInput = document.getElementById("grid-model-pattern");
       var patternMatch = document.getElementById("grid-pattern-match");
+      var lambdaMinInput = document.getElementById("grid-fit-lambda-min");
+      var lambdaMaxInput = document.getElementById("grid-fit-lambda-max");
+      var usePlotRangeButton = document.getElementById("grid-fit-use-plot-range");
+      var uploadPlot = document.getElementById("upload-spectrum-plot");
       var matchCountUrl = "{{ url_for('viewer.upload_fit_grid_match_count', token=upload.token) }}";
       var initialActiveJob = {{ active_grid_job | tojson if active_grid_job else "null" }};
       var matchCountTimer = null;
@@ -1179,6 +1190,60 @@
         feedback.classList.remove("alert-danger");
         feedback.classList.remove("alert-info");
         feedback.classList.add(isError ? "alert-danger" : "alert-info");
+      }
+
+      function formatRangeValue(value) {
+        var numeric = Number(value);
+        if (!Number.isFinite(numeric)) {
+          return "";
+        }
+        return Number(numeric.toFixed(6)).toString();
+      }
+
+      function readCurrentPlotXRange() {
+        if (!uploadPlot || !uploadPlot._fullLayout || !uploadPlot._fullLayout.xaxis) {
+          return null;
+        }
+        var xaxis = uploadPlot._fullLayout.xaxis;
+        var range = xaxis.range;
+        if (!Array.isArray(range) || range.length < 2) {
+          return null;
+        }
+        var first = Number(range[0]);
+        var second = Number(range[1]);
+        if (!Number.isFinite(first) || !Number.isFinite(second)) {
+          return null;
+        }
+        var axisType = String(xaxis.type || "").toLowerCase();
+        if (axisType === "log") {
+          first = Math.pow(10, first);
+          second = Math.pow(10, second);
+        }
+        if (!Number.isFinite(first) || !Number.isFinite(second)) {
+          return null;
+        }
+        var lower = Math.min(first, second);
+        var upper = Math.max(first, second);
+        if (lower <= 0 || upper <= lower) {
+          return null;
+        }
+        return [lower, upper];
+      }
+
+      function applyPlotRangeToFitInputs() {
+        if (!lambdaMinInput || !lambdaMaxInput) {
+          return;
+        }
+        var range = readCurrentPlotXRange();
+        if (!range) {
+          setFeedback("Could not read the current plot range. Zoom or pan the spectrum plot first.", true);
+          return;
+        }
+        var minText = formatRangeValue(range[0]);
+        var maxText = formatRangeValue(range[1]);
+        lambdaMinInput.value = minText;
+        lambdaMaxInput.value = maxText;
+        setFeedback("Fit wavelength range set from plot view: " + minText + " .. " + maxText + " Å.", false);
       }
 
       function setProgress(percentage, text, isRunning) {
@@ -1684,6 +1749,13 @@
       if (patternInput) {
         patternInput.addEventListener("input", schedulePatternMatchCount);
         patternInput.addEventListener("change", schedulePatternMatchCount);
+      }
+      if (usePlotRangeButton) {
+        usePlotRangeButton.addEventListener("click", applyPlotRangeToFitInputs);
+        if (!uploadPlot) {
+          usePlotRangeButton.disabled = true;
+          usePlotRangeButton.title = "Spectrum plot is not available.";
+        }
       }
       if (cancelButton) {
         cancelButton.addEventListener("click", requestCancelActiveJob);
