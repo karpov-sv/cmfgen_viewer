@@ -5,7 +5,7 @@ from functools import lru_cache
 import math
 from pathlib import Path
 import re
-from typing import Any
+from typing import Any, Callable
 
 from .parsers.common import downsample_xy, format_number, parse_float_token, parse_numeric_tokens
 
@@ -48,6 +48,12 @@ NORMALIZED_FIT_BOUNDS = {
     "redshift": (-0.02, 0.02),
     "broadening_km_s": (0.0, 800.0),
 }
+
+FIT_CANCELED_MESSAGE = "Fit canceled."
+
+
+class _FitCanceledError(Exception):
+    pass
 
 
 def _safe_stat(path: Path) -> tuple[int, int]:
@@ -868,6 +874,7 @@ def fit_model_to_observed(
     mode: str,
     initial_params: dict[str, float] | None = None,
     bounds_override: dict[str, tuple[float, float]] | None = None,
+    should_cancel: Callable[[], bool] | None = None,
 ) -> tuple[dict[str, float] | None, dict[str, object] | None, str | None]:
     if np is None or least_squares is None:
         return None, None, "Server-side fitting requires numpy and scipy."
@@ -958,6 +965,10 @@ def fit_model_to_observed(
     if not math.isfinite(initial_distance) or initial_distance <= 0:
         initial_distance = 1.0
 
+    def check_cancel() -> None:
+        if should_cancel and should_cancel():
+            raise _FitCanceledError(FIT_CANCELED_MESSAGE)
+
     def residual_for_params(
         *,
         redshift: float,
@@ -966,6 +977,7 @@ def fit_model_to_observed(
         distance_kpc: float,
         with_valid_count: bool = False,
     ) -> Any:
+        check_cancel()
         transformed = _apply_transform_arrays(
             model_x,
             model_y,
@@ -1064,6 +1076,8 @@ def fit_model_to_observed(
                     if stage1_valid_count >= min_valid_points:
                         x0[ebv_index] = float(stage1_result.x[0])
                         x0[distance_index] = float(stage1_result.x[1])
+            except _FitCanceledError:
+                return None, None, FIT_CANCELED_MESSAGE
             except Exception:
                 stage1_result = None
 
@@ -1078,6 +1092,8 @@ def fit_model_to_observed(
             diff_step=diff_step,
             max_nfev=120,
         )
+    except _FitCanceledError:
+        return None, None, FIT_CANCELED_MESSAGE
     except Exception as exc:
         return None, None, f"Optimization failed: {exc}"
 

@@ -19,6 +19,7 @@ from werkzeug.utils import secure_filename
 
 from .browser import describe_file, is_model_context_path, list_directory, make_breadcrumb, resolve_path
 from .final_spectrum import (
+    FIT_CANCELED_MESSAGE,
     LIGHT_SPEED_KM_PER_S,
     build_observed_overlay_trace,
     build_both_plot,
@@ -1624,7 +1625,18 @@ def _run_upload_grid_search_job(
                 mode=mode,
                 initial_params=SPECTRUM_TRANSFORM_DEFAULTS,
                 bounds_override=fit_bounds,
+                should_cancel=lambda: _grid_search_job_cancel_requested(job_id),
             )
+            if fit_error == FIT_CANCELED_MESSAGE:
+                finish_canceled(
+                    processed=index - 1,
+                    successful=successful,
+                    failed=failed,
+                    elapsed_seconds=max(0.0, time.time() - started_at),
+                    top_models=top_models,
+                    best_model=best_model,
+                )
+                return
             if fit_error or best_params is None or not isinstance(metrics, dict):
                 failed += 1
                 continue
