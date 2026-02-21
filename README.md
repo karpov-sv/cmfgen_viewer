@@ -105,6 +105,44 @@ debug = false
 - `--debug` enable Flask debug and auto-reload.
 - `--secret <value>` set a fixed Flask secret key.
 
+## TLUSTY Grid Workflow
+
+### 1. Download and preprocess TLUSTY spectra
+
+Use the helper script to download OSTAR2002/BSTAR2006 archives and build reusable `.npz` spectra plus a CSV index:
+
+```bash
+python scripts/download_tlusty_spectra.py
+```
+
+Useful options:
+
+- `--grid ostar --grid bstar` select one or both TLUSTY grids.
+- `--product flux --product uv --product optical --product continuum` limit archive classes (default already includes all four).
+- `--archive-pattern "<glob>"` limit archive names using shell-style patterns.
+- `--crawl-depth <n>` set HTML link crawl depth (default: `2`).
+- `--force-download` and `--force-process` refresh cached archives / processed `.npz` outputs.
+
+By default, output is written under `data/tlusly/`:
+
+- `data/tlusly/models.csv`: model index used by viewer-side TLUSTY discovery.
+- `data/tlusly/manifest.json`: run metadata and archive-level processing summary.
+- `data/tlusly/spectra/.../*.npz`: processed spectrum arrays used during fitting/overlay.
+
+### 2. Run TLUSTY grid fitting in the upload viewer
+
+After uploading an observed spectrum (`/uploads/view/<token>`):
+
+- choose `TLUSTY grid` as the fit source and start the grid search;
+- optionally restrict candidates with `model_name_pattern` (shell-style `fnmatch` rules);
+- use the same fit controls as CMFGEN fitting: parameter bounds, optional wavelength fit range, progress polling, and `Stop Search`;
+- see real-time best-so-far updates and overplot of the best current/final TLUSTY model.
+
+Flux handling:
+
+- absolute observed spectra are fitted against TLUSTY UV/optical absolute flux spectra;
+- normalized observed spectra are fitted against TLUSTY spectra normalized by matched continuum counterparts.
+
 ## Current Implementation Status
 
 ### Implemented
