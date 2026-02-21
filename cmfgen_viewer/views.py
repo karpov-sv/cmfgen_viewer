@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import csv
 import copy
 from datetime import datetime, timezone
 import fnmatch
 from functools import lru_cache
+import json
 import math
 import multiprocessing as mp
 import os
@@ -22,6 +24,7 @@ from werkzeug.utils import secure_filename
 from .browser import describe_file, is_model_context_path, list_directory, make_breadcrumb, resolve_path
 from .final_spectrum import (
     FIT_CANCELED_MESSAGE,
+    JY_TO_FLAMBDA_ANGSTROM_FACTOR,
     LIGHT_SPEED_KM_PER_S,
     apply_spectrum_transform,
     build_final_model_series,
@@ -54,6 +57,11 @@ try:
     import markdown as md
 except ModuleNotFoundError:  # pragma: no cover - optional dependency fallback
     md = None
+
+try:
+    import numpy as np
+except ModuleNotFoundError:  # pragma: no cover - runtime dependency
+    np = None  # type: ignore[assignment]
 
 bp = Blueprint("viewer", __name__)
 DOCS_DIR = Path(__file__).resolve().parent.parent / "doc"
@@ -123,6 +131,20 @@ GRID_SEARCH_MAX_JOBS = 32
 GRID_SEARCH_TOP_RESULTS = 12
 GRID_SEARCH_JOBS: dict[str, dict[str, object]] = {}
 GRID_SEARCH_JOBS_LOCK = Lock()
+GRID_FIT_SOURCE_CMFGEN = "cmfgen"
+GRID_FIT_SOURCE_TLUSTY = "tlusty"
+GRID_FIT_SOURCE_VALUES = {GRID_FIT_SOURCE_CMFGEN, GRID_FIT_SOURCE_TLUSTY}
+TLUSTY_DEFAULT_ROOT = (Path(__file__).resolve().parent.parent / "data" / "tlusly").resolve()
+TLUSTY_FIT_MAX_MODEL_POINTS = 20000
+# TLUSTY grids provide emergent surface flux; use a fixed geometric reference
+# so absolute-mode fitting can reuse the shared distance_kpc scaling.
+# TODO: Verify TLUSTY absolute scaling against model-specific stellar radii
+# (current fallback assumes a 1 R_sun reference at 1 kpc).
+TLUSTY_REFERENCE_RADIUS_CM = 6.957e10
+TLUSTY_REFERENCE_DISTANCE_CM = 3.0856775814913673e21
+TLUSTY_SURFACE_TO_1KPC_SCALE = (
+    TLUSTY_REFERENCE_RADIUS_CM / TLUSTY_REFERENCE_DISTANCE_CM
+) ** 2
 
 
 @lru_cache(maxsize=1)
@@ -288,6 +310,25 @@ def _normalize_spectrum_mode(raw_mode: str | None) -> str:
     if mode not in {"both", "normalized"}:
         return "both"
     return mode
+
+
+def _normalize_grid_fit_source(raw_source: object) -> str:
+    source = str(raw_source or GRID_FIT_SOURCE_CMFGEN).strip().lower()
+    if source not in GRID_FIT_SOURCE_VALUES:
+        return GRID_FIT_SOURCE_CMFGEN
+    return source
+
+
+def _grid_fit_source_label(source: str) -> str:
+    normalized = _normalize_grid_fit_source(source)
+    if normalized == GRID_FIT_SOURCE_TLUSTY:
+        return "TLUSTY UV/Optical Grid"
+    return "Cached CMFGEN Models"
+
+
+def _tlusty_root(config: dict[str, object]) -> Path:
+    raw = str(config.get("tlusty_root", str(TLUSTY_DEFAULT_ROOT)))
+    return Path(raw).expanduser().resolve()
 
 
 def _collect_obs_tokens(raw_values: list[str]) -> list[str]:
@@ -1435,11 +1476,9 @@ def _resolve_grid_fit_pool_size(max_pool_size: int, total_models: int) -> int:
     return min(int(total_models), resolved)
 
 
-def _fit_single_model_candidate(
+def _fit_single_cmfgen_candidate(
     *,
-    model_name: str,
-    model_relpath: str,
-    model_path_str: str,
+    candidate: dict[str, object],
     observed: dict[str, object],
     mode: str,
     fit_bounds: dict[str, tuple[float, float]],
@@ -1447,6 +1486,12 @@ def _fit_single_model_candidate(
     lambda_max: float,
     should_cancel: object | None = None,
 ) -> dict[str, object]:
+    model_name = str(candidate.get("model_name", "")).strip()
+    model_relpath = str(candidate.get("model_relpath", candidate.get("model_path", ""))).strip().strip("/")
+    model_path_str = str(candidate.get("model_path_str", "")).strip()
+    if not model_name or not model_relpath or not model_path_str:
+        return {"status": "failed"}
+
     model_dir = Path(model_path_str)
     spectrum_files = discover_final_spectrum_files(model_dir)
     if spectrum_files is None:
@@ -1496,6 +1541,7 @@ def _fit_single_model_candidate(
     return {
         "status": "success",
         "item": {
+            "fit_source": GRID_FIT_SOURCE_CMFGEN,
             "model_name": model_name,
             "model_path": model_relpath,
             "fin": selected_fin.name,
@@ -1514,12 +1560,281 @@ def _fit_single_model_candidate(
 _GRID_FIT_WORKER_CONTEXT: dict[str, object] = {}
 
 
+def _load_tlusty_npz_arrays(npz_path: Path) -> dict[str, object] | None:
+    if np is None:
+        return None
+    if not npz_path.is_file():
+        return None
+    try:
+        with np.load(npz_path, allow_pickle=False) as payload:
+            arrays: dict[str, object] = {}
+            for key in payload.files:
+                arrays[key] = np.asarray(payload[key], dtype=np.float64).reshape(-1)
+            return arrays
+    except Exception:
+        return None
+
+
+def _tlusty_pick_flux_array(arrays: dict[str, object]) -> object | None:
+    preferred = ["flux_lambda_cgs", "hnu_cgs", "y_col_1"]
+    for name in preferred:
+        value = arrays.get(name)
+        if value is not None:
+            return value
+    return None
+
+
+def _tlusty_segment_label(products: set[str]) -> str:
+    if "optical" in products:
+        return "optical"
+    if "uv" in products:
+        return "uv"
+    if "flux" in products:
+        return "flux"
+    if "continuum" in products:
+        return "continuum"
+    return "spectrum"
+
+
+def _build_tlusty_model_series(
+    *,
+    mode: str,
+    spectrum_path: Path,
+    continuum_path: Path | None,
+    max_points: int = 0,
+) -> tuple[list[float] | None, list[float] | None, str | None]:
+    if np is None:
+        return None, None, "numpy is required for TLUSTY fitting."
+
+    spectrum_arrays = _load_tlusty_npz_arrays(spectrum_path)
+    if not isinstance(spectrum_arrays, dict):
+        return None, None, f"TLUSTY spectrum file is not available: {spectrum_path.name}"
+
+    wavelength_raw = spectrum_arrays.get("wavelength_angstrom")
+    flux_raw = _tlusty_pick_flux_array(spectrum_arrays)
+    if wavelength_raw is None or flux_raw is None:
+        return None, None, f"TLUSTY spectrum file '{spectrum_path.name}' is missing required arrays."
+
+    wavelength = np.asarray(wavelength_raw, dtype=np.float64).reshape(-1)
+    flux = np.asarray(flux_raw, dtype=np.float64).reshape(-1)
+    if wavelength.size != flux.size or wavelength.size < 2:
+        return None, None, f"TLUSTY spectrum file '{spectrum_path.name}' has incompatible wavelength/flux arrays."
+
+    y_values: object
+    if mode == "both":
+        y_values = flux * TLUSTY_SURFACE_TO_1KPC_SCALE
+    else:
+        normalized_candidate = spectrum_arrays.get("normalized_flux_candidate")
+        if normalized_candidate is not None:
+            y_values = np.asarray(normalized_candidate, dtype=np.float64).reshape(-1)
+            if y_values.size != wavelength.size:
+                normalized_candidate = None
+        if normalized_candidate is None:
+            continuum = spectrum_arrays.get("continuum_lambda_cgs")
+            if continuum is not None:
+                continuum_arr = np.asarray(continuum, dtype=np.float64).reshape(-1)
+                if continuum_arr.size != wavelength.size:
+                    continuum_arr = np.array([], dtype=np.float64)
+            else:
+                continuum_arr = np.array([], dtype=np.float64)
+
+            if continuum_arr.size != wavelength.size and continuum_path is not None:
+                continuum_arrays = _load_tlusty_npz_arrays(continuum_path)
+                if not isinstance(continuum_arrays, dict):
+                    return None, None, f"TLUSTY continuum file is not available: {continuum_path.name}"
+                continuum_wavelength_raw = continuum_arrays.get("wavelength_angstrom")
+                continuum_flux_raw = continuum_arrays.get("continuum_lambda_cgs")
+                if continuum_flux_raw is None:
+                    continuum_flux_raw = _tlusty_pick_flux_array(continuum_arrays)
+                if continuum_wavelength_raw is None or continuum_flux_raw is None:
+                    return None, None, f"TLUSTY continuum file '{continuum_path.name}' is missing required arrays."
+
+                continuum_wavelength = np.asarray(continuum_wavelength_raw, dtype=np.float64).reshape(-1)
+                continuum_flux = np.asarray(continuum_flux_raw, dtype=np.float64).reshape(-1)
+                if continuum_wavelength.size != continuum_flux.size or continuum_wavelength.size < 2:
+                    return None, None, f"TLUSTY continuum file '{continuum_path.name}' has incompatible arrays."
+
+                cont_valid = np.isfinite(continuum_wavelength) & np.isfinite(continuum_flux) & (continuum_wavelength > 0)
+                continuum_wavelength = continuum_wavelength[cont_valid]
+                continuum_flux = continuum_flux[cont_valid]
+                if continuum_wavelength.size < 2:
+                    return None, None, f"TLUSTY continuum file '{continuum_path.name}' has too few valid points."
+
+                order = np.argsort(continuum_wavelength)
+                continuum_wavelength = continuum_wavelength[order]
+                continuum_flux = continuum_flux[order]
+                unique = np.concatenate(([True], np.diff(continuum_wavelength) > 0.0))
+                continuum_wavelength = continuum_wavelength[unique]
+                continuum_flux = continuum_flux[unique]
+                if continuum_wavelength.size < 2:
+                    return None, None, f"TLUSTY continuum file '{continuum_path.name}' has duplicate wavelength points only."
+                continuum_arr = np.interp(wavelength, continuum_wavelength, continuum_flux, left=np.nan, right=np.nan)
+
+            if continuum_arr.size != wavelength.size:
+                return None, None, "Could not derive continuum for normalized TLUSTY fitting."
+
+            with np.errstate(divide="ignore", invalid="ignore"):
+                y_values = flux / continuum_arr
+
+    y_array = np.asarray(y_values, dtype=np.float64).reshape(-1)
+    if y_array.size != wavelength.size:
+        return None, None, f"TLUSTY spectrum file '{spectrum_path.name}' has inconsistent vectors."
+
+    valid = np.isfinite(wavelength) & np.isfinite(y_array) & (wavelength > 0)
+    wavelength = wavelength[valid]
+    y_array = y_array[valid]
+    if wavelength.size < 2:
+        return None, None, f"TLUSTY spectrum file '{spectrum_path.name}' has too few valid points."
+
+    order = np.argsort(wavelength)
+    wavelength = wavelength[order]
+    y_array = y_array[order]
+    unique = np.concatenate(([True], np.diff(wavelength) > 0.0))
+    wavelength = wavelength[unique]
+    y_array = y_array[unique]
+    if wavelength.size < 2:
+        return None, None, f"TLUSTY spectrum file '{spectrum_path.name}' has duplicate wavelengths only."
+
+    x_values = wavelength.tolist()
+    y_values_out = y_array.tolist()
+    if max_points > 0 and len(x_values) > max_points:
+        x_values, y_values_out = downsample_xy(x_values, y_values_out, max_points=max_points)
+    if len(x_values) < 2:
+        return None, None, f"TLUSTY spectrum file '{spectrum_path.name}' has too few usable points."
+    return x_values, y_values_out, None
+
+
+def _fit_single_tlusty_candidate(
+    *,
+    candidate: dict[str, object],
+    observed: dict[str, object],
+    mode: str,
+    fit_bounds: dict[str, tuple[float, float]],
+    should_cancel: object | None = None,
+) -> dict[str, object]:
+    model_name = str(candidate.get("model_name", "")).strip()
+    model_path = str(candidate.get("model_path", "")).strip()
+    spectrum_relpath = str(candidate.get("spectrum_relpath", "")).strip()
+    spectrum_path_str = str(candidate.get("spectrum_path_str", "")).strip()
+    continuum_relpath = str(candidate.get("continuum_relpath", "")).strip()
+    continuum_path_str = str(candidate.get("continuum_path_str", "")).strip()
+    fin_label = str(candidate.get("spectrum_label", "spectrum")).strip() or "spectrum"
+    if not model_name or not model_path or not spectrum_path_str:
+        return {"status": "failed"}
+
+    spectrum_path = Path(spectrum_path_str)
+    continuum_path = Path(continuum_path_str) if continuum_path_str else None
+    model_x, model_y, build_error = _build_tlusty_model_series(
+        mode=mode,
+        spectrum_path=spectrum_path,
+        continuum_path=continuum_path,
+        max_points=TLUSTY_FIT_MAX_MODEL_POINTS,
+    )
+    if build_error or not isinstance(model_x, list) or not isinstance(model_y, list):
+        return {"status": "failed"}
+
+    if mode == "both":
+        jy_flux: list[float] = []
+        wavelength_out: list[float] = []
+        for wavelength, flux in zip(model_x, model_y):
+            if not isinstance(wavelength, int | float) or not isinstance(flux, int | float):
+                continue
+            wave = float(wavelength)
+            value = float(flux)
+            if not math.isfinite(wave) or not math.isfinite(value) or wave <= 0:
+                continue
+            jy = value * wave * wave / JY_TO_FLAMBDA_ANGSTROM_FACTOR
+            if not math.isfinite(jy):
+                continue
+            wavelength_out.append(wave)
+            jy_flux.append(jy)
+        if len(wavelength_out) < 2 or len(jy_flux) < 2:
+            return {"status": "failed"}
+        continuum = {"wavelength": wavelength_out, "flux": jy_flux}
+        final = {"wavelength": wavelength_out, "flux": jy_flux}
+    else:
+        continuum = {"wavelength": model_x, "flux": [1.0] * len(model_x)}
+        final = {"wavelength": model_x, "flux": model_y}
+
+    best_params, metrics, fit_error = fit_model_to_observed(
+        continuum,
+        final,
+        observed,
+        mode=mode,
+        initial_params=SPECTRUM_TRANSFORM_DEFAULTS,
+        bounds_override=fit_bounds,
+        should_cancel=should_cancel,
+    )
+    if fit_error == FIT_CANCELED_MESSAGE:
+        return {"status": "canceled"}
+    if fit_error or best_params is None or not isinstance(metrics, dict):
+        return {"status": "failed"}
+
+    rmse_raw = metrics.get("rmse")
+    if not isinstance(rmse_raw, int | float) or not math.isfinite(float(rmse_raw)):
+        return {"status": "failed"}
+    points_raw = metrics.get("points", 0)
+    points = int(points_raw) if isinstance(points_raw, int | float) else 0
+
+    return {
+        "status": "success",
+        "item": {
+            "fit_source": GRID_FIT_SOURCE_TLUSTY,
+            "model_name": model_name,
+            "model_path": model_path,
+            "fin": fin_label,
+            "rmse": float(rmse_raw),
+            "points": points,
+            "fit_params": {
+                "redshift": float(best_params.get("redshift", 0.0)),
+                "broadening_km_s": float(best_params.get("broadening_km_s", 0.0)),
+                "ebv": float(best_params.get("ebv", 0.0)),
+                "distance_kpc": float(best_params.get("distance_kpc", 1.0)),
+            },
+            "tlusty_spectrum_relpath": spectrum_relpath,
+            "tlusty_continuum_relpath": continuum_relpath,
+            "tlusty_grid": str(candidate.get("grid", "")),
+        },
+    }
+
+
+def _fit_single_grid_candidate(
+    *,
+    fit_source: str,
+    candidate: dict[str, object],
+    observed: dict[str, object],
+    mode: str,
+    fit_bounds: dict[str, tuple[float, float]],
+    lambda_min: float,
+    lambda_max: float,
+    should_cancel: object | None = None,
+) -> dict[str, object]:
+    if _normalize_grid_fit_source(fit_source) == GRID_FIT_SOURCE_TLUSTY:
+        return _fit_single_tlusty_candidate(
+            candidate=candidate,
+            observed=observed,
+            mode=mode,
+            fit_bounds=fit_bounds,
+            should_cancel=should_cancel,
+        )
+    return _fit_single_cmfgen_candidate(
+        candidate=candidate,
+        observed=observed,
+        mode=mode,
+        fit_bounds=fit_bounds,
+        lambda_min=lambda_min,
+        lambda_max=lambda_max,
+        should_cancel=should_cancel,
+    )
+
+
 def _grid_fit_worker_init(
     observed: dict[str, object],
     mode: str,
     fit_bounds: dict[str, tuple[float, float]],
     lambda_min: float,
     lambda_max: float,
+    fit_source: str,
 ) -> None:
     global _GRID_FIT_WORKER_CONTEXT
     _GRID_FIT_WORKER_CONTEXT = {
@@ -1528,15 +1843,17 @@ def _grid_fit_worker_init(
         "fit_bounds": fit_bounds,
         "lambda_min": float(lambda_min),
         "lambda_max": float(lambda_max),
+        "fit_source": _normalize_grid_fit_source(fit_source),
     }
 
 
-def _grid_fit_worker_task(model_candidate: tuple[str, str, str]) -> dict[str, object]:
+def _grid_fit_worker_task(model_candidate: dict[str, object]) -> dict[str, object]:
     observed = _GRID_FIT_WORKER_CONTEXT.get("observed")
     mode = _GRID_FIT_WORKER_CONTEXT.get("mode")
     fit_bounds = _GRID_FIT_WORKER_CONTEXT.get("fit_bounds")
     lambda_min = _GRID_FIT_WORKER_CONTEXT.get("lambda_min")
     lambda_max = _GRID_FIT_WORKER_CONTEXT.get("lambda_max")
+    fit_source = _GRID_FIT_WORKER_CONTEXT.get("fit_source")
     if not isinstance(observed, dict):
         return {"status": "failed"}
     if not isinstance(mode, str):
@@ -1545,11 +1862,13 @@ def _grid_fit_worker_task(model_candidate: tuple[str, str, str]) -> dict[str, ob
         return {"status": "failed"}
     if not isinstance(lambda_min, int | float) or not isinstance(lambda_max, int | float):
         return {"status": "failed"}
-    model_name, model_relpath, model_path_str = model_candidate
-    return _fit_single_model_candidate(
-        model_name=model_name,
-        model_relpath=model_relpath,
-        model_path_str=model_path_str,
+    if not isinstance(model_candidate, dict):
+        return {"status": "failed"}
+    if not isinstance(fit_source, str):
+        return {"status": "failed"}
+    return _fit_single_grid_candidate(
+        fit_source=fit_source,
+        candidate=model_candidate,
         observed=observed,
         mode=mode,
         fit_bounds=fit_bounds,
@@ -1624,6 +1943,389 @@ def _discover_model_grid_from_cache(
             f"{missing_entries} cached entry(ies) were missing on disk."
         )
     return [], "No cached models are available for grid search."
+
+
+def _parse_json_string_list(value: object) -> list[str]:
+    if isinstance(value, list):
+        return [str(item).strip().lower() for item in value if str(item).strip()]
+    text = str(value or "").strip()
+    if not text:
+        return []
+    if text.startswith("[") and text.endswith("]"):
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError:
+            parsed = None
+        if isinstance(parsed, list):
+            return [str(item).strip().lower() for item in parsed if str(item).strip()]
+    return [part.strip().lower() for part in text.split(",") if part.strip()]
+
+
+def _parse_float_or_none(value: object) -> float | None:
+    parsed = _parse_summary_float(value)
+    if parsed is None or not math.isfinite(parsed):
+        return None
+    return float(parsed)
+
+
+def _parse_int_or_none(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return int(value)
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            return None
+        return int(value)
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return int(float(text))
+    except ValueError:
+        return None
+
+
+def _file_signature(path: Path) -> tuple[int, int]:
+    stat = path.stat()
+    return stat.st_mtime_ns, stat.st_size
+
+
+@lru_cache(maxsize=4)
+def _load_tlusty_models_csv_cached(path_str: str, mtime_ns: int, size: int) -> list[dict[str, object]]:
+    del mtime_ns, size
+    path = Path(path_str)
+    rows: list[dict[str, object]] = []
+    with path.open("r", encoding="utf-8", errors="replace", newline="") as handle:
+        reader = csv.DictReader(handle)
+        for raw in reader:
+            grid = str(raw.get("grid", "")).strip().lower()
+            model_name = str(raw.get("model_name", "")).strip()
+            spectrum_relpath = str(raw.get("spectrum_relpath", "")).strip().strip("/")
+            if not grid or not model_name or not spectrum_relpath:
+                continue
+            rows.append(
+                {
+                    "grid": grid,
+                    "model_name": model_name,
+                    "spectrum_relpath": spectrum_relpath,
+                    "archive_name": str(raw.get("archive_name", "")).strip(),
+                    "archive_member": str(raw.get("archive_member", "")).strip(),
+                    "archive_products": _parse_json_string_list(raw.get("archive_products")),
+                    "member_products": _parse_json_string_list(raw.get("member_products")),
+                    "available_arrays": _parse_json_string_list(raw.get("available_arrays")),
+                    "points": _parse_int_or_none(raw.get("points")),
+                    "wavelength_min_angstrom": _parse_float_or_none(raw.get("wavelength_min_angstrom")),
+                    "wavelength_max_angstrom": _parse_float_or_none(raw.get("wavelength_max_angstrom")),
+                }
+            )
+    return rows
+
+
+def _load_tlusty_model_rows(tlusty_root: Path) -> tuple[list[dict[str, object]], str | None]:
+    models_csv = tlusty_root / "models.csv"
+    if not models_csv.is_file():
+        return [], f"TLUSTY index file is missing: {models_csv}"
+    try:
+        mtime_ns, size = _file_signature(models_csv)
+        rows = _load_tlusty_models_csv_cached(str(models_csv.resolve()), mtime_ns, size)
+    except Exception as exc:
+        return [], f"Failed to read TLUSTY model index: {exc}"
+    if not rows:
+        return [], "TLUSTY model index is empty."
+    return rows, None
+
+
+def _tlusty_row_products(row: dict[str, object]) -> set[str]:
+    products: set[str] = set()
+    member_products = row.get("member_products")
+    if isinstance(member_products, list):
+        products.update(str(item).strip().lower() for item in member_products if str(item).strip())
+    archive_products = row.get("archive_products")
+    if isinstance(archive_products, list):
+        products.update(str(item).strip().lower() for item in archive_products if str(item).strip())
+
+    archive_name = str(row.get("archive_name", "")).strip().lower()
+    archive_member = str(row.get("archive_member", "")).strip().lower()
+    model_name = str(row.get("model_name", "")).strip().lower()
+    text_tokens = " ".join([archive_name, archive_member, model_name])
+    if "uv" in text_tokens:
+        products.add("uv")
+    if "vis" in text_tokens or "opt" in text_tokens:
+        products.add("optical")
+    if "hhe" in text_tokens or ".cont" in text_tokens or "continuum" in text_tokens:
+        products.add("continuum")
+    if "flux" in text_tokens:
+        products.add("flux")
+    return products
+
+
+def _tlusty_pair_key(grid: str, model_name: str) -> tuple[str, str, str]:
+    parts = [part for part in str(model_name).strip().split(".") if part]
+    if len(parts) >= 3 and parts[-1].isdigit():
+        base = ".".join(parts[:-2]).strip().lower()
+        if not base:
+            base = parts[0].strip().lower()
+        return (str(grid).strip().lower(), base, parts[-1])
+    return (str(grid).strip().lower(), str(model_name).strip().lower(), "")
+
+
+def _tlusty_family_key(grid: str, model_name: str) -> tuple[str, str]:
+    parts = [part for part in str(model_name).strip().split(".") if part]
+    if len(parts) >= 2 and parts[-1].isdigit():
+        return (str(grid).strip().lower(), ".".join(parts[:-1]).strip().lower())
+    return (str(grid).strip().lower(), str(model_name).strip().lower())
+
+
+def _tlusty_row_wavelength_bounds(row: dict[str, object]) -> tuple[float, float] | None:
+    min_raw = row.get("wavelength_min_angstrom")
+    max_raw = row.get("wavelength_max_angstrom")
+    if not isinstance(min_raw, int | float) or not isinstance(max_raw, int | float):
+        return None
+    lo = float(min_raw)
+    hi = float(max_raw)
+    if not math.isfinite(lo) or not math.isfinite(hi):
+        return None
+    if lo > hi:
+        lo, hi = hi, lo
+    if lo <= 0 or lo >= hi:
+        return None
+    return lo, hi
+
+
+def _tlusty_select_continuum_row(
+    spectrum_row: dict[str, object],
+    continuum_rows: list[dict[str, object]],
+) -> dict[str, object] | None:
+    if not continuum_rows:
+        return None
+
+    spectrum_products = _tlusty_row_products(spectrum_row)
+    spectrum_bounds = _tlusty_row_wavelength_bounds(spectrum_row)
+    best_row: dict[str, object] | None = None
+    best_score: tuple[float, float] = (-1.0, -1.0)
+    for candidate in continuum_rows:
+        candidate_products = _tlusty_row_products(candidate)
+        same_band = 1.0 if (("optical" in spectrum_products and "optical" in candidate_products) or ("uv" in spectrum_products and "uv" in candidate_products)) else 0.0
+        overlap = 0.0
+        candidate_bounds = _tlusty_row_wavelength_bounds(candidate)
+        if spectrum_bounds is not None and candidate_bounds is not None:
+            overlap_lo = max(spectrum_bounds[0], candidate_bounds[0])
+            overlap_hi = min(spectrum_bounds[1], candidate_bounds[1])
+            if overlap_hi > overlap_lo:
+                overlap = overlap_hi - overlap_lo
+        score = (same_band, overlap)
+        if score > best_score:
+            best_score = score
+            best_row = candidate
+    return best_row
+
+
+def _tlusty_select_paired_spectrum_continuum(
+    spectrum_row: dict[str, object],
+    family_rows: list[dict[str, object]],
+) -> dict[str, object] | None:
+    if not family_rows:
+        return None
+
+    spectrum_name = str(spectrum_row.get("model_name", "")).strip()
+    spectrum_points_raw = spectrum_row.get("points")
+    spectrum_points = int(spectrum_points_raw) if isinstance(spectrum_points_raw, int | float) else -1
+
+    candidates: list[dict[str, object]] = []
+    for row in family_rows:
+        row_name = str(row.get("model_name", "")).strip()
+        if not row_name or row_name == spectrum_name:
+            continue
+        candidates.append(row)
+    if not candidates:
+        return None
+
+    def score(row: dict[str, object]) -> tuple[int, int, float]:
+        row_points_raw = row.get("points")
+        row_points = int(row_points_raw) if isinstance(row_points_raw, int | float) else -1
+        prefer_smaller = 1 if (spectrum_points > 0 and row_points > 0 and row_points < spectrum_points) else 0
+        same_band = 0
+        row_name = str(row.get("model_name", "")).strip().lower()
+        spectrum_lower = spectrum_name.lower()
+        if ".uv." in spectrum_lower and ".uv." in row_name:
+            same_band = 1
+        if ".vis." in spectrum_lower and ".vis." in row_name:
+            same_band = 1
+        row_bounds = _tlusty_row_wavelength_bounds(row)
+        spec_bounds = _tlusty_row_wavelength_bounds(spectrum_row)
+        overlap = 0.0
+        if row_bounds is not None and spec_bounds is not None:
+            lo = max(row_bounds[0], spec_bounds[0])
+            hi = min(row_bounds[1], spec_bounds[1])
+            if hi > lo:
+                overlap = hi - lo
+        return (prefer_smaller, same_band, overlap)
+
+    return max(candidates, key=score)
+
+
+def _discover_tlusty_grid_models(
+    config: dict[str, object],
+    *,
+    mode: str,
+    model_name_pattern: str,
+) -> tuple[list[dict[str, object]], str | None]:
+    tlusty_root = _tlusty_root(config)
+    rows, load_error = _load_tlusty_model_rows(tlusty_root)
+    if load_error:
+        return [], load_error
+
+    pattern = str(model_name_pattern or "").strip()
+    spectrum_rows: list[dict[str, object]] = []
+    continuum_by_key: dict[tuple[str, str], list[dict[str, object]]] = {}
+    family_rows: dict[tuple[str, str], list[dict[str, object]]] = {}
+    missing_files = 0
+
+    for row in rows:
+        model_name = str(row.get("model_name", "")).strip()
+        grid = str(row.get("grid", "")).strip().lower()
+        relpath = str(row.get("spectrum_relpath", "")).strip().strip("/")
+        if not model_name or not grid or not relpath:
+            continue
+        model_path_label = f"tlusty/{grid}/{model_name}"
+        if pattern and not (fnmatch.fnmatch(model_name, pattern) or fnmatch.fnmatch(model_path_label, pattern)):
+            continue
+
+        spectrum_path = tlusty_root / relpath
+        if not spectrum_path.is_file():
+            missing_files += 1
+            continue
+
+        products = _tlusty_row_products(row)
+        available_arrays_raw = row.get("available_arrays")
+        available_arrays: set[str] = set()
+        if isinstance(available_arrays_raw, list):
+            available_arrays = {str(item).strip() for item in available_arrays_raw if str(item).strip()}
+        pair_key = _tlusty_pair_key(grid, model_name)
+        if "continuum" in products or "continuum_lambda_cgs" in available_arrays:
+            continuum_by_key.setdefault(pair_key, []).append(row)
+        if (("uv" in products) or ("optical" in products)) and ("continuum" not in products):
+            spectrum_rows.append(row)
+            family_rows.setdefault(_tlusty_family_key(grid, model_name), []).append(row)
+
+    if not spectrum_rows:
+        if pattern:
+            return [], f"No TLUSTY UV/optical spectra matched pattern '{pattern}'."
+        return [], "No TLUSTY UV/optical spectra were found in the local TLUSTY index."
+
+    candidates: list[dict[str, object]] = []
+    missing_continuum = 0
+    for row in spectrum_rows:
+        model_name = str(row["model_name"])
+        grid = str(row["grid"])
+        spectrum_relpath = str(row["spectrum_relpath"])
+        spectrum_path = tlusty_root / spectrum_relpath
+        products = _tlusty_row_products(row)
+        available_arrays = {str(item).strip() for item in row.get("available_arrays", [])}
+        continuum_row: dict[str, object] | None = None
+        continuum_relpath = ""
+        continuum_path = ""
+
+        if mode != "both":
+            if "normalized_flux_candidate" not in available_arrays:
+                key = _tlusty_pair_key(grid, model_name)
+                continuum_options = list(continuum_by_key.get(key, []))
+                if not continuum_options and key[2]:
+                    continuum_options = list(continuum_by_key.get((key[0], key[1], ""), []))
+                paired_from_family = False
+                continuum_row = _tlusty_select_continuum_row(row, continuum_options)
+                if continuum_row is None:
+                    family_key = _tlusty_family_key(grid, model_name)
+                    continuum_row = _tlusty_select_paired_spectrum_continuum(row, family_rows.get(family_key, []))
+                    paired_from_family = continuum_row is not None
+                if continuum_row is None:
+                    missing_continuum += 1
+                    continue
+                if paired_from_family:
+                    spec_points_raw = row.get("points")
+                    cont_points_raw = continuum_row.get("points")
+                    if isinstance(spec_points_raw, int | float) and isinstance(cont_points_raw, int | float):
+                        if int(spec_points_raw) <= int(cont_points_raw):
+                            missing_continuum += 1
+                            continue
+                continuum_relpath = str(continuum_row.get("spectrum_relpath", "")).strip().strip("/")
+                if not continuum_relpath:
+                    missing_continuum += 1
+                    continue
+                continuum_file = tlusty_root / continuum_relpath
+                if not continuum_file.is_file():
+                    missing_continuum += 1
+                    continue
+                continuum_path = str(continuum_file.resolve())
+
+        spectrum_label = _tlusty_segment_label(products)
+        candidates.append(
+            {
+                "fit_source": GRID_FIT_SOURCE_TLUSTY,
+                "grid": grid,
+                "model_name": model_name,
+                "model_path": f"tlusty/{grid}/{model_name}",
+                "model_relpath": f"tlusty/{grid}/{model_name}",
+                "model_path_str": str(spectrum_path.resolve()),
+                "spectrum_label": spectrum_label,
+                "spectrum_relpath": spectrum_relpath,
+                "spectrum_path_str": str(spectrum_path.resolve()),
+                "continuum_relpath": continuum_relpath,
+                "continuum_path_str": continuum_path,
+            }
+        )
+
+    candidates.sort(key=lambda item: (str(item.get("model_name", "")).lower(), str(item.get("spectrum_relpath", "")).lower()))
+    if candidates:
+        return candidates, None
+
+    if mode != "both" and missing_continuum > 0:
+        return [], (
+            "No TLUSTY candidates had usable continuum counterparts for normalized fitting "
+            f"({missing_continuum} spectrum entries lacked matching continuum files)."
+        )
+    if missing_files > 0:
+        return [], f"No TLUSTY spectra with accessible files were found ({missing_files} entries missing on disk)."
+    return [], "No TLUSTY models are available for grid search."
+
+
+def _discover_grid_fit_candidates(
+    config: dict[str, object],
+    *,
+    fit_source: str,
+    mode: str,
+    basepath: str,
+    summary_cache_db: str,
+    model_name_pattern: str,
+) -> tuple[list[dict[str, object]], str | None]:
+    normalized_source = _normalize_grid_fit_source(fit_source)
+    if normalized_source == GRID_FIT_SOURCE_TLUSTY:
+        return _discover_tlusty_grid_models(
+            config,
+            mode=mode,
+            model_name_pattern=model_name_pattern,
+        )
+
+    model_dirs, discover_error = _discover_model_grid_from_cache(
+        basepath,
+        summary_cache_db=summary_cache_db,
+        model_name_pattern=model_name_pattern,
+    )
+    if discover_error:
+        return [], discover_error
+
+    candidates = [
+        {
+            "fit_source": GRID_FIT_SOURCE_CMFGEN,
+            "model_name": model_name,
+            "model_path": relpath,
+            "model_relpath": relpath,
+            "model_path_str": str(path.resolve()),
+        }
+        for model_name, relpath, path in model_dirs
+    ]
+    return candidates, None
 
 
 def _grid_search_prune_locked(now: float) -> None:
@@ -1713,18 +2415,22 @@ def _grid_search_active_job_for_upload(upload_token: str) -> dict[str, object] |
 def _grid_search_job_create(
     *,
     upload_token: str,
+    fit_source: str,
     mode: str,
     fit_bounds: dict[str, tuple[float, float]],
     fit_wavelength_range: tuple[float, float] | None,
     model_name_pattern: str,
     total_models: int,
 ) -> str:
+    normalized_source = _normalize_grid_fit_source(fit_source)
     job_id = secrets.token_urlsafe(12)
     now = time.time()
     payload: dict[str, object] = {
         "job_id": job_id,
         "status": "running",
         "upload_token": upload_token,
+        "fit_source": normalized_source,
+        "fit_source_label": _grid_fit_source_label(normalized_source),
         "mode": mode,
         "model_name_pattern": str(model_name_pattern or "").strip(),
         "fit_bounds": _fit_bounds_payload(fit_bounds),
@@ -1753,17 +2459,21 @@ def _run_upload_grid_search_job(
     job_id: str,
     *,
     upload_token: str,
+    fit_source: str,
     mode: str,
     observed: dict[str, object],
     fit_bounds: dict[str, tuple[float, float]],
     fit_wavelength_range: tuple[float, float] | None,
     model_name_pattern: str,
-    model_candidates: list[tuple[str, str, str]],
+    model_candidates: list[dict[str, object]],
     lambda_min: float,
     lambda_max: float,
     max_pool_size: int,
 ) -> None:
     try:
+        normalized_source = _normalize_grid_fit_source(fit_source)
+        fit_source_label = _grid_fit_source_label(normalized_source)
+
         def update_iteration_progress(processed: int, *, current_model: str | None = None) -> None:
             fields: dict[str, object] = {
                 "processed": processed,
@@ -1785,6 +2495,8 @@ def _run_upload_grid_search_job(
             best_model: dict[str, object] | None,
         ) -> None:
             result_payload: dict[str, object] = {
+                "fit_source": normalized_source,
+                "fit_source_label": fit_source_label,
                 "mode": mode,
                 "upload_token": upload_token,
                 "model_name_pattern": str(model_name_pattern or "").strip(),
@@ -1847,10 +2559,15 @@ def _run_upload_grid_search_job(
             return False
 
         if worker_count <= 1:
-            for index, (model_name, model_relpath, model_path_str) in enumerate(model_candidates, start=1):
+            for index, model_candidate in enumerate(model_candidates, start=1):
+                model_name = str(model_candidate.get("model_name", "")).strip()
+                model_path = str(model_candidate.get("model_path", model_candidate.get("model_relpath", ""))).strip()
+                progress_model = model_name
+                if model_path and model_path != model_name:
+                    progress_model = f"{model_name} ({model_path})" if model_name else model_path
                 _grid_search_job_update(
                     job_id,
-                    current_model=f"{model_name} ({model_relpath})",
+                    current_model=progress_model,
                     processed=index - 1,
                     successful=successful,
                     failed=failed,
@@ -1866,10 +2583,9 @@ def _run_upload_grid_search_job(
                     )
                     return
 
-                candidate_result = _fit_single_model_candidate(
-                    model_name=model_name,
-                    model_relpath=model_relpath,
-                    model_path_str=model_path_str,
+                candidate_result = _fit_single_grid_candidate(
+                    fit_source=normalized_source,
+                    candidate=model_candidate,
                     observed=observed,
                     mode=mode,
                     fit_bounds=fit_bounds,
@@ -1883,7 +2599,7 @@ def _run_upload_grid_search_job(
         else:
             _grid_search_job_update(
                 job_id,
-                current_model=f"Parallel fitting across {worker_count} workers.",
+                current_model=f"Parallel fitting across {worker_count} workers ({fit_source_label}).",
                 processed=0,
                 successful=successful,
                 failed=failed,
@@ -1894,7 +2610,7 @@ def _run_upload_grid_search_job(
                 pool = context.Pool(
                     processes=worker_count,
                     initializer=_grid_fit_worker_init,
-                    initargs=(observed, mode, fit_bounds, lambda_min, lambda_max),
+                    initargs=(observed, mode, fit_bounds, lambda_min, lambda_max, normalized_source),
                 )
                 iterator = pool.imap_unordered(_grid_fit_worker_task, model_candidates, chunksize=1)
                 processed = 0
@@ -1946,6 +2662,8 @@ def _run_upload_grid_search_job(
 
         elapsed_seconds = max(0.0, time.time() - started_at)
         result_payload: dict[str, object] = {
+            "fit_source": normalized_source,
+            "fit_source_label": fit_source_label,
             "mode": mode,
             "upload_token": upload_token,
             "model_name_pattern": str(model_name_pattern or "").strip(),
@@ -2048,9 +2766,12 @@ def upload_view(token: str):
         "max": str(request.args.get("fit_lambda_max", "")).strip(),
     }
     model_name_pattern = str(request.args.get("model_name_pattern", "")).strip()
+    fit_source = _normalize_grid_fit_source(request.args.get("fit_source"))
     active_job = _grid_search_active_job_for_upload(token)
     if not model_name_pattern and isinstance(active_job, dict):
         model_name_pattern = str(active_job.get("model_name_pattern", "")).strip()
+    if isinstance(active_job, dict) and fit_source == GRID_FIT_SOURCE_CMFGEN:
+        fit_source = _normalize_grid_fit_source(active_job.get("fit_source", fit_source))
     if isinstance(active_job, dict):
         active_fit_wavelength_range = _fit_wavelength_range_from_payload(active_job.get("fit_wavelength_range"))
         if active_fit_wavelength_range is not None:
@@ -2086,6 +2807,8 @@ def upload_view(token: str):
             "cancel_requested": bool(active_job.get("cancel_requested", False)),
             "progress_percent": progress_percent,
             "model_name_pattern": str(active_job.get("model_name_pattern", "")).strip(),
+            "fit_source": _normalize_grid_fit_source(active_job.get("fit_source", fit_source)),
+            "fit_source_label": str(active_job.get("fit_source_label", _grid_fit_source_label(fit_source))),
             "fit_wavelength_range": _fit_wavelength_range_payload(active_fit_wavelength_range),
             "best_so_far": best_so_far_payload,
         }
@@ -2103,6 +2826,7 @@ def upload_view(token: str):
         transform_params=transform_params,
         fit_bounds=fit_bounds,
         fit_wavelength_inputs=fit_wavelength_inputs,
+        fit_source=fit_source,
         model_name_pattern=model_name_pattern,
         active_grid_job=active_grid_job,
         plot_data=plot_data,
@@ -2161,6 +2885,8 @@ def upload_fit_grid(token: str):
     mode = "both" if str(observed.get("flux_mode", "")).strip().lower() == "absolute" else "normalized"
     fit_bounds = _normalize_fit_bounds(request.form.to_dict(flat=True), mode=mode)
     model_name_pattern = str(request.form.get("model_name_pattern", "")).strip()
+    fit_source = _normalize_grid_fit_source(request.form.get("fit_source"))
+    fit_source_label = _grid_fit_source_label(fit_source)
 
     active_job = _grid_search_active_job_for_upload(token)
     if isinstance(active_job, dict):
@@ -2172,6 +2898,8 @@ def upload_fit_grid(token: str):
                 "job_id": active_job_id,
                 "mode": str(active_job.get("mode", mode)),
                 "total_models": total_models,
+                "fit_source": _normalize_grid_fit_source(active_job.get("fit_source", fit_source)),
+                "fit_source_label": str(active_job.get("fit_source_label", fit_source_label)),
                 "fit_bounds": active_job.get("fit_bounds", _fit_bounds_payload(fit_bounds)),
                 "fit_wavelength_range": active_job.get(
                     "fit_wavelength_range",
@@ -2182,27 +2910,27 @@ def upload_fit_grid(token: str):
             }
         )
 
-    model_dirs, discover_error = _discover_model_grid_from_cache(
-        basepath,
+    model_candidates, discover_error = _discover_grid_fit_candidates(
+        config,
+        fit_source=fit_source,
+        mode=mode,
+        basepath=basepath,
         summary_cache_db=summary_cache_db,
         model_name_pattern=model_name_pattern,
     )
     if discover_error:
         return jsonify({"ok": False, "error": discover_error}), 400
-    if not model_dirs:
-        return jsonify({"ok": False, "error": "No cached models were available for grid search."}), 400
+    if not model_candidates:
+        return jsonify({"ok": False, "error": f"No {_grid_fit_source_label(fit_source)} candidates were available for grid search."}), 400
 
-    serialized_candidates = [
-        (model_name, relpath, str(path.resolve()))
-        for model_name, relpath, path in model_dirs
-    ]
     job_id = _grid_search_job_create(
         upload_token=token,
+        fit_source=fit_source,
         mode=mode,
         fit_bounds=fit_bounds,
         fit_wavelength_range=fit_wavelength_range,
         model_name_pattern=model_name_pattern,
-        total_models=len(serialized_candidates),
+        total_models=len(model_candidates),
     )
 
     worker = Thread(
@@ -2210,12 +2938,13 @@ def upload_fit_grid(token: str):
         kwargs={
             "job_id": job_id,
             "upload_token": token,
+            "fit_source": fit_source,
             "mode": mode,
             "observed": observed,
             "fit_bounds": fit_bounds,
             "fit_wavelength_range": fit_wavelength_range,
             "model_name_pattern": model_name_pattern,
-            "model_candidates": serialized_candidates,
+            "model_candidates": model_candidates,
             "lambda_min": effective_lambda_min,
             "lambda_max": effective_lambda_max,
             "max_pool_size": fit_pool_size,
@@ -2229,7 +2958,9 @@ def upload_fit_grid(token: str):
             "ok": True,
             "job_id": job_id,
             "mode": mode,
-            "total_models": len(serialized_candidates),
+            "fit_source": fit_source,
+            "fit_source_label": fit_source_label,
+            "total_models": len(model_candidates),
             "fit_bounds": _fit_bounds_payload(fit_bounds),
             "fit_wavelength_range": _fit_wavelength_range_payload(fit_wavelength_range),
             "model_name_pattern": model_name_pattern,
@@ -2244,10 +2975,11 @@ def _grid_search_model_links(
     upload_token: str,
 ) -> dict[str, object]:
     enriched = copy.deepcopy(model_entry)
+    fit_source = _normalize_grid_fit_source(enriched.get("fit_source", GRID_FIT_SOURCE_CMFGEN))
     best_path = str(enriched.get("model_path", ""))
     best_fin = str(enriched.get("fin", ""))
     fit_params = enriched.get("fit_params")
-    if isinstance(fit_params, dict) and best_path and best_fin and upload_token:
+    if fit_source == GRID_FIT_SOURCE_CMFGEN and isinstance(fit_params, dict) and best_path and best_fin and upload_token:
         enriched["spectrum_url"] = _spectrum_url(
             best_path,
             fin=best_fin,
@@ -2255,8 +2987,9 @@ def _grid_search_model_links(
             obs_tokens=[upload_token],
             transform_params=fit_params,
         )
-    if best_path:
+    if fit_source == GRID_FIT_SOURCE_CMFGEN and best_path:
         enriched["browse_url"] = url_for("viewer.view", path=best_path)
+    enriched["fit_source"] = fit_source
     return enriched
 
 
@@ -2280,6 +3013,87 @@ def _finite_wavelength_bounds(values: object) -> tuple[float, float] | None:
     if count < 2 or not math.isfinite(min_value) or not math.isfinite(max_value) or min_value >= max_value:
         return None
     return min_value, max_value
+
+
+def _build_tlusty_overlay_trace(
+    *,
+    config: dict[str, object],
+    model_entry: dict[str, object],
+    mode: str,
+    fit_params: dict[str, float],
+    observed_min: float,
+    observed_max: float,
+) -> tuple[dict[str, object] | None, str | None]:
+    tlusty_root = _tlusty_root(config)
+    spectrum_relpath = str(model_entry.get("tlusty_spectrum_relpath", "")).strip().strip("/")
+    if not spectrum_relpath:
+        return None, "Best-fit TLUSTY model is missing spectrum path metadata."
+    spectrum_path = tlusty_root / spectrum_relpath
+    continuum_relpath = str(model_entry.get("tlusty_continuum_relpath", "")).strip().strip("/")
+    continuum_path = (tlusty_root / continuum_relpath) if continuum_relpath else None
+
+    model_x, model_y, series_error = _build_tlusty_model_series(
+        mode=mode,
+        spectrum_path=spectrum_path,
+        continuum_path=continuum_path,
+        max_points=0,
+    )
+    if series_error:
+        return None, series_error
+    if not isinstance(model_x, list) or not isinstance(model_y, list):
+        return None, "Could not prepare TLUSTY model series for overlay."
+
+    transformed = apply_spectrum_transform(
+        model_x,
+        model_y,
+        mode=mode,
+        redshift=fit_params["redshift"],
+        broadening_km_s=fit_params["broadening_km_s"],
+        ebv=fit_params["ebv"],
+        distance_kpc=fit_params["distance_kpc"],
+    )
+    if transformed is None:
+        return None, "Could not transform TLUSTY model spectrum for overlay."
+    transformed_x, transformed_y = transformed
+
+    clipped_x: list[float] = []
+    clipped_y: list[float] = []
+    for wavelength, flux in zip(transformed_x, transformed_y):
+        if not isinstance(wavelength, int | float) or not isinstance(flux, int | float):
+            continue
+        x_value = float(wavelength)
+        y_value = float(flux)
+        if not math.isfinite(x_value) or not math.isfinite(y_value):
+            continue
+        if x_value < observed_min or x_value > observed_max:
+            continue
+        clipped_x.append(x_value)
+        clipped_y.append(y_value)
+
+    clipped_x, clipped_y = downsample_xy(clipped_x, clipped_y, max_points=5000)
+    if len(clipped_x) < 2 or len(clipped_y) < 2:
+        return None, "No transformed TLUSTY points overlap the observed wavelength range."
+
+    rmse_raw = model_entry.get("rmse")
+    rmse = float(rmse_raw) if isinstance(rmse_raw, int | float) and math.isfinite(float(rmse_raw)) else None
+    model_path = str(model_entry.get("model_path", ""))
+    fin_name = str(model_entry.get("fin", ""))
+    return (
+        {
+            "fit_source": GRID_FIT_SOURCE_TLUSTY,
+            "mode": mode,
+            "model_name": str(model_entry.get("model_name", "")),
+            "model_path": model_path,
+            "fin": fin_name,
+            "rmse": rmse,
+            "fit_params": fit_params,
+            "x": clipped_x,
+            "y": clipped_y,
+            "observed_lambda_min": observed_min,
+            "observed_lambda_max": observed_max,
+        },
+        None,
+    )
 
 
 def _build_upload_grid_overlay_trace(
@@ -2324,6 +3138,17 @@ def _build_upload_grid_overlay_trace(
     if not isinstance(fit_params_raw, dict):
         return None, "Best-fit model is missing fit parameters."
     fit_params = _normalize_transform_params(fit_params_raw)
+
+    fit_source = _normalize_grid_fit_source(model_entry.get("fit_source", GRID_FIT_SOURCE_CMFGEN))
+    if fit_source == GRID_FIT_SOURCE_TLUSTY:
+        return _build_tlusty_overlay_trace(
+            config=config,
+            model_entry=model_entry,
+            mode=mode,
+            fit_params=fit_params,
+            observed_min=observed_min,
+            observed_max=observed_max,
+        )
 
     model_relpath = str(model_entry.get("model_path", "")).strip()
     fin_name = str(model_entry.get("fin", "")).strip()
@@ -2426,6 +3251,8 @@ def upload_fit_grid_status(job_id: str):
     if snapshot is None:
         return jsonify({"ok": False, "error": "Grid search job is not available."}), 404
 
+    fit_source = _normalize_grid_fit_source(snapshot.get("fit_source", GRID_FIT_SOURCE_CMFGEN))
+    fit_source_label = str(snapshot.get("fit_source_label", _grid_fit_source_label(fit_source)))
     status = str(snapshot.get("status", ""))
     processed = int(snapshot.get("processed", 0) or 0)
     total = int(snapshot.get("total", 0) or 0)
@@ -2442,6 +3269,8 @@ def upload_fit_grid_status(job_id: str):
     payload: dict[str, object] = {
         "ok": True,
         "status": status,
+        "fit_source": fit_source,
+        "fit_source_label": fit_source_label,
         "processed": processed,
         "total": total,
         "successful": successful,
@@ -2550,9 +3379,14 @@ def upload_fit_grid_match_count(token: str):
     if token not in entries:
         return jsonify({"ok": False, "error": "Uploaded spectrum token is not available.", "total_models": 0}), 404
 
+    fit_source = _normalize_grid_fit_source(request.args.get("fit_source"))
+    mode = _normalize_spectrum_mode(request.args.get("mode"))
     model_name_pattern = str(request.args.get("model_name_pattern", "")).strip()
-    model_dirs, discover_error = _discover_model_grid_from_cache(
-        basepath,
+    model_candidates, discover_error = _discover_grid_fit_candidates(
+        config,
+        fit_source=fit_source,
+        mode=mode,
+        basepath=basepath,
         summary_cache_db=summary_cache_db,
         model_name_pattern=model_name_pattern,
     )
@@ -2562,6 +3396,8 @@ def upload_fit_grid_match_count(token: str):
                 {
                     "ok": False,
                     "error": discover_error,
+                    "fit_source": fit_source,
+                    "fit_source_label": _grid_fit_source_label(fit_source),
                     "model_name_pattern": model_name_pattern,
                     "total_models": 0,
                 }
@@ -2572,8 +3408,10 @@ def upload_fit_grid_match_count(token: str):
     return jsonify(
         {
             "ok": True,
+            "fit_source": fit_source,
+            "fit_source_label": _grid_fit_source_label(fit_source),
             "model_name_pattern": model_name_pattern,
-            "total_models": len(model_dirs),
+            "total_models": len(model_candidates),
         }
     )
 

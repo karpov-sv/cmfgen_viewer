@@ -162,6 +162,7 @@ debug = false
 - Generic direct-access/binary readers using `_INFO` sidecars.
 - Cross-file consistency checks and preflight validation workflows.
 - Persisting grid-fit jobs/results across Flask process restarts.
+- TLUSTY absolute-flux calibration follow-up: validate whether scaling should use model-specific stellar radius rather than the current fixed 1 `R_sun` reference.
 
 ## Repository Layout
 

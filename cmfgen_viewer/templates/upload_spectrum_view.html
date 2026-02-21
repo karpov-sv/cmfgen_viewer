@@ -955,7 +955,7 @@
     <section class="mb-4">
       <h3 class="h5 mb-2">Grid Fit</h3>
       <p class="small text-muted mb-2">
-        Run server-side fitting across cached models and select the model with the smallest residual.
+        Run server-side fitting across cached CMFGEN models or TLUSTY UV/optical grids and select the model with the smallest residual.
       </p>
       <form
         id="grid-fit-form"
@@ -964,6 +964,7 @@
         class="mb-3"
       >
         <input type="hidden" name="async" value="1">
+        <input type="hidden" id="grid-fit-source" name="fit_source" value="{{ fit_source }}">
         <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
           <label for="grid-model-pattern" class="small text-muted mb-0">
             Model name pattern (shell-like).
@@ -1080,7 +1081,20 @@
               value="{{ fit_bounds.distance_kpc[1] }}"
             >
           {% endif %}
-          <button type="submit" class="btn btn-sm btn-outline-success">Find Best Model</button>
+          <button
+            type="submit"
+            class="btn btn-sm btn-outline-success"
+            data-fit-source="cmfgen"
+          >
+            Find Best CMFGEN Model
+          </button>
+          <button
+            type="submit"
+            class="btn btn-sm btn-outline-primary"
+            data-fit-source="tlusty"
+          >
+            Find Best TLUSTY Model
+          </button>
           <button id="grid-fit-cancel" type="button" class="btn btn-sm btn-outline-danger d-none">Stop Search</button>
         </div>
       </form>
@@ -1160,16 +1174,19 @@
       var bestBody = document.getElementById("grid-fit-best-body");
       var resultWrap = document.getElementById("grid-fit-result");
       var resultBody = document.getElementById("grid-fit-result-body");
-      var submitButton = form.querySelector("button[type='submit']");
+      var submitButtons = Array.prototype.slice.call(form.querySelectorAll("button[type='submit'][data-fit-source]"));
+      var activeSubmitButton = null;
       var cancelButton = document.getElementById("grid-fit-cancel");
       var patternInput = document.getElementById("grid-model-pattern");
       var patternMatch = document.getElementById("grid-pattern-match");
+      var fitSourceInput = document.getElementById("grid-fit-source");
       var lambdaMinInput = document.getElementById("grid-fit-lambda-min");
       var lambdaMaxInput = document.getElementById("grid-fit-lambda-max");
       var usePlotRangeButton = document.getElementById("grid-fit-use-plot-range");
       var uploadPlot = document.getElementById("upload-spectrum-plot");
       var matchCountUrl = "{{ url_for('viewer.upload_fit_grid_match_count', token=upload.token) }}";
       var initialActiveJob = {{ active_grid_job | tojson if active_grid_job else "null" }};
+      var spectrumMode = "{{ mode }}";
       var matchCountTimer = null;
       var activeJobId = "";
       var cancelInFlight = false;
@@ -1208,6 +1225,42 @@
           return "";
         }
         return Number(velocity.toFixed(6)).toString();
+      }
+
+      function getSelectedFitSource() {
+        if (!fitSourceInput) {
+          return "cmfgen";
+        }
+        var source = String(fitSourceInput.value || "").trim().toLowerCase();
+        if (source !== "tlusty") {
+          source = "cmfgen";
+        }
+        return source;
+      }
+
+      function getFitSourceLabel(source) {
+        return source === "tlusty" ? "TLUSTY grid" : "CMFGEN grid";
+      }
+
+      function setSelectedFitSource(source) {
+        var normalized = String(source || "").trim().toLowerCase();
+        if (normalized !== "tlusty") {
+          normalized = "cmfgen";
+        }
+        if (fitSourceInput) {
+          fitSourceInput.value = normalized;
+        }
+        for (var i = 0; i < submitButtons.length; i += 1) {
+          var button = submitButtons[i];
+          var buttonSource = String(button.getAttribute("data-fit-source") || "").trim().toLowerCase();
+          button.classList.toggle("active", buttonSource === normalized);
+        }
+      }
+
+      function setSubmitButtonsDisabled(disabled) {
+        for (var i = 0; i < submitButtons.length; i += 1) {
+          submitButtons[i].disabled = !!disabled;
+        }
       }
 
       function overlayController() {
@@ -1573,7 +1626,7 @@
         var table = document.createElement("table");
         table.className = "table table-sm table-striped mb-0";
         var thead = document.createElement("thead");
-        thead.innerHTML = "<tr><th>Model</th><th>RMSE</th><th>Points</th><th>obs_fin</th></tr>";
+        thead.innerHTML = "<tr><th>Model</th><th>RMSE</th><th>Points</th><th>Spectrum</th></tr>";
         table.appendChild(thead);
 
         var tbody = document.createElement("tbody");
@@ -1635,7 +1688,11 @@
           return;
         }
         var patternValue = String(patternInput.value || "").trim();
-        var url = matchCountUrl + "?model_name_pattern=" + encodeURIComponent(patternValue);
+        var fitSource = getSelectedFitSource();
+        var url = matchCountUrl
+          + "?model_name_pattern=" + encodeURIComponent(patternValue)
+          + "&fit_source=" + encodeURIComponent(fitSource)
+          + "&mode=" + encodeURIComponent(spectrumMode);
         fetch(url, {
           method: "GET",
           headers: {
@@ -1651,7 +1708,8 @@
               throw new Error(String(result.payload.error || "Could not determine pattern matches."));
             }
             var count = asFiniteNumber(result.payload.total_models, 0);
-            setPatternMatch("Matching cached models: " + String(count), false);
+            var scope = String(result.payload.fit_source_label || getFitSourceLabel(fitSource));
+            setPatternMatch("Matching " + scope + ": " + String(count), false);
           })
           .catch(function (error) {
             setPatternMatch(error && error.message ? error.message : "Could not determine pattern matches.", true);
@@ -1723,13 +1781,19 @@
             var successful = asFiniteNumber(payload.successful, 0);
             var failed = asFiniteNumber(payload.failed, 0);
             var status = String(payload.status || "");
+            var fitSource = String(payload.fit_source || "").trim().toLowerCase();
+            if (fitSource !== "tlusty") {
+              fitSource = "cmfgen";
+            }
+            var fitSourceLabel = String(payload.fit_source_label || getFitSourceLabel(fitSource));
+            setSelectedFitSource(fitSource);
             var percentage = asFiniteNumber(payload.progress_percent, total > 0 ? (100 * processed / total) : 0);
             var cancelRequested = !!payload.cancel_requested;
             var current = String(payload.current_model || "");
             var bestSoFar = payload.best_so_far && typeof payload.best_so_far === "object"
               ? payload.best_so_far
               : null;
-            var progressLine = "Processed " + processed + "/" + total + " models; valid fits: " + successful + "; failed/skipped: " + failed + ".";
+            var progressLine = fitSourceLabel + ": processed " + processed + "/" + total + " models; valid fits: " + successful + "; failed/skipped: " + failed + ".";
             if (current) {
               progressLine += " Current: " + current;
             }
@@ -1743,6 +1807,7 @@
             );
 
             if (status === "running") {
+              setSubmitButtonsDisabled(true);
               renderBestSoFar(bestSoFar);
               if (bestSoFar) {
                 ensureOverlayForModel(jobId, bestSoFar, "best_so_far", false);
@@ -1760,9 +1825,7 @@
             cancelInFlight = false;
             resetBestSoFar();
             setCancelControl(false, false);
-            if (submitButton) {
-              submitButton.disabled = false;
-            }
+            setSubmitButtonsDisabled(false);
 
             if (status === "failed") {
               throw new Error(String(payload.error || "Grid fit failed."));
@@ -1796,11 +1859,11 @@
                   }
                 }
                 setFeedback(
-                  "Grid fit canceled. Best-so-far model: " + String(canceledBest.model_path) + " (RMSE=" + formatRmse(canceledBest.rmse) + ")." + canceledFitText,
+                  fitSourceLabel + " fit canceled. Best-so-far model: " + String(canceledBest.model_path) + " (RMSE=" + formatRmse(canceledBest.rmse) + ")." + canceledFitText,
                   false
                 );
               } else {
-                setFeedback(String(payload.message || "Grid fit canceled."), false);
+                setFeedback(String(payload.message || (fitSourceLabel + " fit canceled.")), false);
               }
             } else {
               var best = completedResult.best_model && typeof completedResult.best_model === "object"
@@ -1820,11 +1883,11 @@
                   }
                 }
                 setFeedback(
-                  "Grid fit completed. Best model: " + String(best.model_path) + " (RMSE=" + formatRmse(best.rmse) + ")." + bestFitText,
+                  fitSourceLabel + " fit completed. Best model: " + String(best.model_path) + " (RMSE=" + formatRmse(best.rmse) + ")." + bestFitText,
                   false
                 );
               } else {
-                setFeedback("Grid fit completed. No valid fit was found.", false);
+                setFeedback(fitSourceLabel + " fit completed. No valid fit was found.", false);
               }
             }
           })
@@ -1832,9 +1895,7 @@
             activeJobId = "";
             cancelInFlight = false;
             setCancelControl(false, false);
-            if (submitButton) {
-              submitButton.disabled = false;
-            }
+            setSubmitButtonsDisabled(false);
             clearOverlayTrace();
             setProgress(0, "", false, "danger");
             setFeedback(error && error.message ? error.message : "Grid fit failed.", true);
@@ -1846,20 +1907,25 @@
           return;
         }
         event.preventDefault();
+        var submitter = event.submitter || activeSubmitButton;
+        if (submitter && submitter.getAttribute) {
+          setSelectedFitSource(submitter.getAttribute("data-fit-source"));
+        }
+        var selectedFitSource = getSelectedFitSource();
+        var fitSourceLabel = getFitSourceLabel(selectedFitSource);
         resetResult();
         resetBestSoFar();
         clearOverlayTrace();
         setFeedback("", false);
-        setProgress(0, "Starting grid fit...", true, "");
+        setProgress(0, "Starting " + fitSourceLabel + " fit...", true, "");
         activeJobId = "";
         cancelInFlight = false;
         setCancelControl(false, false);
-        if (submitButton) {
-          submitButton.disabled = true;
-        }
+        setSubmitButtonsDisabled(true);
 
         var formData = new FormData(form);
         formData.set("async", "1");
+        formData.set("fit_source", selectedFitSource);
 
         fetch(form.action, {
           method: "POST",
@@ -1881,10 +1947,11 @@
             if (!jobId) {
               throw new Error("Grid fit failed: missing job id.");
             }
+            var sourceLabel = String(result.payload.fit_source_label || fitSourceLabel);
             if (result.payload.existing_job) {
-              setFeedback("A grid fit is already running for this upload. Re-attaching to active search.", false);
+              setFeedback("A " + sourceLabel + " fit is already running for this upload. Re-attaching to active search.", false);
             } else {
-              setFeedback("Grid fit started across " + String(result.payload.total_models || 0) + " cached models.", false);
+              setFeedback(sourceLabel + " fit started across " + String(result.payload.total_models || 0) + " candidates.", false);
             }
             setCancelControl(true, false);
             pollJob(jobId);
@@ -1893,15 +1960,24 @@
             activeJobId = "";
             cancelInFlight = false;
             setCancelControl(false, false);
-            if (submitButton) {
-              submitButton.disabled = false;
-            }
+            setSubmitButtonsDisabled(false);
             resetBestSoFar();
             clearOverlayTrace();
             setProgress(0, "", false, "danger");
             setFeedback(error && error.message ? error.message : "Grid fit failed.", true);
           });
       });
+
+      for (var submitIndex = 0; submitIndex < submitButtons.length; submitIndex += 1) {
+        (function (button) {
+          button.addEventListener("click", function () {
+            activeSubmitButton = button;
+            setSelectedFitSource(button.getAttribute("data-fit-source"));
+            schedulePatternMatchCount();
+          });
+        })(submitButtons[submitIndex]);
+      }
+      setSelectedFitSource(getSelectedFitSource());
 
       if (patternInput) {
         patternInput.addEventListener("input", schedulePatternMatchCount);
@@ -1932,6 +2008,12 @@
       if (initialActiveJob && typeof initialActiveJob === "object") {
         var initialJobId = String(initialActiveJob.job_id || "");
         if (initialJobId) {
+          var initialSource = String(initialActiveJob.fit_source || "").trim().toLowerCase();
+          if (initialSource !== "tlusty") {
+            initialSource = "cmfgen";
+          }
+          var initialSourceLabel = String(initialActiveJob.fit_source_label || getFitSourceLabel(initialSource));
+          setSelectedFitSource(initialSource);
           var initialProcessed = asFiniteNumber(initialActiveJob.processed, 0);
           var initialTotal = asFiniteNumber(initialActiveJob.total, 0);
           var initialSuccessful = asFiniteNumber(initialActiveJob.successful, 0);
@@ -1947,12 +2029,13 @@
             initialText += " Current: " + initialCurrent;
           }
           if (initialCancelRequested) {
-            setFeedback("An active grid fit is stopping; waiting for cancellation to finalize.", false);
+            setFeedback("An active " + initialSourceLabel + " fit is stopping; waiting for cancellation to finalize.", false);
           } else {
-            setFeedback("Resuming active grid fit for this upload.", false);
+            setFeedback("Resuming active " + initialSourceLabel + " fit for this upload.", false);
           }
           setProgress(initialProgress, initialText, true, "");
           renderBestSoFar(initialBestSoFar);
+          setSubmitButtonsDisabled(true);
           if (initialBestSoFar) {
             ensureOverlayForModel(initialJobId, initialBestSoFar, "best_so_far", false);
           } else {
