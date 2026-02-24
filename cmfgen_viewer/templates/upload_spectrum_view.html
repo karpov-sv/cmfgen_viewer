@@ -1227,6 +1227,52 @@
         return Number(velocity.toFixed(6)).toString();
       }
 
+      function fitSourceFromModel(model) {
+        var source = String(model && model.fit_source || "").trim().toLowerCase();
+        return source === "tlusty" ? "tlusty" : "cmfgen";
+      }
+
+      function extractTlustyParams(model) {
+        if (!model || typeof model !== "object") {
+          return null;
+        }
+        var params = model.tlusty_params;
+        if (!params || typeof params !== "object") {
+          return null;
+        }
+        return params;
+      }
+
+      function formatTlustyParam(model, key) {
+        var params = extractTlustyParams(model);
+        if (!params) {
+          return "";
+        }
+        return formatParam(params[key]);
+      }
+
+      function addTlustySummaryLines(container, model) {
+        if (!container || fitSourceFromModel(model) !== "tlusty") {
+          return;
+        }
+        var teff = formatTlustyParam(model, "teff_k");
+        var logg = formatTlustyParam(model, "log_g");
+        var metallicity = formatTlustyParam(model, "z_over_zsun");
+        var vturb = formatTlustyParam(model, "vturb_km_s");
+        if (teff) {
+          addSummaryLine(container, "Teff (K)", teff);
+        }
+        if (logg) {
+          addSummaryLine(container, "log g", logg);
+        }
+        if (metallicity) {
+          addSummaryLine(container, "Z/Zsun", metallicity);
+        }
+        if (vturb) {
+          addSummaryLine(container, "vturb (km/s)", vturb);
+        }
+      }
+
       function getSelectedFitSource() {
         if (!fitSourceInput) {
           return "cmfgen";
@@ -1528,6 +1574,7 @@
         addSummaryLine(bestBody, "Model", String(best.model_path || best.model_name || ""));
         addSummaryLine(bestBody, "RMSE", formatRmse(best.rmse));
         addSummaryLine(bestBody, "Fit points", String(best.points || ""));
+        addTlustySummaryLines(bestBody, best);
 
         var params = best.fit_params && typeof best.fit_params === "object" ? best.fit_params : {};
         addSummaryLine(bestBody, "z", formatParam(params.redshift));
@@ -1581,6 +1628,7 @@
         addSummaryLine(resultBody, "Best model", String(best.model_path || best.model_name || ""));
         addSummaryLine(resultBody, "Best RMSE", formatRmse(best.rmse));
         addSummaryLine(resultBody, "Fit points", String(best.points || ""));
+        addTlustySummaryLines(resultBody, best);
 
         var params = best.fit_params && typeof best.fit_params === "object" ? best.fit_params : {};
         addSummaryLine(resultBody, "z", formatParam(params.redshift));
@@ -1626,7 +1674,12 @@
         var table = document.createElement("table");
         table.className = "table table-sm table-striped mb-0";
         var thead = document.createElement("thead");
-        thead.innerHTML = "<tr><th>Model</th><th>RMSE</th><th>Points</th><th>Spectrum</th></tr>";
+        var includeTlustyColumns = fitSourceFromModel(best) === "tlusty";
+        if (includeTlustyColumns) {
+          thead.innerHTML = "<tr><th>Model</th><th>RMSE</th><th>Points</th><th>Spectrum</th><th>Teff (K)</th><th>log g</th><th>Z/Zsun</th><th>vturb (km/s)</th></tr>";
+        } else {
+          thead.innerHTML = "<tr><th>Model</th><th>RMSE</th><th>Points</th><th>Spectrum</th></tr>";
+        }
         table.appendChild(thead);
 
         var tbody = document.createElement("tbody");
@@ -1649,6 +1702,24 @@
           var tdFin = document.createElement("td");
           tdFin.appendChild(codeElement(String(item.fin || "")));
           tr.appendChild(tdFin);
+
+          if (includeTlustyColumns) {
+            var tdTeff = document.createElement("td");
+            tdTeff.appendChild(codeElement(formatTlustyParam(item, "teff_k")));
+            tr.appendChild(tdTeff);
+
+            var tdLogg = document.createElement("td");
+            tdLogg.appendChild(codeElement(formatTlustyParam(item, "log_g")));
+            tr.appendChild(tdLogg);
+
+            var tdZ = document.createElement("td");
+            tdZ.appendChild(codeElement(formatTlustyParam(item, "z_over_zsun")));
+            tr.appendChild(tdZ);
+
+            var tdVturb = document.createElement("td");
+            tdVturb.appendChild(codeElement(formatTlustyParam(item, "vturb_km_s")));
+            tr.appendChild(tdVturb);
+          }
 
           tbody.appendChild(tr);
         }

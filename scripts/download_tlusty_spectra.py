@@ -72,6 +72,7 @@ MODEL_NAME_RE = re.compile(
     r"(?P<tag>[A-Za-z0-9_]*)$"
 )
 SAFE_NAME_RE = re.compile(r"[^A-Za-z0-9._-]+")
+Y_COL_ARRAY_RE = re.compile(r"^y_col_(\d+)$")
 
 ARCHIVE_SUFFIXES = (".tar", ".tar.gz", ".tgz")
 
@@ -357,14 +358,22 @@ def _model_name_from_member(member_basename: str) -> str:
     )
     lowered = stem.lower()
     changed = True
-    while changed:
+    while changed and stem:
         changed = False
+        if "." in stem:
+            maybe_stem, tail = stem.rsplit(".", 1)
+            if tail.isdigit():
+                stem = maybe_stem
+                lowered = stem.lower()
+                changed = True
+                continue
         for suffix in known_suffixes:
             if lowered.endswith(suffix):
                 stem = stem[: -len(suffix)]
                 lowered = stem.lower()
                 changed = True
                 break
+        stem = stem.strip(". ")
     return stem or Path(member_basename).stem
 
 
@@ -555,6 +564,105 @@ def _model_output_relpath(grid: str, archive_name: str, member_name: str) -> Pat
     return Path("spectra") / grid / safe_archive / f"{member_stem}.npz"
 
 
+def _infer_input_columns_from_arrays(available_arrays: list[str]) -> int:
+    max_y_col = 0
+    for name in available_arrays:
+        match = Y_COL_ARRAY_RE.match(str(name).strip())
+        if not match:
+            continue
+        index = int(match.group(1))
+        if index > max_y_col:
+            max_y_col = index
+    if max_y_col > 0:
+        return max_y_col + 1
+    if "flux_lambda_cgs" in available_arrays or "hnu_cgs" in available_arrays:
+        return 2
+    return 0
+
+
+def _existing_npz_spectrum_metadata(npz_path: Path) -> dict[str, object] | None:
+    try:
+        with np.load(npz_path, allow_pickle=False) as arrays:
+            available_arrays = sorted(str(name).strip() for name in arrays.files if str(name).strip())
+            if "wavelength_angstrom" not in arrays:
+                return None
+            wavelength_raw = arrays["wavelength_angstrom"]
+    except Exception:
+        return None
+
+    if not isinstance(wavelength_raw, np.ndarray):
+        return None
+
+    wavelength = np.asarray(wavelength_raw, dtype=np.float64).reshape(-1)
+    valid = np.isfinite(wavelength) & (wavelength > 0.0)
+    wavelength = wavelength[valid]
+    if wavelength.size < 2:
+        return None
+
+    wavelength.sort()
+    unique = np.concatenate(([True], np.diff(wavelength) > 0.0))
+    wavelength = wavelength[unique]
+    if wavelength.size < 2:
+        return None
+
+    x_axis_kind = "frequency_hz" if "frequency_hz" in available_arrays else "wavelength_input"
+    x_unit_guess = "hz" if x_axis_kind == "frequency_hz" else "angstrom"
+
+    return {
+        "points": int(wavelength.size),
+        "wavelength_min_angstrom": float(wavelength[0]),
+        "wavelength_max_angstrom": float(wavelength[-1]),
+        "x_axis_kind": x_axis_kind,
+        "x_unit_guess": x_unit_guess,
+        "input_columns": _infer_input_columns_from_arrays(available_arrays),
+        "available_arrays": available_arrays,
+    }
+
+
+def _build_manifest_row(
+    *,
+    grid: str,
+    metadata: dict[str, object],
+    archive_products: list[str],
+    member_products: list[str],
+    archive_url: str,
+    archive_name: str,
+    archive_member: str,
+    relpath: Path,
+    points: object,
+    wavelength_min_angstrom: object,
+    wavelength_max_angstrom: object,
+    x_axis_kind: object,
+    x_unit_guess: object,
+    input_columns: object,
+    available_arrays: object,
+) -> dict[str, object]:
+    arrays_list = [str(item).strip() for item in (available_arrays or []) if str(item).strip()]
+    return {
+        "grid": grid,
+        "model_name": str(metadata["model_name"]),
+        "composition_code": str(metadata["composition_code"]),
+        "teff_k": metadata["teff_k"],
+        "log_g": metadata["log_g"],
+        "vturb_km_s": metadata["vturb_km_s"],
+        "tag": str(metadata["tag"]),
+        "z_over_zsun": metadata["z_over_zsun"],
+        "archive_products": archive_products,
+        "member_products": member_products,
+        "archive_url": archive_url,
+        "archive_name": archive_name,
+        "archive_member": archive_member,
+        "spectrum_relpath": str(relpath.as_posix()),
+        "points": int(points or 0),
+        "wavelength_min_angstrom": float(wavelength_min_angstrom or 0.0),
+        "wavelength_max_angstrom": float(wavelength_max_angstrom or 0.0),
+        "x_axis_kind": str(x_axis_kind or ""),
+        "x_unit_guess": str(x_unit_guess or ""),
+        "input_columns": int(input_columns or 0),
+        "available_arrays": sorted(arrays_list),
+    }
+
+
 def _extract_archive(
     archive_path: Path,
     *,
@@ -583,6 +691,38 @@ def _extract_archive(
             if not member_basename or member_basename.startswith("."):
                 continue
 
+            member_products = sorted(set(archive_products).union(_classify_archive_products(member_basename)))
+            relpath = _model_output_relpath(grid, archive_name, member_basename)
+            destination = output_dir / relpath
+            model_stem = _model_name_from_member(member_basename)
+            metadata = _parse_model_metadata(model_stem, grid=grid)
+
+            destination_exists = destination.exists()
+            if destination_exists and not force_process:
+                cached = _existing_npz_spectrum_metadata(destination)
+                if cached is not None:
+                    archive_stats.spectra_indexed += 1
+                    manifest_entries.append(
+                        _build_manifest_row(
+                            grid=grid,
+                            metadata=metadata,
+                            archive_products=archive_products,
+                            member_products=member_products,
+                            archive_url=archive_url,
+                            archive_name=archive_name,
+                            archive_member=member.name,
+                            relpath=relpath,
+                            points=cached.get("points"),
+                            wavelength_min_angstrom=cached.get("wavelength_min_angstrom"),
+                            wavelength_max_angstrom=cached.get("wavelength_max_angstrom"),
+                            x_axis_kind=cached.get("x_axis_kind"),
+                            x_unit_guess=cached.get("x_unit_guess"),
+                            input_columns=cached.get("input_columns"),
+                            available_arrays=cached.get("available_arrays"),
+                        )
+                    )
+                    continue
+
             stream = handle.extractfile(member)
             if stream is None:
                 archive_stats.skipped_non_spectrum += 1
@@ -594,7 +734,6 @@ def _extract_archive(
                 archive_stats.skipped_invalid += 1
                 continue
 
-            member_products = sorted(set(archive_products).union(_classify_archive_products(member_basename)))
             parsed = _parse_spectrum_payload(
                 payload,
                 product_tags=member_products,
@@ -612,43 +751,35 @@ def _extract_archive(
                 archive_stats.skipped_invalid += 1
                 continue
 
-            relpath = _model_output_relpath(grid, archive_name, member_basename)
-            destination = output_dir / relpath
             archive_stats.spectra_indexed += 1
-            if destination.exists() and not force_process:
-                pass
-            else:
+            should_write = force_process or (not destination_exists)
+            if destination_exists and not force_process:
+                # Existing file is unreadable/missing required arrays; repair it.
+                should_write = True
+            if should_write:
                 if not dry_run:
                     destination.parent.mkdir(parents=True, exist_ok=True)
                     np.savez_compressed(destination, **arrays)
                 archive_stats.spectra_saved += 1
 
-            model_stem = _model_name_from_member(member_basename)
-            metadata = _parse_model_metadata(model_stem, grid=grid)
             manifest_entries.append(
-                {
-                    "grid": grid,
-                    "model_name": str(metadata["model_name"]),
-                    "composition_code": str(metadata["composition_code"]),
-                    "teff_k": metadata["teff_k"],
-                    "log_g": metadata["log_g"],
-                    "vturb_km_s": metadata["vturb_km_s"],
-                    "tag": str(metadata["tag"]),
-                    "z_over_zsun": metadata["z_over_zsun"],
-                    "archive_products": archive_products,
-                    "member_products": member_products,
-                    "archive_url": archive_url,
-                    "archive_name": archive_name,
-                    "archive_member": member.name,
-                    "spectrum_relpath": str(relpath.as_posix()),
-                    "points": int(parsed.get("points", 0) or 0),
-                    "wavelength_min_angstrom": float(parsed.get("wavelength_min_angstrom", 0.0)),
-                    "wavelength_max_angstrom": float(parsed.get("wavelength_max_angstrom", 0.0)),
-                    "x_axis_kind": str(parsed.get("x_axis_kind", "")),
-                    "x_unit_guess": str(parsed.get("x_unit_guess", "")),
-                    "input_columns": int(parsed.get("input_columns", 0) or 0),
-                    "available_arrays": sorted(arrays.keys()),
-                }
+                _build_manifest_row(
+                    grid=grid,
+                    metadata=metadata,
+                    archive_products=archive_products,
+                    member_products=member_products,
+                    archive_url=archive_url,
+                    archive_name=archive_name,
+                    archive_member=member.name,
+                    relpath=relpath,
+                    points=parsed.get("points", 0),
+                    wavelength_min_angstrom=parsed.get("wavelength_min_angstrom", 0.0),
+                    wavelength_max_angstrom=parsed.get("wavelength_max_angstrom", 0.0),
+                    x_axis_kind=parsed.get("x_axis_kind", ""),
+                    x_unit_guess=parsed.get("x_unit_guess", ""),
+                    input_columns=parsed.get("input_columns", 0),
+                    available_arrays=arrays.keys(),
+                )
             )
 
     return archive_stats, manifest_entries

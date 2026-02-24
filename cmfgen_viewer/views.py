@@ -145,6 +145,46 @@ TLUSTY_REFERENCE_DISTANCE_CM = 3.0856775814913673e21
 TLUSTY_SURFACE_TO_1KPC_SCALE = (
     TLUSTY_REFERENCE_RADIUS_CM / TLUSTY_REFERENCE_DISTANCE_CM
 ) ** 2
+TLUSTY_OSTAR_METALLICITY_MAP = {
+    "C": 2.0,
+    "G": 1.0,
+    "L": 0.5,
+    "S": 0.2,
+    "T": 0.1,
+    "V": 0.03,
+    "W": 0.01,
+    "X": 0.003,
+    "Y": 0.001,
+    "Z": 0.0001,
+}
+TLUSTY_BSTAR_METALLICITY_MAP = {
+    "BC": 2.0,
+    "BG": 1.0,
+    "BL": 0.5,
+    "BS": 0.2,
+    "BT": 0.1,
+    "BZ": 0.0,
+}
+TLUSTY_MODEL_NAME_RE = re.compile(
+    r"^(?P<code>[A-Za-z]+)"
+    r"(?P<teff>\d{4,5})"
+    r"g(?P<logg>\d{3})"
+    r"(?:v(?P<vturb>\d+))?"
+    r"(?P<tag>[A-Za-z0-9_]*)$"
+)
+TLUSTY_MODEL_SUFFIXES = (
+    ".flux",
+    ".cont",
+    ".continuum",
+    ".uv",
+    ".uvb",
+    ".uvby",
+    ".opt",
+    ".optical",
+    ".vis",
+    ".spec",
+    ".sp",
+)
 
 
 @lru_cache(maxsize=1)
@@ -1733,6 +1773,12 @@ def _fit_single_tlusty_candidate(
     if build_error or not isinstance(model_x, list) or not isinstance(model_y, list):
         return {"status": "failed"}
 
+    tlusty_params_raw = candidate.get("tlusty_params")
+    if isinstance(tlusty_params_raw, dict):
+        tlusty_params = _tlusty_fit_params_payload(tlusty_params_raw)
+    else:
+        tlusty_params = _tlusty_fit_params_payload(candidate)
+
     if mode == "both":
         jy_flux: list[float] = []
         wavelength_out: list[float] = []
@@ -1794,6 +1840,7 @@ def _fit_single_tlusty_candidate(
             "tlusty_spectrum_relpath": spectrum_relpath,
             "tlusty_continuum_relpath": continuum_relpath,
             "tlusty_grid": str(candidate.get("grid", "")),
+            "tlusty_params": tlusty_params,
         },
     }
 
@@ -1986,6 +2033,79 @@ def _parse_int_or_none(value: object) -> int | None:
         return None
 
 
+def _strip_tlusty_model_suffixes(model_name: object) -> str:
+    stem = str(model_name or "").strip()
+    if not stem:
+        return ""
+
+    changed = True
+    while changed and stem:
+        changed = False
+        if "." in stem:
+            maybe_stem, tail = stem.rsplit(".", 1)
+            if tail.isdigit():
+                stem = maybe_stem
+                changed = True
+                continue
+        lowered = stem.lower()
+        for suffix in TLUSTY_MODEL_SUFFIXES:
+            if lowered.endswith(suffix):
+                stem = stem[: -len(suffix)]
+                changed = True
+                break
+        stem = stem.strip(". ")
+
+    return stem
+
+
+def _parse_tlusty_model_metadata(model_name: object, *, grid: object) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "composition_code": "",
+        "teff_k": None,
+        "log_g": None,
+        "vturb_km_s": None,
+        "tag": "",
+        "z_over_zsun": None,
+    }
+    stem = _strip_tlusty_model_suffixes(model_name)
+    if not stem:
+        return payload
+
+    match = TLUSTY_MODEL_NAME_RE.match(stem)
+    if not match:
+        return payload
+
+    code = match.group("code").upper()
+    vturb_raw = match.group("vturb")
+    payload["composition_code"] = code
+    payload["teff_k"] = int(match.group("teff"))
+    payload["log_g"] = int(match.group("logg")) / 100.0
+    payload["vturb_km_s"] = int(vturb_raw) if vturb_raw else None
+    payload["tag"] = match.group("tag")
+
+    normalized_grid = str(grid or "").strip().lower()
+    if normalized_grid == "ostar":
+        z_map = TLUSTY_OSTAR_METALLICITY_MAP
+    elif normalized_grid == "bstar":
+        z_map = TLUSTY_BSTAR_METALLICITY_MAP
+    else:
+        z_map = {}
+    z_value = z_map.get(code)
+    if isinstance(z_value, int | float):
+        payload["z_over_zsun"] = float(z_value)
+    return payload
+
+
+def _tlusty_fit_params_payload(values: dict[str, object]) -> dict[str, object]:
+    return {
+        "composition_code": str(values.get("composition_code", "")).strip().upper(),
+        "teff_k": _parse_int_or_none(values.get("teff_k")),
+        "log_g": _parse_float_or_none(values.get("log_g")),
+        "z_over_zsun": _parse_float_or_none(values.get("z_over_zsun")),
+        "vturb_km_s": _parse_int_or_none(values.get("vturb_km_s")),
+    }
+
+
 def _file_signature(path: Path) -> tuple[int, int]:
     stat = path.stat()
     return stat.st_mtime_ns, stat.st_size
@@ -2004,10 +2124,35 @@ def _load_tlusty_models_csv_cached(path_str: str, mtime_ns: int, size: int) -> l
             spectrum_relpath = str(raw.get("spectrum_relpath", "")).strip().strip("/")
             if not grid or not model_name or not spectrum_relpath:
                 continue
+            parsed_metadata = _parse_tlusty_model_metadata(model_name, grid=grid)
+            composition_code = str(raw.get("composition_code", "")).strip().upper()
+            if not composition_code:
+                composition_code = str(parsed_metadata.get("composition_code", "")).strip().upper()
+            tag = str(raw.get("tag", "")).strip()
+            if not tag:
+                tag = str(parsed_metadata.get("tag", "")).strip()
+            teff_k = _parse_int_or_none(raw.get("teff_k"))
+            if teff_k is None:
+                teff_k = _parse_int_or_none(parsed_metadata.get("teff_k"))
+            log_g = _parse_float_or_none(raw.get("log_g"))
+            if log_g is None:
+                log_g = _parse_float_or_none(parsed_metadata.get("log_g"))
+            vturb_km_s = _parse_int_or_none(raw.get("vturb_km_s"))
+            if vturb_km_s is None:
+                vturb_km_s = _parse_int_or_none(parsed_metadata.get("vturb_km_s"))
+            z_over_zsun = _parse_float_or_none(raw.get("z_over_zsun"))
+            if z_over_zsun is None:
+                z_over_zsun = _parse_float_or_none(parsed_metadata.get("z_over_zsun"))
             rows.append(
                 {
                     "grid": grid,
                     "model_name": model_name,
+                    "composition_code": composition_code,
+                    "teff_k": teff_k,
+                    "log_g": log_g,
+                    "vturb_km_s": vturb_km_s,
+                    "tag": tag,
+                    "z_over_zsun": z_over_zsun,
                     "spectrum_relpath": spectrum_relpath,
                     "archive_name": str(raw.get("archive_name", "")).strip(),
                     "archive_member": str(raw.get("archive_member", "")).strip(),
@@ -2260,6 +2405,7 @@ def _discover_tlusty_grid_models(
                 continuum_path = str(continuum_file.resolve())
 
         spectrum_label = _tlusty_segment_label(products)
+        tlusty_params = _tlusty_fit_params_payload(row)
         candidates.append(
             {
                 "fit_source": GRID_FIT_SOURCE_TLUSTY,
@@ -2273,6 +2419,7 @@ def _discover_tlusty_grid_models(
                 "spectrum_path_str": str(spectrum_path.resolve()),
                 "continuum_relpath": continuum_relpath,
                 "continuum_path_str": continuum_path,
+                "tlusty_params": tlusty_params,
             }
         )
 
