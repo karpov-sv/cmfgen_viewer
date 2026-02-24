@@ -1531,6 +1531,7 @@
           var bestChi2 = formatParam(chi2Info.best_chi2);
           var bestDof = formatConfidenceValue(chi2Info.best_dof, true);
           var bestDofEff = formatConfidenceValue(chi2Info.best_dof_eff, true);
+          var bestDofEffMethod = String(chi2Info.best_dof_eff_method || "").trim();
           var sigma2Hat = formatParam(chi2Info.sigma2_hat);
           var sigma2HatNominal = formatParam(chi2Info.sigma2_hat_nominal);
           if (bestChi2) {
@@ -1541,6 +1542,9 @@
           }
           if (bestDofEff) {
             addSummaryLine(container, "DOF (effective)", bestDofEff);
+          }
+          if (bestDofEffMethod) {
+            addSummaryLine(container, "DOF (effective method)", bestDofEffMethod);
           }
           if (sigma2Hat) {
             addSummaryLine(container, "sigma^2_hat (RSS/dof_eff)", sigma2Hat);

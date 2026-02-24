@@ -1296,14 +1296,25 @@ def fit_model_to_observed(
     chi2_value = float(np.sum(final_residual * final_residual))
     fit_param_count = len(names)
     dof_value = max(1, int(final_valid_count) - int(fit_param_count))
-    n_eff_points, autocorr_positive_sum, autocorr_lags = _estimate_effective_sample_size_from_residuals(final_residual)
-    n_eff_points = min(float(final_valid_count), max(1.0, float(n_eff_points)))
-    dof_eff_value = max(1, int(round(n_eff_points)) - int(fit_param_count))
-    dof_eff_value = min(dof_value, dof_eff_value)
+    dof_eff_method = "autocorr_initial_positive_sequence"
+    if is_photometry:
+        # Photometric points are treated as independent band measurements, so
+        # autocorrelation-based DOF shrinkage is too conservative here.
+        n_eff_points = float(final_valid_count)
+        autocorr_positive_sum = 0.0
+        autocorr_lags = 0
+        dof_eff_value = dof_value
+        dof_eff_method = "nominal_photometry"
+    else:
+        n_eff_points, autocorr_positive_sum, autocorr_lags = _estimate_effective_sample_size_from_residuals(final_residual)
+        n_eff_points = min(float(final_valid_count), max(1.0, float(n_eff_points)))
+        dof_eff_value = max(1, int(round(n_eff_points)) - int(fit_param_count))
+        dof_eff_value = min(dof_value, dof_eff_value)
     metrics["chi2"] = chi2_value
     metrics["dof"] = dof_value
     metrics["reduced_chi2"] = float(chi2_value / max(1, dof_value))
     metrics["dof_eff"] = int(dof_eff_value)
+    metrics["dof_eff_method"] = dof_eff_method
     metrics["n_eff_points"] = float(n_eff_points)
     metrics["autocorr_positive_sum"] = float(autocorr_positive_sum)
     metrics["autocorr_positive_lags"] = int(autocorr_lags)

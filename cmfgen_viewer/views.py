@@ -1624,6 +1624,8 @@ def _fit_single_cmfgen_candidate(
     dof_value = int(dof_raw) if isinstance(dof_raw, int | float) and int(dof_raw) > 0 else None
     dof_eff_raw = metrics.get("dof_eff")
     dof_eff_value = int(dof_eff_raw) if isinstance(dof_eff_raw, int | float) and int(dof_eff_raw) > 0 else None
+    dof_eff_method_raw = metrics.get("dof_eff_method")
+    dof_eff_method = str(dof_eff_method_raw).strip() if isinstance(dof_eff_method_raw, str) else ""
     cmfgen_params_raw = candidate.get("cmfgen_params")
     if isinstance(cmfgen_params_raw, dict):
         cmfgen_params = _cmfgen_fit_params_payload(cmfgen_params_raw)
@@ -1641,6 +1643,7 @@ def _fit_single_cmfgen_candidate(
             "chi2": chi2_value,
             "dof": dof_value,
             "dof_eff": dof_eff_value,
+            "dof_eff_method": dof_eff_method,
             "cmfgen_params": cmfgen_params,
             "fit_params": {
                 "redshift": float(best_params.get("redshift", 0.0)),
@@ -1884,6 +1887,8 @@ def _fit_single_tlusty_candidate(
     dof_value = int(dof_raw) if isinstance(dof_raw, int | float) and int(dof_raw) > 0 else None
     dof_eff_raw = metrics.get("dof_eff")
     dof_eff_value = int(dof_eff_raw) if isinstance(dof_eff_raw, int | float) and int(dof_eff_raw) > 0 else None
+    dof_eff_method_raw = metrics.get("dof_eff_method")
+    dof_eff_method = str(dof_eff_method_raw).strip() if isinstance(dof_eff_method_raw, str) else ""
 
     return {
         "status": "success",
@@ -1897,6 +1902,7 @@ def _fit_single_tlusty_candidate(
             "chi2": chi2_value,
             "dof": dof_value,
             "dof_eff": dof_eff_value,
+            "dof_eff_method": dof_eff_method,
             "fit_params": {
                 "redshift": float(best_params.get("redshift", 0.0)),
                 "broadening_km_s": float(best_params.get("broadening_km_s", 0.0)),
@@ -2291,8 +2297,13 @@ def _summarize_tlusty_confidence_profiles(
     best_points = int(best_points_raw) if isinstance(best_points_raw, int | float) and int(best_points_raw) > 0 else 0
     fit_param_count = _fit_param_count_for_mode(mode)
     best_dof = max(1, best_points - fit_param_count)
+    best_dof_eff_method_raw = best_model.get("dof_eff_method")
+    best_dof_eff_method = str(best_dof_eff_method_raw).strip().lower()
     best_dof_eff_raw = best_model.get("dof_eff")
-    best_dof_eff = int(best_dof_eff_raw) if isinstance(best_dof_eff_raw, int | float) and int(best_dof_eff_raw) > 0 else best_dof
+    if best_dof_eff_method == "nominal_photometry":
+        best_dof_eff = best_dof
+    else:
+        best_dof_eff = int(best_dof_eff_raw) if isinstance(best_dof_eff_raw, int | float) and int(best_dof_eff_raw) > 0 else best_dof
     best_dof_eff = max(1, min(best_dof, best_dof_eff))
     sigma2_hat_nominal = best_chi2 / max(1, best_dof)
     sigma2_hat = best_chi2 / max(1, best_dof_eff)
@@ -2393,20 +2404,29 @@ def _summarize_tlusty_confidence_profiles(
 
     if not parameters:
         return {}
-    return {
-        "method": "profile_delta_chi2_gaussian",
-        "assumptions": (
+    assumptions = (
+        "Gaussian residuals with unknown common variance; "
+        "variance is estimated from the best-fit residual sum of squares. "
+        "Effective degrees of freedom are estimated from residual autocorrelation "
+        "using the initial positive sequence."
+    )
+    if best_dof_eff_method == "nominal_photometry":
+        assumptions = (
             "Gaussian residuals with unknown common variance; "
             "variance is estimated from the best-fit residual sum of squares. "
-            "Effective degrees of freedom are estimated from residual autocorrelation "
-            "using the initial positive sequence."
-        ),
+            "For photometric uploads, effective degrees of freedom are set to nominal "
+            "degrees of freedom (independent-band assumption)."
+        )
+    return {
+        "method": "profile_delta_chi2_gaussian",
+        "assumptions": assumptions,
         "chi2": {
             "best_chi2": best_chi2,
             "best_points": best_points,
             "fit_param_count": fit_param_count,
             "best_dof": best_dof,
             "best_dof_eff": best_dof_eff,
+            "best_dof_eff_method": best_dof_eff_method,
             "sigma2_hat": sigma2_hat,
             "sigma2_hat_nominal": sigma2_hat_nominal,
         },
