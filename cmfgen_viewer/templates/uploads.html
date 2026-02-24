@@ -46,7 +46,13 @@
         <tbody>
           {% for item in uploads %}
             <tr>
-              <td><code>{{ item.filename }}</code></td>
+              <td>
+                {% if item.exists %}
+                  <a href="{{ url_for('viewer.upload_view', token=item.token) }}"><code>{{ item.filename }}</code></a>
+                {% else %}
+                  <code>{{ item.filename }}</code>
+                {% endif %}
+              </td>
               <td><code>{{ item.flux_mode }}</code></td>
               <td><code>{{ item.detected_flux_mode }}</code></td>
               <td><code>{{ item.format }}</code></td>
