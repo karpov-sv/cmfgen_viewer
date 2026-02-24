@@ -3514,6 +3514,52 @@ def _finite_wavelength_bounds(values: object) -> tuple[float, float] | None:
     return min_value, max_value
 
 
+def _observed_overlay_wavelength_bounds(observed: dict[str, object]) -> tuple[float, float] | None:
+    base_bounds = _finite_wavelength_bounds(observed.get("wavelength"))
+    if base_bounds is None:
+        return None
+
+    observation_type = str(observed.get("observation_type", "")).strip().lower()
+    if observation_type != "photometry":
+        return base_bounds
+
+    wavelength = observed.get("wavelength")
+    band_width = observed.get("band_width")
+    if not isinstance(wavelength, list) or not isinstance(band_width, list):
+        return base_bounds
+
+    min_value = math.inf
+    max_value = -math.inf
+    count = 0
+    for index, wave_raw in enumerate(wavelength):
+        if not isinstance(wave_raw, int | float):
+            continue
+        center = float(wave_raw)
+        if not math.isfinite(center) or center <= 0.0:
+            continue
+        width = 0.0
+        if index < len(band_width):
+            width_raw = band_width[index]
+            if isinstance(width_raw, int | float):
+                width_value = float(width_raw)
+                if math.isfinite(width_value) and width_value > 0.0:
+                    width = width_value
+        half_width = 0.5 * width
+        lo = max(0.0, center - half_width)
+        hi = center + half_width
+        if not math.isfinite(lo) or not math.isfinite(hi) or hi <= lo:
+            continue
+        count += 1
+        if lo < min_value:
+            min_value = lo
+        if hi > max_value:
+            max_value = hi
+
+    if count > 0 and math.isfinite(min_value) and math.isfinite(max_value) and min_value < max_value:
+        return min_value, max_value
+    return base_bounds
+
+
 def _build_tlusty_overlay_trace(
     *,
     config: dict[str, object],
@@ -3627,7 +3673,7 @@ def _build_upload_grid_overlay_trace(
         )
     except Exception as exc:
         return None, f"Could not parse uploaded spectrum: {exc}"
-    observed_range = _finite_wavelength_bounds(observed.get("wavelength"))
+    observed_range = _observed_overlay_wavelength_bounds(observed)
     if observed_range is None:
         return None, "Uploaded spectrum does not have enough valid wavelength points."
     observed_min, observed_max = observed_range
