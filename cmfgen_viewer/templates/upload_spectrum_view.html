@@ -1284,14 +1284,18 @@
         return Number(numeric.toFixed(6)).toString();
       }
 
-      function formatConfidenceInterval(param) {
+      function formatConfidenceInterval(param, levelLabel) {
         if (!param || typeof param !== "object") {
           return "";
         }
-        var interval = param.interval && typeof param.interval === "object"
-          ? param.interval
+        var intervals = param.intervals && typeof param.intervals === "object"
+          ? param.intervals
           : null;
-        if (!interval) {
+        if (!intervals) {
+          return "";
+        }
+        var interval = intervals[levelLabel];
+        if (!interval || typeof interval !== "object") {
           return "";
         }
         var isInteger = !!param.is_integer;
@@ -1325,36 +1329,44 @@
           return;
         }
 
-        var relThreshold = asFiniteNumber(confidence.rmse_relative_threshold, NaN);
-        var thresholdPercent = "";
-        if (Number.isFinite(relThreshold)) {
-          thresholdPercent = Number((relThreshold * 100.0).toFixed(3)).toString();
-        }
         var title = document.createElement("div");
         title.className = "small text-muted mb-1 mt-2";
-        title.textContent = thresholdPercent
-          ? ("Residual-profile ranges (dRMSE <= " + thresholdPercent + "%)")
-          : "Residual-profile ranges";
+        title.textContent = "Profile chi2 confidence intervals (Gaussian assumption)";
         container.appendChild(title);
+
+        var chi2Info = confidence.chi2 && typeof confidence.chi2 === "object"
+          ? confidence.chi2
+          : null;
+        if (chi2Info) {
+          var bestChi2 = formatParam(chi2Info.best_chi2);
+          var bestDof = formatConfidenceValue(chi2Info.best_dof, true);
+          if (bestChi2 && bestDof) {
+            addSummaryLine(container, "Best chi2/dof", bestChi2 + " / " + bestDof);
+          }
+        }
 
         var keys = ["teff_k", "log_g", "z_over_zsun", "vturb_km_s"];
         var labels = {
-          teff_k: "Teff range",
-          log_g: "log g range",
-          z_over_zsun: "Z/Zsun range",
-          vturb_km_s: "vturb range",
+          teff_k: "Teff",
+          log_g: "log g",
+          z_over_zsun: "Z/Zsun",
+          vturb_km_s: "vturb",
         };
+        var levelOrder = ["68%", "95%", "90%"];
         for (var i = 0; i < keys.length; i += 1) {
           var key = keys[i];
           var param = parameters[key];
           if (!param || typeof param !== "object") {
             continue;
           }
-          var rangeText = formatConfidenceInterval(param);
-          if (!rangeText) {
-            continue;
+          for (var j = 0; j < levelOrder.length; j += 1) {
+            var levelLabel = levelOrder[j];
+            var rangeText = formatConfidenceInterval(param, levelLabel);
+            if (!rangeText) {
+              continue;
+            }
+            addSummaryLine(container, levelLabel + " " + (labels[key] || key) + " CI", rangeText);
           }
-          addSummaryLine(container, labels[key] || (key + " range"), rangeText);
         }
       }
 

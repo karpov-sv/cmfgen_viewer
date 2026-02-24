@@ -145,12 +145,16 @@ TLUSTY_REFERENCE_DISTANCE_CM = 3.0856775814913673e21
 TLUSTY_SURFACE_TO_1KPC_SCALE = (
     TLUSTY_REFERENCE_RADIUS_CM / TLUSTY_REFERENCE_DISTANCE_CM
 ) ** 2
-TLUSTY_CONFIDENCE_RMSE_RELATIVE_THRESHOLD = 0.05
 TLUSTY_CONFIDENCE_PARAM_SPECS = (
     {"key": "teff_k", "label": "Teff", "unit": "K", "integer": True},
     {"key": "log_g", "label": "log g", "unit": "", "integer": False},
     {"key": "z_over_zsun", "label": "Z/Zsun", "unit": "", "integer": False},
     {"key": "vturb_km_s", "label": "vturb", "unit": "km/s", "integer": True},
+)
+TLUSTY_CHI2_CONFIDENCE_LEVELS = (
+    {"label": "68%", "delta_chi2": 1.0},
+    {"label": "90%", "delta_chi2": 2.705543454095404},
+    {"label": "95%", "delta_chi2": 3.841458820694124},
 )
 TLUSTY_OSTAR_METALLICITY_MAP = {
     "C": 2.0,
@@ -1586,6 +1590,10 @@ def _fit_single_cmfgen_candidate(
 
     points_raw = metrics.get("points", 0)
     points = int(points_raw) if isinstance(points_raw, int | float) else 0
+    chi2_raw = metrics.get("chi2")
+    chi2_value = float(chi2_raw) if isinstance(chi2_raw, int | float) and math.isfinite(float(chi2_raw)) else None
+    dof_raw = metrics.get("dof")
+    dof_value = int(dof_raw) if isinstance(dof_raw, int | float) and int(dof_raw) > 0 else None
     return {
         "status": "success",
         "item": {
@@ -1595,6 +1603,8 @@ def _fit_single_cmfgen_candidate(
             "fin": selected_fin.name,
             "rmse": float(rmse_raw),
             "points": points,
+            "chi2": chi2_value,
+            "dof": dof_value,
             "fit_params": {
                 "redshift": float(best_params.get("redshift", 0.0)),
                 "broadening_km_s": float(best_params.get("broadening_km_s", 0.0)),
@@ -1829,6 +1839,10 @@ def _fit_single_tlusty_candidate(
         return {"status": "failed"}
     points_raw = metrics.get("points", 0)
     points = int(points_raw) if isinstance(points_raw, int | float) else 0
+    chi2_raw = metrics.get("chi2")
+    chi2_value = float(chi2_raw) if isinstance(chi2_raw, int | float) and math.isfinite(float(chi2_raw)) else None
+    dof_raw = metrics.get("dof")
+    dof_value = int(dof_raw) if isinstance(dof_raw, int | float) and int(dof_raw) > 0 else None
 
     return {
         "status": "success",
@@ -1839,6 +1853,8 @@ def _fit_single_tlusty_candidate(
             "fin": fin_label,
             "rmse": float(rmse_raw),
             "points": points,
+            "chi2": chi2_value,
+            "dof": dof_value,
             "fit_params": {
                 "redshift": float(best_params.get("redshift", 0.0)),
                 "broadening_km_s": float(best_params.get("broadening_km_s", 0.0)),
@@ -2123,26 +2139,51 @@ def _parse_tlusty_profile_value(value: object, *, integer: bool) -> int | float 
     return float(numeric)
 
 
-def _empty_tlusty_confidence_profiles() -> dict[str, dict[int | float, float]]:
-    profiles: dict[str, dict[int | float, float]] = {}
+def _empty_tlusty_confidence_profiles() -> dict[str, dict[int | float, dict[str, object]]]:
+    profiles: dict[str, dict[int | float, dict[str, object]]] = {}
     for spec in TLUSTY_CONFIDENCE_PARAM_SPECS:
         profiles[str(spec["key"])] = {}
     return profiles
 
 
+def _chi2_from_fit_item(item: dict[str, object]) -> float | None:
+    chi2_raw = item.get("chi2")
+    if isinstance(chi2_raw, int | float) and math.isfinite(float(chi2_raw)):
+        chi2 = float(chi2_raw)
+        if chi2 >= 0.0:
+            return chi2
+
+    rmse_raw = item.get("rmse")
+    points_raw = item.get("points")
+    if not isinstance(rmse_raw, int | float) or not math.isfinite(float(rmse_raw)):
+        return None
+    if not isinstance(points_raw, int | float):
+        return None
+    points = int(points_raw)
+    if points <= 0:
+        return None
+    rmse = float(rmse_raw)
+    return float(rmse * rmse * points)
+
+
+def _fit_param_count_for_mode(mode: str) -> int:
+    return 4 if str(mode).strip().lower() == "both" else 2
+
+
 def _update_tlusty_confidence_profiles(
-    profiles: dict[str, dict[int | float, float]] | None,
+    profiles: dict[str, dict[int | float, dict[str, object]]] | None,
     item: dict[str, object],
 ) -> None:
     if not isinstance(profiles, dict):
         return
-    rmse_raw = item.get("rmse")
-    if not isinstance(rmse_raw, int | float) or not math.isfinite(float(rmse_raw)):
+    chi2 = _chi2_from_fit_item(item)
+    if chi2 is None:
         return
+    points_raw = item.get("points")
+    points = int(points_raw) if isinstance(points_raw, int | float) else 0
     tlusty_params = item.get("tlusty_params")
     if not isinstance(tlusty_params, dict):
         return
-    rmse = float(rmse_raw)
     for spec in TLUSTY_CONFIDENCE_PARAM_SPECS:
         key = str(spec["key"])
         integer = bool(spec.get("integer", False))
@@ -2153,30 +2194,36 @@ def _update_tlusty_confidence_profiles(
         if not isinstance(profile, dict):
             continue
         prev = profile.get(value)
-        if prev is None or rmse < float(prev):
-            profile[value] = rmse
+        prev_chi2 = None
+        if isinstance(prev, dict):
+            prev_chi2_raw = prev.get("chi2")
+            if isinstance(prev_chi2_raw, int | float) and math.isfinite(float(prev_chi2_raw)):
+                prev_chi2 = float(prev_chi2_raw)
+        if prev_chi2 is None or chi2 < prev_chi2:
+            profile[value] = {"chi2": chi2, "points": points}
 
 
 def _summarize_tlusty_confidence_profiles(
     *,
     best_model: dict[str, object] | None,
-    profiles: dict[str, dict[int | float, float]] | None,
-    rmse_relative_threshold: float = TLUSTY_CONFIDENCE_RMSE_RELATIVE_THRESHOLD,
+    profiles: dict[str, dict[int | float, dict[str, object]]] | None,
+    mode: str,
 ) -> dict[str, object]:
     if not isinstance(best_model, dict) or not isinstance(profiles, dict):
         return {}
     best_params = best_model.get("tlusty_params")
     if not isinstance(best_params, dict):
         return {}
-    best_rmse_raw = best_model.get("rmse")
-    if not isinstance(best_rmse_raw, int | float) or not math.isfinite(float(best_rmse_raw)):
+    best_chi2 = _chi2_from_fit_item(best_model)
+    if best_chi2 is None:
         return {}
-    best_rmse = float(best_rmse_raw)
-
-    rel_threshold = float(rmse_relative_threshold)
-    if not math.isfinite(rel_threshold) or rel_threshold < 0.0:
-        rel_threshold = TLUSTY_CONFIDENCE_RMSE_RELATIVE_THRESHOLD
-    rmse_limit = best_rmse * (1.0 + rel_threshold)
+    best_points_raw = best_model.get("points")
+    best_points = int(best_points_raw) if isinstance(best_points_raw, int | float) and int(best_points_raw) > 0 else 0
+    fit_param_count = _fit_param_count_for_mode(mode)
+    best_dof = max(1, best_points - fit_param_count)
+    sigma2_hat = best_chi2 / max(1, best_dof)
+    if not math.isfinite(sigma2_hat) or sigma2_hat <= 0:
+        sigma2_hat = 1.0
 
     parameters: dict[str, object] = {}
     for spec in TLUSTY_CONFIDENCE_PARAM_SPECS:
@@ -2186,27 +2233,75 @@ def _summarize_tlusty_confidence_profiles(
         if not isinstance(profile_raw, dict) or not profile_raw:
             continue
 
-        profile_min_by_value: dict[int | float, float] = {}
-        for value_raw, rmse_raw in profile_raw.items():
+        profile_min_by_value: dict[int | float, dict[str, object]] = {}
+        for value_raw, payload in profile_raw.items():
             value = _parse_tlusty_profile_value(value_raw, integer=integer)
-            rmse = _parse_float_or_none(rmse_raw)
-            if value is None or rmse is None:
+            if value is None:
+                continue
+            chi2 = None
+            points = None
+            if isinstance(payload, dict):
+                chi2_raw = payload.get("chi2")
+                if isinstance(chi2_raw, int | float) and math.isfinite(float(chi2_raw)):
+                    chi2 = float(chi2_raw)
+                points_raw = payload.get("points")
+                if isinstance(points_raw, int | float):
+                    points = int(points_raw)
+            elif isinstance(payload, int | float) and math.isfinite(float(payload)):
+                chi2 = float(payload)
+            if chi2 is None:
                 continue
             prev = profile_min_by_value.get(value)
-            if prev is None or rmse < prev:
-                profile_min_by_value[value] = rmse
+            prev_chi2 = None
+            if isinstance(prev, dict):
+                prev_raw = prev.get("chi2")
+                if isinstance(prev_raw, int | float) and math.isfinite(float(prev_raw)):
+                    prev_chi2 = float(prev_raw)
+            if prev_chi2 is None or chi2 < prev_chi2:
+                profile_min_by_value[value] = {"chi2": chi2, "points": points}
         if not profile_min_by_value:
             continue
 
-        sorted_profile = sorted(profile_min_by_value.items(), key=lambda pair: float(pair[0]))
-        allowed_values = [value for value, rmse in sorted_profile if rmse <= rmse_limit]
-        if not allowed_values:
-            continue
+        sorted_profile = sorted(
+            ((value, float(payload["chi2"]), payload.get("points")) for value, payload in profile_min_by_value.items()),
+            key=lambda pair: float(pair[0]),
+        )
 
         best_value = _parse_tlusty_profile_value(best_params.get(key), integer=integer)
-        best_value_rmse = None
+        best_value_chi2 = None
         if best_value is not None:
-            best_value_rmse = profile_min_by_value.get(best_value)
+            entry = profile_min_by_value.get(best_value)
+            if isinstance(entry, dict):
+                chi2_raw = entry.get("chi2")
+                if isinstance(chi2_raw, int | float) and math.isfinite(float(chi2_raw)):
+                    best_value_chi2 = float(chi2_raw)
+
+        intervals: dict[str, object] = {}
+        for level in TLUSTY_CHI2_CONFIDENCE_LEVELS:
+            label = str(level.get("label", "")).strip()
+            delta_limit_raw = level.get("delta_chi2")
+            if not label or not isinstance(delta_limit_raw, int | float):
+                continue
+            delta_limit = float(delta_limit_raw)
+            if not math.isfinite(delta_limit) or delta_limit < 0:
+                continue
+            allowed_values = [
+                value
+                for value, chi2, _points in sorted_profile
+                if ((chi2 - best_chi2) / sigma2_hat) <= (delta_limit + 1e-12)
+            ]
+            if not allowed_values:
+                continue
+            intervals[label] = {
+                "min_value": allowed_values[0],
+                "max_value": allowed_values[-1],
+                "count": len(allowed_values),
+                "contains_best": bool(
+                    best_value is not None and allowed_values[0] <= best_value <= allowed_values[-1]
+                ),
+            }
+        if not intervals:
+            continue
 
         parameters[key] = {
             "label": str(spec.get("label", key)),
@@ -2214,23 +2309,29 @@ def _summarize_tlusty_confidence_profiles(
             "is_integer": integer,
             "samples": len(sorted_profile),
             "best_value": best_value,
-            "best_value_rmse": float(best_value_rmse) if isinstance(best_value_rmse, int | float) else None,
-            "interval": {
-                "min_value": allowed_values[0],
-                "max_value": allowed_values[-1],
-                "count": len(allowed_values),
-                "contains_best": bool(
-                    best_value is not None and allowed_values[0] <= best_value <= allowed_values[-1]
-                ),
-            },
+            "best_value_chi2": float(best_value_chi2) if isinstance(best_value_chi2, int | float) else None,
+            "intervals": intervals,
         }
 
     if not parameters:
         return {}
     return {
-        "method": "profile_min_rmse_by_parameter",
-        "rmse_relative_threshold": rel_threshold,
-        "best_rmse": best_rmse,
+        "method": "profile_delta_chi2_gaussian",
+        "assumptions": (
+            "Gaussian residuals with unknown common variance; "
+            "variance is estimated from the best-fit residual sum of squares."
+        ),
+        "chi2": {
+            "best_chi2": best_chi2,
+            "best_points": best_points,
+            "fit_param_count": fit_param_count,
+            "best_dof": best_dof,
+            "sigma2_hat": sigma2_hat,
+        },
+        "levels": [
+            {"label": str(item["label"]), "delta_chi2": float(item["delta_chi2"])}
+            for item in TLUSTY_CHI2_CONFIDENCE_LEVELS
+        ],
         "parameters": parameters,
     }
 
@@ -2773,6 +2874,7 @@ def _run_upload_grid_search_job(
             tlusty_confidence = _summarize_tlusty_confidence_profiles(
                 best_model=best_model,
                 profiles=tlusty_confidence_profiles,
+                mode=mode,
             )
             result_payload: dict[str, object] = {
                 "fit_source": normalized_source,
@@ -2806,7 +2908,7 @@ def _run_upload_grid_search_job(
         failed = 0
         best_model: dict[str, object] | None = None
         top_models: list[dict[str, object]] = []
-        tlusty_confidence_profiles: dict[str, dict[int | float, float]] | None = None
+        tlusty_confidence_profiles: dict[str, dict[int | float, dict[str, object]]] | None = None
         if normalized_source == GRID_FIT_SOURCE_TLUSTY:
             tlusty_confidence_profiles = _empty_tlusty_confidence_profiles()
         started_at = time.time()
@@ -2963,6 +3065,7 @@ def _run_upload_grid_search_job(
         tlusty_confidence = _summarize_tlusty_confidence_profiles(
             best_model=best_model,
             profiles=tlusty_confidence_profiles,
+            mode=mode,
         )
         if tlusty_confidence:
             result_payload["tlusty_confidence"] = tlusty_confidence

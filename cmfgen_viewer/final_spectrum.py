@@ -1125,6 +1125,13 @@ def fit_model_to_observed(
         "points": int(final_valid_count),
         "mode": normalized_mode,
     }
+    chi2_value = float(np.sum(final_residual * final_residual))
+    fit_param_count = len(names)
+    dof_value = max(1, int(final_valid_count) - int(fit_param_count))
+    metrics["chi2"] = chi2_value
+    metrics["dof"] = dof_value
+    metrics["reduced_chi2"] = float(chi2_value / max(1, dof_value))
+    metrics["fit_param_count"] = int(fit_param_count)
     if stage1_result is not None:
         metrics["stage1_success"] = bool(getattr(stage1_result, "success", False))
         metrics["stage1_nfev"] = int(getattr(stage1_result, "nfev", 0))
