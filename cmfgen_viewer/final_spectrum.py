@@ -37,6 +37,9 @@ LIGHT_SPEED_KM_PER_S = 299792.458
 MAX_MODEL_TIME_LINES = 4
 MAX_SPECIES_ROWS = 12
 MAX_SERIES_POINTS = 5000
+PHOTOMETRY_ERROR_BAR_COLOR = "rgba(33, 37, 41, 0.45)"
+PHOTOMETRY_ERROR_BAR_THICKNESS = 1.2
+PHOTOMETRY_ERROR_BAR_CAP_WIDTH = 0
 
 ABSOLUTE_FIT_BOUNDS = {
     "redshift": (-0.02, 0.02),
@@ -596,9 +599,9 @@ def _clean_xy_arrays(x_values: list[float], y_values: list[float]) -> tuple[Any,
     if x.size < 2:
         return None
 
-    if x[0] > x[-1]:
-        x = x[::-1]
-        y = y[::-1]
+    order = np.argsort(x)
+    x = x[order]
+    y = y[order]
 
     # np.interp requires monotonic increasing x; collapse duplicate wavelengths.
     keep = np.ones(x.shape[0], dtype=bool)
@@ -608,6 +611,51 @@ def _clean_xy_arrays(x_values: list[float], y_values: list[float]) -> tuple[Any,
     if x.size < 2:
         return None
     return x, y
+
+
+def _clean_xy_with_band_width(
+    x_values: list[float],
+    y_values: list[float],
+    band_width_values: list[float] | None,
+) -> tuple[Any, Any, Any | None] | None:
+    if np is None:
+        return None
+    if not isinstance(band_width_values, list):
+        cleaned = _clean_xy_arrays(x_values, y_values)
+        if cleaned is None:
+            return None
+        x, y = cleaned
+        return x, y, None
+    if len(x_values) < 2 or len(y_values) < 2 or len(band_width_values) < 2:
+        return None
+
+    x = np.asarray(x_values, dtype=np.float64).reshape(-1)
+    y = np.asarray(y_values, dtype=np.float64).reshape(-1)
+    width = np.asarray(band_width_values, dtype=np.float64).reshape(-1)
+    if x.size != y.size or x.size != width.size or x.size < 2:
+        return None
+
+    mask = np.isfinite(x) & np.isfinite(y) & np.isfinite(width) & (x > 0) & (width >= 0)
+    x = x[mask]
+    y = y[mask]
+    width = width[mask]
+    if x.size < 2:
+        return None
+
+    order = np.argsort(x)
+    x = x[order]
+    y = y[order]
+    width = width[order]
+
+    # Keep only strictly increasing wavelengths to match interpolation assumptions.
+    keep = np.ones(x.shape[0], dtype=bool)
+    keep[1:] = x[1:] > x[:-1]
+    x = x[keep]
+    y = y[keep]
+    width = width[keep]
+    if x.size < 2:
+        return None
+    return x, y, width
 
 
 def _build_model_series_for_fit(
@@ -653,9 +701,11 @@ def _build_observed_series_for_fit(
     observed: dict[str, object],
     *,
     mode: str,
-) -> tuple[tuple[Any, Any] | None, str | None]:
+) -> tuple[tuple[Any, Any, Any | None] | None, str | None]:
     wavelength = observed.get("wavelength")
     flux = observed.get("flux")
+    observation_type = str(observed.get("observation_type", "")).strip().lower()
+    band_width = observed.get("band_width") if observation_type == "photometry" else None
     flux_mode = str(observed.get("flux_mode", "")).strip().lower()
     if not isinstance(wavelength, list) or not isinstance(flux, list):
         return None, "Observed upload is missing wavelength/flux vectors."
@@ -665,7 +715,11 @@ def _build_observed_series_for_fit(
     if mode == "normalized" and flux_mode != "normalized":
         return None, "Observed upload is not continuum-normalized data."
 
-    cleaned = _clean_xy_arrays(wavelength, flux)
+    cleaned = _clean_xy_with_band_width(
+        wavelength,
+        flux,
+        band_width if isinstance(band_width, list) else None,
+    )
     if cleaned is None:
         return None, "Observed upload has too few valid points."
     return cleaned, None
@@ -866,6 +920,57 @@ def _apply_transform_arrays(
     return transformed_x, transformed_y
 
 
+def _sample_model_on_observed_grid(
+    model_x: Any,
+    model_y: Any,
+    observed_x: Any,
+    band_width: Any | None = None,
+) -> Any:
+    if np is None:
+        return None
+
+    sampled = np.interp(observed_x, model_x, model_y, left=np.nan, right=np.nan)
+    if band_width is None:
+        return sampled
+
+    width = np.asarray(band_width, dtype=np.float64).reshape(-1)
+    if width.size != sampled.size:
+        return sampled
+    if model_x.size < 2:
+        return sampled
+
+    x_min = float(model_x[0])
+    x_max = float(model_x[-1])
+    for index, width_value in enumerate(width):
+        if not math.isfinite(float(width_value)) or float(width_value) <= 0.0:
+            continue
+        center = float(observed_x[index])
+        half_width = 0.5 * float(width_value)
+        lo = max(x_min, center - half_width)
+        hi = min(x_max, center + half_width)
+        if hi <= lo:
+            continue
+
+        segment_mask = (model_x > lo) & (model_x < hi)
+        segment_x = model_x[segment_mask]
+        segment_y = model_y[segment_mask]
+        segment_x = np.concatenate(([lo], segment_x, [hi]))
+        segment_y = np.concatenate(
+            (
+                [float(np.interp(lo, model_x, model_y))],
+                segment_y,
+                [float(np.interp(hi, model_x, model_y))],
+            )
+        )
+        if segment_x.size < 2:
+            continue
+        denominator = hi - lo
+        if denominator <= 0.0:
+            continue
+        sampled[index] = float(np.trapz(segment_y, segment_x) / denominator)
+    return sampled
+
+
 def _estimate_effective_sample_size_from_residuals(
     residual: Any,
     *,
@@ -940,12 +1045,16 @@ def fit_model_to_observed(
         return None, None, observed_error
     if observed_series is None:
         return None, None, "Observed upload could not be prepared for fitting."
-    observed_x, observed_y = observed_series
+    observed_x, observed_y, observed_band_width = observed_series
+    observation_type = str(observed.get("observation_type", "")).strip().lower()
+    is_photometry = observation_type == "photometry"
 
     if observed_x.size > MAX_SERIES_POINTS:
         sample_idx = np.linspace(0, observed_x.size - 1, MAX_SERIES_POINTS, dtype=int)
         observed_x = observed_x[sample_idx]
         observed_y = observed_y[sample_idx]
+        if observed_band_width is not None:
+            observed_band_width = observed_band_width[sample_idx]
 
     obs_scale = 1.0
     norm_weights = np.ones_like(observed_y, dtype=np.float64)
@@ -975,9 +1084,10 @@ def fit_model_to_observed(
     if isinstance(initial_distance_raw, int | float):
         initial_distance_ok = math.isfinite(float(initial_distance_raw))
     if normalized_mode == "both" and not initial_distance_ok:
-        model_on_obs = np.interp(observed_x, model_x, model_y, left=np.nan, right=np.nan)
+        model_on_obs = _sample_model_on_observed_grid(model_x, model_y, observed_x, observed_band_width)
         valid_scale = np.isfinite(model_on_obs) & np.isfinite(observed_y) & (model_on_obs > 0) & (observed_y > 0)
-        if np.count_nonzero(valid_scale) > 20:
+        min_scale_points = 4 if is_photometry else 20
+        if np.count_nonzero(valid_scale) >= min_scale_points:
             ratio = np.median(model_on_obs[valid_scale] / observed_y[valid_scale])
             if math.isfinite(float(ratio)) and ratio > 0:
                 default_distance = math.sqrt(float(ratio))
@@ -1003,7 +1113,10 @@ def fit_model_to_observed(
     diff_step = np.array([1e-4, 1.0, 0.01, 0.05], dtype=np.float64) if normalized_mode == "both" else np.array([1e-4, 1.0], dtype=np.float64)
     name_to_index = {name: index for index, name in enumerate(names)}
 
-    min_valid_points = max(30, int(0.12 * observed_x.size))
+    if is_photometry:
+        min_valid_points = max(len(names) + 1, int(math.ceil(0.6 * observed_x.size)))
+    else:
+        min_valid_points = max(30, int(0.12 * observed_x.size))
     initial_ebv = float(initial.get("ebv", 0.0)) if isinstance(initial.get("ebv"), int | float) else 0.0
     if not math.isfinite(initial_ebv):
         initial_ebv = 0.0
@@ -1042,7 +1155,12 @@ def fit_model_to_observed(
             return (residual, 0) if with_valid_count else residual
 
         model_transformed_x, model_transformed_y = transformed
-        model_on_obs = np.interp(observed_x, model_transformed_x, model_transformed_y, left=np.nan, right=np.nan)
+        model_on_obs = _sample_model_on_observed_grid(
+            model_transformed_x,
+            model_transformed_y,
+            observed_x,
+            observed_band_width,
+        )
         valid = np.isfinite(model_on_obs) & np.isfinite(observed_y)
         if normalized_mode == "both":
             valid &= (model_on_obs > 0) & (observed_y > 0)
@@ -1199,6 +1317,10 @@ def fit_model_to_observed(
 def build_observed_overlay_trace(observed: dict[str, object], *, mode: str) -> tuple[dict[str, object] | None, str | None]:
     wavelength = observed.get("wavelength")
     flux = observed.get("flux")
+    observation_type = str(observed.get("observation_type", "")).strip().lower()
+    band_width = observed.get("band_width") if observation_type == "photometry" else None
+    flux_err = observed.get("flux_err") if observation_type == "photometry" else None
+    point_comment = observed.get("point_comment") if observation_type == "photometry" else None
     flux_mode = str(observed.get("flux_mode", "")).strip().lower()
     if not isinstance(wavelength, list) or not isinstance(flux, list):
         return None, "Uploaded spectrum could not be plotted: missing wavelength/flux vectors."
@@ -1207,6 +1329,81 @@ def build_observed_overlay_trace(observed: dict[str, object], *, mode: str) -> t
         return None, "Uploaded spectrum is absolute-flux data; it is shown only in Spectrum + Continuum mode."
     if mode == "both" and flux_mode != "absolute":
         return None, "Uploaded spectrum is continuum-normalized; it is shown only in Normalized mode."
+
+    if observation_type == "photometry":
+        points: list[tuple[float, float, float, float | None, str]] = []
+        for index, (wave_raw, flux_raw) in enumerate(zip(wavelength, flux)):
+            if not isinstance(wave_raw, int | float) or not isinstance(flux_raw, int | float):
+                continue
+            wave_value = float(wave_raw)
+            flux_value = float(flux_raw)
+            if not math.isfinite(wave_value) or not math.isfinite(flux_value) or wave_value <= 0.0:
+                continue
+            width_value = 0.0
+            if isinstance(band_width, list) and index < len(band_width):
+                width_raw = band_width[index]
+                if isinstance(width_raw, int | float) and math.isfinite(float(width_raw)):
+                    width_value = max(0.0, float(width_raw))
+            err_value: float | None = None
+            if isinstance(flux_err, list) and index < len(flux_err):
+                err_raw = flux_err[index]
+                if isinstance(err_raw, int | float) and math.isfinite(float(err_raw)) and float(err_raw) >= 0.0:
+                    err_value = float(err_raw)
+            comment_value = ""
+            if isinstance(point_comment, list) and index < len(point_comment):
+                comment_value = str(point_comment[index] or "").strip()
+            points.append((wave_value, flux_value, width_value, err_value, comment_value))
+        points.sort(key=lambda item: item[0])
+        if not points:
+            return None, "Uploaded photometry has too few valid points for plotting."
+
+        x = [item[0] for item in points]
+        y = [item[1] for item in points]
+        widths = [item[2] for item in points]
+        errors = [item[3] for item in points]
+        comments = [item[4] for item in points]
+        hover_details: list[str] = []
+        for err_value, comment_value in zip(errors, comments):
+            detail = ""
+            if isinstance(err_value, float):
+                detail += f"<br>Flux Err={err_value:.6e}"
+            if comment_value:
+                detail += "<br>Comment: " + comment_value
+            hover_details.append(detail)
+        label = str(observed.get("name", "uploaded-photometry"))
+        trace: dict[str, object] = {
+            "type": "scatter",
+            "mode": "markers",
+            "name": f"Observed ({label})",
+            "x": x,
+            "y": y,
+            "customdata": widths,
+            "text": hover_details,
+            "marker": {"color": "#212529", "size": 8, "symbol": "circle-open"},
+            "hovertemplate": (
+                "Wavelength=%{x:.6g} Å<br>Observed Flux=%{y:.6e}<br>Band Width=%{customdata:.6g} Å%{text}<extra></extra>"
+            ),
+            "meta": {"transform_target": "observed", "y_axis_name": "Flux"},
+        }
+        if any(value > 0.0 for value in widths):
+            trace["error_x"] = {
+                "type": "data",
+                "array": [0.5 * value for value in widths],
+                "visible": True,
+                "color": PHOTOMETRY_ERROR_BAR_COLOR,
+                "thickness": PHOTOMETRY_ERROR_BAR_THICKNESS,
+                "width": PHOTOMETRY_ERROR_BAR_CAP_WIDTH,
+            }
+        if any(isinstance(value, float) and value > 0.0 for value in errors):
+            trace["error_y"] = {
+                "type": "data",
+                "array": [value if isinstance(value, float) and value > 0.0 else 0.0 for value in errors],
+                "visible": True,
+                "color": PHOTOMETRY_ERROR_BAR_COLOR,
+                "thickness": PHOTOMETRY_ERROR_BAR_THICKNESS,
+                "width": PHOTOMETRY_ERROR_BAR_CAP_WIDTH,
+            }
+        return trace, None
 
     x, y = downsample_xy(wavelength, flux, max_points=MAX_SERIES_POINTS)
     if len(x) < 2:
@@ -1238,12 +1435,104 @@ def build_observed_overlay_trace(observed: dict[str, object], *, mode: str) -> t
 def build_uploaded_spectrum_plot(observed: dict[str, object]) -> tuple[dict[str, object] | None, str | None]:
     wavelength = observed.get("wavelength")
     flux = observed.get("flux")
+    observation_type = str(observed.get("observation_type", "")).strip().lower()
+    band_width = observed.get("band_width") if observation_type == "photometry" else None
+    flux_err = observed.get("flux_err") if observation_type == "photometry" else None
+    point_comment = observed.get("point_comment") if observation_type == "photometry" else None
     flux_mode = str(observed.get("flux_mode", "")).strip().lower()
     if not isinstance(wavelength, list) or not isinstance(flux, list):
         return None, "Uploaded spectrum could not be plotted: missing wavelength/flux vectors."
 
     if flux_mode not in {"absolute", "normalized"}:
         flux_mode = "absolute"
+
+    if observation_type == "photometry":
+        points: list[tuple[float, float, float, float | None, str]] = []
+        for index, (wave_raw, flux_raw) in enumerate(zip(wavelength, flux)):
+            if not isinstance(wave_raw, int | float) or not isinstance(flux_raw, int | float):
+                continue
+            wave_value = float(wave_raw)
+            flux_value = float(flux_raw)
+            if not math.isfinite(wave_value) or not math.isfinite(flux_value) or wave_value <= 0.0:
+                continue
+            width_value = 0.0
+            if isinstance(band_width, list) and index < len(band_width):
+                width_raw = band_width[index]
+                if isinstance(width_raw, int | float) and math.isfinite(float(width_raw)):
+                    width_value = max(0.0, float(width_raw))
+            err_value: float | None = None
+            if isinstance(flux_err, list) and index < len(flux_err):
+                err_raw = flux_err[index]
+                if isinstance(err_raw, int | float) and math.isfinite(float(err_raw)) and float(err_raw) >= 0.0:
+                    err_value = float(err_raw)
+            comment_value = ""
+            if isinstance(point_comment, list) and index < len(point_comment):
+                comment_value = str(point_comment[index] or "").strip()
+            points.append((wave_value, flux_value, width_value, err_value, comment_value))
+        points.sort(key=lambda item: item[0])
+        if not points:
+            return None, "Uploaded photometry has too few valid points for plotting."
+
+        x = [item[0] for item in points]
+        y = [item[1] for item in points]
+        widths = [item[2] for item in points]
+        errors = [item[3] for item in points]
+        comments = [item[4] for item in points]
+        hover_details: list[str] = []
+        for err_value, comment_value in zip(errors, comments):
+            detail = ""
+            if isinstance(err_value, float):
+                detail += f"<br>Flux Err={err_value:.6e}"
+            if comment_value:
+                detail += "<br>Comment: " + comment_value
+            hover_details.append(detail)
+        prefer_log_y = all(value > 0.0 and math.isfinite(value) for value in y)
+        y_scale = "log" if prefer_log_y else "linear"
+        warning = None
+        if not prefer_log_y:
+            warning = "Photometric upload includes non-positive values; using linear y-axis."
+
+        label = str(observed.get("name", "uploaded-photometry"))
+        trace: dict[str, object] = {
+            "type": "scatter",
+            "mode": "markers",
+            "name": f"Uploaded ({label})",
+            "x": x,
+            "y": y,
+            "customdata": widths,
+            "text": hover_details,
+            "marker": {"color": "#212529", "size": 8, "symbol": "circle-open"},
+            "hovertemplate": "Wavelength=%{x:.6g} Å<br>Flux=%{y:.6e}<br>Band Width=%{customdata:.6g} Å%{text}<extra></extra>",
+            "meta": {"transform_target": "model", "plot_role": "final", "y_axis_name": "Flux"},
+        }
+        if any(value > 0.0 for value in widths):
+            trace["error_x"] = {
+                "type": "data",
+                "array": [0.5 * value for value in widths],
+                "visible": True,
+                "color": PHOTOMETRY_ERROR_BAR_COLOR,
+                "thickness": PHOTOMETRY_ERROR_BAR_THICKNESS,
+                "width": PHOTOMETRY_ERROR_BAR_CAP_WIDTH,
+            }
+        if any(isinstance(value, float) and value > 0.0 for value in errors):
+            trace["error_y"] = {
+                "type": "data",
+                "array": [value if isinstance(value, float) and value > 0.0 else 0.0 for value in errors],
+                "visible": True,
+                "color": PHOTOMETRY_ERROR_BAR_COLOR,
+                "thickness": PHOTOMETRY_ERROR_BAR_THICKNESS,
+                "width": PHOTOMETRY_ERROR_BAR_CAP_WIDTH,
+            }
+        return (
+            {
+                "data": [trace],
+                "layout": _plot_layout(y_label="Flux (uploaded units)", y_scale=y_scale),
+                "config": _plot_config(),
+                "default_x_scale": "log",
+                "default_y_scale": y_scale,
+            },
+            warning,
+        )
 
     x, y = downsample_xy(wavelength, flux, max_points=MAX_SERIES_POINTS)
     if len(x) < 2:

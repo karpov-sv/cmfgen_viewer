@@ -81,7 +81,7 @@ port = 5567
 host = "127.0.0.1"
 all = false
 lambda_min = 800
-lambda_max = 20000
+lambda_max = 250000
 fit_pool_size = 0
 debug = false
 # Optional:
@@ -97,7 +97,7 @@ debug = false
 - `--host 0.0.0.0` bind on all interfaces.
 - `--all` show hidden files/directories.
 - `--lambda-min 800` minimum wavelength (Angstroms) used for spectrum parsing/display.
-- `--lambda-max 20000` maximum wavelength (Angstroms) used for spectrum parsing/display.
+- `--lambda-max 250000` maximum wavelength (Angstroms) used for spectrum parsing/display (25 um).
 - `--fit-pool-size 0` max worker processes for upload grid fitting (`0` = auto/CPU count).
 - `--auth-user <name>` enable HTTP Basic Auth (must be paired with `--auth-password`).
 - `--auth-password <value>` HTTP Basic Auth password (must be paired with `--auth-user`).
@@ -140,7 +140,7 @@ After uploading an observed spectrum (`/uploads/view/<token>`):
 
 Flux handling:
 
-- absolute observed spectra are fitted against TLUSTY UV/optical absolute flux spectra;
+- absolute observed spectra are fitted against TLUSTY UV/optical/SED absolute flux spectra;
 - normalized observed spectra are fitted against TLUSTY spectra normalized by matched continuum counterparts.
 
 ## Current Implementation Status

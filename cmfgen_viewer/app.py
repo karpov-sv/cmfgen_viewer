@@ -13,7 +13,7 @@ def create_app(
     basepath: str = ".",
     show_all: bool = False,
     lambda_min_angstrom: float = 800.0,
-    lambda_max_angstrom: float = 20000.0,
+    lambda_max_angstrom: float = 250000.0,
     secret_key: str | None = None,
     fit_pool_size_max: int = 0,
     auth_username: str | None = None,

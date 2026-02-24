@@ -137,6 +137,7 @@ GRID_FIT_SOURCE_TLUSTY = "tlusty"
 GRID_FIT_SOURCE_VALUES = {GRID_FIT_SOURCE_CMFGEN, GRID_FIT_SOURCE_TLUSTY}
 TLUSTY_DEFAULT_ROOT = (Path(__file__).resolve().parent.parent / "data" / "tlusly").resolve()
 TLUSTY_FIT_MAX_MODEL_POINTS = 20000
+DEFAULT_SPECTRUM_LAMBDA_MAX_ANGSTROM = 250000.0
 # TLUSTY grids provide emergent surface flux; use a fixed geometric reference
 # so absolute-mode fitting can reuse the shared distance_kpc scaling.
 # TODO: Verify TLUSTY absolute scaling against model-specific stellar radii
@@ -334,7 +335,7 @@ def _viewer_config() -> dict[str, object]:
 
 def _spectrum_lambda_bounds(config: dict[str, object]) -> tuple[float, float]:
     default_min = 800.0
-    default_max = 20000.0
+    default_max = DEFAULT_SPECTRUM_LAMBDA_MAX_ANGSTROM
     try:
         lambda_min = float(config.get("lambda_min_angstrom", default_min))
     except (TypeError, ValueError):
@@ -375,7 +376,7 @@ def _normalize_grid_fit_source(raw_source: object) -> str:
 def _grid_fit_source_label(source: str) -> str:
     normalized = _normalize_grid_fit_source(source)
     if normalized == GRID_FIT_SOURCE_TLUSTY:
-        return "TLUSTY UV/Optical Grid"
+        return "TLUSTY Grid"
     return "Cached CMFGEN Models"
 
 
@@ -1267,8 +1268,12 @@ def bulk_spectra(path: str):
         token = str(display.get("token", ""))
         label = str(display.get("filename", token))
         mode_label = str(display.get("flux_mode", ""))
+        type_label = str(display.get("observation_type", ""))
         created_label = str(display.get("created_at", ""))
-        display["label"] = f"{label} [{mode_label}] {created_label}".strip()
+        if type_label:
+            display["label"] = f"{label} [{mode_label}, {type_label}] {created_label}".strip()
+        else:
+            display["label"] = f"{label} [{mode_label}] {created_label}".strip()
         display["selected"] = token in selected_lookup
         available_uploads.append(display)
 
@@ -1382,6 +1387,7 @@ def bulk_spectrum_upload(path: str):
         "detected_flux_mode": str(parsed.get("detected_flux_mode", "")),
         "resolved_flux_mode": str(parsed.get("flux_mode", "")),
         "format": str(parsed.get("format", "")),
+        "observation_type": str(parsed.get("observation_type", "spectrum")),
         "points": len(parsed.get("wavelength", [])),
         "created_at": time.time(),
     }
@@ -1406,6 +1412,7 @@ def _upload_entry_for_display(entry: dict[str, object]) -> dict[str, object]:
         "token": str(entry.get("token", "")),
         "filename": str(entry.get("filename", "")),
         "format": str(entry.get("format", "")),
+        "observation_type": str(entry.get("observation_type", "spectrum")),
         "flux_mode": str(entry.get("resolved_flux_mode", entry.get("requested_flux_mode", ""))),
         "detected_flux_mode": str(entry.get("detected_flux_mode", "")),
         "points": int(entry.get("points", 0) or 0),
@@ -1442,6 +1449,7 @@ def _upload_format_description(format_name: str) -> str:
         "fits-2d-singleton": "2D FITS with singleton axis flattened to 1D; wavelength from header WCS.",
         "fits-2d-columns": "2D FITS array; first two columns interpreted as wavelength and flux.",
         "fits-2d-rows": "2D FITS array; first two rows interpreted as wavelength and flux.",
+        "photometry-text": "Plain-text photometry table: lambda_eff_A, band_width_A, flux, optional enabled flag.",
     }
     key = format_name.strip().lower()
     return descriptions.get(key, "Custom/unknown FITS layout.")
@@ -1455,6 +1463,7 @@ def _upload_spectrum_summary_rows(
     lambda_max: float,
 ) -> list[list[str]]:
     format_name = str(parsed.get("format", entry.get("format", "")))
+    observation_type = str(parsed.get("observation_type", entry.get("observation_type", "spectrum")))
     flux_mode = str(parsed.get("flux_mode", entry.get("resolved_flux_mode", entry.get("requested_flux_mode", ""))))
     detected_flux_mode = str(parsed.get("detected_flux_mode", entry.get("detected_flux_mode", "")))
     requested_flux_mode = str(entry.get("requested_flux_mode", ""))
@@ -1467,19 +1476,37 @@ def _upload_spectrum_summary_rows(
         if finite:
             span_label = f"{format_number(min(finite))} .. {format_number(max(finite))}"
 
+    band_width = parsed.get("band_width")
+    band_span_label = ""
+    if isinstance(band_width, list):
+        finite_width = [float(value) for value in band_width if isinstance(value, int | float) and math.isfinite(float(value))]
+        if finite_width:
+            band_span_label = f"{format_number(min(finite_width))} .. {format_number(max(finite_width))}"
+
+    flux_err = parsed.get("flux_err")
+    flux_err_span_label = ""
+    if isinstance(flux_err, list):
+        finite_flux_err = [float(value) for value in flux_err if isinstance(value, int | float) and math.isfinite(float(value))]
+        if finite_flux_err:
+            flux_err_span_label = f"{format_number(min(finite_flux_err))} .. {format_number(max(finite_flux_err))}"
+
     rows = [
         ["File", str(entry.get("filename", ""))],
         ["Upload token", token],
         ["Stored format", format_name],
         ["Format details", _upload_format_description(format_name)],
+        ["Observation type", observation_type],
         ["Flux mode", flux_mode],
         ["Detected flux mode", detected_flux_mode],
         ["Requested flux mode", requested_flux_mode],
         ["Parsed points", str(len(parsed.get("wavelength", [])))],
         ["Raw points", str(parsed.get("raw_points", ""))],
         ["Skipped invalid points", str(parsed.get("skipped_points", 0))],
+        ["Disabled rows", str(parsed.get("disabled_points", 0))],
         ["Skipped by wavelength window", str(parsed.get("range_skipped_points", 0))],
         ["Wavelength span (Å)", span_label],
+        ["Band width span (Å)", band_span_label],
+        ["Flux error span", flux_err_span_label],
         ["Configured wavelength window (Å)", f"{format_number(lambda_min)} .. {format_number(lambda_max)}"],
         ["File size", _format_upload_size(entry.get("size", 0))],
         ["Uploaded at", _format_upload_time(entry.get("created_at", 0))],
@@ -1657,6 +1684,8 @@ def _tlusty_segment_label(products: set[str]) -> str:
         return "optical"
     if "uv" in products:
         return "uv"
+    if "sed" in products:
+        return "sed"
     if "flux" in products:
         return "flux"
     if "continuum" in products:
@@ -2483,6 +2512,8 @@ def _tlusty_row_products(row: dict[str, object]) -> set[str]:
         products.add("optical")
     if "hhe" in text_tokens or ".cont" in text_tokens or "continuum" in text_tokens:
         products.add("continuum")
+    if re.search(r"(^|[^a-z0-9])sed([^a-z0-9]|$)", text_tokens):
+        products.add("sed")
     if "flux" in text_tokens:
         products.add("flux")
     return products
@@ -2605,6 +2636,13 @@ def _discover_tlusty_grid_models(
         return [], load_error
 
     pattern = str(model_name_pattern or "").strip()
+    if mode == "both":
+        spectrum_product_filter = {"uv", "optical", "sed", "flux"}
+        spectrum_product_label = "UV/optical/SED"
+    else:
+        spectrum_product_filter = {"uv", "optical"}
+        spectrum_product_label = "UV/optical"
+
     spectrum_rows: list[dict[str, object]] = []
     continuum_by_key: dict[tuple[str, str], list[dict[str, object]]] = {}
     family_rows: dict[tuple[str, str], list[dict[str, object]]] = {}
@@ -2633,14 +2671,14 @@ def _discover_tlusty_grid_models(
         pair_key = _tlusty_pair_key(grid, model_name)
         if "continuum" in products or "continuum_lambda_cgs" in available_arrays:
             continuum_by_key.setdefault(pair_key, []).append(row)
-        if (("uv" in products) or ("optical" in products)) and ("continuum" not in products):
+        if (products & spectrum_product_filter) and ("continuum" not in products):
             spectrum_rows.append(row)
             family_rows.setdefault(_tlusty_family_key(grid, model_name), []).append(row)
 
     if not spectrum_rows:
         if pattern:
-            return [], f"No TLUSTY UV/optical spectra matched pattern '{pattern}'."
-        return [], "No TLUSTY UV/optical spectra were found in the local TLUSTY index."
+            return [], f"No TLUSTY {spectrum_product_label} spectra matched pattern '{pattern}'."
+        return [], f"No TLUSTY {spectrum_product_label} spectra were found in the local TLUSTY index."
 
     candidates: list[dict[str, object]] = []
     missing_continuum = 0
@@ -3197,11 +3235,20 @@ def upload_view(token: str):
     except Exception as exc:
         return redirect(url_for("viewer.uploads", error=f"Uploaded spectrum '{filename}' failed to load: {exc}"))
     parsed["name"] = filename
+    parsed["token"] = token
+
+    photometry_text = ""
+    if str(parsed.get("observation_type", "spectrum")).strip().lower() == "photometry":
+        try:
+            photometry_text = source_path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            photometry_text = ""
 
     warnings: list[str] = []
     upload_error = request.args.get("error", "").strip()
     if upload_error:
         warnings.append(upload_error)
+    upload_message = request.args.get("message", "").strip()
     warnings.extend(str(item) for item in parsed.get("warnings", []))
 
     plot_data, plot_warning = build_uploaded_spectrum_plot(parsed)
@@ -3280,6 +3327,8 @@ def upload_view(token: str):
         model_name_pattern=model_name_pattern,
         active_grid_job=active_grid_job,
         plot_data=plot_data,
+        upload_message=upload_message,
+        photometry_text=photometry_text,
         warnings=warnings,
     )
 
@@ -3906,11 +3955,139 @@ def uploads_upload():
         "detected_flux_mode": str(parsed.get("detected_flux_mode", "")),
         "resolved_flux_mode": str(parsed.get("flux_mode", "")),
         "format": str(parsed.get("format", "")),
+        "observation_type": str(parsed.get("observation_type", "spectrum")),
         "points": len(parsed.get("wavelength", [])),
         "created_at": time.time(),
     }
     write_upload_manifest(upload_root, token, manifest)
     return redirect(url_for("viewer.uploads", message=f"Uploaded {safe_name}."))
+
+
+@bp.route("/uploads/upload-photometry", methods=["POST"])
+def uploads_upload_photometry():
+    config = _viewer_config()
+    upload_root = _upload_root(config)
+    lambda_min, lambda_max = _spectrum_lambda_bounds(config)
+
+    photometry_table = str(request.form.get("photometry_table", "")).strip()
+    if not photometry_table:
+        return redirect(url_for("viewer.uploads", error="No photometry rows were provided."))
+
+    filename_raw = str(request.form.get("photometry_name", "")).strip()
+    safe_name = secure_filename(filename_raw) or "photometry-points.txt"
+
+    token = generate_upload_token()
+    token_dir = upload_root / token
+    token_dir.mkdir(parents=True, exist_ok=False)
+    stored_name = "source.phot"
+    stored_path = token_dir / stored_name
+    requested_flux_mode = "absolute"
+
+    try:
+        stored_path.write_text(photometry_table, encoding="utf-8")
+        parsed = parse_uploaded_spectrum(
+            stored_path,
+            flux_mode=requested_flux_mode,
+            lambda_min=lambda_min,
+            lambda_max=lambda_max,
+        )
+    except Exception as exc:
+        remove_upload_bundle(upload_root, token)
+        return redirect(url_for("viewer.uploads", error=f"Photometry upload failed: {exc}"))
+
+    manifest = {
+        "token": token,
+        "filename": safe_name,
+        "stored_name": stored_name,
+        "requested_flux_mode": requested_flux_mode,
+        "detected_flux_mode": str(parsed.get("detected_flux_mode", "")),
+        "resolved_flux_mode": str(parsed.get("flux_mode", "")),
+        "format": str(parsed.get("format", "")),
+        "observation_type": str(parsed.get("observation_type", "photometry")),
+        "points": len(parsed.get("wavelength", [])),
+        "created_at": time.time(),
+    }
+    write_upload_manifest(upload_root, token, manifest)
+    return redirect(url_for("viewer.uploads", message=f"Uploaded photometry {safe_name}."))
+
+
+@bp.route("/uploads/update-photometry/<token>", methods=["POST"])
+def uploads_update_photometry(token: str):
+    if not is_valid_upload_token(token):
+        abort(404)
+
+    config = _viewer_config()
+    upload_root = _upload_root(config)
+    lambda_min, lambda_max = _spectrum_lambda_bounds(config)
+
+    entries = {str(item.get("token", "")): item for item in list_upload_manifests(upload_root)}
+    entry = entries.get(token)
+    if entry is None:
+        return redirect(url_for("viewer.uploads", error="Uploaded photometry token is not available."))
+
+    stored_name = str(entry.get("stored_name", "")).strip()
+    source_path = upload_root / token / stored_name if stored_name else None
+    if source_path is None or not source_path.is_file():
+        return redirect(url_for("viewer.uploads", error="Uploaded photometry file is missing."))
+
+    observation_type = str(entry.get("observation_type", "")).strip().lower()
+    if observation_type != "photometry" and source_path.suffix.lower() != ".phot":
+        return redirect(url_for("viewer.upload_view", token=token, error="Only photometry uploads can be edited here."))
+
+    photometry_table = str(request.form.get("photometry_table", "")).strip()
+    if not photometry_table:
+        return redirect(url_for("viewer.upload_view", token=token, error="No photometry rows were provided."))
+
+    previous_content = ""
+    try:
+        previous_content = source_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        previous_content = ""
+
+    requested_flux_mode = "absolute"
+    try:
+        source_path.write_text(photometry_table, encoding="utf-8")
+        parsed = parse_uploaded_spectrum(
+            source_path,
+            flux_mode=requested_flux_mode,
+            lambda_min=lambda_min,
+            lambda_max=lambda_max,
+        )
+    except Exception as exc:
+        try:
+            source_path.write_text(previous_content, encoding="utf-8")
+        except OSError:
+            pass
+        return redirect(url_for("viewer.upload_view", token=token, error=f"Could not update photometry data: {exc}"))
+
+    filename_raw = str(request.form.get("photometry_name", "")).strip()
+    filename = secure_filename(filename_raw) if filename_raw else str(entry.get("filename", "")).strip()
+    if not filename:
+        filename = "photometry-points.txt"
+
+    created_at_raw = entry.get("created_at", time.time())
+    try:
+        created_at = float(created_at_raw)
+    except (TypeError, ValueError):
+        created_at = time.time()
+    if not math.isfinite(created_at):
+        created_at = time.time()
+
+    manifest = {
+        "token": token,
+        "filename": filename,
+        "stored_name": stored_name,
+        "requested_flux_mode": requested_flux_mode,
+        "detected_flux_mode": str(parsed.get("detected_flux_mode", "")),
+        "resolved_flux_mode": str(parsed.get("flux_mode", "")),
+        "format": str(parsed.get("format", "")),
+        "observation_type": str(parsed.get("observation_type", "photometry")),
+        "points": len(parsed.get("wavelength", [])),
+        "created_at": created_at,
+        "updated_at": time.time(),
+    }
+    write_upload_manifest(upload_root, token, manifest)
+    return redirect(url_for("viewer.upload_view", token=token, message="Photometry data updated."))
 
 
 @bp.route("/uploads/delete/<token>", methods=["POST"])
@@ -4010,6 +4187,7 @@ def spectrum_upload(path: str):
         "detected_flux_mode": str(parsed.get("detected_flux_mode", "")),
         "resolved_flux_mode": str(parsed.get("flux_mode", "")),
         "format": str(parsed.get("format", "")),
+        "observation_type": str(parsed.get("observation_type", "spectrum")),
         "points": len(parsed.get("wavelength", [])),
         "created_at": time.time(),
     }
@@ -4372,8 +4550,12 @@ def spectrum(path: str):
         token = str(display.get("token", ""))
         label = str(display.get("filename", token))
         mode_label = str(display.get("flux_mode", ""))
+        type_label = str(display.get("observation_type", ""))
         created_label = str(display.get("created_at", ""))
-        display["label"] = f"{label} [{mode_label}] {created_label}".strip()
+        if type_label:
+            display["label"] = f"{label} [{mode_label}, {type_label}] {created_label}".strip()
+        else:
+            display["label"] = f"{label} [{mode_label}] {created_label}".strip()
         display["selected"] = token in selected_lookup
         available_uploads.append(display)
 
@@ -4410,12 +4592,13 @@ def spectrum(path: str):
         if not token:
             continue
         flux_mode = str(parsed.get("flux_mode", "")).strip().lower()
+        observation_type = str(parsed.get("observation_type", "spectrum")).strip().lower()
         if view_mode == "both" and flux_mode != "absolute":
             continue
         if view_mode == "normalized" and flux_mode != "normalized":
             continue
         label = str(parsed.get("name", token))
-        fit_candidates.append({"token": token, "label": f"{label} [{flux_mode}]"})
+        fit_candidates.append({"token": token, "label": f"{label} [{flux_mode}, {observation_type}]"})
 
     selected_fit_token = request.args.get("fit_obs", "").strip()
     if not any(item["token"] == selected_fit_token for item in fit_candidates):

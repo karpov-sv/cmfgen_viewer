@@ -26,6 +26,10 @@ except ModuleNotFoundError:  # pragma: no cover - runtime dependency
 SUPPORTED_FITS_SUFFIXES = {".fits", ".fit", ".fts"}
 UPLOAD_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{8,128}$")
 DEFAULT_UPLOAD_TTL_SECONDS = 2 * 24 * 60 * 60
+PHOTOMETRY_SUFFIXES = {".phot"}
+PHOTOMETRY_SPLIT_RE = re.compile(r"[,\s;]+")
+PHOTOMETRY_TRUE_TOKENS = {"1", "true", "t", "yes", "y", "on", "enable", "enabled"}
+PHOTOMETRY_FALSE_TOKENS = {"0", "false", "f", "no", "n", "off", "disable", "disabled"}
 
 
 def generate_upload_token() -> str:
@@ -152,6 +156,8 @@ def _parse_uploaded_spectrum_cached(
     path = Path(path_str)
     suffix = path.suffix.lower()
 
+    if suffix in PHOTOMETRY_SUFFIXES:
+        return _parse_uploaded_photometry(path, flux_mode=flux_mode, lambda_min=lambda_min, lambda_max=lambda_max)
     if suffix in SUPPORTED_FITS_SUFFIXES:
         return _parse_uploaded_fits(path, flux_mode=flux_mode, lambda_min=lambda_min, lambda_max=lambda_max)
 
@@ -242,6 +248,7 @@ def _parse_uploaded_fits(
     return {
         "name": path.name,
         "format": format_name,
+        "observation_type": "spectrum",
         "wavelength": wavelength_arr.tolist(),
         "flux": flux_arr.tolist(),
         "lambda_min": lambda_min,
@@ -251,6 +258,219 @@ def _parse_uploaded_fits(
         "raw_points": raw_points,
         "skipped_points": skipped_points,
         "range_skipped_points": range_skipped_points,
+        "warnings": warnings,
+    }
+
+
+def _parse_enabled_token(token: str) -> bool | None:
+    normalized = token.strip().lower()
+    if not normalized:
+        return None
+    if normalized in PHOTOMETRY_TRUE_TOKENS:
+        return True
+    if normalized in PHOTOMETRY_FALSE_TOKENS:
+        return False
+    return None
+
+
+def _parse_uploaded_photometry(
+    path: Path,
+    *,
+    flux_mode: str,
+    lambda_min: float | None,
+    lambda_max: float | None,
+) -> dict[str, Any]:
+    warnings: list[str] = []
+    try:
+        content = path.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        raise ValueError(f"Could not read photometry upload: {exc}") from exc
+
+    wavelength: list[float] = []
+    flux: list[float] = []
+    band_width: list[float] = []
+    flux_err: list[float | None] = []
+    point_comment: list[str] = []
+    raw_points = 0
+    invalid_points = 0
+    invalid_lines: list[int] = []
+    disabled_points = 0
+
+    for line_no, raw_line in enumerate(content.splitlines(), start=1):
+        comment_text = ""
+        line = raw_line
+        if "#" in raw_line:
+            data_part, comment_part = raw_line.split("#", 1)
+            line = data_part
+            comment_text = comment_part.strip()
+        line = line.strip()
+        if not line or line.startswith("!"):
+            continue
+        tokens = [token for token in PHOTOMETRY_SPLIT_RE.split(line) if token]
+        if len(tokens) < 3:
+            invalid_points += 1
+            if len(invalid_lines) < 5:
+                invalid_lines.append(line_no)
+            continue
+
+        lambda_token = parse_float_token(tokens[0])
+        width_token = parse_float_token(tokens[1])
+        flux_token = parse_float_token(tokens[2])
+        if lambda_token is None or width_token is None or flux_token is None:
+            invalid_points += 1
+            if len(invalid_lines) < 5:
+                invalid_lines.append(line_no)
+            continue
+
+        lambda_value = float(lambda_token)
+        width_value = float(width_token)
+        flux_value = float(flux_token)
+        if not math.isfinite(lambda_value) or lambda_value <= 0.0:
+            invalid_points += 1
+            if len(invalid_lines) < 5:
+                invalid_lines.append(line_no)
+            continue
+        if not math.isfinite(width_value) or width_value < 0.0:
+            invalid_points += 1
+            if len(invalid_lines) < 5:
+                invalid_lines.append(line_no)
+            continue
+        if not math.isfinite(flux_value):
+            invalid_points += 1
+            if len(invalid_lines) < 5:
+                invalid_lines.append(line_no)
+            continue
+
+        enabled = True
+        flux_err_value: float | None = None
+        token4_mode = "none"
+
+        # Positional rule:
+        # 1) token[3] (if present) is preferred as flux_err when numeric.
+        # 2) token[4] (if present) is preferred as enabled state when token[3] is flux_err.
+        # This prevents flux_err=0 from being interpreted as "disabled".
+        if len(tokens) >= 4:
+            token4 = tokens[3]
+            token4_numeric = parse_float_token(token4)
+            if token4_numeric is not None:
+                err_value = float(token4_numeric)
+                if math.isfinite(err_value) and err_value >= 0.0:
+                    flux_err_value = err_value
+                    token4_mode = "flux_err"
+            else:
+                token4_enabled = _parse_enabled_token(token4)
+                if token4_enabled is not None:
+                    enabled = token4_enabled
+                    token4_mode = "enabled"
+
+        if len(tokens) >= 5:
+            token5 = tokens[4]
+            token5_enabled = _parse_enabled_token(token5)
+            token5_numeric = parse_float_token(token5)
+            if token4_mode == "flux_err":
+                if token5_enabled is not None:
+                    enabled = token5_enabled
+            elif token4_mode == "enabled":
+                if flux_err_value is None and token5_numeric is not None:
+                    err_value = float(token5_numeric)
+                    if math.isfinite(err_value) and err_value >= 0.0:
+                        flux_err_value = err_value
+                elif token5_enabled is not None:
+                    enabled = token5_enabled
+            else:
+                if flux_err_value is None and token5_numeric is not None:
+                    err_value = float(token5_numeric)
+                    if math.isfinite(err_value) and err_value >= 0.0:
+                        flux_err_value = err_value
+                elif token5_enabled is not None:
+                    enabled = token5_enabled
+
+        raw_points += 1
+        if not enabled:
+            disabled_points += 1
+            continue
+
+        wavelength.append(lambda_value)
+        band_width.append(width_value)
+        flux.append(flux_value)
+        flux_err.append(flux_err_value)
+        point_comment.append(comment_text)
+
+    if invalid_points > 0:
+        line_text = ", ".join(str(value) for value in invalid_lines)
+        suffix = f" (line(s): {line_text})" if line_text else ""
+        warnings.append(f"Skipped {invalid_points} invalid photometry row(s){suffix}.")
+    if disabled_points > 0:
+        warnings.append(f"Skipped {disabled_points} disabled photometry row(s).")
+
+    if raw_points <= 0:
+        raise ValueError(
+            "No usable photometry rows were found. Expected columns: "
+            "lambda_eff_A width_A flux [flux_err] [enabled]."
+        )
+
+    range_skipped_points = 0
+    if lambda_min is not None or lambda_max is not None:
+        filtered_wave: list[float] = []
+        filtered_flux: list[float] = []
+        filtered_width: list[float] = []
+        filtered_flux_err: list[float | None] = []
+        filtered_comment: list[str] = []
+        for wave_value, flux_value, width_value, err_value, comment_value in zip(
+            wavelength,
+            flux,
+            band_width,
+            flux_err,
+            point_comment,
+        ):
+            if lambda_min is not None and wave_value < lambda_min:
+                range_skipped_points += 1
+                continue
+            if lambda_max is not None and wave_value > lambda_max:
+                range_skipped_points += 1
+                continue
+            filtered_wave.append(wave_value)
+            filtered_flux.append(flux_value)
+            filtered_width.append(width_value)
+            filtered_flux_err.append(err_value)
+            filtered_comment.append(comment_value)
+        wavelength = filtered_wave
+        flux = filtered_flux
+        band_width = filtered_width
+        flux_err = filtered_flux_err
+        point_comment = filtered_comment
+        if range_skipped_points > 0:
+            min_label = f"{lambda_min:g}" if lambda_min is not None else "-inf"
+            max_label = f"{lambda_max:g}" if lambda_max is not None else "inf"
+            warnings.append(
+                f"Filtered {range_skipped_points} photometry point(s) outside wavelength window {min_label}..{max_label} Å."
+            )
+
+    if not wavelength:
+        raise ValueError("No enabled photometry points remain after filtering.")
+
+    detected_mode = "absolute"
+    resolved_mode = "absolute"
+    if flux_mode == "normalized":
+        warnings.append("Photometric uploads are treated as absolute-flux data; requested normalized mode was ignored.")
+
+    return {
+        "name": path.name,
+        "format": "photometry-text",
+        "observation_type": "photometry",
+        "wavelength": wavelength,
+        "band_width": band_width,
+        "flux_err": flux_err,
+        "point_comment": point_comment,
+        "flux": flux,
+        "lambda_min": lambda_min,
+        "lambda_max": lambda_max,
+        "flux_mode": resolved_mode,
+        "detected_flux_mode": detected_mode,
+        "raw_points": raw_points,
+        "skipped_points": int(invalid_points + disabled_points + range_skipped_points),
+        "range_skipped_points": range_skipped_points,
+        "disabled_points": disabled_points,
         "warnings": warnings,
     }
 

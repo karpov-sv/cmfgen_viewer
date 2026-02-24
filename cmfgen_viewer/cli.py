@@ -215,8 +215,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--lambda-max",
         dest="lambda_max",
         type=float,
-        default=20000.0,
-        help="Maximum wavelength in Angstroms for parsed/displayed spectra (default: 20000)",
+        default=250000.0,
+        help="Maximum wavelength in Angstroms for parsed/displayed spectra (default: 250000, 25 um)",
     )
     parser.add_argument(
         "--fit-pool-size",
