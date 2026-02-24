@@ -1273,6 +1273,43 @@
         }
       }
 
+      function extractCmfgenParams(model) {
+        if (!model || typeof model !== "object") {
+          return null;
+        }
+        var params = model.cmfgen_params;
+        if (!params || typeof params !== "object") {
+          return null;
+        }
+        return params;
+      }
+
+      function formatCmfgenParam(model, key) {
+        var params = extractCmfgenParams(model);
+        if (!params) {
+          return "";
+        }
+        return formatParam(params[key]);
+      }
+
+      function addCmfgenSummaryLines(container, model) {
+        if (!container || fitSourceFromModel(model) !== "cmfgen") {
+          return;
+        }
+        var teff = formatCmfgenParam(model, "teff_k");
+        var logg = formatCmfgenParam(model, "log_g");
+        var luminosity = formatCmfgenParam(model, "luminosity");
+        if (teff) {
+          addSummaryLine(container, "Teff (K)", teff);
+        }
+        if (logg) {
+          addSummaryLine(container, "log g", logg);
+        }
+        if (luminosity) {
+          addSummaryLine(container, "Luminosity", luminosity);
+        }
+      }
+
       function formatConfidenceValue(value, isInteger) {
         var numeric = Number(value);
         if (!Number.isFinite(numeric)) {
@@ -1687,6 +1724,7 @@
         addSummaryLine(bestBody, "RMSE", formatRmse(best.rmse));
         addSummaryLine(bestBody, "Fit points", String(best.points || ""));
         addTlustySummaryLines(bestBody, best);
+        addCmfgenSummaryLines(bestBody, best);
 
         var params = best.fit_params && typeof best.fit_params === "object" ? best.fit_params : {};
         addSummaryLine(bestBody, "z", formatParam(params.redshift));
@@ -1741,6 +1779,7 @@
         addSummaryLine(resultBody, "Best RMSE", formatRmse(best.rmse));
         addSummaryLine(resultBody, "Fit points", String(best.points || ""));
         addTlustySummaryLines(resultBody, best);
+        addCmfgenSummaryLines(resultBody, best);
 
         var params = best.fit_params && typeof best.fit_params === "object" ? best.fit_params : {};
         addSummaryLine(resultBody, "z", formatParam(params.redshift));
@@ -1788,8 +1827,11 @@
         table.className = "table table-sm table-striped mb-0";
         var thead = document.createElement("thead");
         var includeTlustyColumns = fitSourceFromModel(best) === "tlusty";
+        var includeCmfgenColumns = fitSourceFromModel(best) === "cmfgen";
         if (includeTlustyColumns) {
           thead.innerHTML = "<tr><th>Model</th><th>RMSE</th><th>Points</th><th>Spectrum</th><th>Teff (K)</th><th>log g</th><th>Z/Zsun</th><th>vturb (km/s)</th></tr>";
+        } else if (includeCmfgenColumns) {
+          thead.innerHTML = "<tr><th>Model</th><th>RMSE</th><th>Points</th><th>Spectrum</th><th>Teff (K)</th><th>log g</th><th>Luminosity</th></tr>";
         } else {
           thead.innerHTML = "<tr><th>Model</th><th>RMSE</th><th>Points</th><th>Spectrum</th></tr>";
         }
@@ -1832,6 +1874,18 @@
             var tdVturb = document.createElement("td");
             tdVturb.appendChild(codeElement(formatTlustyParam(item, "vturb_km_s")));
             tr.appendChild(tdVturb);
+          } else if (includeCmfgenColumns) {
+            var tdTeffCmfgen = document.createElement("td");
+            tdTeffCmfgen.appendChild(codeElement(formatCmfgenParam(item, "teff_k")));
+            tr.appendChild(tdTeffCmfgen);
+
+            var tdLoggCmfgen = document.createElement("td");
+            tdLoggCmfgen.appendChild(codeElement(formatCmfgenParam(item, "log_g")));
+            tr.appendChild(tdLoggCmfgen);
+
+            var tdLuminosity = document.createElement("td");
+            tdLuminosity.appendChild(codeElement(formatCmfgenParam(item, "luminosity")));
+            tr.appendChild(tdLuminosity);
           }
 
           tbody.appendChild(tr);

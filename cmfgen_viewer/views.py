@@ -118,6 +118,7 @@ SUMMARY_COLUMNS = [
     "CAR/X",
     "Last updated",
 ]
+SUMMARY_COLUMN_INDEX = {name: index for index, name in enumerate(SUMMARY_COLUMNS)}
 
 SPECTRUM_TRANSFORM_DEFAULTS = {
     "redshift": 0.0,
@@ -1596,6 +1597,11 @@ def _fit_single_cmfgen_candidate(
     dof_value = int(dof_raw) if isinstance(dof_raw, int | float) and int(dof_raw) > 0 else None
     dof_eff_raw = metrics.get("dof_eff")
     dof_eff_value = int(dof_eff_raw) if isinstance(dof_eff_raw, int | float) and int(dof_eff_raw) > 0 else None
+    cmfgen_params_raw = candidate.get("cmfgen_params")
+    if isinstance(cmfgen_params_raw, dict):
+        cmfgen_params = _cmfgen_fit_params_payload(cmfgen_params_raw)
+    else:
+        cmfgen_params = _cmfgen_fit_params_payload(candidate)
     return {
         "status": "success",
         "item": {
@@ -1608,6 +1614,7 @@ def _fit_single_cmfgen_candidate(
             "chi2": chi2_value,
             "dof": dof_value,
             "dof_eff": dof_eff_value,
+            "cmfgen_params": cmfgen_params,
             "fit_params": {
                 "redshift": float(best_params.get("redshift", 0.0)),
                 "broadening_km_s": float(best_params.get("broadening_km_s", 0.0)),
@@ -1960,7 +1967,7 @@ def _discover_model_grid_from_cache(
     *,
     summary_cache_db: str,
     model_name_pattern: str,
-) -> tuple[list[tuple[str, str, Path]], str | None]:
+) -> tuple[list[tuple[str, str, Path, dict[str, object]]], str | None]:
     try:
         cache_rows = list_model_summaries(
             summary_cache_db,
@@ -1974,7 +1981,7 @@ def _discover_model_grid_from_cache(
         return [], "Model summary cache is empty; build model summaries first."
 
     pattern = str(model_name_pattern or "").strip()
-    candidates: list[tuple[str, str, Path]] = []
+    candidates: list[tuple[str, str, Path, dict[str, object]]] = []
     seen_relpaths: set[str] = set()
     missing_entries = 0
     for row in cache_rows:
@@ -2000,7 +2007,8 @@ def _discover_model_grid_from_cache(
             missing_entries += 1
             continue
 
-        candidates.append((model_name, relpath, model_dir))
+        cmfgen_params = _cmfgen_fit_params_from_summary(values)
+        candidates.append((model_name, relpath, model_dir, cmfgen_params))
 
     candidates.sort(key=lambda item: (item[0].lower(), item[1].lower()))
     if candidates:
@@ -2061,6 +2069,33 @@ def _parse_int_or_none(value: object) -> int | None:
         return int(float(text))
     except ValueError:
         return None
+
+
+def _summary_column_value(values: object, column: str) -> object | None:
+    if not isinstance(values, list):
+        return None
+    index = SUMMARY_COLUMN_INDEX.get(column)
+    if index is None or index < 0 or index >= len(values):
+        return None
+    return values[index]
+
+
+def _cmfgen_fit_params_payload(values: dict[str, object]) -> dict[str, object]:
+    return {
+        "teff_k": _parse_float_or_none(values.get("teff_k")),
+        "log_g": _parse_float_or_none(values.get("log_g")),
+        "luminosity": _parse_float_or_none(values.get("luminosity")),
+    }
+
+
+def _cmfgen_fit_params_from_summary(values: object) -> dict[str, object]:
+    return _cmfgen_fit_params_payload(
+        {
+            "teff_k": _summary_column_value(values, "T_2/3"),
+            "log_g": _summary_column_value(values, "logg"),
+            "luminosity": _summary_column_value(values, "LSTAR"),
+        }
+    )
 
 
 def _strip_tlusty_model_suffixes(model_name: object) -> str:
@@ -2717,8 +2752,9 @@ def _discover_grid_fit_candidates(
             "model_path": relpath,
             "model_relpath": relpath,
             "model_path_str": str(path.resolve()),
+            "cmfgen_params": cmfgen_params,
         }
-        for model_name, relpath, path in model_dirs
+        for model_name, relpath, path, cmfgen_params in model_dirs
     ]
     return candidates, None
 
