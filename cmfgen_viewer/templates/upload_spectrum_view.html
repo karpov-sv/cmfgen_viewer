@@ -1273,6 +1273,91 @@
         }
       }
 
+      function formatConfidenceValue(value, isInteger) {
+        var numeric = Number(value);
+        if (!Number.isFinite(numeric)) {
+          return "";
+        }
+        if (isInteger) {
+          return String(Math.round(numeric));
+        }
+        return Number(numeric.toFixed(6)).toString();
+      }
+
+      function formatConfidenceInterval(param) {
+        if (!param || typeof param !== "object") {
+          return "";
+        }
+        var interval = param.interval && typeof param.interval === "object"
+          ? param.interval
+          : null;
+        if (!interval) {
+          return "";
+        }
+        var isInteger = !!param.is_integer;
+        var minText = formatConfidenceValue(interval.min_value, isInteger);
+        var maxText = formatConfidenceValue(interval.max_value, isInteger);
+        if (!minText || !maxText) {
+          return "";
+        }
+        var text = minText === maxText ? minText : (minText + " .. " + maxText);
+        var unit = String(param.unit || "").trim();
+        if (unit) {
+          text += " " + unit;
+        }
+        return text;
+      }
+
+      function renderTlustyConfidenceSummary(container, result, best) {
+        if (!container || fitSourceFromModel(best) !== "tlusty") {
+          return;
+        }
+        var confidence = result && result.tlusty_confidence && typeof result.tlusty_confidence === "object"
+          ? result.tlusty_confidence
+          : null;
+        if (!confidence) {
+          return;
+        }
+        var parameters = confidence.parameters && typeof confidence.parameters === "object"
+          ? confidence.parameters
+          : null;
+        if (!parameters) {
+          return;
+        }
+
+        var relThreshold = asFiniteNumber(confidence.rmse_relative_threshold, NaN);
+        var thresholdPercent = "";
+        if (Number.isFinite(relThreshold)) {
+          thresholdPercent = Number((relThreshold * 100.0).toFixed(3)).toString();
+        }
+        var title = document.createElement("div");
+        title.className = "small text-muted mb-1 mt-2";
+        title.textContent = thresholdPercent
+          ? ("Residual-profile ranges (dRMSE <= " + thresholdPercent + "%)")
+          : "Residual-profile ranges";
+        container.appendChild(title);
+
+        var keys = ["teff_k", "log_g", "z_over_zsun", "vturb_km_s"];
+        var labels = {
+          teff_k: "Teff range",
+          log_g: "log g range",
+          z_over_zsun: "Z/Zsun range",
+          vturb_km_s: "vturb range",
+        };
+        for (var i = 0; i < keys.length; i += 1) {
+          var key = keys[i];
+          var param = parameters[key];
+          if (!param || typeof param !== "object") {
+            continue;
+          }
+          var rangeText = formatConfidenceInterval(param);
+          if (!rangeText) {
+            continue;
+          }
+          addSummaryLine(container, labels[key] || (key + " range"), rangeText);
+        }
+      }
+
       function getSelectedFitSource() {
         if (!fitSourceInput) {
           return "cmfgen";
@@ -1638,6 +1723,7 @@
           addSummaryLine(resultBody, "E(B-V)", formatParam(params.ebv));
           addSummaryLine(resultBody, "distance (kpc)", formatParam(params.distance_kpc));
         }
+        renderTlustyConfidenceSummary(resultBody, result, best);
 
         var linksRow = document.createElement("div");
         linksRow.className = "d-flex flex-wrap gap-2 mb-2";

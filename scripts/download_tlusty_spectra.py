@@ -309,7 +309,43 @@ def _sanitize_name(value: str) -> str:
     return sanitized or "unnamed"
 
 
-def _parse_model_metadata(stem: str, grid: str) -> dict[str, object]:
+def _metadata_stem_from_model_name(model_name: str) -> str:
+    stem = str(model_name or "").strip()
+    known_suffixes = (
+        ".flux",
+        ".cont",
+        ".continuum",
+        ".hhe",
+        ".uv",
+        ".uvb",
+        ".uvby",
+        ".opt",
+        ".optical",
+        ".vis",
+        ".spec",
+        ".sp",
+    )
+    changed = True
+    while changed and stem:
+        changed = False
+        if "." in stem:
+            maybe_stem, tail = stem.rsplit(".", 1)
+            if tail.isdigit():
+                stem = maybe_stem
+                changed = True
+                continue
+        lowered = stem.lower()
+        for suffix in known_suffixes:
+            if lowered.endswith(suffix):
+                stem = stem[: -len(suffix)]
+                changed = True
+                break
+        stem = stem.strip(". ")
+    return stem
+
+
+def _parse_model_metadata(model_name: str, grid: str) -> dict[str, object]:
+    stem = str(model_name or "").strip()
     payload: dict[str, object] = {
         "model_name": stem,
         "grid": grid,
@@ -320,7 +356,8 @@ def _parse_model_metadata(stem: str, grid: str) -> dict[str, object]:
         "tag": "",
         "z_over_zsun": None,
     }
-    match = MODEL_NAME_RE.match(stem)
+    metadata_stem = _metadata_stem_from_model_name(stem)
+    match = MODEL_NAME_RE.match(metadata_stem)
     if not match:
         return payload
 
@@ -343,38 +380,7 @@ def _parse_model_metadata(stem: str, grid: str) -> dict[str, object]:
 
 def _model_name_from_member(member_basename: str) -> str:
     stem = Path(member_basename).stem
-    known_suffixes = (
-        ".flux",
-        ".cont",
-        ".continuum",
-        ".uv",
-        ".uvb",
-        ".uvby",
-        ".opt",
-        ".optical",
-        ".vis",
-        ".spec",
-        ".sp",
-    )
-    lowered = stem.lower()
-    changed = True
-    while changed and stem:
-        changed = False
-        if "." in stem:
-            maybe_stem, tail = stem.rsplit(".", 1)
-            if tail.isdigit():
-                stem = maybe_stem
-                lowered = stem.lower()
-                changed = True
-                continue
-        for suffix in known_suffixes:
-            if lowered.endswith(suffix):
-                stem = stem[: -len(suffix)]
-                lowered = stem.lower()
-                changed = True
-                break
-        stem = stem.strip(". ")
-    return stem or Path(member_basename).stem
+    return stem.strip() or Path(member_basename).stem
 
 
 def _parse_numeric_matrix(payload: bytes) -> np.ndarray | None:

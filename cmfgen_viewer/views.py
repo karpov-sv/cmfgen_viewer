@@ -145,6 +145,13 @@ TLUSTY_REFERENCE_DISTANCE_CM = 3.0856775814913673e21
 TLUSTY_SURFACE_TO_1KPC_SCALE = (
     TLUSTY_REFERENCE_RADIUS_CM / TLUSTY_REFERENCE_DISTANCE_CM
 ) ** 2
+TLUSTY_CONFIDENCE_RMSE_RELATIVE_THRESHOLD = 0.05
+TLUSTY_CONFIDENCE_PARAM_SPECS = (
+    {"key": "teff_k", "label": "Teff", "unit": "K", "integer": True},
+    {"key": "log_g", "label": "log g", "unit": "", "integer": False},
+    {"key": "z_over_zsun", "label": "Z/Zsun", "unit": "", "integer": False},
+    {"key": "vturb_km_s", "label": "vturb", "unit": "km/s", "integer": True},
+)
 TLUSTY_OSTAR_METALLICITY_MAP = {
     "C": 2.0,
     "G": 1.0,
@@ -176,6 +183,7 @@ TLUSTY_MODEL_SUFFIXES = (
     ".flux",
     ".cont",
     ".continuum",
+    ".hhe",
     ".uv",
     ".uvb",
     ".uvby",
@@ -2106,6 +2114,127 @@ def _tlusty_fit_params_payload(values: dict[str, object]) -> dict[str, object]:
     }
 
 
+def _parse_tlusty_profile_value(value: object, *, integer: bool) -> int | float | None:
+    numeric = _parse_float_or_none(value)
+    if numeric is None:
+        return None
+    if integer:
+        return int(round(numeric))
+    return float(numeric)
+
+
+def _empty_tlusty_confidence_profiles() -> dict[str, dict[int | float, float]]:
+    profiles: dict[str, dict[int | float, float]] = {}
+    for spec in TLUSTY_CONFIDENCE_PARAM_SPECS:
+        profiles[str(spec["key"])] = {}
+    return profiles
+
+
+def _update_tlusty_confidence_profiles(
+    profiles: dict[str, dict[int | float, float]] | None,
+    item: dict[str, object],
+) -> None:
+    if not isinstance(profiles, dict):
+        return
+    rmse_raw = item.get("rmse")
+    if not isinstance(rmse_raw, int | float) or not math.isfinite(float(rmse_raw)):
+        return
+    tlusty_params = item.get("tlusty_params")
+    if not isinstance(tlusty_params, dict):
+        return
+    rmse = float(rmse_raw)
+    for spec in TLUSTY_CONFIDENCE_PARAM_SPECS:
+        key = str(spec["key"])
+        integer = bool(spec.get("integer", False))
+        value = _parse_tlusty_profile_value(tlusty_params.get(key), integer=integer)
+        if value is None:
+            continue
+        profile = profiles.get(key)
+        if not isinstance(profile, dict):
+            continue
+        prev = profile.get(value)
+        if prev is None or rmse < float(prev):
+            profile[value] = rmse
+
+
+def _summarize_tlusty_confidence_profiles(
+    *,
+    best_model: dict[str, object] | None,
+    profiles: dict[str, dict[int | float, float]] | None,
+    rmse_relative_threshold: float = TLUSTY_CONFIDENCE_RMSE_RELATIVE_THRESHOLD,
+) -> dict[str, object]:
+    if not isinstance(best_model, dict) or not isinstance(profiles, dict):
+        return {}
+    best_params = best_model.get("tlusty_params")
+    if not isinstance(best_params, dict):
+        return {}
+    best_rmse_raw = best_model.get("rmse")
+    if not isinstance(best_rmse_raw, int | float) or not math.isfinite(float(best_rmse_raw)):
+        return {}
+    best_rmse = float(best_rmse_raw)
+
+    rel_threshold = float(rmse_relative_threshold)
+    if not math.isfinite(rel_threshold) or rel_threshold < 0.0:
+        rel_threshold = TLUSTY_CONFIDENCE_RMSE_RELATIVE_THRESHOLD
+    rmse_limit = best_rmse * (1.0 + rel_threshold)
+
+    parameters: dict[str, object] = {}
+    for spec in TLUSTY_CONFIDENCE_PARAM_SPECS:
+        key = str(spec["key"])
+        integer = bool(spec.get("integer", False))
+        profile_raw = profiles.get(key)
+        if not isinstance(profile_raw, dict) or not profile_raw:
+            continue
+
+        profile_min_by_value: dict[int | float, float] = {}
+        for value_raw, rmse_raw in profile_raw.items():
+            value = _parse_tlusty_profile_value(value_raw, integer=integer)
+            rmse = _parse_float_or_none(rmse_raw)
+            if value is None or rmse is None:
+                continue
+            prev = profile_min_by_value.get(value)
+            if prev is None or rmse < prev:
+                profile_min_by_value[value] = rmse
+        if not profile_min_by_value:
+            continue
+
+        sorted_profile = sorted(profile_min_by_value.items(), key=lambda pair: float(pair[0]))
+        allowed_values = [value for value, rmse in sorted_profile if rmse <= rmse_limit]
+        if not allowed_values:
+            continue
+
+        best_value = _parse_tlusty_profile_value(best_params.get(key), integer=integer)
+        best_value_rmse = None
+        if best_value is not None:
+            best_value_rmse = profile_min_by_value.get(best_value)
+
+        parameters[key] = {
+            "label": str(spec.get("label", key)),
+            "unit": str(spec.get("unit", "")),
+            "is_integer": integer,
+            "samples": len(sorted_profile),
+            "best_value": best_value,
+            "best_value_rmse": float(best_value_rmse) if isinstance(best_value_rmse, int | float) else None,
+            "interval": {
+                "min_value": allowed_values[0],
+                "max_value": allowed_values[-1],
+                "count": len(allowed_values),
+                "contains_best": bool(
+                    best_value is not None and allowed_values[0] <= best_value <= allowed_values[-1]
+                ),
+            },
+        }
+
+    if not parameters:
+        return {}
+    return {
+        "method": "profile_min_rmse_by_parameter",
+        "rmse_relative_threshold": rel_threshold,
+        "best_rmse": best_rmse,
+        "parameters": parameters,
+    }
+
+
 def _file_signature(path: Path) -> tuple[int, int]:
     stat = path.stat()
     return stat.st_mtime_ns, stat.st_size
@@ -2641,6 +2770,10 @@ def _run_upload_grid_search_job(
             top_models: list[dict[str, object]],
             best_model: dict[str, object] | None,
         ) -> None:
+            tlusty_confidence = _summarize_tlusty_confidence_profiles(
+                best_model=best_model,
+                profiles=tlusty_confidence_profiles,
+            )
             result_payload: dict[str, object] = {
                 "fit_source": normalized_source,
                 "fit_source_label": fit_source_label,
@@ -2653,6 +2786,8 @@ def _run_upload_grid_search_job(
                 "best_model": best_model,
                 "top_models": top_models,
             }
+            if tlusty_confidence:
+                result_payload["tlusty_confidence"] = tlusty_confidence
             _grid_search_job_update(
                 job_id,
                 status="canceled",
@@ -2671,6 +2806,9 @@ def _run_upload_grid_search_job(
         failed = 0
         best_model: dict[str, object] | None = None
         top_models: list[dict[str, object]] = []
+        tlusty_confidence_profiles: dict[str, dict[int | float, float]] | None = None
+        if normalized_source == GRID_FIT_SOURCE_TLUSTY:
+            tlusty_confidence_profiles = _empty_tlusty_confidence_profiles()
         started_at = time.time()
         worker_count = _resolve_grid_fit_pool_size(max_pool_size, total)
 
@@ -2699,6 +2837,8 @@ def _run_upload_grid_search_job(
             top_models.sort(key=lambda candidate: float(candidate.get("rmse", math.inf)))
             if len(top_models) > GRID_SEARCH_TOP_RESULTS:
                 top_models = top_models[:GRID_SEARCH_TOP_RESULTS]
+
+            _update_tlusty_confidence_profiles(tlusty_confidence_profiles, item)
 
             if best_model is None or float(item["rmse"]) < float(best_model.get("rmse", math.inf)):
                 best_model = dict(item)
@@ -2820,6 +2960,12 @@ def _run_upload_grid_search_job(
             "best_model": best_model,
             "top_models": top_models,
         }
+        tlusty_confidence = _summarize_tlusty_confidence_profiles(
+            best_model=best_model,
+            profiles=tlusty_confidence_profiles,
+        )
+        if tlusty_confidence:
+            result_payload["tlusty_confidence"] = tlusty_confidence
 
         _grid_search_job_update(
             job_id,
