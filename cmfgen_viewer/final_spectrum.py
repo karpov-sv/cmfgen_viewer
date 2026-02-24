@@ -866,6 +866,56 @@ def _apply_transform_arrays(
     return transformed_x, transformed_y
 
 
+def _estimate_effective_sample_size_from_residuals(
+    residual: Any,
+    *,
+    max_lag: int = 200,
+) -> tuple[float, float, int]:
+    if np is None:
+        return 1.0, 0.0, 0
+    values = np.asarray(residual, dtype=np.float64).reshape(-1)
+    if values.size < 4:
+        size = float(max(1, int(values.size)))
+        return size, 0.0, 0
+
+    finite = np.isfinite(values)
+    values = values[finite]
+    n = int(values.size)
+    if n < 4:
+        return float(max(1, n)), 0.0, 0
+
+    centered = values - float(np.mean(values))
+    variance_scale = float(np.dot(centered, centered))
+    if not math.isfinite(variance_scale) or variance_scale <= 0.0:
+        return float(n), 0.0, 0
+
+    lag_cap = min(int(max_lag), n // 4)
+    if lag_cap < 1:
+        return float(n), 0.0, 0
+
+    rho_sum = 0.0
+    used_lags = 0
+    for lag in range(1, lag_cap + 1):
+        numerator = float(np.dot(centered[:-lag], centered[lag:]))
+        rho = numerator / variance_scale
+        if not math.isfinite(rho):
+            break
+        rho = max(-1.0, min(1.0, rho))
+        if rho <= 0.0:
+            break
+        rho_sum += rho
+        used_lags = lag
+
+    inflation = 1.0 + (2.0 * rho_sum)
+    if not math.isfinite(inflation) or inflation <= 0.0:
+        return float(n), rho_sum, used_lags
+    n_eff = float(n) / inflation
+    if not math.isfinite(n_eff):
+        return float(n), rho_sum, used_lags
+    n_eff = min(float(n), max(1.0, n_eff))
+    return n_eff, rho_sum, used_lags
+
+
 def fit_model_to_observed(
     continuum: dict[str, object],
     final: dict[str, object],
@@ -1128,9 +1178,17 @@ def fit_model_to_observed(
     chi2_value = float(np.sum(final_residual * final_residual))
     fit_param_count = len(names)
     dof_value = max(1, int(final_valid_count) - int(fit_param_count))
+    n_eff_points, autocorr_positive_sum, autocorr_lags = _estimate_effective_sample_size_from_residuals(final_residual)
+    n_eff_points = min(float(final_valid_count), max(1.0, float(n_eff_points)))
+    dof_eff_value = max(1, int(round(n_eff_points)) - int(fit_param_count))
+    dof_eff_value = min(dof_value, dof_eff_value)
     metrics["chi2"] = chi2_value
     metrics["dof"] = dof_value
     metrics["reduced_chi2"] = float(chi2_value / max(1, dof_value))
+    metrics["dof_eff"] = int(dof_eff_value)
+    metrics["n_eff_points"] = float(n_eff_points)
+    metrics["autocorr_positive_sum"] = float(autocorr_positive_sum)
+    metrics["autocorr_positive_lags"] = int(autocorr_lags)
     metrics["fit_param_count"] = int(fit_param_count)
     if stage1_result is not None:
         metrics["stage1_success"] = bool(getattr(stage1_result, "success", False))

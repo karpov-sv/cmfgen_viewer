@@ -1594,6 +1594,8 @@ def _fit_single_cmfgen_candidate(
     chi2_value = float(chi2_raw) if isinstance(chi2_raw, int | float) and math.isfinite(float(chi2_raw)) else None
     dof_raw = metrics.get("dof")
     dof_value = int(dof_raw) if isinstance(dof_raw, int | float) and int(dof_raw) > 0 else None
+    dof_eff_raw = metrics.get("dof_eff")
+    dof_eff_value = int(dof_eff_raw) if isinstance(dof_eff_raw, int | float) and int(dof_eff_raw) > 0 else None
     return {
         "status": "success",
         "item": {
@@ -1605,6 +1607,7 @@ def _fit_single_cmfgen_candidate(
             "points": points,
             "chi2": chi2_value,
             "dof": dof_value,
+            "dof_eff": dof_eff_value,
             "fit_params": {
                 "redshift": float(best_params.get("redshift", 0.0)),
                 "broadening_km_s": float(best_params.get("broadening_km_s", 0.0)),
@@ -1843,6 +1846,8 @@ def _fit_single_tlusty_candidate(
     chi2_value = float(chi2_raw) if isinstance(chi2_raw, int | float) and math.isfinite(float(chi2_raw)) else None
     dof_raw = metrics.get("dof")
     dof_value = int(dof_raw) if isinstance(dof_raw, int | float) and int(dof_raw) > 0 else None
+    dof_eff_raw = metrics.get("dof_eff")
+    dof_eff_value = int(dof_eff_raw) if isinstance(dof_eff_raw, int | float) and int(dof_eff_raw) > 0 else None
 
     return {
         "status": "success",
@@ -1855,6 +1860,7 @@ def _fit_single_tlusty_candidate(
             "points": points,
             "chi2": chi2_value,
             "dof": dof_value,
+            "dof_eff": dof_eff_value,
             "fit_params": {
                 "redshift": float(best_params.get("redshift", 0.0)),
                 "broadening_km_s": float(best_params.get("broadening_km_s", 0.0)),
@@ -2221,9 +2227,17 @@ def _summarize_tlusty_confidence_profiles(
     best_points = int(best_points_raw) if isinstance(best_points_raw, int | float) and int(best_points_raw) > 0 else 0
     fit_param_count = _fit_param_count_for_mode(mode)
     best_dof = max(1, best_points - fit_param_count)
-    sigma2_hat = best_chi2 / max(1, best_dof)
+    best_dof_eff_raw = best_model.get("dof_eff")
+    best_dof_eff = int(best_dof_eff_raw) if isinstance(best_dof_eff_raw, int | float) and int(best_dof_eff_raw) > 0 else best_dof
+    best_dof_eff = max(1, min(best_dof, best_dof_eff))
+    sigma2_hat_nominal = best_chi2 / max(1, best_dof)
+    sigma2_hat = best_chi2 / max(1, best_dof_eff)
+    if not math.isfinite(sigma2_hat) or sigma2_hat <= 0:
+        sigma2_hat = sigma2_hat_nominal
     if not math.isfinite(sigma2_hat) or sigma2_hat <= 0:
         sigma2_hat = 1.0
+    if not math.isfinite(sigma2_hat_nominal) or sigma2_hat_nominal <= 0:
+        sigma2_hat_nominal = sigma2_hat
 
     parameters: dict[str, object] = {}
     for spec in TLUSTY_CONFIDENCE_PARAM_SPECS:
@@ -2319,14 +2333,18 @@ def _summarize_tlusty_confidence_profiles(
         "method": "profile_delta_chi2_gaussian",
         "assumptions": (
             "Gaussian residuals with unknown common variance; "
-            "variance is estimated from the best-fit residual sum of squares."
+            "variance is estimated from the best-fit residual sum of squares. "
+            "Effective degrees of freedom are estimated from residual autocorrelation "
+            "using the initial positive sequence."
         ),
         "chi2": {
             "best_chi2": best_chi2,
             "best_points": best_points,
             "fit_param_count": fit_param_count,
             "best_dof": best_dof,
+            "best_dof_eff": best_dof_eff,
             "sigma2_hat": sigma2_hat,
+            "sigma2_hat_nominal": sigma2_hat_nominal,
         },
         "levels": [
             {"label": str(item["label"]), "delta_chi2": float(item["delta_chi2"])}

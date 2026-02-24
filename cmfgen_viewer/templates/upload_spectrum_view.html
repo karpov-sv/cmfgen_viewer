@@ -1331,7 +1331,7 @@
 
         var title = document.createElement("div");
         title.className = "small text-muted mb-1 mt-2";
-        title.textContent = "Profile chi2 confidence intervals (Gaussian assumption)";
+        title.textContent = "Profile delta-chi2 confidence intervals (Gaussian assumption)";
         container.appendChild(title);
 
         var chi2Info = confidence.chi2 && typeof confidence.chi2 === "object"
@@ -1340,8 +1340,23 @@
         if (chi2Info) {
           var bestChi2 = formatParam(chi2Info.best_chi2);
           var bestDof = formatConfidenceValue(chi2Info.best_dof, true);
-          if (bestChi2 && bestDof) {
-            addSummaryLine(container, "Best chi2/dof", bestChi2 + " / " + bestDof);
+          var bestDofEff = formatConfidenceValue(chi2Info.best_dof_eff, true);
+          var sigma2Hat = formatParam(chi2Info.sigma2_hat);
+          var sigma2HatNominal = formatParam(chi2Info.sigma2_hat_nominal);
+          if (bestChi2) {
+            addSummaryLine(container, "Best RSS", bestChi2);
+          }
+          if (bestDof) {
+            addSummaryLine(container, "DOF (nominal)", bestDof);
+          }
+          if (bestDofEff) {
+            addSummaryLine(container, "DOF (effective)", bestDofEff);
+          }
+          if (sigma2Hat) {
+            addSummaryLine(container, "sigma^2_hat (RSS/dof_eff)", sigma2Hat);
+          }
+          if (sigma2HatNominal) {
+            addSummaryLine(container, "sigma^2_hat_nominal (RSS/dof)", sigma2HatNominal);
           }
         }
 
@@ -1352,7 +1367,7 @@
           z_over_zsun: "Z/Zsun",
           vturb_km_s: "vturb",
         };
-        var levelOrder = ["68%", "95%", "90%"];
+        var levelOrder = ["68%", "90%", "95%"];
         for (var i = 0; i < keys.length; i += 1) {
           var key = keys[i];
           var param = parameters[key];
