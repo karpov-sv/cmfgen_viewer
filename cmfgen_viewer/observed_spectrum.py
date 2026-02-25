@@ -351,14 +351,17 @@ def _parse_uploaded_photometry(
         # This prevents flux_err=0 from being interpreted as "disabled".
         if len(tokens) >= 4:
             token4 = tokens[3]
+            token4_enabled = _parse_enabled_token(token4)
             token4_numeric = parse_float_token(token4)
-            if token4_numeric is not None:
+            if len(tokens) == 4 and token4_enabled is not None:
+                enabled = token4_enabled
+                token4_mode = "enabled"
+            elif token4_numeric is not None:
                 err_value = float(token4_numeric)
                 if math.isfinite(err_value) and err_value >= 0.0:
                     flux_err_value = err_value
                     token4_mode = "flux_err"
             else:
-                token4_enabled = _parse_enabled_token(token4)
                 if token4_enabled is not None:
                     enabled = token4_enabled
                     token4_mode = "enabled"

@@ -52,6 +52,15 @@ from .observed_spectrum import (
 )
 from .summary_cache import list_model_summaries, upsert_model_summary
 from .syntax import highlight_text, syntax_css
+from .vizier_photometry import (
+    DEFAULT_CATALOG_KEYS as DEFAULT_VIZIER_CATALOG_KEYS,
+    DEFAULT_VIZIER_RADIUS_ARCSEC,
+    format_photometry_table_rows,
+    normalize_catalog_keys,
+    normalize_radius_arcsec,
+    query_vizier_photometry_points,
+    vizier_catalog_options_payload,
+)
 
 try:
     import markdown as md
@@ -1512,6 +1521,102 @@ def _upload_spectrum_summary_rows(
         ["Uploaded at", _format_upload_time(entry.get("created_at", 0))],
     ]
     return [[label, value] for label, value in rows if value not in {"", None}]
+
+
+def _merge_photometry_table_text(base_table: str, appended_rows: str) -> tuple[str, int, int]:
+    """
+    Merge text blocks while removing fully repeated appended rows textually.
+
+    Deduplication is intentionally minimal and only applies to rows being appended:
+    - duplicate vs existing base rows,
+    - duplicate within the appended batch.
+    Existing duplicates already present in base_table are preserved.
+    """
+
+    base = base_table.replace("\r\n", "\n").replace("\r", "\n").rstrip("\n")
+    extra = appended_rows.replace("\r\n", "\n").replace("\r", "\n").strip("\n")
+
+    if not extra:
+        return base, 0, 0
+
+    base_keys: set[str] = set()
+    if base:
+        for line in base.split("\n"):
+            key = line.strip()
+            if key:
+                base_keys.add(key)
+
+    unique_appended: list[str] = []
+    appended_keys: set[str] = set()
+    skipped_duplicates = 0
+    for line in extra.split("\n"):
+        key = line.strip()
+        if not key:
+            continue
+        if key in base_keys or key in appended_keys:
+            skipped_duplicates += 1
+            continue
+        appended_keys.add(key)
+        unique_appended.append(key)
+
+    added_count = len(unique_appended)
+    if not unique_appended:
+        return base, 0, skipped_duplicates
+
+    if not base:
+        return "\n".join(unique_appended), added_count, skipped_duplicates
+    return f"{base}\n" + "\n".join(unique_appended), added_count, skipped_duplicates
+
+
+def _checkbox_enabled(raw_value: object) -> bool:
+    value = str(raw_value or "").strip().lower()
+    return value in {"1", "true", "yes", "on", "y"}
+
+
+def _photometry_filename_from_form(
+    *,
+    entry: dict[str, object],
+    fallback: str = "photometry-points.txt",
+) -> str:
+    filename_raw = str(request.form.get("photometry_name", "")).strip()
+    filename = secure_filename(filename_raw) if filename_raw else str(entry.get("filename", "")).strip()
+    if not filename:
+        filename = fallback
+    return filename
+
+
+def _vizier_state_query_from_form() -> dict[str, object]:
+    query: dict[str, object] = {}
+
+    center = str(request.form.get("vizier_center", "")).strip()
+    if center:
+        query["vizier_center"] = center
+
+    radius = str(request.form.get("vizier_radius_arcsec", "")).strip()
+    if radius:
+        query["vizier_radius_arcsec"] = radius
+
+    selected_catalogs = normalize_catalog_keys(request.form.getlist("vizier_catalog"))
+    if selected_catalogs:
+        query["vizier_catalog"] = selected_catalogs
+
+    if _checkbox_enabled(request.form.get("vizier_all_catalogs")):
+        query["vizier_all_catalogs"] = "1"
+    return query
+
+
+def _upload_view_redirect_with_vizier_state(
+    token: str,
+    *,
+    message: str = "",
+    error: str = "",
+):
+    query = _vizier_state_query_from_form()
+    if message:
+        query["message"] = message
+    if error:
+        query["error"] = error
+    return redirect(url_for("viewer.upload_view", token=token, **query))
 
 
 def _fit_bounds_payload(bounds: dict[str, tuple[float, float]]) -> dict[str, list[float]]:
@@ -3244,6 +3349,12 @@ def upload_view(token: str):
     if source_path is None or not source_path.is_file():
         return redirect(url_for("viewer.uploads", error=f"Uploaded spectrum '{filename}' file is missing."))
 
+    source_text = ""
+    try:
+        source_text = source_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        source_text = ""
+
     upload_flux_mode = str(entry.get("requested_flux_mode", "auto")).strip().lower() or "auto"
     try:
         parsed = parse_uploaded_spectrum(
@@ -3253,16 +3364,35 @@ def upload_view(token: str):
             lambda_max=lambda_max,
         )
     except Exception as exc:
-        return redirect(url_for("viewer.uploads", error=f"Uploaded spectrum '{filename}' failed to load: {exc}"))
+        observation_type = str(entry.get("observation_type", "")).strip().lower()
+        if observation_type == "photometry" and not source_text.strip():
+            parsed = {
+                "name": filename,
+                "format": "photometry-text",
+                "observation_type": "photometry",
+                "wavelength": [],
+                "band_width": [],
+                "flux_err": [],
+                "point_comment": [],
+                "flux": [],
+                "lambda_min": lambda_min,
+                "lambda_max": lambda_max,
+                "flux_mode": "absolute",
+                "detected_flux_mode": "absolute",
+                "raw_points": 0,
+                "skipped_points": 0,
+                "range_skipped_points": 0,
+                "disabled_points": 0,
+                "warnings": ["No photometry points yet. Add rows manually or append from VizieR."],
+            }
+        else:
+            return redirect(url_for("viewer.uploads", error=f"Uploaded spectrum '{filename}' failed to load: {exc}"))
     parsed["name"] = filename
     parsed["token"] = token
 
     photometry_text = ""
     if str(parsed.get("observation_type", "spectrum")).strip().lower() == "photometry":
-        try:
-            photometry_text = source_path.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            photometry_text = ""
+        photometry_text = source_text
 
     warnings: list[str] = []
     upload_error = request.args.get("error", "").strip()
@@ -3330,6 +3460,13 @@ def upload_view(token: str):
             "best_so_far": best_so_far_payload,
         }
 
+    vizier_center = str(request.args.get("vizier_center", "")).strip()
+    vizier_radius = str(request.args.get("vizier_radius_arcsec", f"{DEFAULT_VIZIER_RADIUS_ARCSEC:g}")).strip()
+    vizier_selected_catalogs = normalize_catalog_keys(request.args.getlist("vizier_catalog"))
+    if not vizier_selected_catalogs:
+        vizier_selected_catalogs = list(DEFAULT_VIZIER_CATALOG_KEYS)
+    vizier_all_catalogs = _checkbox_enabled(request.args.get("vizier_all_catalogs"))
+
     return render_template(
         "upload_spectrum_view.html",
         upload=display_entry,
@@ -3349,6 +3486,11 @@ def upload_view(token: str):
         plot_data=plot_data,
         upload_message=upload_message,
         photometry_text=photometry_text,
+        vizier_center=vizier_center,
+        vizier_radius_arcsec=vizier_radius,
+        vizier_catalog_options=vizier_catalog_options_payload(),
+        vizier_selected_catalogs=vizier_selected_catalogs,
+        vizier_all_catalogs=vizier_all_catalogs,
         warnings=warnings,
     )
 
@@ -4035,9 +4177,8 @@ def uploads_upload_photometry():
     upload_root = _upload_root(config)
     lambda_min, lambda_max = _spectrum_lambda_bounds(config)
 
-    photometry_table = str(request.form.get("photometry_table", "")).strip()
-    if not photometry_table:
-        return redirect(url_for("viewer.uploads", error="No photometry rows were provided."))
+    photometry_table = str(request.form.get("photometry_table", ""))
+    has_rows = bool(photometry_table.strip())
 
     filename_raw = str(request.form.get("photometry_name", "")).strip()
     safe_name = secure_filename(filename_raw) or "photometry-points.txt"
@@ -4051,12 +4192,21 @@ def uploads_upload_photometry():
 
     try:
         stored_path.write_text(photometry_table, encoding="utf-8")
-        parsed = parse_uploaded_spectrum(
-            stored_path,
-            flux_mode=requested_flux_mode,
-            lambda_min=lambda_min,
-            lambda_max=lambda_max,
-        )
+        if has_rows:
+            parsed = parse_uploaded_spectrum(
+                stored_path,
+                flux_mode=requested_flux_mode,
+                lambda_min=lambda_min,
+                lambda_max=lambda_max,
+            )
+        else:
+            parsed = {
+                "detected_flux_mode": "absolute",
+                "flux_mode": "absolute",
+                "format": "photometry-text",
+                "observation_type": "photometry",
+                "wavelength": [],
+            }
     except Exception as exc:
         remove_upload_bundle(upload_root, token)
         return redirect(url_for("viewer.uploads", error=f"Photometry upload failed: {exc}"))
@@ -4098,11 +4248,10 @@ def uploads_update_photometry(token: str):
 
     observation_type = str(entry.get("observation_type", "")).strip().lower()
     if observation_type != "photometry" and source_path.suffix.lower() != ".phot":
-        return redirect(url_for("viewer.upload_view", token=token, error="Only photometry uploads can be edited here."))
+        return _upload_view_redirect_with_vizier_state(token, error="Only photometry uploads can be edited here.")
 
-    photometry_table = str(request.form.get("photometry_table", "")).strip()
-    if not photometry_table:
-        return redirect(url_for("viewer.upload_view", token=token, error="No photometry rows were provided."))
+    photometry_table = str(request.form.get("photometry_table", ""))
+    has_rows = bool(photometry_table.strip())
 
     previous_content = ""
     try:
@@ -4113,23 +4262,29 @@ def uploads_update_photometry(token: str):
     requested_flux_mode = "absolute"
     try:
         source_path.write_text(photometry_table, encoding="utf-8")
-        parsed = parse_uploaded_spectrum(
-            source_path,
-            flux_mode=requested_flux_mode,
-            lambda_min=lambda_min,
-            lambda_max=lambda_max,
-        )
+        if has_rows:
+            parsed = parse_uploaded_spectrum(
+                source_path,
+                flux_mode=requested_flux_mode,
+                lambda_min=lambda_min,
+                lambda_max=lambda_max,
+            )
+        else:
+            parsed = {
+                "detected_flux_mode": "absolute",
+                "flux_mode": "absolute",
+                "format": "photometry-text",
+                "observation_type": "photometry",
+                "wavelength": [],
+            }
     except Exception as exc:
         try:
             source_path.write_text(previous_content, encoding="utf-8")
         except OSError:
             pass
-        return redirect(url_for("viewer.upload_view", token=token, error=f"Could not update photometry data: {exc}"))
+        return _upload_view_redirect_with_vizier_state(token, error=f"Could not update photometry data: {exc}")
 
-    filename_raw = str(request.form.get("photometry_name", "")).strip()
-    filename = secure_filename(filename_raw) if filename_raw else str(entry.get("filename", "")).strip()
-    if not filename:
-        filename = "photometry-points.txt"
+    filename = _photometry_filename_from_form(entry=entry)
 
     created_at_raw = entry.get("created_at", time.time())
     try:
@@ -4153,7 +4308,132 @@ def uploads_update_photometry(token: str):
         "updated_at": time.time(),
     }
     write_upload_manifest(upload_root, token, manifest)
-    return redirect(url_for("viewer.upload_view", token=token, message="Photometry data updated."))
+    return _upload_view_redirect_with_vizier_state(token, message="Photometry data updated.")
+
+
+@bp.route("/uploads/append-vizier-photometry/<token>", methods=["POST"])
+def uploads_append_vizier_photometry(token: str):
+    if not is_valid_upload_token(token):
+        abort(404)
+
+    config = _viewer_config()
+    upload_root = _upload_root(config)
+    lambda_min, lambda_max = _spectrum_lambda_bounds(config)
+
+    entries = {str(item.get("token", "")): item for item in list_upload_manifests(upload_root)}
+    entry = entries.get(token)
+    if entry is None:
+        return redirect(url_for("viewer.uploads", error="Uploaded photometry token is not available."))
+
+    stored_name = str(entry.get("stored_name", "")).strip()
+    source_path = upload_root / token / stored_name if stored_name else None
+    if source_path is None or not source_path.is_file():
+        return redirect(url_for("viewer.uploads", error="Uploaded photometry file is missing."))
+
+    observation_type = str(entry.get("observation_type", "")).strip().lower()
+    if observation_type != "photometry" and source_path.suffix.lower() != ".phot":
+        return redirect(url_for("viewer.upload_view", token=token, error="Only photometry uploads can be edited here."))
+
+    center_raw = str(request.form.get("vizier_center", "")).strip()
+    if not center_raw:
+        return _upload_view_redirect_with_vizier_state(token, error="VizieR center coordinates are required.")
+
+    radius_raw = str(request.form.get("vizier_radius_arcsec", "")).strip()
+    try:
+        radius_arcsec = normalize_radius_arcsec(radius_raw, default=DEFAULT_VIZIER_RADIUS_ARCSEC)
+    except ValueError as exc:
+        return _upload_view_redirect_with_vizier_state(token, error=f"Invalid VizieR radius: {exc}")
+
+    include_all_catalogs = _checkbox_enabled(request.form.get("vizier_all_catalogs"))
+    selected_catalog_keys = normalize_catalog_keys(request.form.getlist("vizier_catalog"))
+    if not include_all_catalogs and not selected_catalog_keys:
+        return _upload_view_redirect_with_vizier_state(token, error="Select at least one VizieR catalog.")
+
+    provided_table = str(request.form.get("photometry_table", ""))
+    photometry_table = provided_table
+    if not photometry_table.strip():
+        try:
+            photometry_table = source_path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            photometry_table = ""
+
+    try:
+        points = query_vizier_photometry_points(
+            center=center_raw,
+            radius_arcsec=radius_arcsec,
+            catalog_keys=selected_catalog_keys,
+            include_all_catalogs=include_all_catalogs,
+        )
+    except Exception as exc:
+        return _upload_view_redirect_with_vizier_state(token, error=f"VizieR query failed: {exc}")
+
+    if not points:
+        return _upload_view_redirect_with_vizier_state(
+            token,
+            error="No VizieR photometry points were found in the search region.",
+        )
+
+    rows_text = format_photometry_table_rows(points)
+    if not rows_text.strip():
+        return _upload_view_redirect_with_vizier_state(token, error="VizieR query returned no usable photometry rows.")
+    merged_table, added_rows, skipped_duplicates = _merge_photometry_table_text(photometry_table, rows_text)
+    if added_rows <= 0:
+        return _upload_view_redirect_with_vizier_state(
+            token,
+            message=f"No new rows appended. Skipped {skipped_duplicates} duplicate VizieR row(s).",
+        )
+
+    previous_content = ""
+    try:
+        previous_content = source_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        previous_content = ""
+
+    requested_flux_mode = "absolute"
+    try:
+        source_path.write_text(merged_table, encoding="utf-8")
+        parsed = parse_uploaded_spectrum(
+            source_path,
+            flux_mode=requested_flux_mode,
+            lambda_min=lambda_min,
+            lambda_max=lambda_max,
+        )
+    except Exception as exc:
+        try:
+            source_path.write_text(previous_content, encoding="utf-8")
+        except OSError:
+            pass
+        return _upload_view_redirect_with_vizier_state(token, error=f"Could not append VizieR photometry: {exc}")
+
+    created_at_raw = entry.get("created_at", time.time())
+    try:
+        created_at = float(created_at_raw)
+    except (TypeError, ValueError):
+        created_at = time.time()
+    if not math.isfinite(created_at):
+        created_at = time.time()
+
+    manifest = {
+        "token": token,
+        "filename": _photometry_filename_from_form(entry=entry),
+        "stored_name": stored_name,
+        "requested_flux_mode": requested_flux_mode,
+        "detected_flux_mode": str(parsed.get("detected_flux_mode", "")),
+        "resolved_flux_mode": str(parsed.get("flux_mode", "")),
+        "format": str(parsed.get("format", "")),
+        "observation_type": str(parsed.get("observation_type", "photometry")),
+        "points": len(parsed.get("wavelength", [])),
+        "created_at": created_at,
+        "updated_at": time.time(),
+    }
+    write_upload_manifest(upload_root, token, manifest)
+    message = f"Appended {added_rows} VizieR photometry point(s)."
+    if skipped_duplicates > 0:
+        message = f"{message} Skipped {skipped_duplicates} duplicate row(s)."
+    return _upload_view_redirect_with_vizier_state(
+        token,
+        message=message,
+    )
 
 
 @bp.route("/uploads/delete/<token>", methods=["POST"])

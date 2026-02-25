@@ -70,6 +70,19 @@ bad line
     assert any("treated as absolute-flux data" in w for w in parsed["warnings"])
 
 
+def test_parse_uploaded_photometry_token4_boolean_not_misread_as_flux_err(tmp_path: Path) -> None:
+    path = tmp_path / "upload.phot"
+    path.write_text(
+        "5000 100 1.0 1 # bool-enabled without explicit error\n",
+        encoding="utf-8",
+    )
+    parsed = obs.parse_uploaded_spectrum(path, flux_mode="absolute")
+    assert parsed["observation_type"] == "photometry"
+    assert parsed["wavelength"] == [5000.0]
+    assert parsed["flux"] == [1.0]
+    assert parsed["flux_err"] == [None]
+
+
 def test_parse_uploaded_spectrum_rejects_unsupported_suffix(tmp_path: Path) -> None:
     path = tmp_path / "upload.txt"
     path.write_text("text", encoding="utf-8")

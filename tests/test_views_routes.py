@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import io
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 from cmfgen_viewer.app import create_app
 from cmfgen_viewer.observed_spectrum import list_upload_manifests, read_upload_manifest
+from cmfgen_viewer.vizier_photometry import VizierPhotometryPoint
 
 
 def _make_app(tmp_path: Path):
@@ -113,6 +115,308 @@ def test_upload_routes_end_to_end_for_photometry(tmp_path: Path) -> None:
     delete_response = client.post(f"/uploads/delete/{token}", follow_redirects=False)
     assert delete_response.status_code == 302
     assert not (upload_root / token).exists()
+
+
+def test_update_photometry_allows_clearing_table(tmp_path: Path) -> None:
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    upload_root = Path(app.config["CMFGEN_VIEWER"]["upload_root"])
+
+    upload_response = client.post(
+        "/uploads/upload",
+        data={
+            "observed_file": (io.BytesIO(b"5000 100 1.0\n6000 100 1.2\n"), "obs.phot"),
+            "flux_mode": "auto",
+        },
+        content_type="multipart/form-data",
+        follow_redirects=False,
+    )
+    assert upload_response.status_code == 302
+    manifests = list_upload_manifests(upload_root)
+    assert len(manifests) == 1
+    token = str(manifests[0]["token"])
+
+    clear_response = client.post(
+        f"/uploads/update-photometry/{token}",
+        data={
+            "photometry_table": "",
+            "photometry_name": "cleared.phot",
+        },
+        follow_redirects=False,
+    )
+    assert clear_response.status_code == 302
+    assert f"/uploads/view/{token}" in clear_response.headers["Location"]
+
+    manifest = read_upload_manifest(upload_root, token)
+    assert isinstance(manifest, dict)
+    assert manifest["filename"] == "cleared.phot"
+    assert int(manifest["points"]) == 0
+
+    stored_path = upload_root / token / str(manifest["stored_name"])
+    assert stored_path.read_text(encoding="utf-8") == ""
+
+    view_response = client.get(f"/uploads/view/{token}")
+    assert view_response.status_code == 200
+    assert b"No photometry points yet" in view_response.data
+
+
+def test_update_photometry_preserves_vizier_state_in_redirect(tmp_path: Path) -> None:
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    upload_root = Path(app.config["CMFGEN_VIEWER"]["upload_root"])
+
+    upload_response = client.post(
+        "/uploads/upload",
+        data={
+            "observed_file": (io.BytesIO(b"5000 100 1.0\n"), "obs.phot"),
+            "flux_mode": "auto",
+        },
+        content_type="multipart/form-data",
+        follow_redirects=False,
+    )
+    assert upload_response.status_code == 302
+    manifests = list_upload_manifests(upload_root)
+    token = str(manifests[0]["token"])
+
+    update_response = client.post(
+        f"/uploads/update-photometry/{token}",
+        data={
+            "photometry_table": "5000 100 2.0\n",
+            "photometry_name": "stateful.phot",
+            "vizier_center": "11:22:33 +44:55:06",
+            "vizier_radius_arcsec": "7.5",
+            "vizier_catalog": ["gaia_dr3_syntphot", "twomass"],
+            "vizier_all_catalogs": "1",
+        },
+        follow_redirects=False,
+    )
+    assert update_response.status_code == 302
+    location = update_response.headers["Location"]
+    assert "Photometry+data+updated." in location
+    query = parse_qs(urlparse(location).query)
+    assert query.get("vizier_center") == ["11:22:33 +44:55:06"]
+    assert query.get("vizier_radius_arcsec") == ["7.5"]
+    assert query.get("vizier_all_catalogs") == ["1"]
+    assert sorted(query.get("vizier_catalog", [])) == ["gaia_dr3_syntphot", "twomass"]
+
+
+def test_upload_photometry_allows_empty_then_append_from_vizier(tmp_path: Path, monkeypatch) -> None:
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    upload_root = Path(app.config["CMFGEN_VIEWER"]["upload_root"])
+
+    upload_response = client.post(
+        "/uploads/upload-photometry",
+        data={
+            "photometry_name": "empty.phot",
+            "photometry_table": "",
+        },
+        follow_redirects=False,
+    )
+    assert upload_response.status_code == 302
+    assert "Uploaded+photometry+empty.phot." in upload_response.headers["Location"]
+
+    manifests = list_upload_manifests(upload_root)
+    assert len(manifests) == 1
+    token = str(manifests[0]["token"])
+    assert int(manifests[0]["points"]) == 0
+
+    view_response = client.get(f"/uploads/view/{token}")
+    assert view_response.status_code == 200
+    assert b"No photometry points yet" in view_response.data
+
+    def _fake_query(**_kwargs):
+        return [
+            VizierPhotometryPoint(
+                lambda_eff_a=5109.0,
+                band_width_a=2157.0,
+                flux=8.0e-13,
+                flux_err=6.0e-14,
+                comment="Gaia DR3 syntphot BP",
+            )
+        ]
+
+    monkeypatch.setattr("cmfgen_viewer.views.query_vizier_photometry_points", _fake_query)
+    append_response = client.post(
+        f"/uploads/append-vizier-photometry/{token}",
+        data={
+            "photometry_name": "empty.phot",
+            "photometry_table": "",
+            "vizier_center": "120.5 -20.25",
+            "vizier_radius_arcsec": "5",
+            "vizier_catalog": ["gaia_dr3_syntphot"],
+        },
+        follow_redirects=False,
+    )
+    assert append_response.status_code == 302
+    assert "Appended+1+VizieR+photometry+point" in append_response.headers["Location"]
+
+    manifest = read_upload_manifest(upload_root, token)
+    assert isinstance(manifest, dict)
+    assert int(manifest["points"]) == 1
+    content = (upload_root / token / str(manifest["stored_name"])).read_text(encoding="utf-8")
+    assert "Gaia DR3 syntphot BP" in content
+
+
+def test_append_vizier_photometry_route_appends_rows(tmp_path: Path, monkeypatch) -> None:
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    upload_root = Path(app.config["CMFGEN_VIEWER"]["upload_root"])
+
+    upload_response = client.post(
+        "/uploads/upload",
+        data={
+            "observed_file": (io.BytesIO(b"5000 100 1.0\n"), "obs.phot"),
+            "flux_mode": "auto",
+        },
+        content_type="multipart/form-data",
+        follow_redirects=False,
+    )
+    assert upload_response.status_code == 302
+
+    manifests = list_upload_manifests(upload_root)
+    assert len(manifests) == 1
+    token = str(manifests[0]["token"])
+
+    captured: dict[str, object] = {}
+
+    def _fake_query(**kwargs):
+        captured.update(kwargs)
+        return [
+            VizierPhotometryPoint(
+                lambda_eff_a=4810.0,
+                band_width_a=1530.0,
+                flux=1.0e-12,
+                flux_err=1.0e-13,
+                comment="Pan-STARRS g",
+            )
+        ]
+
+    monkeypatch.setattr("cmfgen_viewer.views.query_vizier_photometry_points", _fake_query)
+
+    append_response = client.post(
+        f"/uploads/append-vizier-photometry/{token}",
+        data={
+            "photometry_name": "updated.phot",
+            "photometry_table": "5000 100 1.0\n",
+            "vizier_center": "12:00:00 +15:00:00",
+            "vizier_radius_arcsec": "5",
+            "vizier_catalog": ["gaia_dr3_syntphot", "panstarrs_dr1"],
+            "vizier_all_catalogs": "1",
+        },
+        follow_redirects=False,
+    )
+    assert append_response.status_code == 302
+    location = append_response.headers["Location"]
+    assert "Appended+1+VizieR+photometry+point" in location
+    parsed_query = parse_qs(urlparse(location).query)
+    assert parsed_query.get("vizier_center") == ["12:00:00 +15:00:00"]
+    assert parsed_query.get("vizier_radius_arcsec") == ["5"]
+    assert parsed_query.get("vizier_all_catalogs") == ["1"]
+    assert sorted(parsed_query.get("vizier_catalog", [])) == ["gaia_dr3_syntphot", "panstarrs_dr1"]
+
+    assert captured["include_all_catalogs"] is True
+    assert captured["catalog_keys"] == ["gaia_dr3_syntphot", "panstarrs_dr1"]
+    assert captured["radius_arcsec"] == 5.0
+
+    manifest = read_upload_manifest(upload_root, token)
+    assert isinstance(manifest, dict)
+    assert manifest["filename"] == "updated.phot"
+    assert int(manifest["points"]) == 2
+
+    stored_name = str(manifest["stored_name"])
+    stored_path = upload_root / token / stored_name
+    content = stored_path.read_text(encoding="utf-8")
+    assert "Pan-STARRS g" in content
+    assert "5000 100 1.0" in content
+
+
+def test_append_vizier_photometry_requires_selected_catalog_or_all(tmp_path: Path) -> None:
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    upload_root = Path(app.config["CMFGEN_VIEWER"]["upload_root"])
+
+    upload_response = client.post(
+        "/uploads/upload",
+        data={
+            "observed_file": (io.BytesIO(b"5000 100 1.0\n"), "obs.phot"),
+            "flux_mode": "auto",
+        },
+        content_type="multipart/form-data",
+        follow_redirects=False,
+    )
+    assert upload_response.status_code == 302
+    manifests = list_upload_manifests(upload_root)
+    token = str(manifests[0]["token"])
+
+    append_response = client.post(
+        f"/uploads/append-vizier-photometry/{token}",
+        data={
+            "photometry_table": "5000 100 1.0\n",
+            "vizier_center": "120.5 -20.25",
+            "vizier_radius_arcsec": "5",
+        },
+        follow_redirects=False,
+    )
+    assert append_response.status_code == 302
+    location = append_response.headers["Location"]
+    assert "Select+at+least+one+VizieR+catalog." in location
+    parsed_query = parse_qs(urlparse(location).query)
+    assert parsed_query.get("vizier_center") == ["120.5 -20.25"]
+    assert parsed_query.get("vizier_radius_arcsec") == ["5"]
+
+
+def test_append_vizier_photometry_skips_fully_duplicate_rows_textually(tmp_path: Path, monkeypatch) -> None:
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    upload_root = Path(app.config["CMFGEN_VIEWER"]["upload_root"])
+
+    upload_response = client.post(
+        "/uploads/upload",
+        data={
+            "observed_file": (io.BytesIO(b"5000 100 1.0\n"), "obs.phot"),
+            "flux_mode": "auto",
+        },
+        content_type="multipart/form-data",
+        follow_redirects=False,
+    )
+    assert upload_response.status_code == 302
+    manifests = list_upload_manifests(upload_root)
+    token = str(manifests[0]["token"])
+
+    duplicate_point = VizierPhotometryPoint(
+        lambda_eff_a=4810.0,
+        band_width_a=1530.0,
+        flux=1.0e-12,
+        flux_err=1.0e-13,
+        comment="Pan-STARRS g",
+    )
+
+    def _fake_query(**_kwargs):
+        return [duplicate_point, duplicate_point]
+
+    monkeypatch.setattr("cmfgen_viewer.views.query_vizier_photometry_points", _fake_query)
+    append_response = client.post(
+        f"/uploads/append-vizier-photometry/{token}",
+        data={
+            "photometry_name": "dedup.phot",
+            "photometry_table": "5000 100 1.0\n",
+            "vizier_center": "12:00:00 +15:00:00",
+            "vizier_radius_arcsec": "5",
+            "vizier_catalog": ["panstarrs_dr1"],
+        },
+        follow_redirects=False,
+    )
+    assert append_response.status_code == 302
+    location = append_response.headers["Location"]
+    assert "Appended+1+VizieR+photometry+point" in location
+    assert "Skipped+1+duplicate+row" in location
+
+    manifest = read_upload_manifest(upload_root, token)
+    assert isinstance(manifest, dict)
+    assert int(manifest["points"]) == 2
+    stored = (upload_root / token / str(manifest["stored_name"])).read_text(encoding="utf-8")
+    assert stored.count("Pan-STARRS g") == 1
 
 
 def test_upload_grid_endpoints_return_not_found_for_missing_jobs_and_tokens(tmp_path: Path) -> None:

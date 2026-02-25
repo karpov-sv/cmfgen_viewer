@@ -47,7 +47,6 @@
                 name="photometry_table"
                 class="form-control form-control-sm font-monospace"
                 rows="10"
-                required
               >{{ photometry_text }}</textarea>
             </div>
             <div class="d-flex flex-wrap align-items-center gap-2">
@@ -55,15 +54,113 @@
               <button type="button" id="photometry-sort-wavelength" class="btn btn-sm btn-outline-secondary">Sort by Wavelength</button>
               <button type="button" id="photometry-sort-comment" class="btn btn-sm btn-outline-secondary">Sort by Comment</button>
             </div>
+            <hr class="my-3">
+            <h4 class="h6 mb-2">Append from VizieR Catalogs</h4>
+            <p class="small text-muted mb-2">
+              Query radius is in arcsec (default 5). Returned points are converted to absolute flux and appended to the table.
+            </p>
+            <div class="row g-2 mb-2">
+              <div class="col-sm-8">
+                <label for="vizier-center" class="form-label form-label-sm mb-1">Center (coordinates or object name)</label>
+                <input
+                  id="vizier-center"
+                  name="vizier_center"
+                  type="text"
+                  class="form-control form-control-sm"
+                  value="{{ vizier_center }}"
+                  placeholder="e.g. 10:12:45.3 +12:34:56.7 or HD 12345"
+                >
+              </div>
+              <div class="col-sm-4">
+                <label for="vizier-radius-arcsec" class="form-label form-label-sm mb-1">Radius (arcsec)</label>
+                <input
+                  id="vizier-radius-arcsec"
+                  name="vizier_radius_arcsec"
+                  type="number"
+                  min="0.01"
+                  max="3600"
+                  step="any"
+                  class="form-control form-control-sm"
+                  value="{{ vizier_radius_arcsec }}"
+                  placeholder="5"
+                >
+              </div>
+            </div>
+            <div class="d-flex flex-wrap align-items-center gap-3 mb-2">
+              {% for item in vizier_catalog_options %}
+                <div class="form-check form-check-inline me-0">
+                  <input
+                    id="vizier-catalog-{{ item.key }}"
+                    name="vizier_catalog"
+                    type="checkbox"
+                    class="form-check-input"
+                    value="{{ item.key }}"
+                    {% if item.key in vizier_selected_catalogs %}checked{% endif %}
+                  >
+                  <label for="vizier-catalog-{{ item.key }}" class="form-check-label small">{{ item.label }}</label>
+                </div>
+              {% endfor %}
+            </div>
+            <div class="form-check mb-3">
+              <input
+                id="vizier-all-catalogs"
+                name="vizier_all_catalogs"
+                type="checkbox"
+                class="form-check-input"
+                value="1"
+                {% if vizier_all_catalogs %}checked{% endif %}
+              >
+              <label for="vizier-all-catalogs" class="form-check-label small">Query all available VizieR SED catalogs</label>
+            </div>
+            <div class="d-flex flex-wrap align-items-center gap-2">
+              <button
+                id="photometry-append-vizier"
+                type="submit"
+                formaction="{{ url_for('viewer.uploads_append_vizier_photometry', token=upload.token) }}"
+                class="btn btn-sm btn-outline-success"
+              >
+                Append from VizieR
+              </button>
+            </div>
           </form>
           <script>
             (function () {
               var table = document.getElementById("photometry-table");
               var sortWavelength = document.getElementById("photometry-sort-wavelength");
               var sortComment = document.getElementById("photometry-sort-comment");
+              var vizierCenter = document.getElementById("vizier-center");
+              var vizierRadius = document.getElementById("vizier-radius-arcsec");
+              var vizierAppendButton = document.getElementById("photometry-append-vizier");
               if (!table || !sortWavelength || !sortComment) {
                 return;
               }
+
+              function submitViaVizierAppend() {
+                if (!vizierAppendButton || !vizierAppendButton.form) {
+                  return;
+                }
+                if (typeof vizierAppendButton.form.requestSubmit === "function") {
+                  vizierAppendButton.form.requestSubmit(vizierAppendButton);
+                  return;
+                }
+                vizierAppendButton.click();
+              }
+
+              function bindEnterToVizierAppend(input) {
+                if (!input) {
+                  return;
+                }
+                input.addEventListener("keydown", function (event) {
+                  if (event.key !== "Enter") {
+                    return;
+                  }
+                  event.preventDefault();
+                  submitViaVizierAppend();
+                });
+              }
+
+              bindEnterToVizierAppend(vizierCenter);
+              bindEnterToVizierAppend(vizierRadius);
 
               function parseSortableLine(rawLine, originalIndex) {
                 var line = String(rawLine || "");
