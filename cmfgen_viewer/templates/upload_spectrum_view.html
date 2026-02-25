@@ -1631,7 +1631,14 @@
 
         var title = document.createElement("div");
         title.className = "small text-muted mb-1 mt-2";
-        title.textContent = "Profile delta-chi2 confidence intervals (Gaussian assumption)";
+        var confidenceMethod = String(confidence.method || "").trim();
+        if (confidenceMethod === "profile_delta_chi2_known_variance") {
+          title.textContent = "Profile delta-chi2 confidence intervals (known photometric errors)";
+        } else if (confidenceMethod === "profile_delta_chi2_profile_jitter") {
+          title.textContent = "Profile delta-chi2 confidence intervals (profiled jitter scale)";
+        } else {
+          title.textContent = "Profile delta-chi2 confidence intervals (unknown variance)";
+        }
         container.appendChild(title);
 
         var chi2Info = confidence.chi2 && typeof confidence.chi2 === "object"
@@ -1642,6 +1649,9 @@
           var bestDof = formatConfidenceValue(chi2Info.best_dof, true);
           var bestDofEff = formatConfidenceValue(chi2Info.best_dof_eff, true);
           var bestDofEffMethod = String(chi2Info.best_dof_eff_method || "").trim();
+          var reducedChi2Eff = formatParam(chi2Info.reduced_chi2_eff);
+          var chi2Weighting = String(chi2Info.chi2_weighting || "").trim();
+          var photometryErrorWeighting = String(chi2Info.photometry_error_weighting || "").trim();
           var sigma2Hat = formatParam(chi2Info.sigma2_hat);
           var sigma2HatNominal = formatParam(chi2Info.sigma2_hat_nominal);
           if (bestChi2) {
@@ -1655,6 +1665,15 @@
           }
           if (bestDofEffMethod) {
             addSummaryLine(container, "DOF (effective method)", bestDofEffMethod);
+          }
+          if (reducedChi2Eff) {
+            addSummaryLine(container, "Reduced chi2 (effective)", reducedChi2Eff);
+          }
+          if (chi2Weighting) {
+            addSummaryLine(container, "Chi2 weighting", chi2Weighting);
+          }
+          if (photometryErrorWeighting) {
+            addSummaryLine(container, "Photometry error model", photometryErrorWeighting);
           }
           if (sigma2Hat) {
             addSummaryLine(container, "sigma^2_hat (RSS/dof_eff)", sigma2Hat);

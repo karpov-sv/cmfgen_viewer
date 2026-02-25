@@ -168,6 +168,7 @@ TLUSTY_CHI2_CONFIDENCE_LEVELS = (
     {"label": "90%", "delta_chi2": 2.705543454095404},
     {"label": "95%", "delta_chi2": 3.841458820694124},
 )
+TLUSTY_CONFIDENCE_PHOTOMETRY_STRICT_REDUCED_CHI2_MAX = 2.0
 TLUSTY_OSTAR_METALLICITY_MAP = {
     "C": 2.0,
     "G": 1.0,
@@ -1778,6 +1779,26 @@ def _fit_single_cmfgen_candidate(
     dof_eff_value = int(dof_eff_raw) if isinstance(dof_eff_raw, int | float) and int(dof_eff_raw) > 0 else None
     dof_eff_method_raw = metrics.get("dof_eff_method")
     dof_eff_method = str(dof_eff_method_raw).strip() if isinstance(dof_eff_method_raw, str) else ""
+    chi2_weighting_raw = metrics.get("chi2_weighting")
+    chi2_weighting = str(chi2_weighting_raw).strip() if isinstance(chi2_weighting_raw, str) else ""
+    photometry_error_weighting_raw = metrics.get("photometry_error_weighting")
+    photometry_error_weighting = (
+        str(photometry_error_weighting_raw).strip()
+        if isinstance(photometry_error_weighting_raw, str)
+        else ""
+    )
+    photometry_flux_err_provided_raw = metrics.get("photometry_flux_err_provided_points")
+    photometry_flux_err_provided = (
+        int(photometry_flux_err_provided_raw)
+        if isinstance(photometry_flux_err_provided_raw, int | float) and int(photometry_flux_err_provided_raw) >= 0
+        else None
+    )
+    photometry_flux_err_fallback_raw = metrics.get("photometry_flux_err_fallback_points")
+    photometry_flux_err_fallback = (
+        int(photometry_flux_err_fallback_raw)
+        if isinstance(photometry_flux_err_fallback_raw, int | float) and int(photometry_flux_err_fallback_raw) >= 0
+        else None
+    )
     cmfgen_params_raw = candidate.get("cmfgen_params")
     if isinstance(cmfgen_params_raw, dict):
         cmfgen_params = _cmfgen_fit_params_payload(cmfgen_params_raw)
@@ -1796,6 +1817,10 @@ def _fit_single_cmfgen_candidate(
             "dof": dof_value,
             "dof_eff": dof_eff_value,
             "dof_eff_method": dof_eff_method,
+            "chi2_weighting": chi2_weighting,
+            "photometry_error_weighting": photometry_error_weighting,
+            "photometry_flux_err_provided_points": photometry_flux_err_provided,
+            "photometry_flux_err_fallback_points": photometry_flux_err_fallback,
             "cmfgen_params": cmfgen_params,
             "fit_params": {
                 "redshift": float(best_params.get("redshift", 0.0)),
@@ -2041,6 +2066,26 @@ def _fit_single_tlusty_candidate(
     dof_eff_value = int(dof_eff_raw) if isinstance(dof_eff_raw, int | float) and int(dof_eff_raw) > 0 else None
     dof_eff_method_raw = metrics.get("dof_eff_method")
     dof_eff_method = str(dof_eff_method_raw).strip() if isinstance(dof_eff_method_raw, str) else ""
+    chi2_weighting_raw = metrics.get("chi2_weighting")
+    chi2_weighting = str(chi2_weighting_raw).strip() if isinstance(chi2_weighting_raw, str) else ""
+    photometry_error_weighting_raw = metrics.get("photometry_error_weighting")
+    photometry_error_weighting = (
+        str(photometry_error_weighting_raw).strip()
+        if isinstance(photometry_error_weighting_raw, str)
+        else ""
+    )
+    photometry_flux_err_provided_raw = metrics.get("photometry_flux_err_provided_points")
+    photometry_flux_err_provided = (
+        int(photometry_flux_err_provided_raw)
+        if isinstance(photometry_flux_err_provided_raw, int | float) and int(photometry_flux_err_provided_raw) >= 0
+        else None
+    )
+    photometry_flux_err_fallback_raw = metrics.get("photometry_flux_err_fallback_points")
+    photometry_flux_err_fallback = (
+        int(photometry_flux_err_fallback_raw)
+        if isinstance(photometry_flux_err_fallback_raw, int | float) and int(photometry_flux_err_fallback_raw) >= 0
+        else None
+    )
 
     return {
         "status": "success",
@@ -2055,6 +2100,10 @@ def _fit_single_tlusty_candidate(
             "dof": dof_value,
             "dof_eff": dof_eff_value,
             "dof_eff_method": dof_eff_method,
+            "chi2_weighting": chi2_weighting,
+            "photometry_error_weighting": photometry_error_weighting,
+            "photometry_flux_err_provided_points": photometry_flux_err_provided,
+            "photometry_flux_err_fallback_points": photometry_flux_err_fallback,
             "fit_params": {
                 "redshift": float(best_params.get("redshift", 0.0)),
                 "broadening_km_s": float(best_params.get("broadening_km_s", 0.0)),
@@ -2457,6 +2506,21 @@ def _summarize_tlusty_confidence_profiles(
     else:
         best_dof_eff = int(best_dof_eff_raw) if isinstance(best_dof_eff_raw, int | float) and int(best_dof_eff_raw) > 0 else best_dof
     best_dof_eff = max(1, min(best_dof, best_dof_eff))
+    best_reduced_chi2_eff = best_chi2 / max(1, best_dof_eff)
+
+    chi2_weighting_raw = best_model.get("chi2_weighting")
+    chi2_weighting = str(chi2_weighting_raw).strip().lower() if isinstance(chi2_weighting_raw, str) else ""
+    photometry_error_weighting_raw = best_model.get("photometry_error_weighting")
+    photometry_error_weighting = (
+        str(photometry_error_weighting_raw).strip().lower()
+        if isinstance(photometry_error_weighting_raw, str)
+        else ""
+    )
+    photometry_known_errors_mode = (
+        chi2_weighting == "photometry_flux_err_weighted"
+        and photometry_error_weighting == "flux_err_or_2pct_fallback"
+    )
+
     sigma2_hat_nominal = best_chi2 / max(1, best_dof)
     sigma2_hat = best_chi2 / max(1, best_dof_eff)
     if not math.isfinite(sigma2_hat) or sigma2_hat <= 0:
@@ -2465,6 +2529,28 @@ def _summarize_tlusty_confidence_profiles(
         sigma2_hat = 1.0
     if not math.isfinite(sigma2_hat_nominal) or sigma2_hat_nominal <= 0:
         sigma2_hat_nominal = sigma2_hat
+
+    confidence_method = "profile_delta_chi2_gaussian_unknown_variance"
+
+    def confidence_score_from_chi2(chi2_value: float) -> float:
+        return max(0.0, (chi2_value - best_chi2) / max(1e-12, sigma2_hat))
+
+    if photometry_known_errors_mode:
+        if best_reduced_chi2_eff <= TLUSTY_CONFIDENCE_PHOTOMETRY_STRICT_REDUCED_CHI2_MAX:
+            confidence_method = "profile_delta_chi2_known_variance"
+            sigma2_hat = 1.0
+            sigma2_hat_nominal = 1.0
+
+            def confidence_score_from_chi2(chi2_value: float) -> float:
+                return max(0.0, chi2_value - best_chi2)
+
+        else:
+            confidence_method = "profile_delta_chi2_profile_jitter"
+
+            def confidence_score_from_chi2(chi2_value: float) -> float:
+                if chi2_value <= 0.0 or best_chi2 <= 0.0:
+                    return math.inf
+                return max(0.0, best_dof_eff * math.log(chi2_value / best_chi2))
 
     parameters: dict[str, object] = {}
     for spec in TLUSTY_CONFIDENCE_PARAM_SPECS:
@@ -2529,7 +2615,7 @@ def _summarize_tlusty_confidence_profiles(
             allowed_values = [
                 value
                 for value, chi2, _points in sorted_profile
-                if ((chi2 - best_chi2) / sigma2_hat) <= (delta_limit + 1e-12)
+                if confidence_score_from_chi2(chi2) <= (delta_limit + 1e-12)
             ]
             if not allowed_values:
                 continue
@@ -2556,13 +2642,27 @@ def _summarize_tlusty_confidence_profiles(
 
     if not parameters:
         return {}
-    assumptions = (
-        "Gaussian residuals with unknown common variance; "
-        "variance is estimated from the best-fit residual sum of squares. "
-        "Effective degrees of freedom are estimated from residual autocorrelation "
-        "using the initial positive sequence."
-    )
-    if best_dof_eff_method == "nominal_photometry":
+    assumptions = ""
+    if confidence_method == "profile_delta_chi2_known_variance":
+        assumptions = (
+            "Gaussian residuals with known per-point photometric errors "
+            "(uploaded flux_err or 2% flux fallback when missing). "
+            "Confidence intervals use strict profile delta-chi2 likelihood-ratio thresholds."
+        )
+    elif confidence_method == "profile_delta_chi2_profile_jitter":
+        assumptions = (
+            "Gaussian residuals with known per-point photometric error shape but unknown global scatter scale. "
+            "A profiled jitter scale is used (delta = dof_eff * ln(chi2/chi2_best)) "
+            "to keep intervals robust under model misspecification."
+        )
+    else:
+        assumptions = (
+            "Gaussian residuals with unknown common variance; "
+            "variance is estimated from the best-fit residual sum of squares. "
+            "Effective degrees of freedom are estimated from residual autocorrelation "
+            "using the initial positive sequence."
+        )
+    if confidence_method == "profile_delta_chi2_gaussian_unknown_variance" and best_dof_eff_method == "nominal_photometry":
         assumptions = (
             "Gaussian residuals with unknown common variance; "
             "variance is estimated from the best-fit residual sum of squares. "
@@ -2570,7 +2670,7 @@ def _summarize_tlusty_confidence_profiles(
             "degrees of freedom (independent-band assumption)."
         )
     return {
-        "method": "profile_delta_chi2_gaussian",
+        "method": confidence_method,
         "assumptions": assumptions,
         "chi2": {
             "best_chi2": best_chi2,
@@ -2579,8 +2679,12 @@ def _summarize_tlusty_confidence_profiles(
             "best_dof": best_dof,
             "best_dof_eff": best_dof_eff,
             "best_dof_eff_method": best_dof_eff_method,
+            "reduced_chi2_eff": best_reduced_chi2_eff,
+            "chi2_weighting": chi2_weighting,
+            "photometry_error_weighting": photometry_error_weighting,
             "sigma2_hat": sigma2_hat,
             "sigma2_hat_nominal": sigma2_hat_nominal,
+            "strict_reduced_chi2_threshold": TLUSTY_CONFIDENCE_PHOTOMETRY_STRICT_REDUCED_CHI2_MAX,
         },
         "levels": [
             {"label": str(item["label"]), "delta_chi2": float(item["delta_chi2"])}

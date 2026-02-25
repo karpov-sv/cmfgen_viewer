@@ -40,6 +40,7 @@ MAX_SERIES_POINTS = 5000
 PHOTOMETRY_ERROR_BAR_COLOR = "rgba(33, 37, 41, 0.45)"
 PHOTOMETRY_ERROR_BAR_THICKNESS = 1.2
 PHOTOMETRY_ERROR_BAR_CAP_WIDTH = 0
+PHOTOMETRY_FIT_FLUX_ERR_FALLBACK_FRACTION = 0.02
 
 ABSOLUTE_FIT_BOUNDS = {
     "redshift": (-0.02, 0.02),
@@ -617,45 +618,67 @@ def _clean_xy_with_band_width(
     x_values: list[float],
     y_values: list[float],
     band_width_values: list[float] | None,
-) -> tuple[Any, Any, Any | None] | None:
+    flux_err_values: list[float | None] | None = None,
+) -> tuple[Any, Any, Any | None, Any | None] | None:
     if np is None:
         return None
-    if not isinstance(band_width_values, list):
-        cleaned = _clean_xy_arrays(x_values, y_values)
-        if cleaned is None:
-            return None
-        x, y = cleaned
-        return x, y, None
-    if len(x_values) < 2 or len(y_values) < 2 or len(band_width_values) < 2:
+    if len(x_values) < 2 or len(y_values) < 2:
         return None
 
     x = np.asarray(x_values, dtype=np.float64).reshape(-1)
     y = np.asarray(y_values, dtype=np.float64).reshape(-1)
-    width = np.asarray(band_width_values, dtype=np.float64).reshape(-1)
-    if x.size != y.size or x.size != width.size or x.size < 2:
+    if x.size != y.size or x.size < 2:
         return None
 
-    mask = np.isfinite(x) & np.isfinite(y) & np.isfinite(width) & (x > 0) & (width >= 0)
+    width: Any | None = None
+    if isinstance(band_width_values, list):
+        if len(band_width_values) < 2:
+            return None
+        width = np.asarray(band_width_values, dtype=np.float64).reshape(-1)
+        if x.size != width.size:
+            return None
+
+    flux_err: Any | None = None
+    if isinstance(flux_err_values, list) and len(flux_err_values) == x.size:
+        flux_err = np.full(x.shape, np.nan, dtype=np.float64)
+        for index, value in enumerate(flux_err_values):
+            if isinstance(value, int | float):
+                numeric = float(value)
+                if math.isfinite(numeric) and numeric >= 0.0:
+                    flux_err[index] = numeric
+
+    mask = np.isfinite(x) & np.isfinite(y) & (x > 0)
+    if width is not None:
+        mask &= np.isfinite(width) & (width >= 0)
     x = x[mask]
     y = y[mask]
-    width = width[mask]
+    if width is not None:
+        width = width[mask]
+    if flux_err is not None:
+        flux_err = flux_err[mask]
     if x.size < 2:
         return None
 
     order = np.argsort(x)
     x = x[order]
     y = y[order]
-    width = width[order]
+    if width is not None:
+        width = width[order]
+    if flux_err is not None:
+        flux_err = flux_err[order]
 
     # Keep only strictly increasing wavelengths to match interpolation assumptions.
     keep = np.ones(x.shape[0], dtype=bool)
     keep[1:] = x[1:] > x[:-1]
     x = x[keep]
     y = y[keep]
-    width = width[keep]
+    if width is not None:
+        width = width[keep]
+    if flux_err is not None:
+        flux_err = flux_err[keep]
     if x.size < 2:
         return None
-    return x, y, width
+    return x, y, width, flux_err
 
 
 def _build_model_series_for_fit(
@@ -701,11 +724,12 @@ def _build_observed_series_for_fit(
     observed: dict[str, object],
     *,
     mode: str,
-) -> tuple[tuple[Any, Any, Any | None] | None, str | None]:
+) -> tuple[tuple[Any, Any, Any | None, Any | None] | None, str | None]:
     wavelength = observed.get("wavelength")
     flux = observed.get("flux")
     observation_type = str(observed.get("observation_type", "")).strip().lower()
     band_width = observed.get("band_width") if observation_type == "photometry" else None
+    flux_err = observed.get("flux_err") if observation_type == "photometry" else None
     flux_mode = str(observed.get("flux_mode", "")).strip().lower()
     if not isinstance(wavelength, list) or not isinstance(flux, list):
         return None, "Observed upload is missing wavelength/flux vectors."
@@ -719,6 +743,7 @@ def _build_observed_series_for_fit(
         wavelength,
         flux,
         band_width if isinstance(band_width, list) else None,
+        flux_err if isinstance(flux_err, list) else None,
     )
     if cleaned is None:
         return None, "Observed upload has too few valid points."
@@ -1045,7 +1070,7 @@ def fit_model_to_observed(
         return None, None, observed_error
     if observed_series is None:
         return None, None, "Observed upload could not be prepared for fitting."
-    observed_x, observed_y, observed_band_width = observed_series
+    observed_x, observed_y, observed_band_width, observed_flux_err = observed_series
     observation_type = str(observed.get("observation_type", "")).strip().lower()
     is_photometry = observation_type == "photometry"
 
@@ -1055,6 +1080,8 @@ def fit_model_to_observed(
         observed_y = observed_y[sample_idx]
         if observed_band_width is not None:
             observed_band_width = observed_band_width[sample_idx]
+        if observed_flux_err is not None:
+            observed_flux_err = observed_flux_err[sample_idx]
 
     obs_scale = 1.0
     norm_weights = np.ones_like(observed_y, dtype=np.float64)
@@ -1071,6 +1098,33 @@ def fit_model_to_observed(
                 signal_scale = float(np.percentile(signal_finite, 90))
                 if math.isfinite(signal_scale) and signal_scale > 0:
                     norm_weights = 1.0 + 4.0 * np.clip(signal / signal_scale, 0.0, 1.0)
+
+    photometry_sigma: Any | None = None
+    photometry_sigma_provided_points = 0
+    photometry_sigma_fallback_points = 0
+    if is_photometry and normalized_mode == "both":
+        fallback_sigma = PHOTOMETRY_FIT_FLUX_ERR_FALLBACK_FRACTION * np.abs(observed_y)
+        fallback_valid = np.isfinite(fallback_sigma) & (fallback_sigma > 0.0)
+        sigma = np.array(fallback_sigma, copy=True)
+        provided_valid = np.zeros(observed_y.shape, dtype=bool)
+        if observed_flux_err is not None and observed_flux_err.shape == observed_y.shape:
+            provided_sigma = np.asarray(observed_flux_err, dtype=np.float64).reshape(-1)
+            provided_valid = np.isfinite(provided_sigma) & (provided_sigma > 0.0)
+            sigma = np.where(provided_valid, provided_sigma, sigma)
+
+        sigma_valid = np.isfinite(sigma) & (sigma > 0.0)
+        if not np.all(sigma_valid):
+            if np.any(fallback_valid):
+                sigma_floor = float(np.median(fallback_sigma[fallback_valid]))
+            else:
+                sigma_floor = float(np.finfo(np.float64).tiny)
+            if not math.isfinite(sigma_floor) or sigma_floor <= 0.0:
+                sigma_floor = float(np.finfo(np.float64).tiny)
+            sigma = np.where(sigma_valid, sigma, sigma_floor)
+
+        photometry_sigma = sigma
+        photometry_sigma_provided_points = int(np.count_nonzero(provided_valid))
+        photometry_sigma_fallback_points = int(observed_y.size - photometry_sigma_provided_points)
 
     bounds = _resolve_fit_bounds(normalized_mode, bounds_override)
     names = list(bounds.keys())
@@ -1164,6 +1218,8 @@ def fit_model_to_observed(
         valid = np.isfinite(model_on_obs) & np.isfinite(observed_y)
         if normalized_mode == "both":
             valid &= (model_on_obs > 0) & (observed_y > 0)
+        if photometry_sigma is not None:
+            valid &= np.isfinite(photometry_sigma) & (photometry_sigma > 0)
 
         residual = np.full(observed_x.shape, 4.0, dtype=np.float64)
         valid_count = int(np.count_nonzero(valid))
@@ -1171,7 +1227,10 @@ def fit_model_to_observed(
             return (residual, valid_count) if with_valid_count else residual
 
         if normalized_mode == "both":
-            residual[valid] = np.log10(model_on_obs[valid]) - np.log10(observed_y[valid])
+            if photometry_sigma is not None:
+                residual[valid] = (model_on_obs[valid] - observed_y[valid]) / photometry_sigma[valid]
+            else:
+                residual[valid] = np.log10(model_on_obs[valid]) - np.log10(observed_y[valid])
         else:
             residual[valid] = ((model_on_obs[valid] - observed_y[valid]) / obs_scale) * norm_weights[valid]
         residual[~valid] = 2.0
@@ -1319,6 +1378,16 @@ def fit_model_to_observed(
     metrics["autocorr_positive_sum"] = float(autocorr_positive_sum)
     metrics["autocorr_positive_lags"] = int(autocorr_lags)
     metrics["fit_param_count"] = int(fit_param_count)
+    if photometry_sigma is not None:
+        metrics["chi2_weighting"] = "photometry_flux_err_weighted"
+        metrics["photometry_error_weighting"] = "flux_err_or_2pct_fallback"
+        metrics["photometry_flux_err_fallback_fraction"] = float(PHOTOMETRY_FIT_FLUX_ERR_FALLBACK_FRACTION)
+        metrics["photometry_flux_err_provided_points"] = int(photometry_sigma_provided_points)
+        metrics["photometry_flux_err_fallback_points"] = int(photometry_sigma_fallback_points)
+    elif normalized_mode == "both":
+        metrics["chi2_weighting"] = "log_flux_residual_unweighted"
+    else:
+        metrics["chi2_weighting"] = "normalized_residual_weighted_signal"
     if stage1_result is not None:
         metrics["stage1_success"] = bool(getattr(stage1_result, "success", False))
         metrics["stage1_nfev"] = int(getattr(stage1_result, "nfev", 0))

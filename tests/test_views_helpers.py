@@ -148,3 +148,74 @@ def test_spectrum_lambda_bounds_and_summary_row() -> None:
     assert row[0] == "model_x"
     assert row[1] == "1.0000e+05"
     assert row[-1] == "2023-11-14 22:13:20"
+
+
+def test_tlusty_confidence_uses_strict_delta_chi2_for_well_fit_weighted_photometry() -> None:
+    best_model = {
+        "chi2": 17.0,
+        "points": 21,
+        "dof": 17,
+        "dof_eff": 17,
+        "dof_eff_method": "nominal_photometry",
+        "chi2_weighting": "photometry_flux_err_weighted",
+        "photometry_error_weighting": "flux_err_or_2pct_fallback",
+        "tlusty_params": {
+            "teff_k": 24000,
+            "log_g": 2.5,
+            "z_over_zsun": 0.0,
+            "vturb_km_s": 2,
+        },
+    }
+    profiles = views._empty_tlusty_confidence_profiles()
+    teff_profile = profiles.get("teff_k")
+    assert isinstance(teff_profile, dict)
+    teff_profile[23000] = {"chi2": 19.5, "points": 21}
+    teff_profile[24000] = {"chi2": 17.0, "points": 21}
+    teff_profile[25000] = {"chi2": 17.7, "points": 21}
+
+    summary = views._summarize_tlusty_confidence_profiles(
+        best_model=best_model,
+        profiles=profiles,
+        mode="both",
+    )
+    assert summary["method"] == "profile_delta_chi2_known_variance"
+    chi2_info = summary["chi2"]
+    assert chi2_info["sigma2_hat"] == 1.0
+    assert chi2_info["sigma2_hat_nominal"] == 1.0
+    teff_ranges = summary["parameters"]["teff_k"]["intervals"]
+    assert teff_ranges["68%"]["min_value"] == 24000
+    assert teff_ranges["68%"]["max_value"] == 25000
+
+
+def test_tlusty_confidence_uses_profile_jitter_for_misspecified_weighted_photometry() -> None:
+    best_model = {
+        "chi2": 1142.0,
+        "points": 21,
+        "dof": 17,
+        "dof_eff": 17,
+        "dof_eff_method": "nominal_photometry",
+        "chi2_weighting": "photometry_flux_err_weighted",
+        "photometry_error_weighting": "flux_err_or_2pct_fallback",
+        "tlusty_params": {
+            "teff_k": 24000,
+            "log_g": 2.5,
+            "z_over_zsun": 0.0,
+            "vturb_km_s": 2,
+        },
+    }
+    profiles = views._empty_tlusty_confidence_profiles()
+    teff_profile = profiles.get("teff_k")
+    assert isinstance(teff_profile, dict)
+    teff_profile[23000] = {"chi2": 1200.0, "points": 21}
+    teff_profile[24000] = {"chi2": 1142.0, "points": 21}
+    teff_profile[25000] = {"chi2": 1150.0, "points": 21}
+
+    summary = views._summarize_tlusty_confidence_profiles(
+        best_model=best_model,
+        profiles=profiles,
+        mode="both",
+    )
+    assert summary["method"] == "profile_delta_chi2_profile_jitter"
+    teff_ranges = summary["parameters"]["teff_k"]["intervals"]
+    assert teff_ranges["68%"]["min_value"] == 23000
+    assert teff_ranges["68%"]["max_value"] == 25000
