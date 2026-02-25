@@ -58,6 +58,7 @@ from .vizier_photometry import (
     format_photometry_table_rows,
     normalize_catalog_keys,
     normalize_radius_arcsec,
+    parse_source_ids_text,
     query_vizier_photometry_points,
     vizier_catalog_options_payload,
 )
@@ -1531,6 +1532,9 @@ def _merge_photometry_table_text(base_table: str, appended_rows: str) -> tuple[s
     - duplicate vs existing base rows,
     - duplicate within the appended batch.
     Existing duplicates already present in base_table are preserved.
+
+    Dedup comparison ignores the optional enabled/disabled flag column so that
+    appending an enabled row does not duplicate an already existing disabled row.
     """
 
     base = base_table.replace("\r\n", "\n").replace("\r", "\n").rstrip("\n")
@@ -1542,7 +1546,7 @@ def _merge_photometry_table_text(base_table: str, appended_rows: str) -> tuple[s
     base_keys: set[str] = set()
     if base:
         for line in base.split("\n"):
-            key = line.strip()
+            key = _photometry_row_dedup_key(line)
             if key:
                 base_keys.add(key)
 
@@ -1550,14 +1554,17 @@ def _merge_photometry_table_text(base_table: str, appended_rows: str) -> tuple[s
     appended_keys: set[str] = set()
     skipped_duplicates = 0
     for line in extra.split("\n"):
-        key = line.strip()
-        if not key:
+        normalized_line = line.strip()
+        if not normalized_line:
             continue
+        key = _photometry_row_dedup_key(normalized_line)
+        if not key:
+            key = normalized_line
         if key in base_keys or key in appended_keys:
             skipped_duplicates += 1
             continue
         appended_keys.add(key)
-        unique_appended.append(key)
+        unique_appended.append(normalized_line)
 
     added_count = len(unique_appended)
     if not unique_appended:
@@ -1566,6 +1573,42 @@ def _merge_photometry_table_text(base_table: str, appended_rows: str) -> tuple[s
     if not base:
         return "\n".join(unique_appended), added_count, skipped_duplicates
     return f"{base}\n" + "\n".join(unique_appended), added_count, skipped_duplicates
+
+
+def _photometry_row_dedup_key(raw_line: str) -> str:
+    line = str(raw_line or "").strip()
+    if not line:
+        return ""
+
+    data_part = line
+    comment_part = ""
+    if "#" in line:
+        data_part, comment_part = line.split("#", 1)
+        data_part = data_part.strip()
+        comment_part = comment_part.strip()
+
+    if data_part:
+        tokens = data_part.split()
+        if len(tokens) >= 5 and _is_photometry_enabled_token(tokens[4]):
+            # Ignore enabled flag (0/1) in dedup comparisons.
+            tokens = tokens[:4] + tokens[5:]
+        data_part = " ".join(tokens)
+
+    if data_part and comment_part:
+        return f"{data_part} # {comment_part}"
+    if data_part:
+        return data_part
+    if comment_part:
+        return f"# {comment_part}"
+    return line
+
+
+def _is_photometry_enabled_token(raw_token: object) -> bool:
+    parsed = parse_float_token(str(raw_token or ""))
+    if parsed is None:
+        return False
+    value = float(parsed)
+    return math.isfinite(value) and (math.isclose(value, 0.0) or math.isclose(value, 1.0))
 
 
 def _checkbox_enabled(raw_value: object) -> bool:
@@ -1595,6 +1638,10 @@ def _vizier_state_query_from_form() -> dict[str, object]:
     radius = str(request.form.get("vizier_radius_arcsec", "")).strip()
     if radius:
         query["vizier_radius_arcsec"] = radius
+
+    table_ids = str(request.form.get("vizier_table_ids", "")).strip()
+    if table_ids:
+        query["vizier_table_ids"] = table_ids
 
     selected_catalogs = normalize_catalog_keys(request.form.getlist("vizier_catalog"))
     if selected_catalogs:
@@ -3462,6 +3509,7 @@ def upload_view(token: str):
 
     vizier_center = str(request.args.get("vizier_center", "")).strip()
     vizier_radius = str(request.args.get("vizier_radius_arcsec", f"{DEFAULT_VIZIER_RADIUS_ARCSEC:g}")).strip()
+    vizier_table_ids = str(request.args.get("vizier_table_ids", "")).strip()
     vizier_selected_catalogs = normalize_catalog_keys(request.args.getlist("vizier_catalog"))
     if not vizier_selected_catalogs:
         vizier_selected_catalogs = list(DEFAULT_VIZIER_CATALOG_KEYS)
@@ -3488,6 +3536,7 @@ def upload_view(token: str):
         photometry_text=photometry_text,
         vizier_center=vizier_center,
         vizier_radius_arcsec=vizier_radius,
+        vizier_table_ids=vizier_table_ids,
         vizier_catalog_options=vizier_catalog_options_payload(),
         vizier_selected_catalogs=vizier_selected_catalogs,
         vizier_all_catalogs=vizier_all_catalogs,
@@ -4346,22 +4395,29 @@ def uploads_append_vizier_photometry(token: str):
 
     include_all_catalogs = _checkbox_enabled(request.form.get("vizier_all_catalogs"))
     selected_catalog_keys = normalize_catalog_keys(request.form.getlist("vizier_catalog"))
-    if not include_all_catalogs and not selected_catalog_keys:
-        return _upload_view_redirect_with_vizier_state(token, error="Select at least one VizieR catalog.")
+    selected_source_ids = parse_source_ids_text(request.form.get("vizier_table_ids"))
+    if not include_all_catalogs and not selected_catalog_keys and not selected_source_ids:
+        return _upload_view_redirect_with_vizier_state(
+            token,
+            error="Select at least one VizieR catalog or specify VizieR table IDs.",
+        )
 
-    provided_table = str(request.form.get("photometry_table", ""))
-    photometry_table = provided_table
-    if not photometry_table.strip():
+    provided_table = request.form.get("photometry_table")
+    if provided_table is None:
         try:
             photometry_table = source_path.read_text(encoding="utf-8", errors="replace")
         except OSError:
             photometry_table = ""
+    else:
+        # Always start from the current textarea content, including an intentionally empty one.
+        photometry_table = str(provided_table)
 
     try:
         points = query_vizier_photometry_points(
             center=center_raw,
             radius_arcsec=radius_arcsec,
             catalog_keys=selected_catalog_keys,
+            source_ids=selected_source_ids,
             include_all_catalogs=include_all_catalogs,
         )
     except Exception as exc:
@@ -4377,17 +4433,18 @@ def uploads_append_vizier_photometry(token: str):
     if not rows_text.strip():
         return _upload_view_redirect_with_vizier_state(token, error="VizieR query returned no usable photometry rows.")
     merged_table, added_rows, skipped_duplicates = _merge_photometry_table_text(photometry_table, rows_text)
-    if added_rows <= 0:
-        return _upload_view_redirect_with_vizier_state(
-            token,
-            message=f"No new rows appended. Skipped {skipped_duplicates} duplicate VizieR row(s).",
-        )
 
     previous_content = ""
     try:
         previous_content = source_path.read_text(encoding="utf-8", errors="replace")
     except OSError:
         previous_content = ""
+
+    if added_rows <= 0 and merged_table == previous_content:
+        return _upload_view_redirect_with_vizier_state(
+            token,
+            message=f"No new rows appended. Skipped {skipped_duplicates} duplicate VizieR row(s).",
+        )
 
     requested_flux_mode = "absolute"
     try:
@@ -4427,9 +4484,12 @@ def uploads_append_vizier_photometry(token: str):
         "updated_at": time.time(),
     }
     write_upload_manifest(upload_root, token, manifest)
-    message = f"Appended {added_rows} VizieR photometry point(s)."
-    if skipped_duplicates > 0:
-        message = f"{message} Skipped {skipped_duplicates} duplicate row(s)."
+    if added_rows > 0:
+        message = f"Appended {added_rows} VizieR photometry point(s)."
+        if skipped_duplicates > 0:
+            message = f"{message} Skipped {skipped_duplicates} duplicate row(s)."
+    else:
+        message = f"Photometry data updated. No new rows appended. Skipped {skipped_duplicates} duplicate VizieR row(s)."
     return _upload_view_redirect_with_vizier_state(
         token,
         message=message,

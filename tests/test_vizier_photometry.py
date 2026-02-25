@@ -41,6 +41,30 @@ def test_build_vizier_query_params_source_selection() -> None:
     assert "-source" not in all_catalogs
 
 
+def test_parse_source_ids_text_splits_and_deduplicates() -> None:
+    parsed = vp.parse_source_ids_text("II/122B/merged, ii/122b/MERGED  J/ApJ/123/456/table1;I/360/syntphot")
+    assert parsed == ["II/122B/merged", "J/ApJ/123/456/table1", "I/360/syntphot"]
+
+
+def test_query_vizier_photometry_points_accepts_manual_source_ids(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def _fake_query(**kwargs):
+        captured.update(kwargs)
+        return []
+
+    monkeypatch.setattr(vp, "_query_vizier_sed_endpoint", _fake_query)
+    points = vp.query_vizier_photometry_points(
+        center="120.5 -20.25",
+        catalog_keys=[],
+        source_ids=["II/122B/merged", "ii/122b/merged"],
+        include_all_catalogs=False,
+    )
+
+    assert points == []
+    assert captured["source_ids"] == ["II/122B/merged"]
+
+
 def test_extract_points_from_sed_table_converts_flux_and_builds_comments() -> None:
     table = Table(
         {

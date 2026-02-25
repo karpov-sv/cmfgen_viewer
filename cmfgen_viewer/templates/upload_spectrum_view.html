@@ -86,6 +86,17 @@
                 >
               </div>
             </div>
+            <div class="mb-2">
+              <label for="vizier-table-ids" class="form-label form-label-sm mb-1">Extra VizieR table IDs (optional)</label>
+              <input
+                id="vizier-table-ids"
+                name="vizier_table_ids"
+                type="text"
+                class="form-control form-control-sm font-monospace"
+                value="{{ vizier_table_ids }}"
+                placeholder="e.g. II/122B/merged, J/ApJ/123/456/table1"
+              >
+            </div>
             <div class="d-flex flex-wrap align-items-center gap-3 mb-2">
               {% for item in vizier_catalog_options %}
                 <div class="form-check form-check-inline me-0">
@@ -130,6 +141,7 @@
               var sortComment = document.getElementById("photometry-sort-comment");
               var vizierCenter = document.getElementById("vizier-center");
               var vizierRadius = document.getElementById("vizier-radius-arcsec");
+              var vizierTableIds = document.getElementById("vizier-table-ids");
               var vizierAppendButton = document.getElementById("photometry-append-vizier");
               if (!table || !sortWavelength || !sortComment) {
                 return;
@@ -161,6 +173,7 @@
 
               bindEnterToVizierAppend(vizierCenter);
               bindEnterToVizierAppend(vizierRadius);
+              bindEnterToVizierAppend(vizierTableIds);
 
               function parseSortableLine(rawLine, originalIndex) {
                 var line = String(rawLine || "");

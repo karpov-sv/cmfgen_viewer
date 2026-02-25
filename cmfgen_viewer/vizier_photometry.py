@@ -42,6 +42,7 @@ DECIMAL_PAIR_RE = re.compile(r"^\s*([+-]?\d+(?:\.\d+)?)\s*[, ]\s*([+-]?\d+(?:\.\
 SEXAGESIMAL_PAIR_RE = re.compile(
     r"^\s*(\d{1,2})[:\s](\d{1,2})[:\s](\d{1,2}(?:\.\d+)?)\s+([+-]?)\s*(\d{1,3})[:\s](\d{1,2})[:\s](\d{1,2}(?:\.\d+)?)\s*$"
 )
+SOURCE_ID_SPLIT_RE = re.compile(r"[\s,;]+")
 
 
 @dataclass(frozen=True)
@@ -281,6 +282,28 @@ def normalize_catalog_keys(raw_keys: Iterable[str]) -> list[str]:
     return resolved
 
 
+def normalize_source_ids(raw_source_ids: Iterable[str]) -> list[str]:
+    seen: set[str] = set()
+    resolved: list[str] = []
+    for raw in raw_source_ids:
+        source_id = str(raw).strip()
+        if not source_id:
+            continue
+        source_key = source_id.lower()
+        if source_key in seen:
+            continue
+        seen.add(source_key)
+        resolved.append(source_id)
+    return resolved
+
+
+def parse_source_ids_text(raw_source_ids: object) -> list[str]:
+    text = str(raw_source_ids or "").strip()
+    if not text:
+        return []
+    return normalize_source_ids(SOURCE_ID_SPLIT_RE.split(text))
+
+
 def normalize_radius_arcsec(raw_radius: object, *, default: float = DEFAULT_VIZIER_RADIUS_ARCSEC) -> float:
     text = str(raw_radius or "").strip()
     if not text:
@@ -343,6 +366,7 @@ def query_vizier_photometry_points(
     center: str,
     radius_arcsec: float = DEFAULT_VIZIER_RADIUS_ARCSEC,
     catalog_keys: Iterable[str] = DEFAULT_CATALOG_KEYS,
+    source_ids: Iterable[str] = (),
     include_all_catalogs: bool = False,
     timeout_seconds: float = DEFAULT_VIZIER_TIMEOUT_SECONDS,
     max_rows: int = DEFAULT_VIZIER_MAX_ROWS,
@@ -350,10 +374,11 @@ def query_vizier_photometry_points(
     center_query = normalize_center_query(center)
     radius = normalize_radius_arcsec(radius_arcsec, default=DEFAULT_VIZIER_RADIUS_ARCSEC)
     selected_catalog_keys = normalize_catalog_keys(catalog_keys)
-    if not include_all_catalogs and not selected_catalog_keys:
-        raise ValueError("At least one catalog must be selected.")
-
     selected_sources = [CATALOG_OPTIONS_BY_KEY[key].source_id for key in selected_catalog_keys]
+    selected_sources.extend(normalize_source_ids(source_ids))
+    selected_sources = normalize_source_ids(selected_sources)
+    if not include_all_catalogs and not selected_sources:
+        raise ValueError("At least one catalog or source ID must be selected.")
 
     try:
         return _query_vizier_sed_endpoint(
