@@ -135,6 +135,7 @@ SPECTRUM_TRANSFORM_DEFAULTS = {
     "broadening_km_s": 0.0,
     "ebv": 0.0,
     "distance_kpc": 1.0,
+    "normalization": 1.0,
 }
 
 GRID_SEARCH_JOB_TTL_SECONDS = 6 * 60 * 60
@@ -148,15 +149,6 @@ GRID_FIT_SOURCE_VALUES = {GRID_FIT_SOURCE_CMFGEN, GRID_FIT_SOURCE_TLUSTY}
 TLUSTY_DEFAULT_ROOT = (Path(__file__).resolve().parent.parent / "data" / "tlusly").resolve()
 TLUSTY_FIT_MAX_MODEL_POINTS = 20000
 DEFAULT_SPECTRUM_LAMBDA_MAX_ANGSTROM = 250000.0
-# TLUSTY grids provide emergent surface flux; use a fixed geometric reference
-# so absolute-mode fitting can reuse the shared distance_kpc scaling.
-# TODO: Verify TLUSTY absolute scaling against model-specific stellar radii
-# (current fallback assumes a 1 R_sun reference at 1 kpc).
-TLUSTY_REFERENCE_RADIUS_CM = 6.957e10
-TLUSTY_REFERENCE_DISTANCE_CM = 3.0856775814913673e21
-TLUSTY_SURFACE_TO_1KPC_SCALE = (
-    TLUSTY_REFERENCE_RADIUS_CM / TLUSTY_REFERENCE_DISTANCE_CM
-) ** 2
 TLUSTY_CONFIDENCE_PARAM_SPECS = (
     {"key": "teff_k", "label": "Teff", "unit": "K", "integer": True},
     {"key": "log_g", "label": "log g", "unit": "", "integer": False},
@@ -505,6 +497,7 @@ def _normalize_transform_params(params: dict[str, object] | None = None) -> dict
     broadening = SPECTRUM_TRANSFORM_DEFAULTS["broadening_km_s"]
     ebv = SPECTRUM_TRANSFORM_DEFAULTS["ebv"]
     distance = SPECTRUM_TRANSFORM_DEFAULTS["distance_kpc"]
+    normalization = SPECTRUM_TRANSFORM_DEFAULTS["normalization"]
     values = params or {}
 
     redshift_raw = _parse_summary_float(values.get("redshift"))
@@ -531,17 +524,29 @@ def _normalize_transform_params(params: dict[str, object] | None = None) -> dict
     if distance_raw is not None and math.isfinite(distance_raw) and distance_raw > 0:
         distance = distance_raw
 
+    normalization_raw = _parse_summary_float(values.get("normalization"))
+    if normalization_raw is not None and math.isfinite(normalization_raw) and normalization_raw > 0:
+        normalization = normalization_raw
+
     return {
         "redshift": redshift,
         "velocity_km_s": redshift * LIGHT_SPEED_KM_PER_S,
         "broadening_km_s": broadening,
         "ebv": ebv,
         "distance_kpc": distance,
+        "normalization": normalization,
     }
 
 
-def _normalize_fit_bounds(params: dict[str, object] | None = None, *, mode: str) -> dict[str, tuple[float, float]]:
+def _normalize_fit_bounds(
+    params: dict[str, object] | None = None,
+    *,
+    mode: str,
+    fit_source: object | None = None,
+) -> dict[str, tuple[float, float]]:
     defaults = spectrum_fit_bounds(mode)
+    if mode == "both" and _normalize_grid_fit_source(fit_source) == GRID_FIT_SOURCE_TLUSTY:
+        defaults.pop("distance_kpc", None)
     values = params or {}
     normalized: dict[str, tuple[float, float]] = {}
     for name, (default_min, default_max) in defaults.items():
@@ -1899,7 +1904,7 @@ def _build_tlusty_model_series(
 
     y_values: object
     if mode == "both":
-        y_values = flux * TLUSTY_SURFACE_TO_1KPC_SCALE
+        y_values = flux
     else:
         normalized_candidate = spectrum_arrays.get("normalized_flux_candidate")
         if normalized_candidate is not None:
@@ -2047,6 +2052,7 @@ def _fit_single_tlusty_candidate(
         initial_params=SPECTRUM_TRANSFORM_DEFAULTS,
         bounds_override=fit_bounds,
         should_cancel=should_cancel,
+        absolute_scale_mode="free",
     )
     if fit_error == FIT_CANCELED_MESSAGE:
         return {"status": "canceled"}
@@ -2108,7 +2114,8 @@ def _fit_single_tlusty_candidate(
                 "redshift": float(best_params.get("redshift", 0.0)),
                 "broadening_km_s": float(best_params.get("broadening_km_s", 0.0)),
                 "ebv": float(best_params.get("ebv", 0.0)),
-                "distance_kpc": float(best_params.get("distance_kpc", 1.0)),
+                "distance_kpc": 1.0,
+                "normalization": float(best_params.get("normalization", 1.0)),
             },
             "tlusty_spectrum_relpath": spectrum_relpath,
             "tlusty_continuum_relpath": continuum_relpath,
@@ -3558,7 +3565,6 @@ def upload_view(token: str):
 
     spectrum_mode = "both" if str(parsed.get("flux_mode", "")).strip().lower() == "absolute" else "normalized"
     transform_params = _normalize_transform_params(request.args.to_dict(flat=True))
-    fit_bounds = _normalize_fit_bounds(request.args.to_dict(flat=True), mode=spectrum_mode)
     fit_wavelength_inputs = {
         "min": str(request.args.get("fit_lambda_min", "")).strip(),
         "max": str(request.args.get("fit_lambda_max", "")).strip(),
@@ -3570,6 +3576,11 @@ def upload_view(token: str):
         model_name_pattern = str(active_job.get("model_name_pattern", "")).strip()
     if isinstance(active_job, dict) and fit_source == GRID_FIT_SOURCE_CMFGEN:
         fit_source = _normalize_grid_fit_source(active_job.get("fit_source", fit_source))
+    fit_bounds = _normalize_fit_bounds(
+        request.args.to_dict(flat=True),
+        mode=spectrum_mode,
+        fit_source=fit_source,
+    )
     if isinstance(active_job, dict):
         active_fit_wavelength_range = _fit_wavelength_range_from_payload(active_job.get("fit_wavelength_range"))
         if active_fit_wavelength_range is not None:
@@ -3697,9 +3708,13 @@ def upload_fit_grid(token: str):
     observed["name"] = str(entry.get("filename", source_path.name))
 
     mode = "both" if str(observed.get("flux_mode", "")).strip().lower() == "absolute" else "normalized"
-    fit_bounds = _normalize_fit_bounds(request.form.to_dict(flat=True), mode=mode)
     model_name_pattern = str(request.form.get("model_name_pattern", "")).strip()
     fit_source = _normalize_grid_fit_source(request.form.get("fit_source"))
+    fit_bounds = _normalize_fit_bounds(
+        request.form.to_dict(flat=True),
+        mode=mode,
+        fit_source=fit_source,
+    )
     fit_source_label = _grid_fit_source_label(fit_source)
 
     active_job = _grid_search_active_job_for_upload(token)
@@ -3911,6 +3926,7 @@ def _build_tlusty_overlay_trace(
         broadening_km_s=fit_params["broadening_km_s"],
         ebv=fit_params["ebv"],
         distance_kpc=fit_params["distance_kpc"],
+        normalization=fit_params.get("normalization", 1.0),
     )
     if transformed is None:
         return None, "Could not transform TLUSTY model spectrum for overlay."
@@ -4062,6 +4078,7 @@ def _build_upload_grid_overlay_trace(
         broadening_km_s=fit_params["broadening_km_s"],
         ebv=fit_params["ebv"],
         distance_kpc=fit_params["distance_kpc"],
+        normalization=fit_params.get("normalization", 1.0),
     )
     if transformed is None:
         return None, "Could not transform model spectrum for overlay."

@@ -1324,25 +1324,36 @@
               class="form-control form-control-sm grid-fit-range-input"
               value="{{ fit_bounds.ebv[1] }}"
             >
-            <label for="grid-fit-distance-min" class="small text-muted mb-0">distance (kpc)</label>
-            <input
-              id="grid-fit-distance-min"
-              name="fit_distance_kpc_min"
-              type="number"
-              min="0.000001"
-              step="any"
-              class="form-control form-control-sm grid-fit-range-input"
-              value="{{ fit_bounds.distance_kpc[0] }}"
+            <span
+              id="grid-fit-distance-fields"
+              class="d-inline-flex flex-wrap align-items-center gap-2{% if fit_source == 'tlusty' %} d-none{% endif %}"
             >
-            <span class="small text-muted">..</span>
-            <input
-              name="fit_distance_kpc_max"
-              type="number"
-              min="0.000001"
-              step="any"
-              class="form-control form-control-sm grid-fit-range-input"
-              value="{{ fit_bounds.distance_kpc[1] }}"
+              <label for="grid-fit-distance-min" class="small text-muted mb-0">distance (kpc)</label>
+              <input
+                id="grid-fit-distance-min"
+                name="fit_distance_kpc_min"
+                type="number"
+                min="0.000001"
+                step="any"
+                class="form-control form-control-sm grid-fit-range-input"
+                value="{{ fit_bounds.distance_kpc[0] if fit_bounds.distance_kpc is defined else '' }}"
+              >
+              <span class="small text-muted">..</span>
+              <input
+                name="fit_distance_kpc_max"
+                type="number"
+                min="0.000001"
+                step="any"
+                class="form-control form-control-sm grid-fit-range-input"
+                value="{{ fit_bounds.distance_kpc[1] if fit_bounds.distance_kpc is defined else '' }}"
+              >
+            </span>
+            <span
+              id="grid-fit-tlusty-scale-note"
+              class="small text-muted{% if fit_source != 'tlusty' %} d-none{% endif %}"
             >
+              TLUSTY absolute fits ignore distance and solve a free normalization per model.
+            </span>
           {% endif %}
           <button
             type="submit"
@@ -1443,6 +1454,8 @@
       var patternInput = document.getElementById("grid-model-pattern");
       var patternMatch = document.getElementById("grid-pattern-match");
       var fitSourceInput = document.getElementById("grid-fit-source");
+      var distanceFields = document.getElementById("grid-fit-distance-fields");
+      var tlustyScaleNote = document.getElementById("grid-fit-tlusty-scale-note");
       var lambdaMinInput = document.getElementById("grid-fit-lambda-min");
       var lambdaMaxInput = document.getElementById("grid-fit-lambda-max");
       var usePlotRangeButton = document.getElementById("grid-fit-use-plot-range");
@@ -1478,6 +1491,17 @@
         return Number(numeric.toFixed(6)).toString();
       }
 
+      function formatNormalization(value) {
+        var numeric = Number(value);
+        if (!Number.isFinite(numeric) || numeric <= 0) {
+          return "";
+        }
+        if (numeric >= 1e4 || numeric < 1e-3) {
+          return numeric.toExponential(4);
+        }
+        return Number(numeric.toFixed(6)).toString();
+      }
+
       function formatVelocityFromRedshift(redshiftValue) {
         var redshift = Number(redshiftValue);
         if (!Number.isFinite(redshift)) {
@@ -1493,6 +1517,17 @@
       function fitSourceFromModel(model) {
         var source = String(model && model.fit_source || "").trim().toLowerCase();
         return source === "tlusty" ? "tlusty" : "cmfgen";
+      }
+
+      function updateFitSourceUi(source) {
+        var normalized = source === "tlusty" ? "tlusty" : "cmfgen";
+        var hideDistance = spectrumMode === "both" && normalized === "tlusty";
+        if (distanceFields) {
+          distanceFields.classList.toggle("d-none", hideDistance);
+        }
+        if (tlustyScaleNote) {
+          tlustyScaleNote.classList.toggle("d-none", !hideDistance);
+        }
       }
 
       function extractTlustyParams(model) {
@@ -1570,6 +1605,27 @@
         }
         if (luminosity) {
           addSummaryLine(container, "Luminosity", luminosity);
+        }
+      }
+
+      function addAbsoluteScaleSummaryLines(container, model, params) {
+        if (!container || spectrumMode !== "both") {
+          return;
+        }
+        var ebvText = formatParam(params && params.ebv);
+        if (ebvText) {
+          addSummaryLine(container, "E(B-V)", ebvText);
+        }
+        if (fitSourceFromModel(model) === "tlusty") {
+          var normalizationText = formatNormalization(params && params.normalization);
+          if (normalizationText) {
+            addSummaryLine(container, "normalization", normalizationText);
+          }
+          return;
+        }
+        var distanceText = formatParam(params && params.distance_kpc);
+        if (distanceText) {
+          addSummaryLine(container, "distance (kpc)", distanceText);
         }
       }
 
@@ -1736,6 +1792,7 @@
           var buttonSource = String(button.getAttribute("data-fit-source") || "").trim().toLowerCase();
           button.classList.toggle("active", buttonSource === normalized);
         }
+        updateFitSourceUi(normalized);
       }
 
       function setSubmitButtonsDisabled(disabled) {
@@ -1774,7 +1831,8 @@
           redshift: asFiniteNumber(fitParams.redshift, 0),
           broadening_km_s: asFiniteNumber(fitParams.broadening_km_s, 0),
           ebv: asFiniteNumber(fitParams.ebv, 0),
-          distance_kpc: asFiniteNumber(fitParams.distance_kpc, 1)
+          distance_kpc: asFiniteNumber(fitParams.distance_kpc, 1),
+          normalization: asFiniteNumber(fitParams.normalization, 1)
         });
       }
 
@@ -2016,10 +2074,7 @@
         addSummaryLine(bestBody, "z", formatParam(params.redshift));
         addSummaryLine(bestBody, "v(z) (km/s)", formatVelocityFromRedshift(params.redshift));
         addSummaryLine(bestBody, "sigma (km/s)", formatParam(params.broadening_km_s));
-        if ("{{ mode }}" === "both") {
-          addSummaryLine(bestBody, "E(B-V)", formatParam(params.ebv));
-          addSummaryLine(bestBody, "distance (kpc)", formatParam(params.distance_kpc));
-        }
+        addAbsoluteScaleSummaryLines(bestBody, best, params);
 
         var linksRow = document.createElement("div");
         linksRow.className = "d-flex flex-wrap gap-2 mt-2";
@@ -2071,10 +2126,7 @@
         addSummaryLine(resultBody, "z", formatParam(params.redshift));
         addSummaryLine(resultBody, "v(z) (km/s)", formatVelocityFromRedshift(params.redshift));
         addSummaryLine(resultBody, "sigma (km/s)", formatParam(params.broadening_km_s));
-        if ("{{ mode }}" === "both") {
-          addSummaryLine(resultBody, "E(B-V)", formatParam(params.ebv));
-          addSummaryLine(resultBody, "distance (kpc)", formatParam(params.distance_kpc));
-        }
+        addAbsoluteScaleSummaryLines(resultBody, best, params);
         renderTlustyConfidenceSummary(resultBody, result, best);
 
         var linksRow = document.createElement("div");

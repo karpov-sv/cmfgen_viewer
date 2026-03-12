@@ -187,3 +187,24 @@ def test_fit_model_to_observed_photometry_chi2_respects_flux_err_weights() -> No
     chi2_tight = float(metrics_tight["chi2"])
     assert chi2_tight > chi2_fallback * 10.0
     assert metrics_tight.get("photometry_flux_err_provided_points") == metrics_tight.get("points")
+
+
+def test_fit_model_to_observed_can_profile_free_absolute_normalization() -> None:
+    continuum, final, observed = _build_absolute_photometry_case(size=9)
+    observed["flux"] = [0.2 * float(value) for value in observed["flux"]]
+
+    params, metrics, error = fs.fit_model_to_observed(
+        continuum,
+        final,
+        observed,
+        mode="both",
+        absolute_scale_mode="free",
+    )
+
+    assert error is None
+    assert isinstance(params, dict)
+    assert isinstance(metrics, dict)
+    assert params["distance_kpc"] == 1.0
+    assert abs(float(params["normalization"]) - 0.2) < 5e-3
+    assert metrics.get("absolute_scale_mode") == "free_normalization"
+    assert metrics.get("fit_param_count") == 4

@@ -61,6 +61,19 @@ def test_transform_fit_and_wavelength_helpers() -> None:
     assert bounds["redshift"] == (-0.01, 0.01)
     assert bounds["distance_kpc"][0] > 0.0
 
+    tlusty_bounds = views._normalize_fit_bounds(
+        {
+            "fit_redshift_min": "0.01",
+            "fit_redshift_max": "-0.01",
+            "fit_distance_kpc_min": "0.1",
+            "fit_distance_kpc_max": "2",
+        },
+        mode="both",
+        fit_source="tlusty",
+    )
+    assert tlusty_bounds["redshift"] == (-0.01, 0.01)
+    assert "distance_kpc" not in tlusty_bounds
+
     fit_range, error = views._normalize_fit_wavelength_range(
         {"fit_lambda_min": "1200", "fit_lambda_max": "5000"},
         configured_min=1000,

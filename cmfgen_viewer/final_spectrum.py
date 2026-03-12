@@ -41,6 +41,12 @@ PHOTOMETRY_ERROR_BAR_COLOR = "rgba(33, 37, 41, 0.45)"
 PHOTOMETRY_ERROR_BAR_THICKNESS = 1.2
 PHOTOMETRY_ERROR_BAR_CAP_WIDTH = 0
 PHOTOMETRY_FIT_FLUX_ERR_FALLBACK_FRACTION = 0.02
+FIT_DIFF_STEPS = {
+    "redshift": 1e-4,
+    "broadening_km_s": 1.0,
+    "ebv": 0.01,
+    "distance_kpc": 0.05,
+}
 
 ABSOLUTE_FIT_BOUNDS = {
     "redshift": (-0.02, 0.02),
@@ -886,6 +892,7 @@ def apply_spectrum_transform(
     broadening_km_s: float,
     ebv: float,
     distance_kpc: float,
+    normalization: float = 1.0,
 ) -> tuple[list[float], list[float]] | None:
     """
     Mirror browser-side transforms used in the final-spectrum view:
@@ -903,6 +910,7 @@ def apply_spectrum_transform(
         broadening_km_s=broadening_km_s,
         ebv=ebv,
         distance_kpc=distance_kpc,
+        normalization=normalization,
     )
     if transformed is None:
         return None
@@ -919,6 +927,7 @@ def _apply_transform_arrays(
     broadening_km_s: float,
     ebv: float,
     distance_kpc: float,
+    normalization: float = 1.0,
 ) -> tuple[Any, Any] | None:
     if np is None:
         return None
@@ -930,12 +939,15 @@ def _apply_transform_arrays(
         return None
     if not math.isfinite(distance_kpc) or distance_kpc <= 0:
         return None
+    if not math.isfinite(normalization):
+        return None
 
     wavelength_scale = 1.0 / (1.0 + redshift)
     transformed_x = wavelength * wavelength_scale
     transformed_y = flux.copy()
 
     if mode == "both":
+        transformed_y = transformed_y * normalization
         transformed_y = transformed_y / (distance_kpc * distance_kpc)
         transformed_y = transformed_y * _reddening_scale(transformed_x, ebv)
 
@@ -1055,11 +1067,13 @@ def fit_model_to_observed(
     initial_params: dict[str, float] | None = None,
     bounds_override: dict[str, tuple[float, float]] | None = None,
     should_cancel: Callable[[], bool] | None = None,
+    absolute_scale_mode: str = "distance",
 ) -> tuple[dict[str, float] | None, dict[str, object] | None, str | None]:
     if np is None or least_squares is None:
         return None, None, "Server-side fitting requires numpy and scipy."
 
     normalized_mode = "both" if mode == "both" else "normalized"
+    use_free_normalization = normalized_mode == "both" and str(absolute_scale_mode).strip().lower() == "free"
     model_series = _build_model_series_for_fit(continuum, final, mode=normalized_mode)
     if model_series is None:
         return None, None, "Model spectrum data could not be prepared for fitting."
@@ -1127,9 +1141,12 @@ def fit_model_to_observed(
         photometry_sigma_fallback_points = int(observed_y.size - photometry_sigma_provided_points)
 
     bounds = _resolve_fit_bounds(normalized_mode, bounds_override)
+    if use_free_normalization:
+        bounds.pop("distance_kpc", None)
     names = list(bounds.keys())
     lower = np.array([bounds[name][0] for name in names], dtype=np.float64)
     upper = np.array([bounds[name][1] for name in names], dtype=np.float64)
+    fit_param_count = len(names) + (1 if use_free_normalization else 0)
 
     initial = dict(initial_params or {})
     default_distance = 1.0
@@ -1137,7 +1154,7 @@ def fit_model_to_observed(
     initial_distance_ok = False
     if isinstance(initial_distance_raw, int | float):
         initial_distance_ok = math.isfinite(float(initial_distance_raw))
-    if normalized_mode == "both" and not initial_distance_ok:
+    if normalized_mode == "both" and not use_free_normalization and not initial_distance_ok:
         model_on_obs = _sample_model_on_observed_grid(model_x, model_y, observed_x, observed_band_width)
         valid_scale = np.isfinite(model_on_obs) & np.isfinite(observed_y) & (model_on_obs > 0) & (observed_y > 0)
         min_scale_points = 4 if is_photometry else 20
@@ -1164,11 +1181,11 @@ def fit_model_to_observed(
             value = min(max(0.05, float(lower[index])), float(upper[index]))
         x0_values.append(value)
     x0 = np.array(x0_values, dtype=np.float64)
-    diff_step = np.array([1e-4, 1.0, 0.01, 0.05], dtype=np.float64) if normalized_mode == "both" else np.array([1e-4, 1.0], dtype=np.float64)
+    diff_step = np.array([FIT_DIFF_STEPS.get(name, 1.0) for name in names], dtype=np.float64)
     name_to_index = {name: index for index, name in enumerate(names)}
 
     if is_photometry:
-        min_valid_points = max(len(names) + 1, int(math.ceil(0.6 * observed_x.size)))
+        min_valid_points = max(fit_param_count + 1, int(math.ceil(0.6 * observed_x.size)))
     else:
         min_valid_points = max(30, int(0.12 * observed_x.size))
     initial_ebv = float(initial.get("ebv", 0.0)) if isinstance(initial.get("ebv"), int | float) else 0.0
@@ -1182,6 +1199,43 @@ def fit_model_to_observed(
     if not math.isfinite(initial_distance) or initial_distance <= 0:
         initial_distance = 1.0
 
+    def solve_free_normalization(
+        model_values: Any,
+        observed_values: Any,
+        sigma_values: Any | None,
+    ) -> float | None:
+        if model_values.size < 1 or observed_values.size < 1 or model_values.size != observed_values.size:
+            return None
+
+        if sigma_values is not None:
+            sigma = np.asarray(sigma_values, dtype=np.float64).reshape(-1)
+            if sigma.size != model_values.size:
+                return None
+            with np.errstate(divide="ignore", invalid="ignore"):
+                weights = 1.0 / np.square(sigma)
+            valid_weights = np.isfinite(weights) & (weights > 0.0)
+            if not np.any(valid_weights):
+                return None
+            numerator = float(np.sum(weights[valid_weights] * model_values[valid_weights] * observed_values[valid_weights]))
+            denominator = float(np.sum(weights[valid_weights] * model_values[valid_weights] * model_values[valid_weights]))
+            if not math.isfinite(denominator) or denominator <= 0.0:
+                return None
+            scale_value = numerator / denominator
+        else:
+            with np.errstate(divide="ignore", invalid="ignore"):
+                log_ratio = np.log(observed_values) - np.log(model_values)
+            finite = np.isfinite(log_ratio)
+            if not np.any(finite):
+                return None
+            mean_log_ratio = float(np.mean(log_ratio[finite]))
+            if not math.isfinite(mean_log_ratio):
+                return None
+            scale_value = math.exp(mean_log_ratio)
+
+        if not math.isfinite(scale_value) or scale_value <= 0.0:
+            return None
+        return float(scale_value)
+
     def check_cancel() -> None:
         if should_cancel and should_cancel():
             raise _FitCanceledError(FIT_CANCELED_MESSAGE)
@@ -1193,7 +1247,17 @@ def fit_model_to_observed(
         ebv: float,
         distance_kpc: float,
         with_valid_count: bool = False,
+        with_normalization: bool = False,
     ) -> Any:
+        def package_output(residual: Any, valid_count: int, normalization_value: float) -> Any:
+            if with_valid_count and with_normalization:
+                return residual, valid_count, normalization_value
+            if with_valid_count:
+                return residual, valid_count
+            if with_normalization:
+                return residual, normalization_value
+            return residual
+
         check_cancel()
         transformed = _apply_transform_arrays(
             model_x,
@@ -1203,10 +1267,11 @@ def fit_model_to_observed(
             broadening_km_s=broadening_km_s,
             ebv=ebv,
             distance_kpc=distance_kpc,
+            normalization=1.0,
         )
         if transformed is None:
             residual = np.full(observed_x.shape, 20.0, dtype=np.float64)
-            return (residual, 0) if with_valid_count else residual
+            return package_output(residual, 0, 1.0)
 
         model_transformed_x, model_transformed_y = transformed
         model_on_obs = _sample_model_on_observed_grid(
@@ -1224,17 +1289,28 @@ def fit_model_to_observed(
         residual = np.full(observed_x.shape, 4.0, dtype=np.float64)
         valid_count = int(np.count_nonzero(valid))
         if valid_count < min_valid_points:
-            return (residual, valid_count) if with_valid_count else residual
+            return package_output(residual, valid_count, 1.0)
 
+        normalization_value = 1.0
         if normalized_mode == "both":
+            effective_model = model_on_obs
+            if use_free_normalization:
+                normalization_value = solve_free_normalization(
+                    model_on_obs[valid],
+                    observed_y[valid],
+                    photometry_sigma[valid] if photometry_sigma is not None else None,
+                ) or 0.0
+                if normalization_value <= 0.0:
+                    return package_output(residual, valid_count, 1.0)
+                effective_model = model_on_obs * normalization_value
             if photometry_sigma is not None:
-                residual[valid] = (model_on_obs[valid] - observed_y[valid]) / photometry_sigma[valid]
+                residual[valid] = (effective_model[valid] - observed_y[valid]) / photometry_sigma[valid]
             else:
-                residual[valid] = np.log10(model_on_obs[valid]) - np.log10(observed_y[valid])
+                residual[valid] = np.log10(effective_model[valid]) - np.log10(observed_y[valid])
         else:
             residual[valid] = ((model_on_obs[valid] - observed_y[valid]) / obs_scale) * norm_weights[valid]
         residual[~valid] = 2.0
-        return (residual, valid_count) if with_valid_count else residual
+        return package_output(residual, valid_count, normalization_value)
 
     def parameter_from_theta(theta: Any, name: str, fallback: float) -> float:
         idx = name_to_index.get(name)
@@ -1266,21 +1342,34 @@ def fit_model_to_observed(
         if broadening_index is not None:
             x0[broadening_index] = min(max(0.0, float(lower[broadening_index])), float(upper[broadening_index]))
 
-        if ebv_index is not None and distance_index is not None:
+        stage1_x0: Any | None = None
+        stage1_lower: Any | None = None
+        stage1_upper: Any | None = None
+        stage1_diff_step: Any | None = None
+
+        def stage1_residual(stage_theta: Any) -> Any:
+            stage_ebv = float(stage_theta[0]) if ebv_index is not None else 0.0
+            stage_distance = 1.0 if use_free_normalization else float(stage_theta[1])
+            return residual_for_params(
+                redshift=0.0,
+                broadening_km_s=0.0,
+                ebv=stage_ebv,
+                distance_kpc=stage_distance,
+                with_valid_count=False,
+            )
+
+        if ebv_index is not None and use_free_normalization:
+            stage1_x0 = np.array([x0[ebv_index]], dtype=np.float64)
+            stage1_lower = np.array([lower[ebv_index]], dtype=np.float64)
+            stage1_upper = np.array([upper[ebv_index]], dtype=np.float64)
+            stage1_diff_step = np.array([diff_step[ebv_index]], dtype=np.float64)
+        elif ebv_index is not None and distance_index is not None:
             stage1_x0 = np.array([x0[ebv_index], x0[distance_index]], dtype=np.float64)
             stage1_lower = np.array([lower[ebv_index], lower[distance_index]], dtype=np.float64)
             stage1_upper = np.array([upper[ebv_index], upper[distance_index]], dtype=np.float64)
             stage1_diff_step = np.array([diff_step[ebv_index], diff_step[distance_index]], dtype=np.float64)
 
-            def stage1_residual(stage_theta: Any) -> Any:
-                return residual_for_params(
-                    redshift=0.0,
-                    broadening_km_s=0.0,
-                    ebv=float(stage_theta[0]),
-                    distance_kpc=float(stage_theta[1]),
-                    with_valid_count=False,
-                )
-
+        if stage1_x0 is not None and stage1_lower is not None and stage1_upper is not None and stage1_diff_step is not None:
             try:
                 stage1_result = least_squares(
                     stage1_residual,
@@ -1297,12 +1386,13 @@ def fit_model_to_observed(
                         redshift=0.0,
                         broadening_km_s=0.0,
                         ebv=float(stage1_result.x[0]),
-                        distance_kpc=float(stage1_result.x[1]),
+                        distance_kpc=1.0 if use_free_normalization else float(stage1_result.x[1]),
                         with_valid_count=True,
                     )
                     if stage1_valid_count >= min_valid_points:
                         x0[ebv_index] = float(stage1_result.x[0])
-                        x0[distance_index] = float(stage1_result.x[1])
+                        if distance_index is not None and not use_free_normalization:
+                            x0[distance_index] = float(stage1_result.x[1])
             except _FitCanceledError:
                 return None, None, FIT_CANCELED_MESSAGE
             except Exception:
@@ -1328,20 +1418,39 @@ def fit_model_to_observed(
         return None, None, "Optimization returned non-finite parameters."
 
     best = result.x
-    final_residual, final_valid_count = residual_vector(best, with_valid_count=True)
+    final_residual, final_valid_count, final_normalization = residual_for_params(
+        redshift=parameter_from_theta(best, "redshift", 0.0),
+        broadening_km_s=parameter_from_theta(best, "broadening_km_s", 0.0),
+        ebv=parameter_from_theta(best, "ebv", initial_ebv),
+        distance_kpc=parameter_from_theta(best, "distance_kpc", initial_distance),
+        with_valid_count=True,
+        with_normalization=True,
+    )
     if final_valid_count < min_valid_points:
         return None, None, "Optimization did not find a usable overlap between model and observed spectra."
 
-    redshift_value = float(best[0])
-    broadening_value = float(best[1])
-    ebv_value = float(best[2]) if normalized_mode == "both" else float(initial.get("ebv", 0.0))
-    distance_value = float(best[3]) if normalized_mode == "both" else float(initial.get("distance_kpc", 1.0))
+    redshift_value = parameter_from_theta(best, "redshift", 0.0)
+    broadening_value = parameter_from_theta(best, "broadening_km_s", 0.0)
+    ebv_fallback = float(initial.get("ebv", 0.0)) if isinstance(initial.get("ebv"), int | float) else 0.0
+    distance_fallback = (
+        float(initial.get("distance_kpc", 1.0))
+        if isinstance(initial.get("distance_kpc"), int | float)
+        else 1.0
+    )
+    ebv_value = parameter_from_theta(best, "ebv", ebv_fallback)
+    distance_value = (
+        1.0
+        if use_free_normalization
+        else parameter_from_theta(best, "distance_kpc", distance_fallback)
+    )
+    normalization_value = float(final_normalization) if use_free_normalization else 1.0
 
     params = {
         "redshift": redshift_value,
         "broadening_km_s": broadening_value,
         "ebv": ebv_value,
         "distance_kpc": distance_value,
+        "normalization": normalization_value,
     }
     metrics = {
         "success": bool(result.success),
@@ -1353,7 +1462,6 @@ def fit_model_to_observed(
         "mode": normalized_mode,
     }
     chi2_value = float(np.sum(final_residual * final_residual))
-    fit_param_count = len(names)
     dof_value = max(1, int(final_valid_count) - int(fit_param_count))
     dof_eff_method = "autocorr_initial_positive_sequence"
     if is_photometry:
@@ -1378,6 +1486,7 @@ def fit_model_to_observed(
     metrics["autocorr_positive_sum"] = float(autocorr_positive_sum)
     metrics["autocorr_positive_lags"] = int(autocorr_lags)
     metrics["fit_param_count"] = int(fit_param_count)
+    metrics["absolute_scale_mode"] = "free_normalization" if use_free_normalization else "distance_kpc"
     if photometry_sigma is not None:
         metrics["chi2_weighting"] = "photometry_flux_err_weighted"
         metrics["photometry_error_weighting"] = "flux_err_or_2pct_fallback"

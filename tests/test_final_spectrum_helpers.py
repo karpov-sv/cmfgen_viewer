@@ -88,6 +88,20 @@ def test_apply_spectrum_transform_and_misc_helpers() -> None:
     assert len(out_x) == 3 and len(out_y) == 3
     assert out_x[0] < 4000.0
 
+    absolute_scaled = fs.apply_spectrum_transform(
+        [4000.0, 5000.0],
+        [1.0, 2.0],
+        mode="both",
+        redshift=0.0,
+        broadening_km_s=0.0,
+        ebv=0.0,
+        distance_kpc=2.0,
+        normalization=8.0,
+    )
+    assert absolute_scaled is not None
+    _, absolute_scaled_y = absolute_scaled
+    assert absolute_scaled_y == [2.0, 4.0]
+
     assert fs.apply_spectrum_transform(
         [5000.0, 6000.0],
         [1.0, 2.0],
