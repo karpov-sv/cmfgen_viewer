@@ -813,17 +813,25 @@ def _collect_quick_links(basepath: str, directory_relpath: str) -> list[dict[str
     return links
 
 
-def _model_root_relpath(relpath: str) -> str | None:
+def _model_root_relpath(relpath: str, basepath: str | None = None) -> str | None:
     parts = [part for part in Path(relpath).parts if part not in ("", ".")]
     for index, part in enumerate(parts):
         lowered = part.lower()
         if lowered.startswith("model") and lowered != "models":
             return "/".join(parts[: index + 1])
+        if basepath is not None:
+            candidate_relpath = "/".join(parts[: index + 1])
+            try:
+                candidate = resolve_path(basepath, candidate_relpath)
+            except (FileNotFoundError, NotADirectoryError):
+                continue
+            if candidate.is_dir() and is_model_context_path(str(candidate)):
+                return candidate_relpath
     return None
 
 
 def _spectrum_link_context(basepath: str, relpath: str) -> dict[str, object] | None:
-    model_root = _model_root_relpath(relpath)
+    model_root = _model_root_relpath(relpath, basepath)
     if not model_root:
         return None
     try:
@@ -963,7 +971,7 @@ def bulk_summarize(path: str):
     if not directory.is_dir():
         abort(404)
 
-    if is_model_context_path(path):
+    if is_model_context_path(str(directory)):
         abort(400)
 
     selected_paths = _collect_rel_paths(request.form.getlist("selected_models"))
@@ -1102,7 +1110,7 @@ def bulk_spectra(path: str):
     if not directory.is_dir():
         abort(404)
 
-    if is_model_context_path(path):
+    if is_model_context_path(str(directory)):
         abort(400)
 
     selected_paths = _collect_rel_paths(request.values.getlist("selected_models"))
@@ -1346,7 +1354,7 @@ def bulk_spectrum_upload(path: str):
         abort(404)
     if not directory.is_dir():
         abort(404)
-    if is_model_context_path(path):
+    if is_model_context_path(str(directory)):
         abort(400)
 
     selected_paths = _collect_rel_paths(request.form.getlist("selected_models"))
@@ -4640,7 +4648,7 @@ def spectrum_upload(path: str):
     if not target.is_dir():
         abort(404)
 
-    model_root = _model_root_relpath(path)
+    model_root = _model_root_relpath(path, basepath)
     if not model_root:
         abort(404)
     model_dir = resolve_path(basepath, model_root)
@@ -4743,7 +4751,7 @@ def spectrum_upload_remove(path: str):
     if not target.is_dir():
         abort(404)
 
-    model_root = _model_root_relpath(path)
+    model_root = _model_root_relpath(path, basepath)
     if not model_root:
         abort(404)
     model_dir = resolve_path(basepath, model_root)
@@ -4794,7 +4802,7 @@ def spectrum_fit(path: str):
     if not target.is_dir():
         abort(404)
 
-    model_root = _model_root_relpath(path)
+    model_root = _model_root_relpath(path, basepath)
     if not model_root:
         abort(404)
     model_dir = resolve_path(basepath, model_root)
@@ -4973,7 +4981,7 @@ def spectrum(path: str):
     if not target.is_dir():
         abort(404)
 
-    model_root = _model_root_relpath(path)
+    model_root = _model_root_relpath(path, basepath)
     if not model_root:
         abort(404)
     model_dir = resolve_path(basepath, model_root)
@@ -5196,6 +5204,7 @@ def view(path: str):
         current_dir_name = target.name.lower()
         current_dir_is_model = current_dir_name.startswith("model") and current_dir_name != "models"
         current_path_in_model = is_model_context_path(path) or is_model_context_path(str(target)) or current_dir_is_model
+        context["show_role_badges"] = current_path_in_model
         model_context = current_path_in_model
         show_symlink_toggle = model_context
         show_symlinks = (not hide_symlink_files) or (not show_symlink_toggle)
@@ -5219,7 +5228,7 @@ def view(path: str):
     if target.is_file():
         details = describe_file(basepath, path)
         parent_path = Path(path).parent.as_posix()
-        context["show_role_badges"] = is_model_context_path(parent_path)
+        context["show_role_badges"] = is_model_context_path(str(target.parent))
         context["quick_links"] = _collect_quick_links(basepath, parent_path)
         context["spectrum_view"] = _spectrum_link_context(basepath, parent_path)
         has_parsed = bool(details.get("parsed"))

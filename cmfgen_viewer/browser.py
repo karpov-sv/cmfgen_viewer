@@ -192,6 +192,11 @@ TEXT_EXTENSIONS = {
 
 MAX_TEXT_PREVIEW_BYTES = 512 * 1024
 
+# MODEL_SPEC identifies the run configuration, while one of these files confirms
+# that the directory is a concrete CMFGEN run rather than a generic input folder.
+MODEL_PRIMARY_MARKERS = {"MODEL_SPEC"}
+MODEL_SECONDARY_MARKERS = {"VADAT", "RVTJ", "MODEL", "IN_ITS"}
+
 
 def resolve_path(basepath: str, relpath: str = "") -> Path:
     base = Path(basepath).expanduser().resolve()
@@ -244,17 +249,39 @@ def _is_in_model_dir(relpath: str) -> bool:
 
 def is_model_context_path(relpath: str) -> bool:
     """
-    Return True when current directory path looks like a concrete model folder
-    (e.g. .../model_Bstar1026[/...]), not a generic collection folder like "models".
+    Return True when the path is in a concrete model folder.
+
+    Keep supporting the conventional ``model*`` directory names, but also detect
+    existing CMFGEN run directories from their characteristic files.  The latter
+    supports run IDs such as ``CMF1770005901JULIKAS3`` and their subdirectories.
     """
     parts = [part.lower() for part in Path(relpath).parts if part not in ("", ".")]
     for part in parts:
         if part.startswith("model") and part != "models":
             return True
+
+    path = Path(relpath).expanduser()
+    if not path.exists():
+        return False
+    if path.is_file():
+        path = path.parent
+
+    for directory in (path, *path.parents):
+        try:
+            names = {entry.name.upper() for entry in directory.iterdir()}
+        except (OSError, NotADirectoryError):
+            continue
+        if MODEL_PRIMARY_MARKERS <= names and MODEL_SECONDARY_MARKERS & names:
+            return True
     return False
 
 
-def classify_cmfgen_role(filename: str, relpath: str = "") -> str:
+def classify_cmfgen_role(
+    filename: str,
+    relpath: str = "",
+    *,
+    model_context: bool = False,
+) -> str:
     name = filename.upper()
     stem = Path(filename).stem.upper()
     suffix = Path(filename).suffix.lower()
@@ -262,7 +289,7 @@ def classify_cmfgen_role(filename: str, relpath: str = "") -> str:
     if stem and stem != name:
         names.add(stem)
 
-    if suffix == ".sh" and _is_in_model_dir(relpath or filename):
+    if suffix == ".sh" and (model_context or _is_in_model_dir(relpath or filename)):
         return "script"
 
     if any(candidate.startswith("CMF_FLUX_PARAM") for candidate in names):
@@ -379,6 +406,7 @@ def list_directory(
         raise NotADirectoryError(str(directory))
 
     entries: list[dict[str, object]] = []
+    model_context = is_model_context_path(str(directory))
     for entry in directory.iterdir():
         if entry.name.startswith(".") and not show_all:
             continue
@@ -403,7 +431,7 @@ def list_directory(
 
         rel = _join_relpath(relpath, entry.name)
         mime = mimetypes.guess_type(entry.name)[0]
-        role = classify_cmfgen_role(entry.name, relpath=rel)
+        role = classify_cmfgen_role(entry.name, relpath=rel, model_context=model_context)
         kind = _classify_kind(entry, mime, role)
         modified_at = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc)
 
@@ -443,7 +471,11 @@ def describe_file(basepath: str, relpath: str) -> dict[str, object]:
 
     stat = target.stat()
     mime = mimetypes.guess_type(target.name)[0]
-    role = classify_cmfgen_role(target.name, relpath=relpath)
+    role = classify_cmfgen_role(
+        target.name,
+        relpath=relpath,
+        model_context=is_model_context_path(str(target.parent)),
+    )
     kind = _classify_kind(target, mime, role)
     modified_at = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc)
 

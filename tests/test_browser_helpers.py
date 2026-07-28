@@ -34,6 +34,38 @@ def test_classify_cmfgen_role_covers_key_categories() -> None:
     assert browser.classify_cmfgen_role("run.sh", relpath="runs/model_x/run.sh") == "script"
 
 
+def test_model_context_detects_cmfgen_markers_without_model_prefix(tmp_path: Path) -> None:
+    model = tmp_path / "CMF1770005901JULIKAS3"
+    model.mkdir()
+    _write_file(model / "MODEL_SPEC", "settings")
+    _write_file(model / "RVTJ", "results")
+    obs = model / "obs"
+    obs.mkdir()
+
+    assert browser.is_model_context_path(str(model))
+    assert browser.is_model_context_path(str(obs))
+
+
+def test_marker_detected_model_assigns_script_role(tmp_path: Path) -> None:
+    model = tmp_path / "CMF1770005901JULIKAS3"
+    model.mkdir()
+    _write_file(model / "MODEL_SPEC", "settings")
+    _write_file(model / "VADAT", "settings")
+    _write_file(model / "batch.sh", "#!/bin/sh")
+
+    entries = browser.list_directory(str(model))
+    batch = next(entry for entry in entries if entry["name"] == "batch.sh")
+    assert batch["cmfgen_role"] == "script"
+
+
+def test_model_context_does_not_accept_model_spec_alone(tmp_path: Path) -> None:
+    candidate = tmp_path / "inputs"
+    candidate.mkdir()
+    _write_file(candidate / "MODEL_SPEC", "settings")
+
+    assert not browser.is_model_context_path(str(candidate))
+
+
 def test_make_breadcrumb_marks_only_last_item_as_current() -> None:
     breadcrumb = browser.make_breadcrumb("models/model_a")
     assert breadcrumb[0] == {"name": "ROOT", "path": ""}

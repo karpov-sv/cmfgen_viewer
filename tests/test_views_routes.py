@@ -18,6 +18,39 @@ def _make_app(tmp_path: Path):
     return app
 
 
+def _write_obs_spectrum(path: Path) -> None:
+    path.write_text(
+        """Continuum Frequencies (3)
+1.0 2.0 3.0
+Observed intensity (Janskys)
+1.0 2.0 3.0
+""",
+        encoding="utf-8",
+    )
+
+
+def test_spectrum_routes_accept_marker_detected_model_name(tmp_path: Path) -> None:
+    model_dir = tmp_path / "CMF1780221445ICG8C4S3"
+    model_dir.mkdir()
+    (model_dir / "MODEL_SPEC").write_text("settings", encoding="utf-8")
+    (model_dir / "VADAT").write_text("settings", encoding="utf-8")
+    obs_dir = model_dir / "obs"
+    obs_dir.mkdir()
+    _write_obs_spectrum(obs_dir / "obs_cont")
+    _write_obs_spectrum(obs_dir / "obs_fin")
+
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    response = client.get(f"/spectrum/{model_dir.name}")
+
+    assert response.status_code == 200
+    assert model_dir.name.encode() in response.data
+    for endpoint in ("spectrum-upload", "spectrum-upload/remove", "spectrum-fit"):
+        response = client.post(f"/{endpoint}/{model_dir.name}", data={})
+        assert response.status_code == 302
+        assert f"/spectrum/{model_dir.name}" in response.headers["Location"]
+
+
 def test_core_routes_index_docs_view_raw_download(tmp_path: Path) -> None:
     model_dir = tmp_path / "model_a"
     model_dir.mkdir()
