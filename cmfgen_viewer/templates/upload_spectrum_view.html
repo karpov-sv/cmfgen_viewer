@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_vizier_photometry_fields.html" import vizier_photometry_fields %}
 
 {% block title %}Uploaded Spectrum - CMFGEN Viewer{% endblock %}
 
@@ -59,70 +60,15 @@
             <p class="small text-muted mb-2">
               Query radius is in arcsec (default 5). Returned points are converted to absolute flux and appended to the table.
             </p>
-            <div class="row g-2 mb-2">
-              <div class="col-sm-8">
-                <label for="vizier-center" class="form-label form-label-sm mb-1">Center (coordinates or object name)</label>
-                <input
-                  id="vizier-center"
-                  name="vizier_center"
-                  type="text"
-                  class="form-control form-control-sm"
-                  value="{{ vizier_center }}"
-                  placeholder="e.g. 10:12:45.3 +12:34:56.7 or HD 12345"
-                >
-              </div>
-              <div class="col-sm-4">
-                <label for="vizier-radius-arcsec" class="form-label form-label-sm mb-1">Radius (arcsec)</label>
-                <input
-                  id="vizier-radius-arcsec"
-                  name="vizier_radius_arcsec"
-                  type="number"
-                  min="0.01"
-                  max="3600"
-                  step="any"
-                  class="form-control form-control-sm"
-                  value="{{ vizier_radius_arcsec }}"
-                  placeholder="5"
-                >
-              </div>
-            </div>
-            <div class="mb-2">
-              <label for="vizier-table-ids" class="form-label form-label-sm mb-1">Extra VizieR table IDs (optional)</label>
-              <input
-                id="vizier-table-ids"
-                name="vizier_table_ids"
-                type="text"
-                class="form-control form-control-sm font-monospace"
-                value="{{ vizier_table_ids }}"
-                placeholder="e.g. II/122B/merged, J/ApJ/123/456/table1"
-              >
-            </div>
-            <div class="d-flex flex-wrap align-items-center gap-3 mb-2">
-              {% for item in vizier_catalog_options %}
-                <div class="form-check form-check-inline me-0">
-                  <input
-                    id="vizier-catalog-{{ item.key }}"
-                    name="vizier_catalog"
-                    type="checkbox"
-                    class="form-check-input"
-                    value="{{ item.key }}"
-                    {% if item.key in vizier_selected_catalogs %}checked{% endif %}
-                  >
-                  <label for="vizier-catalog-{{ item.key }}" class="form-check-label small">{{ item.label }}</label>
-                </div>
-              {% endfor %}
-            </div>
-            <div class="form-check mb-3">
-              <input
-                id="vizier-all-catalogs"
-                name="vizier_all_catalogs"
-                type="checkbox"
-                class="form-check-input"
-                value="1"
-                {% if vizier_all_catalogs %}checked{% endif %}
-              >
-              <label for="vizier-all-catalogs" class="form-check-label small">Query all available VizieR SED catalogs</label>
-            </div>
+            {{ vizier_photometry_fields(
+              "vizier",
+              vizier_center,
+              vizier_radius_arcsec,
+              vizier_table_ids,
+              vizier_catalog_options,
+              vizier_selected_catalogs,
+              vizier_all_catalogs
+            ) }}
             <div class="d-flex flex-wrap align-items-center gap-2">
               <button
                 id="photometry-append-vizier"

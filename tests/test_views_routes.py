@@ -326,6 +326,106 @@ def test_upload_photometry_allows_empty_then_append_from_vizier(tmp_path: Path, 
     assert "Gaia DR3 syntphot BP" in content
 
 
+def test_create_photometry_from_vizier_on_uploads_page(tmp_path: Path, monkeypatch) -> None:
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    upload_root = Path(app.config["CMFGEN_VIEWER"]["upload_root"])
+
+    page = client.get("/uploads/")
+    assert page.status_code == 200
+    assert b"Create Photometry from VizieR" in page.data
+    assert b'/uploads/create-vizier-photometry' in page.data
+
+    captured: dict[str, object] = {}
+    duplicate_point = VizierPhotometryPoint(
+        lambda_eff_a=4810.0,
+        band_width_a=1530.0,
+        flux=1.0e-12,
+        flux_err=1.0e-13,
+        comment="Pan-STARRS g",
+    )
+
+    def _fake_query(**kwargs):
+        captured.update(kwargs)
+        return [
+            duplicate_point,
+            duplicate_point,
+            VizierPhotometryPoint(
+                lambda_eff_a=6218.0,
+                band_width_a=4050.0,
+                flux=8.0e-13,
+                flux_err=6.0e-14,
+                comment="Gaia DR3 syntphot G",
+            ),
+        ]
+
+    monkeypatch.setattr("cmfgen_viewer.upload_views.query_vizier_photometry_points", _fake_query)
+    response = client.post(
+        "/uploads/create-vizier-photometry",
+        data={
+            "photometry_name": "catalog-data.phot",
+            "vizier_center": "12:00:00 +15:00:00",
+            "vizier_radius_arcsec": "7.5",
+            "vizier_table_ids": "II/122B/merged",
+            "vizier_catalog": ["gaia_dr3_syntphot", "panstarrs_dr1"],
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    assert "/uploads/view/" in response.headers["Location"]
+    assert "Created+catalog-data.phot+with+2+VizieR+photometry+point" in response.headers["Location"]
+    assert "Skipped+1+duplicate+row" in response.headers["Location"]
+    assert captured == {
+        "center": "12:00:00 +15:00:00",
+        "radius_arcsec": 7.5,
+        "catalog_keys": ["gaia_dr3_syntphot", "panstarrs_dr1"],
+        "source_ids": ["II/122B/merged"],
+        "include_all_catalogs": False,
+    }
+
+    manifests = list_upload_manifests(upload_root)
+    assert len(manifests) == 1
+    manifest = manifests[0]
+    assert manifest["filename"] == "catalog-data.phot"
+    assert manifest["observation_type"] == "photometry"
+    assert int(manifest["points"]) == 2
+    stored = (upload_root / str(manifest["token"]) / str(manifest["stored_name"])).read_text(encoding="utf-8")
+    assert stored.count("Pan-STARRS g") == 1
+    assert "Gaia DR3 syntphot G" in stored
+
+
+def test_create_photometry_from_vizier_failure_preserves_form_without_bundle(tmp_path: Path) -> None:
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    upload_root = Path(app.config["CMFGEN_VIEWER"]["upload_root"])
+
+    response = client.post(
+        "/uploads/create-vizier-photometry",
+        data={
+            "photometry_name": "keep-this-name.phot",
+            "vizier_center": "",
+            "vizier_radius_arcsec": "9",
+            "vizier_catalog": ["twomass"],
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    query = parse_qs(urlparse(response.headers["Location"]).query)
+    assert query.get("error") == ["VizieR center coordinates are required."]
+    assert query.get("photometry_name") == ["keep-this-name.phot"]
+    assert query.get("vizier_radius_arcsec") == ["9"]
+    assert query.get("vizier_catalog") == ["twomass"]
+    assert query.get("vizier_state") == ["1"]
+    assert list_upload_manifests(upload_root) == []
+
+    redirected_page = client.get(response.headers["Location"])
+    assert redirected_page.status_code == 200
+    assert b'keep-this-name.phot' in redirected_page.data
+    assert b'<details class="card mb-3" open>' in redirected_page.data
+
+
 def test_append_vizier_photometry_route_appends_rows(tmp_path: Path, monkeypatch) -> None:
     app = _make_app(tmp_path)
     client = app.test_client()

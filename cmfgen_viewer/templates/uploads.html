@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_vizier_photometry_fields.html" import vizier_photometry_fields %}
 
 {% block title %}Uploads - CMFGEN Viewer{% endblock %}
 
@@ -59,6 +60,40 @@
             ></textarea>
           </div>
           <button type="submit" class="btn btn-sm btn-outline-primary">Upload Photometry</button>
+        </form>
+      </div>
+    </details>
+
+    <details class="card mb-3" {% if vizier_state %}open{% endif %}>
+      <summary class="card-body py-2" style="cursor: pointer;">
+        <span class="fw-semibold">Create Photometry from VizieR</span>
+      </summary>
+      <div class="card-body border-top">
+        <p class="small text-muted mb-2">
+          Query catalog photometry around coordinates or an object name. Returned measurements are converted to absolute flux and saved as a new photometric dataset.
+        </p>
+        <form method="post" action="{{ url_for('viewer.uploads_create_vizier_photometry') }}">
+          <div class="mb-2">
+            <label for="upload-vizier-name" class="form-label form-label-sm mb-1">Display name</label>
+            <input
+              id="upload-vizier-name"
+              name="photometry_name"
+              type="text"
+              class="form-control form-control-sm"
+              value="{{ vizier_photometry_name }}"
+              placeholder="vizier-photometry.txt"
+            >
+          </div>
+          {{ vizier_photometry_fields(
+            "upload-vizier",
+            vizier_center,
+            vizier_radius_arcsec,
+            vizier_table_ids,
+            vizier_catalog_options,
+            vizier_selected_catalogs,
+            vizier_all_catalogs
+          ) }}
+          <button type="submit" class="btn btn-sm btn-outline-success">Create from VizieR</button>
         </form>
       </div>
     </details>

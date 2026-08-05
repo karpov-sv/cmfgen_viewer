@@ -68,6 +68,24 @@ from .vizier_photometry import (
     vizier_catalog_options_payload,
 )
 
+
+def _vizier_form_context() -> dict[str, object]:
+    selected_catalogs = normalize_catalog_keys(request.args.getlist("vizier_catalog"))
+    has_preserved_state = _checkbox_enabled(request.args.get("vizier_state"))
+    if not selected_catalogs and not has_preserved_state:
+        selected_catalogs = list(DEFAULT_VIZIER_CATALOG_KEYS)
+    return {
+        "vizier_center": str(request.args.get("vizier_center", "")).strip(),
+        "vizier_radius_arcsec": str(
+            request.args.get("vizier_radius_arcsec", f"{DEFAULT_VIZIER_RADIUS_ARCSEC:g}")
+        ).strip(),
+        "vizier_table_ids": str(request.args.get("vizier_table_ids", "")).strip(),
+        "vizier_catalog_options": vizier_catalog_options_payload(),
+        "vizier_selected_catalogs": selected_catalogs,
+        "vizier_all_catalogs": _checkbox_enabled(request.args.get("vizier_all_catalogs")),
+        "vizier_state": has_preserved_state,
+    }
+
 @bp.route("/uploads/")
 def uploads():
     config = _viewer_config()
@@ -85,6 +103,8 @@ def uploads():
         uploads=upload_items,
         message=request.args.get("message", "").strip(),
         error=request.args.get("error", "").strip(),
+        vizier_photometry_name=request.args.get("photometry_name", "").strip(),
+        **_vizier_form_context(),
     )
 
 
@@ -224,14 +244,6 @@ def upload_view(token: str):
             "best_so_far": best_so_far_payload,
         }
 
-    vizier_center = str(request.args.get("vizier_center", "")).strip()
-    vizier_radius = str(request.args.get("vizier_radius_arcsec", f"{DEFAULT_VIZIER_RADIUS_ARCSEC:g}")).strip()
-    vizier_table_ids = str(request.args.get("vizier_table_ids", "")).strip()
-    vizier_selected_catalogs = normalize_catalog_keys(request.args.getlist("vizier_catalog"))
-    if not vizier_selected_catalogs:
-        vizier_selected_catalogs = list(DEFAULT_VIZIER_CATALOG_KEYS)
-    vizier_all_catalogs = _checkbox_enabled(request.args.get("vizier_all_catalogs"))
-
     return render_template(
         "upload_spectrum_view.html",
         upload=display_entry,
@@ -251,13 +263,8 @@ def upload_view(token: str):
         plot_data=plot_data,
         upload_message=upload_message,
         photometry_text=photometry_text,
-        vizier_center=vizier_center,
-        vizier_radius_arcsec=vizier_radius,
-        vizier_table_ids=vizier_table_ids,
-        vizier_catalog_options=vizier_catalog_options_payload(),
-        vizier_selected_catalogs=vizier_selected_catalogs,
-        vizier_all_catalogs=vizier_all_catalogs,
         warnings=warnings,
+        **_vizier_form_context(),
     )
 
 
@@ -893,5 +900,4 @@ def upload_fit_grid_match_count(token: str):
             "total_models": len(model_candidates),
         }
     )
-
 
