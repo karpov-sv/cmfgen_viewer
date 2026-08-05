@@ -323,6 +323,10 @@ a:focus {
     white-space: nowrap;
 }
 
+.system-label-column {
+    width: 15rem;
+}
+
 .doc-content {
     line-height: 1.45;
 }

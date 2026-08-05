@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import math
+from pathlib import Path
 
 from flask import jsonify, url_for
 
+from .cache_jobs import cache_maintenance_running_job_snapshots
 from .grid_jobs import _grid_search_running_job_snapshots
 from .observed_spectrum import is_valid_upload_token, list_upload_manifests
 from .view_common import _grid_fit_source_label, _normalize_grid_fit_source, _upload_root, _viewer_config, bp
@@ -55,6 +57,33 @@ def _grid_fit_background_task(
     }
 
 
+def _cache_maintenance_background_task(snapshot: dict[str, object]) -> dict[str, object]:
+    job_id = str(snapshot.get("job_id", "")).strip()
+    basepath = str(snapshot.get("basepath", "")).strip()
+    processed = int(snapshot.get("processed", 0) or 0)
+    total = int(snapshot.get("total", 0) or 0)
+    progress_percent = 100.0 * processed / total if total > 0 else 0.0
+    if not math.isfinite(progress_percent):
+        progress_percent = 0.0
+    target = Path(basepath).name or basepath or "current model base"
+    return {
+        "id": job_id,
+        "kind": "cache-maintenance",
+        "status": "running",
+        "status_label": "Running",
+        "title": str(snapshot.get("action_label", "Model cache maintenance")),
+        "target": target,
+        "href": url_for("viewer.system_status", job=job_id, _anchor="model-cache"),
+        "return_label": "Return to System",
+        "processed": processed,
+        "total": total,
+        "progress_percent": min(100.0, max(0.0, progress_percent)),
+        "progress_label": f"{processed}/{total} entries" if total > 0 else f"{processed} entries",
+        "current_model": str(snapshot.get("current_entry", "")).strip(),
+        "cancel_requested": False,
+    }
+
+
 @bp.route("/tasks/status")
 def background_tasks_status():
     upload_root = _upload_root(_viewer_config())
@@ -62,10 +91,15 @@ def background_tasks_status():
         str(entry.get("token", "")): str(entry.get("filename", "")).strip()
         for entry in list_upload_manifests(upload_root)
     }
-    tasks = [
+    grid_tasks = [
         _grid_fit_background_task(snapshot, upload_names=upload_names)
         for snapshot in _grid_search_running_job_snapshots()
     ]
+    cache_tasks = [
+        _cache_maintenance_background_task(snapshot)
+        for snapshot in cache_maintenance_running_job_snapshots()
+    ]
+    tasks = grid_tasks + cache_tasks
     response = jsonify({"ok": True, "running_count": len(tasks), "tasks": tasks})
     response.headers["Cache-Control"] = "no-store"
     return response

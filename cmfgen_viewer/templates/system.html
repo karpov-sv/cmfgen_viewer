@@ -1,0 +1,189 @@
+{% extends "base.html" %}
+
+{% block title %}System - CMFGEN Viewer{% endblock %}
+
+{% block body %}
+  <section class="mb-4">
+    <h2 class="h4 mb-3">System</h2>
+    {% if message %}<div class="alert alert-success py-2">{{ message }}</div>{% endif %}
+    {% if error %}<div class="alert alert-danger py-2">{{ error }}</div>{% endif %}
+    {% set cache_job_running = maintenance_job and maintenance_job.status == 'running' %}
+
+    <div class="card mb-4">
+      <div class="card-header fw-semibold">Runtime Configuration</div>
+      <div class="table-responsive">
+        <table class="table table-sm table-striped mb-0">
+          <tbody>
+            {% for label, value in runtime_rows %}
+              <tr><th class="system-label-column">{{ label }}</th><td><code>{{ value }}</code></td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="row g-3 mb-4">
+      <div class="col-lg-6">
+        <div class="card h-100">
+          <div class="card-header fw-semibold">Upload Storage</div>
+          <div class="card-body">
+            <p class="mb-2"><code>{{ upload_root }}</code></p>
+            <p class="small text-muted mb-3">{{ upload_count }} managed upload(s), using {{ upload_size }}.</p>
+            <a class="btn btn-sm btn-outline-primary" href="{{ url_for('viewer.uploads') }}">Manage Uploads</a>
+          </div>
+        </div>
+      </div>
+      <div class="col-lg-6">
+        <div class="card h-100">
+          <div class="card-header fw-semibold">Background Tasks</div>
+          <div class="card-body">
+            <p class="mb-2"><strong>{{ active_task_count }}</strong> active task(s)</p>
+            <p class="small text-muted mb-0">
+              Model fitting: {{ active_grid_jobs }}. Cache maintenance: {{ active_cache_jobs }}.
+              Active tasks also remain available from the status indicator in the navigation bar.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="model-cache" class="card mb-4">
+      <div class="card-header fw-semibold">Model Summary Cache</div>
+      <div class="card-body">
+        <p class="small text-muted mb-2">
+          Current base: <code>{{ current_basepath }}</code> — cached models: <code>{{ current_entry_count }}</code>.
+          Checks compare model paths and the modification times of <code>VADAT</code> and <code>MOD_SUM</code>.
+        </p>
+        <div class="d-flex flex-wrap gap-2 mb-3">
+          <form method="post" action="{{ url_for('viewer.system_cache_maintain') }}">
+            <input type="hidden" name="action" value="check">
+            <button class="btn btn-sm btn-outline-primary" type="submit" {% if cache_job_running %}disabled{% endif %}>Check Current Base</button>
+          </form>
+          <form method="post" action="{{ url_for('viewer.system_cache_maintain') }}">
+            <input type="hidden" name="action" value="refresh_stale">
+            <button class="btn btn-sm btn-outline-success" type="submit" {% if cache_job_running %}disabled{% endif %}>Refresh Stale Entries</button>
+          </form>
+          <form method="post" action="{{ url_for('viewer.system_cache_maintain') }}">
+            <input type="hidden" name="action" value="remove_missing">
+            <button class="btn btn-sm btn-outline-warning" type="submit" {% if cache_job_running %}disabled{% endif %}>Remove Missing Entries</button>
+          </form>
+          {% if current_entry_count %}
+            <form method="post" action="{{ url_for('viewer.system_cache_delete_base') }}" onsubmit="return window.confirm('Clear all cached summaries for the current model base?');">
+              <input type="hidden" name="basepath" value="{{ current_basepath }}">
+              <button class="btn btn-sm btn-outline-danger" type="submit" {% if cache_job_running %}disabled{% endif %}>Clear Current Base</button>
+            </form>
+          {% endif %}
+        </div>
+
+        {% if maintenance_job %}
+          <div
+            id="cache-maintenance-job"
+            class="border rounded p-3 mb-3"
+            data-status="{{ maintenance_job.status }}"
+            data-status-url="{{ url_for('viewer.system_cache_job_status', job_id=maintenance_job.job_id) }}"
+            data-return-url="{{ url_for('viewer.system_status', job=maintenance_job.job_id, _anchor='model-cache') }}"
+          >
+            <div class="d-flex flex-wrap justify-content-between gap-2 mb-2">
+              <strong>{{ maintenance_job.action_label }}</strong>
+              <span class="badge {% if maintenance_job.status == 'completed' %}text-bg-success{% elif maintenance_job.status == 'failed' %}text-bg-danger{% else %}text-bg-primary{% endif %}">
+                {{ maintenance_job.status }}
+              </span>
+            </div>
+            {% if maintenance_job.status == "running" %}
+              <div class="progress mb-2" role="progressbar" aria-valuemin="0" aria-valuemax="100">
+                <div id="cache-maintenance-progress" class="progress-bar progress-bar-striped progress-bar-animated" style="width: {{ maintenance_job.progress_percent }}%">
+                  {{ maintenance_job.progress_percent|round|int }}%
+                </div>
+              </div>
+              <div id="cache-maintenance-detail" class="small text-muted">
+                {{ maintenance_job.phase }}: {{ maintenance_job.processed }}/{{ maintenance_job.total }}
+                {% if maintenance_job.current_entry %}— <code>{{ maintenance_job.current_entry }}</code>{% endif %}
+              </div>
+            {% elif maintenance_job.status == "failed" %}
+              <div class="alert alert-danger py-2 mb-0">{{ maintenance_job.error }}</div>
+            {% elif maintenance_job.result %}
+              {% set result = maintenance_job.result %}
+              {% set counts = result.counts %}
+              <div class="d-flex flex-wrap gap-2 mb-2">
+                <span class="badge text-bg-success">Valid {{ counts.valid|default(0) }}</span>
+                <span class="badge text-bg-warning">Stale {{ counts.stale|default(0) }}</span>
+                <span class="badge text-bg-warning">Path changed {{ counts.path_changed|default(0) }}</span>
+                <span class="badge text-bg-danger">Missing {{ counts.missing|default(0) }}</span>
+                <span class="badge text-bg-danger">Errors {{ counts.error|default(0) }}</span>
+                {% if result.refreshed %}<span class="badge text-bg-primary">Refreshed {{ result.refreshed }}</span>{% endif %}
+                {% if result.removed %}<span class="badge text-bg-secondary">Removed {{ result.removed }}</span>{% endif %}
+                {% if result.failed %}<span class="badge text-bg-danger">Refresh failed {{ result.failed }}</span>{% endif %}
+              </div>
+              {% if result.issues %}
+                <details>
+                  <summary class="small">Show detected issues (up to 50)</summary>
+                  <div class="table-responsive mt-2">
+                    <table class="table table-sm table-striped mb-0">
+                      <thead><tr><th>Model</th><th>Status</th><th>Reason</th></tr></thead>
+                      <tbody>
+                        {% for issue in result.issues %}
+                          <tr><td><code>{{ issue.relpath }}</code></td><td>{{ issue.status }}</td><td>{{ issue.reason }}</td></tr>
+                        {% endfor %}
+                      </tbody>
+                    </table>
+                  </div>
+                </details>
+              {% endif %}
+              {% if result.failures %}
+                <details class="mt-2">
+                  <summary class="small">Show refresh failures (up to 50)</summary>
+                  <div class="table-responsive mt-2">
+                    <table class="table table-sm table-striped mb-0">
+                      <thead><tr><th>Model</th><th>Error</th></tr></thead>
+                      <tbody>
+                        {% for failure in result.failures %}
+                          <tr><td><code>{{ failure.relpath }}</code></td><td>{{ failure.error }}</td></tr>
+                        {% endfor %}
+                      </tbody>
+                    </table>
+                  </div>
+                </details>
+              {% endif %}
+            {% endif %}
+          </div>
+        {% endif %}
+
+        <h3 class="h6 mb-2">Cached Base Directories</h3>
+        <div class="table-responsive mb-3">
+          <table class="table table-sm table-striped align-middle mb-0">
+            <thead><tr><th>Base directory</th><th>Entries</th><th>Last summarized</th><th>Status</th><th>Action</th></tr></thead>
+            <tbody>
+              {% for item in namespaces %}
+                <tr>
+                  <td><code>{{ item.basepath }}</code>{% if item.is_current %} <span class="badge text-bg-primary">current</span>{% endif %}</td>
+                  <td>{{ item.entry_count }}</td>
+                  <td><code>{{ item.last_summarized_at }}</code></td>
+                  <td>{% if item.exists %}<span class="text-success">available</span>{% else %}<span class="text-danger">unavailable</span>{% endif %}</td>
+                  <td>
+                    <form method="post" action="{{ url_for('viewer.system_cache_delete_base') }}" onsubmit="return window.confirm('Remove this cache namespace?');">
+                      <input type="hidden" name="basepath" value="{{ item.basepath }}">
+                      <button class="btn btn-sm btn-outline-danger" type="submit" {% if cache_job_running %}disabled{% endif %}>Remove</button>
+                    </form>
+                  </td>
+                </tr>
+              {% else %}
+                <tr><td colspan="5" class="text-muted">The model summary cache is empty.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% if namespaces %}
+          <div class="d-flex flex-wrap gap-2">
+            <form method="post" action="{{ url_for('viewer.system_cache_delete_unavailable') }}" onsubmit="return window.confirm('Remove all cache namespaces whose base directory is unavailable?');">
+              <button class="btn btn-sm btn-outline-warning" type="submit" {% if cache_job_running %}disabled{% endif %}>Remove Unavailable Bases</button>
+            </form>
+            <form method="post" action="{{ url_for('viewer.system_cache_delete_noncurrent') }}" onsubmit="return window.confirm('Remove every cache namespace except the current model base?');">
+              <button class="btn btn-sm btn-outline-danger" type="submit" {% if cache_job_running %}disabled{% endif %}>Remove All Non-current Bases</button>
+            </form>
+          </div>
+        {% endif %}
+      </div>
+    </div>
+  </section>
+  <script src="{{ url_for('static', filename='system.js') }}"></script>
+{% endblock %}

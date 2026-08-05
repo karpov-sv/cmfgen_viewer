@@ -191,6 +191,10 @@ Flux handling:
 - Parallel upload grid fitting:
   - optional multiprocessing worker pool controlled by `--fit-pool-size` (`0` means auto),
   - sequential fallback remains available when resolved worker count is 1.
+- System and maintenance view:
+  - runtime configuration, upload-storage usage, and active background-task counts,
+  - explicit model-summary cache checks for missing, stale, or retargeted entries,
+  - background refresh/removal actions plus guarded cleanup of current, unavailable, or non-current cache namespaces.
 - Configurable wavelength window for all displayed spectra:
   - `--lambda-min` / `--lambda-max` bounds applied to both model spectra and uploaded overlays.
 - Documentation section with top-nav dropdown populated from `doc/*.md`, rendered as markdown with code highlighting.
@@ -212,6 +216,8 @@ Flux handling:
     browser, model-summary, spectrum, and upload route groups.
   - `grid_views.py`, `grid_jobs.py`, `grid_fitting.py`, `grid_catalog.py`:
     model-grid APIs, job orchestration, numerical fitting, and grid discovery.
+  - `system_views.py`, `cache_jobs.py`, `summary_cache.py`:
+    runtime status, explicit cache maintenance jobs, and cached model-summary storage.
   - `browser.py`: directory/file metadata and role classification.
   - `final_spectrum.py`: CMFGEN final-spectrum parsing, conversion, and plot assembly helpers.
   - `observed_spectrum.py`: uploaded observed-spectrum parsing and upload-manifest lifecycle.

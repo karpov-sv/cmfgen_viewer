@@ -17,16 +17,20 @@
         {% set on_docs = request.path.startswith('/documentation') %}
         {% set on_models = request.path.startswith('/models') %}
         {% set on_uploads = request.path.startswith('/uploads') %}
+        {% set on_system = request.path.startswith('/system') %}
         {% set current_doc_slug = request.view_args.get('slug') if request.endpoint == 'viewer.documentation' and request.view_args else '' %}
         <ul class="navbar-nav ms-auto flex-row gap-2">
           <li class="nav-item">
-            <a class="nav-link {% if not on_docs and not on_models and not on_uploads %}active{% endif %}" href="{{ url_for('viewer.view', path='') }}">Browse</a>
+            <a class="nav-link {% if not on_docs and not on_models and not on_uploads and not on_system %}active{% endif %}" href="{{ url_for('viewer.view', path='') }}">Browse</a>
           </li>
           <li class="nav-item">
             <a class="nav-link {% if on_models %}active{% endif %}" href="{{ url_for('viewer.global_models_summary') }}">Models</a>
           </li>
           <li class="nav-item">
             <a class="nav-link {% if on_uploads %}active{% endif %}" href="{{ url_for('viewer.uploads') }}">Uploads</a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link {% if on_system %}active{% endif %}" href="{{ url_for('viewer.system_status') }}">System</a>
           </li>
           <li
             id="background-task-nav"

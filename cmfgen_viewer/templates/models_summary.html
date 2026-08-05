@@ -24,6 +24,7 @@
       {% if rows %}
         <button type="button" class="btn btn-sm btn-outline-primary" id="summary-copy-btn">Copy as Text</button>
       {% endif %}
+      <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('viewer.system_status', _anchor='model-cache') }}">Cache Maintenance</a>
     </div>
     {% if cache_notice %}
       <p class="small text-muted mb-3"><code>{{ cache_notice }}</code></p>

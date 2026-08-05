@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from cmfgen_viewer.app import create_app
+from cmfgen_viewer.cache_jobs import CACHE_MAINTENANCE_JOBS, CACHE_MAINTENANCE_JOBS_LOCK
 from cmfgen_viewer.observed_spectrum import write_upload_manifest
 from cmfgen_viewer.view_common import GRID_SEARCH_JOBS, GRID_SEARCH_JOBS_LOCK
 
@@ -35,6 +36,8 @@ def test_background_task_status_and_global_navigation(tmp_path: Path) -> None:
 
     with GRID_SEARCH_JOBS_LOCK:
         GRID_SEARCH_JOBS.clear()
+    with CACHE_MAINTENANCE_JOBS_LOCK:
+        CACHE_MAINTENANCE_JOBS.clear()
 
     try:
         empty_response = client.get("/tasks/status")
@@ -78,6 +81,25 @@ def test_background_task_status_and_global_navigation(tmp_path: Path) -> None:
         assert task["current_model"] == "BSTAR2006/BG25000g400v2"
         assert task["href"] == f"/uploads/view/{upload_token}#grid-fit"
 
+        with CACHE_MAINTENANCE_JOBS_LOCK:
+            CACHE_MAINTENANCE_JOBS["cache-job"] = {
+                "job_id": "cache-job",
+                "status": "running",
+                "action_label": "Check model cache",
+                "basepath": str(tmp_path),
+                "processed": 2,
+                "total": 8,
+                "current_entry": "grid/model_a",
+                "created_at": 30.0,
+            }
+        combined = client.get("/tasks/status").get_json()
+        assert combined["running_count"] == 2
+        cache_task = next(item for item in combined["tasks"] if item["id"] == "cache-job")
+        assert cache_task["progress_percent"] == 25.0
+        assert cache_task["progress_label"] == "2/8 entries"
+        assert cache_task["href"] == "/system/?job=cache-job#model-cache"
+        assert cache_task["return_label"] == "Return to System"
+
         uploads_page = client.get("/uploads/")
         assert uploads_page.status_code == 200
         assert b'id="background-task-nav"' in uploads_page.data
@@ -86,3 +108,5 @@ def test_background_task_status_and_global_navigation(tmp_path: Path) -> None:
     finally:
         with GRID_SEARCH_JOBS_LOCK:
             GRID_SEARCH_JOBS.clear()
+        with CACHE_MAINTENANCE_JOBS_LOCK:
+            CACHE_MAINTENANCE_JOBS.clear()
