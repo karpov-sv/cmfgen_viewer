@@ -297,6 +297,28 @@ a:focus {
     overflow: auto;
 }
 
+.background-task-menu {
+    width: min(23rem, calc(100vw - 1rem));
+    max-height: min(70vh, 32rem);
+    overflow-y: auto;
+}
+
+.background-task-item + .background-task-item {
+    margin-top: 0.25rem;
+    border-top: 1px solid #dee2e6;
+}
+
+.background-task-progress {
+    height: 0.4rem;
+}
+
+.background-task-target,
+.background-task-current {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .doc-content {
     line-height: 1.45;
 }

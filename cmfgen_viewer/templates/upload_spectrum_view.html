@@ -1161,7 +1161,7 @@
       </script>
     {% endif %}
 
-    <section class="mb-4">
+    <section id="grid-fit" class="mb-4">
       <h3 class="h5 mb-2">Grid Fit</h3>
       <p class="small text-muted mb-2">
         Run server-side fitting across cached CMFGEN models or TLUSTY grids and select the model with the smallest residual.
@@ -2344,6 +2344,7 @@
             }
 
             activeJobId = "";
+            window.dispatchEvent(new Event("cmfgen:background-tasks-changed"));
             cancelInFlight = false;
             resetBestSoFar();
             setCancelControl(false, false);
@@ -2469,6 +2470,7 @@
             if (!jobId) {
               throw new Error("Grid fit failed: missing job id.");
             }
+            window.dispatchEvent(new Event("cmfgen:background-tasks-changed"));
             var sourceLabel = String(result.payload.fit_source_label || fitSourceLabel);
             if (result.payload.existing_job) {
               setFeedback("A " + sourceLabel + " fit is already running for this upload. Re-attaching to active search.", false);

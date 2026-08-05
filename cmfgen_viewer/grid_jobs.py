@@ -90,6 +90,27 @@ def _grid_search_job_snapshot(job_id: str) -> dict[str, object] | None:
         return copy.deepcopy(job)
 
 
+def _grid_search_running_job_snapshots() -> list[dict[str, object]]:
+    with GRID_SEARCH_JOBS_LOCK:
+        _grid_search_prune_locked(time.time())
+        snapshots: list[dict[str, object]] = []
+        for job_id, job in GRID_SEARCH_JOBS.items():
+            if not isinstance(job, dict) or str(job.get("status", "")) != "running":
+                continue
+            snapshot = copy.deepcopy(job)
+            snapshot["job_id"] = job_id
+            snapshots.append(snapshot)
+
+    def created_at(snapshot: dict[str, object]) -> float:
+        try:
+            return float(snapshot.get("created_at", 0.0))
+        except (TypeError, ValueError):
+            return 0.0
+
+    snapshots.sort(key=created_at, reverse=True)
+    return snapshots
+
+
 def _grid_search_active_job_for_upload(upload_token: str) -> dict[str, object] | None:
     with GRID_SEARCH_JOBS_LOCK:
         latest: tuple[str, dict[str, object]] | None = None
@@ -416,5 +437,4 @@ def _run_upload_grid_search_job(
             finished_at=time.time(),
             error=f"Grid search failed: {exc}",
         )
-
 

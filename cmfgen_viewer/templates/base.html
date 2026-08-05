@@ -28,6 +28,28 @@
           <li class="nav-item">
             <a class="nav-link {% if on_uploads %}active{% endif %}" href="{{ url_for('viewer.uploads') }}">Uploads</a>
           </li>
+          <li
+            id="background-task-nav"
+            class="nav-item dropdown d-none"
+            data-status-url="{{ url_for('viewer.background_tasks_status') }}"
+          >
+            <a
+              id="background-task-toggle"
+              class="nav-link dropdown-toggle"
+              href="#"
+              role="button"
+              data-bs-toggle="dropdown"
+              aria-expanded="false"
+            >
+              <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>
+              Tasks
+              <span id="background-task-count" class="badge rounded-pill text-bg-warning">0</span>
+            </a>
+            <div class="dropdown-menu dropdown-menu-end background-task-menu p-2" aria-labelledby="background-task-toggle">
+              <div id="background-task-list"></div>
+            </div>
+            <span id="background-task-live" class="visually-hidden" aria-live="polite"></span>
+          </li>
           <li class="nav-item dropdown">
             <a
               class="nav-link dropdown-toggle {% if on_docs %}active{% endif %}"
@@ -60,5 +82,6 @@
       {% block body %}{% endblock %}
     </main>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="{{ url_for('static', filename='background_tasks.js') }}"></script>
   </body>
 </html>

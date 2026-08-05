@@ -35,6 +35,7 @@ from . import browser_views as _browser_views  # noqa: E402,F401
 from . import grid_views as _grid_views  # noqa: E402,F401
 from . import model_views as _model_views  # noqa: E402,F401
 from . import spectrum_views as _spectrum_views  # noqa: E402,F401
+from . import task_views as _task_views  # noqa: E402,F401
 
 __all__ = [
     "bp",
