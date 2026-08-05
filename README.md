@@ -195,7 +195,6 @@ Flux handling:
 
 ### Not yet implemented
 
-- Automated test suite.
 - Some CMFGEN output formats still rely on generic/plain text preview instead of dedicated parsers.
 - Generic direct-access/binary readers using `_INFO` sidecars.
 - Cross-file consistency checks and preflight validation workflows.
@@ -222,3 +221,12 @@ Flux handling:
 - Documentation pages are generated from repository markdown; update files in `doc/` to extend in-app docs.
 - Upload grid fitting requires a populated summary cache database (`model_summary_cache.sqlite`), typically produced by the `Summarize` workflow.
 - Optional app-wide HTTP Basic Auth can be enabled from CLI using `--auth-user` and `--auth-password`.
+
+## Validation
+
+Run the automated test suite and bytecode compilation checks from the repository root:
+
+```bash
+python3 -m pytest -q
+python3 -m compileall cmfgen_viewer viewer.py
+```

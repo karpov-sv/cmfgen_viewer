@@ -942,7 +942,9 @@ def _apply_transform_arrays(
     if not math.isfinite(normalization):
         return None
 
-    wavelength_scale = 1.0 / (1.0 + redshift)
+    # Shift rest-frame model wavelengths into the observed frame.  Positive
+    # redshift/velocity must move spectral features to longer wavelengths.
+    wavelength_scale = 1.0 + redshift
     transformed_x = wavelength * wavelength_scale
     transformed_y = flux.copy()
 
@@ -1004,7 +1006,7 @@ def _sample_model_on_observed_grid(
         denominator = hi - lo
         if denominator <= 0.0:
             continue
-        sampled[index] = float(np.trapz(segment_y, segment_x) / denominator)
+        sampled[index] = float(np.trapezoid(segment_y, segment_x) / denominator)
     return sampled
 
 

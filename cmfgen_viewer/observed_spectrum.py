@@ -523,17 +523,22 @@ def _extract_wave_flux_from_fits_data(data: Any, header: Any) -> tuple[Any, Any,
         warnings.append("Flattened 2D FITS data with singleton axis into a 1D spectrum.")
         return wavelength, flux, "fits-2d-singleton", warnings
 
+    # Spectra are commonly stored either as N rows x 2 columns or as
+    # 2 rows x N columns.  Treat the longer dimension as the sample axis;
+    # this also keeps the two-column interpretation for the ambiguous 2x2
+    # case.  Checking columns unconditionally first would make the row branch
+    # unreachable for every useful 2xN array.
+    if array.ndim == 2 and array.shape[0] >= 2 and array.shape[1] > array.shape[0]:
+        wave = array[0, :].astype(np.float64, copy=False)
+        flux = array[1, :].astype(np.float64, copy=False)
+        warnings.append("Using first two rows of 2D FITS data as wavelength and flux.")
+        return wave, flux, "fits-2d-rows", warnings
+
     if array.ndim == 2 and array.shape[1] >= 2:
         wave = array[:, 0].astype(np.float64, copy=False)
         flux = array[:, 1].astype(np.float64, copy=False)
         warnings.append("Using first two columns of 2D FITS data as wavelength and flux.")
         return wave, flux, "fits-2d-columns", warnings
-
-    if array.ndim == 2 and array.shape[0] >= 2:
-        wave = array[0, :].astype(np.float64, copy=False)
-        flux = array[1, :].astype(np.float64, copy=False)
-        warnings.append("Using first two rows of 2D FITS data as wavelength and flux.")
-        return wave, flux, "fits-2d-rows", warnings
 
     raise ValueError(f"Unsupported FITS data shape: {array.shape!r}")
 

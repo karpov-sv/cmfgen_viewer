@@ -7,7 +7,6 @@ from .common import (
     format_number,
     maybe_number,
     normalize_space,
-    parse_float_token,
     parse_numeric_tokens,
 )
 

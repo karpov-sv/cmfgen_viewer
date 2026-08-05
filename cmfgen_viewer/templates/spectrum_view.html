@@ -1038,7 +1038,7 @@
             setTransformHint("Normalized mode applies wavelength shift only; distance and reddening cancel in F/Fc." + broadeningText, false);
           }
 
-          var wavelengthScale = 1 / (1 + redshift);
+          var wavelengthScale = 1 + redshift;
           var distanceScale = 1 / (distanceKpc * distanceKpc);
           var transformedX = [];
           var transformedY = [];

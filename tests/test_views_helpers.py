@@ -4,12 +4,12 @@ from pathlib import Path
 
 from flask import Flask
 
-from cmfgen_viewer import views
+from cmfgen_viewer import documentation, views
 
 
 def test_markdown_and_basic_normalizers() -> None:
     source = "Heading\n1) first\n2) second\n"
-    normalized = views._normalize_markdown_lists(source)
+    normalized = documentation.normalize_markdown_lists(source)
     assert "1. first" in normalized
     assert "\n\n1. first" in normalized
 

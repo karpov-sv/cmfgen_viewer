@@ -90,6 +90,42 @@ def test_parse_uploaded_spectrum_rejects_unsupported_suffix(tmp_path: Path) -> N
         obs.parse_uploaded_spectrum(path)
 
 
+def test_extract_2d_fits_rows_uses_long_dimension_as_samples() -> None:
+    np = pytest.importorskip("numpy")
+    data = np.asarray(
+        [
+            [4000.0, 5000.0, 6000.0, 7000.0],
+            [0.8, 1.0, 1.2, 1.1],
+        ]
+    )
+
+    wavelength, flux, format_name, warnings = obs._extract_wave_flux_from_fits_data(data, {})
+
+    assert wavelength.tolist() == [4000.0, 5000.0, 6000.0, 7000.0]
+    assert flux.tolist() == [0.8, 1.0, 1.2, 1.1]
+    assert format_name == "fits-2d-rows"
+    assert warnings == ["Using first two rows of 2D FITS data as wavelength and flux."]
+
+
+def test_extract_2d_fits_columns_uses_long_dimension_as_samples() -> None:
+    np = pytest.importorskip("numpy")
+    data = np.asarray(
+        [
+            [4000.0, 0.8],
+            [5000.0, 1.0],
+            [6000.0, 1.2],
+            [7000.0, 1.1],
+        ]
+    )
+
+    wavelength, flux, format_name, warnings = obs._extract_wave_flux_from_fits_data(data, {})
+
+    assert wavelength.tolist() == [4000.0, 5000.0, 6000.0, 7000.0]
+    assert flux.tolist() == [0.8, 1.0, 1.2, 1.1]
+    assert format_name == "fits-2d-columns"
+    assert warnings == ["Using first two columns of 2D FITS data as wavelength and flux."]
+
+
 def test_private_helpers_for_enabled_token_bounds_and_flux_mode() -> None:
     assert obs._parse_enabled_token("true") is True
     assert obs._parse_enabled_token("off") is False
