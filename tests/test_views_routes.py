@@ -271,7 +271,7 @@ def test_upload_photometry_allows_empty_then_append_from_vizier(tmp_path: Path, 
             )
         ]
 
-    monkeypatch.setattr("cmfgen_viewer.views.query_vizier_photometry_points", _fake_query)
+    monkeypatch.setattr("cmfgen_viewer.upload_views.query_vizier_photometry_points", _fake_query)
     append_response = client.post(
         f"/uploads/append-vizier-photometry/{token}",
         data={
@@ -327,7 +327,7 @@ def test_append_vizier_photometry_route_appends_rows(tmp_path: Path, monkeypatch
             )
         ]
 
-    monkeypatch.setattr("cmfgen_viewer.views.query_vizier_photometry_points", _fake_query)
+    monkeypatch.setattr("cmfgen_viewer.upload_views.query_vizier_photometry_points", _fake_query)
 
     append_response = client.post(
         f"/uploads/append-vizier-photometry/{token}",
@@ -398,7 +398,7 @@ def test_append_vizier_photometry_uses_current_textarea_state_even_if_empty(tmp_
             )
         ]
 
-    monkeypatch.setattr("cmfgen_viewer.views.query_vizier_photometry_points", _fake_query)
+    monkeypatch.setattr("cmfgen_viewer.upload_views.query_vizier_photometry_points", _fake_query)
 
     append_response = client.post(
         f"/uploads/append-vizier-photometry/{token}",
@@ -492,7 +492,7 @@ def test_append_vizier_photometry_deduplicates_against_disabled_existing_row(tmp
             )
         ]
 
-    monkeypatch.setattr("cmfgen_viewer.views.query_vizier_photometry_points", _fake_query)
+    monkeypatch.setattr("cmfgen_viewer.upload_views.query_vizier_photometry_points", _fake_query)
 
     append_response = client.post(
         f"/uploads/append-vizier-photometry/{token}",
@@ -554,7 +554,7 @@ def test_append_vizier_photometry_accepts_manual_table_ids_only(tmp_path: Path, 
             )
         ]
 
-    monkeypatch.setattr("cmfgen_viewer.views.query_vizier_photometry_points", _fake_query)
+    monkeypatch.setattr("cmfgen_viewer.upload_views.query_vizier_photometry_points", _fake_query)
 
     append_response = client.post(
         f"/uploads/append-vizier-photometry/{token}",
@@ -603,7 +603,7 @@ def test_append_vizier_photometry_skips_fully_duplicate_rows_textually(tmp_path:
     def _fake_query(**_kwargs):
         return [duplicate_point, duplicate_point]
 
-    monkeypatch.setattr("cmfgen_viewer.views.query_vizier_photometry_points", _fake_query)
+    monkeypatch.setattr("cmfgen_viewer.upload_views.query_vizier_photometry_points", _fake_query)
     append_response = client.post(
         f"/uploads/append-vizier-photometry/{token}",
         data={

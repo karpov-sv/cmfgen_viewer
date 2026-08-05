@@ -204,7 +204,12 @@ Flux handling:
 
 - `viewer.py`: executable entry point.
 - `cmfgen_viewer/`:
-  - `app.py`, `cli.py`, `views.py`: app factory, CLI, routing and UI orchestration.
+  - `app.py`, `cli.py`: app factory and CLI configuration.
+  - `views.py`, `view_common.py`: blueprint assembly and shared route helpers.
+  - `browser_views.py`, `model_views.py`, `spectrum_views.py`, `upload_views.py`:
+    browser, model-summary, spectrum, and upload route groups.
+  - `grid_views.py`, `grid_jobs.py`, `grid_fitting.py`, `grid_catalog.py`:
+    model-grid APIs, job orchestration, numerical fitting, and grid discovery.
   - `browser.py`: directory/file metadata and role classification.
   - `final_spectrum.py`: CMFGEN final-spectrum parsing, conversion, and plot assembly helpers.
   - `observed_spectrum.py`: uploaded observed-spectrum parsing and upload-manifest lifecycle.
