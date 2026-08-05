@@ -6,6 +6,7 @@ from urllib.parse import parse_qs, urlparse
 
 from cmfgen_viewer.app import create_app
 from cmfgen_viewer.observed_spectrum import list_upload_manifests, read_upload_manifest, write_upload_manifest
+from cmfgen_viewer.view_common import SUMMARY_COLUMNS
 from cmfgen_viewer.vizier_photometry import VizierPhotometryPoint
 
 
@@ -96,6 +97,35 @@ Velocity
 
     missing_response = client.get("/view/missing")
     assert missing_response.status_code == 404
+
+
+def test_models_summary_exposes_plot_open_and_selection_filter_controls(tmp_path: Path, monkeypatch) -> None:
+    values = [""] * len(SUMMARY_COLUMNS)
+    values[0] = "model_a"
+    values[SUMMARY_COLUMNS.index("LSTAR")] = "100000"
+    values[SUMMARY_COLUMNS.index("T_*")] = "45000"
+    monkeypatch.setattr(
+        "cmfgen_viewer.model_views.list_model_summaries",
+        lambda *_args, **_kwargs: [{"path": "grid/model_a", "values": values}],
+    )
+
+    app = _make_app(tmp_path)
+    response = app.test_client().get("/models/")
+
+    assert response.status_code == 200
+    assert b'id="summary-scatter-plot-selection-clear"' in response.data
+    assert b'data-model-url="/view/grid/model_a"' in response.data
+    assert b'summary_table.js' in response.data
+
+    summary_script = (Path(app.static_folder) / "summary_table.js").read_text(encoding="utf-8")
+    assert 'Plotly.update(scatterPlot, {}, { selections: [] })' in summary_script
+    assert 'Plotly.restyle(scatterPlot, { selectedpoints: [null] }' in summary_script
+    assert 'scatterPlot.on("plotly_doubleclick"' in summary_script
+    assert 'modeBarButtonsToAdd' in summary_script
+    assert 'name: "togglemodelopen"' in summary_script
+    assert 'attr: "meta.modelclick"' in summary_script
+    assert 'val: "on"' in summary_script
+    assert 'meta: { modelclick: openModelOnClick ? "on" : "off" }' in summary_script
 
 
 def test_upload_routes_end_to_end_for_photometry(tmp_path: Path) -> None:

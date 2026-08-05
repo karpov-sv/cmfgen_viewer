@@ -264,6 +264,10 @@ a:focus {
     min-height: 299px;
 }
 
+.summary-plot-open-mode .nsewdrag {
+    cursor: pointer !important;
+}
+
 .plot-resize-handle {
     position: absolute;
     left: -1px;

@@ -23,8 +23,12 @@
     const xScaleSelect = document.getElementById("summary-scatter-plot-xscale");
     const yScaleSelect = document.getElementById("summary-scatter-plot-yscale");
     const plotHint = document.getElementById("summary-scatter-plot-hint");
+    const selectionClearButton = document.getElementById("summary-scatter-plot-selection-clear");
+    const selectionStatus = document.getElementById("summary-scatter-plot-selection-status");
     let currentPlotMode = "generic";
     let currentHrAxisMode = "log_values";
+    let openModelOnClick = false;
+    let selectedEntryIndexes = null;
     let hrOverlayData = null;
     if (hrOverlayDataNode) {
         try {
@@ -50,6 +54,7 @@
             row: row,
             index: index,
             modelKey: (rawValues[0] || "").toLowerCase(),
+            modelUrl: String(row.dataset.modelUrl || "").trim(),
             rawValues: rawValues,
             stringKeys: new Array(columnCount),
             numericKeys: new Array(columnCount),
@@ -192,6 +197,9 @@
         lines.push(headerValues.join(" "));
 
         rowEntries.forEach(function (entry) {
+            if (entry.row.hidden) {
+                return;
+            }
             const values = Array.from(entry.row.cells).map((cell) => {
                 const code = cell.querySelector("code");
                 return normalizeText(code ? code.textContent : cell.textContent);
@@ -394,6 +402,8 @@
             xValues: [],
             yValues: [],
             labels: [],
+            entryIndexes: [],
+            modelUrls: [],
             skippedNonNumeric: 0,
             skippedScale: 0,
         };
@@ -418,6 +428,9 @@
             points.xValues.push(xMapped);
             points.yValues.push(yMapped);
             points.labels.push(String(row.dataset.col0 || "").trim());
+            const entry = row.__summaryEntry;
+            points.entryIndexes.push(entry ? entry.index : -1);
+            points.modelUrls.push(entry ? entry.modelUrl : "");
         });
 
         return points;
@@ -467,7 +480,7 @@
                       return value;
                   };
 
-        const { xValues, yValues, labels, skippedNonNumeric, skippedScale } = readPlotPoints(xColumn, yColumn, {
+        const { xValues, yValues, labels, entryIndexes, modelUrls, skippedNonNumeric, skippedScale } = readPlotPoints(xColumn, yColumn, {
             requirePositive: requirePositive,
             transformX: transformX,
             transformY: transformY,
@@ -483,12 +496,35 @@
                 x: xValues,
                 y: yValues,
                 text: labels,
+                customdata: entryIndexes.map(function (entryIndex, pointIndex) {
+                    return [entryIndex, modelUrls[pointIndex]];
+                }),
+                selectedpoints:
+                    selectedEntryIndexes === null
+                        ? null
+                        : entryIndexes.reduce(function (pointIndexes, entryIndex, pointIndex) {
+                              if (selectedEntryIndexes.has(entryIndex)) {
+                                  pointIndexes.push(pointIndex);
+                              }
+                              return pointIndexes;
+                          }, []),
                 marker: {
                     size: 8,
                     color: "#0d6efd",
                     line: {
                         color: "#084298",
                         width: 0.8,
+                    },
+                },
+                selected: {
+                    marker: {
+                        opacity: 1,
+                        size: 10,
+                    },
+                },
+                unselected: {
+                    marker: {
+                        opacity: 0.25,
                     },
                 },
                 hovertemplate:
@@ -568,6 +604,7 @@
             },
             yaxis: { title: yLabel, type: yScale, automargin: true, zeroline: showZeroLines },
             hovermode: "closest",
+            meta: { modelclick: openModelOnClick ? "on" : "off" },
             showlegend: overlayAdded,
             legend: overlayAdded
                 ? {
@@ -633,9 +670,145 @@
         const config = {
             responsive: true,
             displaylogo: false,
+            modeBarButtonsToAdd: [
+                {
+                    name: "togglemodelopen",
+                    title: "Toggle opening a model when clicking its point",
+                    icon: {
+                        width: 512,
+                        height: 512,
+                        path: "M48 112h176l48 56h192v264H48zM304 232h56v48h48v56h-48v48h-56v-48h-48v-56h48z",
+                    },
+                    attr: "meta.modelclick",
+                    val: "on",
+                    click: function () {
+                        setOpenModelOnClick(!openModelOnClick);
+                    },
+                },
+            ],
         };
 
-        Plotly.react(scatterPlot, plotData, layout, config);
+        const renderResult = Plotly.react(scatterPlot, plotData, layout, config);
+        if (renderResult && typeof renderResult.then === "function") {
+            renderResult.then(function () {
+                bindScatterInteractions();
+            });
+        } else {
+            bindScatterInteractions();
+        }
+    }
+
+    function updateSelectionStatus() {
+        if (selectedEntryIndexes === null) {
+            if (selectionStatus) {
+                selectionStatus.textContent = "All " + rowEntries.length + " models shown";
+            }
+            if (selectionClearButton) {
+                selectionClearButton.disabled = true;
+            }
+            return;
+        }
+        if (selectionStatus) {
+            selectionStatus.textContent =
+                selectedEntryIndexes.size + " of " + rowEntries.length + " models shown from plot selection";
+        }
+        if (selectionClearButton) {
+            selectionClearButton.disabled = false;
+        }
+    }
+
+    function applyPointSelectionFilter(entryIndexes) {
+        selectedEntryIndexes = entryIndexes && entryIndexes.size ? new Set(entryIndexes) : null;
+        rowEntries.forEach(function (entry) {
+            entry.row.hidden = selectedEntryIndexes !== null && !selectedEntryIndexes.has(entry.index);
+        });
+        updateSelectionStatus();
+    }
+
+    function clearPointSelectionFilter() {
+        applyPointSelectionFilter(null);
+        if (!scatterPlot || !scatterPlot.data || !window.Plotly) {
+            return;
+        }
+        const modelTraceIndexes = [];
+        scatterPlot.data.forEach(function (trace, traceIndex) {
+            if (Array.isArray(trace.customdata)) {
+                modelTraceIndexes.push(traceIndex);
+            }
+        });
+        Plotly.update(scatterPlot, {}, { selections: [] });
+        if (modelTraceIndexes.length) {
+            Plotly.restyle(scatterPlot, { selectedpoints: [null] }, modelTraceIndexes);
+        }
+    }
+
+    function customDataFromPoint(point) {
+        const customData = point && point.customdata;
+        if (!Array.isArray(customData) || customData.length < 2) {
+            return null;
+        }
+        const entryIndex = Number(customData[0]);
+        if (!Number.isInteger(entryIndex) || entryIndex < 0) {
+            return null;
+        }
+        return {
+            entryIndex: entryIndex,
+            modelUrl: String(customData[1] || "").trim(),
+        };
+    }
+
+    function bindScatterInteractions() {
+        if (!scatterPlot || scatterPlot.__summaryInteractionsBound || typeof scatterPlot.on !== "function") {
+            return;
+        }
+        scatterPlot.__summaryInteractionsBound = true;
+        scatterPlot.on("plotly_click", function (eventData) {
+            if (!openModelOnClick || !eventData || !Array.isArray(eventData.points)) {
+                return;
+            }
+            const pointData = eventData.points.map(customDataFromPoint).find(function (item) {
+                return item !== null && !!item.modelUrl;
+            });
+            if (!pointData) {
+                return;
+            }
+            const sourceEvent = eventData.event;
+            if (sourceEvent && (sourceEvent.ctrlKey || sourceEvent.metaKey)) {
+                window.open(pointData.modelUrl, "_blank", "noopener");
+                return;
+            }
+            window.location.assign(pointData.modelUrl);
+        });
+        scatterPlot.on("plotly_selected", function (eventData) {
+            if (!eventData || !Array.isArray(eventData.points) || !eventData.points.length) {
+                clearPointSelectionFilter();
+                return;
+            }
+            const selectedIndexes = new Set();
+            eventData.points.forEach(function (point) {
+                const pointData = customDataFromPoint(point);
+                if (pointData) {
+                    selectedIndexes.add(pointData.entryIndex);
+                }
+            });
+            if (selectedIndexes.size) {
+                applyPointSelectionFilter(selectedIndexes);
+            }
+        });
+        scatterPlot.on("plotly_deselect", clearPointSelectionFilter);
+        scatterPlot.on("plotly_doubleclick", function () {
+            window.setTimeout(clearPointSelectionFilter, 0);
+        });
+    }
+
+    function setOpenModelOnClick(enabled) {
+        openModelOnClick = !!enabled;
+        if (scatterPlot) {
+            scatterPlot.classList.toggle("summary-plot-open-mode", openModelOnClick);
+        }
+        if (scatterPlot && scatterPlot.data && window.Plotly) {
+            Plotly.relayout(scatterPlot, { "meta.modelclick": openModelOnClick ? "on" : "off" });
+        }
     }
 
     function setHrAxisMode(mode) {
@@ -682,6 +855,7 @@
 
     if (scatterPlot && xColumnSelect && yColumnSelect && xScaleSelect && yScaleSelect) {
         bindVerticalResize(scatterPlot);
+        updateSelectionStatus();
         setHrAxisMode("log_values");
         setPlotMode("hr");
         xColumnSelect.addEventListener("change", function () {
@@ -720,6 +894,9 @@
             hrOverlayToggle.addEventListener("change", function () {
                 renderSummaryScatter(currentPlotMode);
             });
+        }
+        if (selectionClearButton) {
+            selectionClearButton.addEventListener("click", clearPointSelectionFilter);
         }
     }
 })();

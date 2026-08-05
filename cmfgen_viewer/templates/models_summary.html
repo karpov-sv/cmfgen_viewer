@@ -46,6 +46,8 @@
       {% set summary_x_scale_id = summary_plot_id ~ "-xscale" %}
       {% set summary_y_scale_id = summary_plot_id ~ "-yscale" %}
       {% set summary_hint_id = summary_plot_id ~ "-hint" %}
+      {% set summary_selection_clear_id = summary_plot_id ~ "-selection-clear" %}
+      {% set summary_selection_status_id = summary_plot_id ~ "-selection-status" %}
       {% set summary_defaults = namespace(hr_x=3, hr_y=1, generic_x=3, generic_y=1) %}
       {% for column in columns %}
         {% if column == "T_*" %}
@@ -64,6 +66,10 @@
             <button id="{{ summary_mode_hr_id }}" type="button" class="btn btn-primary">HR Diagram</button>
             <button id="{{ summary_mode_generic_id }}" type="button" class="btn btn-outline-primary">Generic Plotter</button>
           </div>
+          <button id="{{ summary_selection_clear_id }}" type="button" class="btn btn-sm btn-outline-secondary" disabled>
+            Clear Point Filter
+          </button>
+          <span id="{{ summary_selection_status_id }}" class="small text-muted ms-sm-auto"></span>
         </div>
         <div id="{{ summary_mode_hr_info_id }}" class="small text-muted mb-2">
           Preset: <code>LSTAR</code> vs <code>T_*</code>, both logarithmic axes, temperature axis reversed.
@@ -153,6 +159,7 @@
             {% for row in rows %}
               <tr
                 data-entry
+                data-model-url="{{ url_for('viewer.view', path=row['path']) }}"
                 {% for value in row["values"] %}
                   data-col{{ loop.index0 }}="{{ value }}"
                 {% endfor %}
