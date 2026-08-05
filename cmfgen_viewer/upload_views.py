@@ -14,6 +14,8 @@ from .observed_spectrum import (
     is_valid_upload_token,
     list_upload_manifests,
     parse_uploaded_spectrum,
+    read_upload_manifest,
+    remove_all_upload_bundles,
     remove_upload_bundle,
     write_upload_manifest,
 )
@@ -617,7 +619,28 @@ def uploads_delete(token: str):
         abort(404)
     config = _viewer_config()
     upload_root = _upload_root(config)
+    if read_upload_manifest(upload_root, token) is None:
+        abort(404)
     remove_upload_bundle(upload_root, token)
     return redirect(url_for("viewer.uploads", message="Upload removed."))
 
 
+@bp.route("/uploads/delete-all", methods=["POST"])
+def uploads_delete_all():
+    config = _viewer_config()
+    upload_root = _upload_root(config)
+    try:
+        removed, failed = remove_all_upload_bundles(upload_root)
+    except OSError as exc:
+        return redirect(url_for("viewer.uploads", error=f"Could not remove uploads: {exc}"))
+
+    if failed:
+        return redirect(
+            url_for(
+                "viewer.uploads",
+                error=f"Removed {removed} upload(s); {failed} bundle(s) could not be removed.",
+            )
+        )
+    if removed:
+        return redirect(url_for("viewer.uploads", message=f"Removed all {removed} upload(s)."))
+    return redirect(url_for("viewer.uploads", message="No managed uploads to remove."))

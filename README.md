@@ -83,6 +83,7 @@ all = false
 lambda_min = 800
 lambda_max = 250000
 fit_pool_size = 0
+upload_dir = "/path/to/persistent/spectrum-uploads"
 debug = false
 # Optional:
 # secret = "fixed-secret"
@@ -98,6 +99,7 @@ debug = false
 - `--all` show hidden files/directories.
 - `--lambda-min 800` minimum wavelength (Angstroms) used for spectrum parsing/display.
 - `--lambda-max 250000` maximum wavelength (Angstroms) used for spectrum parsing/display (25 um).
+- `--upload-dir <path>` store uploaded-spectrum bundles in a persistent directory instead of the default temporary location.
 - `--fit-pool-size 0` max worker processes for upload grid fitting (`0` = auto/CPU count).
 - `--auth-user <name>` enable HTTP Basic Auth (must be paired with `--auth-password`).
 - `--auth-password <value>` HTTP Basic Auth password (must be paired with `--auth-user`).
@@ -226,6 +228,8 @@ Flux handling:
 - Documentation pages are generated from repository markdown; update files in `doc/` to extend in-app docs.
 - Upload grid fitting requires a populated summary cache database (`model_summary_cache.sqlite`), typically produced by the `Summarize` workflow.
 - Optional app-wide HTTP Basic Auth can be enabled from CLI using `--auth-user` and `--auth-password`.
+- Uploaded spectra can be removed individually or all at once from the Uploads page. “Delete All” only removes valid viewer-managed bundles and leaves unrelated files in the configured upload directory untouched.
+- The upload directory uses the viewer's token/manifest bundle layout; loose spectrum files placed directly in that directory are left untouched and are not automatically imported into the Uploads page.
 
 ## Validation
 

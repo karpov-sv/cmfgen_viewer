@@ -5,7 +5,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from cmfgen_viewer.app import create_app
-from cmfgen_viewer.observed_spectrum import list_upload_manifests, read_upload_manifest
+from cmfgen_viewer.observed_spectrum import list_upload_manifests, read_upload_manifest, write_upload_manifest
 from cmfgen_viewer.vizier_photometry import VizierPhotometryPoint
 
 
@@ -148,6 +148,39 @@ def test_upload_routes_end_to_end_for_photometry(tmp_path: Path) -> None:
     delete_response = client.post(f"/uploads/delete/{token}", follow_redirects=False)
     assert delete_response.status_code == 302
     assert not (upload_root / token).exists()
+
+
+def test_uploads_delete_all_removes_only_managed_bundles(tmp_path: Path) -> None:
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    upload_root = Path(app.config["CMFGEN_VIEWER"]["upload_root"])
+
+    for token in ("Token_2001", "Token_2002"):
+        write_upload_manifest(
+            upload_root,
+            token,
+            {"stored_name": "source.phot", "filename": f"{token}.phot", "created_at": 1.0},
+        )
+        (upload_root / token / "source.phot").write_text("5000 100 1\n", encoding="utf-8")
+
+    unmanaged = upload_root / "Unmanaged_2"
+    unmanaged.mkdir()
+    (unmanaged / "keep.txt").write_text("keep", encoding="utf-8")
+
+    page = client.get("/uploads/")
+    assert page.status_code == 200
+    assert b"Delete All" in page.data
+
+    unmanaged_delete = client.post("/uploads/delete/Unmanaged_2", follow_redirects=False)
+    assert unmanaged_delete.status_code == 404
+    assert unmanaged.is_dir()
+
+    response = client.post("/uploads/delete-all", follow_redirects=False)
+
+    assert response.status_code == 302
+    assert "Removed+all+2+upload(s)." in response.headers["Location"]
+    assert list_upload_manifests(upload_root) == []
+    assert unmanaged.is_dir()
 
 
 def test_update_photometry_allows_clearing_table(tmp_path: Path) -> None:

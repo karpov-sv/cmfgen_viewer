@@ -23,6 +23,8 @@ CONFIG_KEY_ALIASES: dict[str, str] = {
     "lambda_min": "lambda_min",
     "lambda_max": "lambda_max",
     "fit_pool_size": "fit_pool_size",
+    "upload_dir": "upload_root",
+    "upload_root": "upload_root",
     "debug": "debug",
     "secret": "secret",
     "auth_user": "auth_user",
@@ -161,7 +163,7 @@ def _load_config_defaults(config_path: str) -> dict[str, object]:
             normalized_defaults[key] = _parse_int_config_value(key, value)
         elif key in {"lambda_min", "lambda_max"}:
             normalized_defaults[key] = _parse_float_config_value(key, value)
-        elif key in {"basepath", "host", "auth_realm"}:
+        elif key in {"basepath", "host", "auth_realm", "upload_root"}:
             normalized_defaults[key] = str(value)
         elif key in {"secret", "auth_user", "auth_password"}:
             normalized_defaults[key] = None if value is None else str(value)
@@ -217,6 +219,15 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=250000.0,
         help="Maximum wavelength in Angstroms for parsed/displayed spectra (default: 250000, 25 um)",
+    )
+    parser.add_argument(
+        "--upload-dir",
+        dest="upload_root",
+        default=None,
+        help=(
+            "Directory for persistent uploaded-spectrum bundles "
+            "(default: system temporary directory/cmfgen_viewer_uploads)"
+        ),
     )
     parser.add_argument(
         "--fit-pool-size",
@@ -294,6 +305,15 @@ def main(argv: list[str] | None = None) -> None:
     if args.fit_pool_size < 0:
         parser.error("--fit-pool-size must be zero or a positive integer.")
 
+    upload_root: Path | None = None
+    if args.upload_root is not None:
+        upload_root_text = str(args.upload_root).strip()
+        if not upload_root_text:
+            parser.error("--upload-dir must not be empty.")
+        upload_root = Path(upload_root_text).expanduser().resolve()
+        if upload_root.exists() and not upload_root.is_dir():
+            parser.error(f"--upload-dir must point to a directory or a path that can be created: {upload_root}")
+
     auth_user_provided = args.auth_user is not None
     auth_password_provided = args.auth_password is not None
     if auth_user_provided != auth_password_provided:
@@ -314,6 +334,7 @@ def main(argv: list[str] | None = None) -> None:
         show_all=args.show_all,
         lambda_min_angstrom=args.lambda_min,
         lambda_max_angstrom=args.lambda_max,
+        upload_root=str(upload_root) if upload_root is not None else None,
         fit_pool_size_max=args.fit_pool_size,
         secret_key=args.secret,
         auth_username=auth_user,

@@ -63,7 +63,18 @@
       </div>
     </details>
 
-    <p class="small text-muted mb-3">Uploads are global and can be overlaid on any model from the Final Spectrum page.</p>
+    <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+      <p class="small text-muted mb-0">Uploads are global and can be overlaid on any model from the Final Spectrum page.</p>
+      {% if uploads %}
+        <form
+          method="post"
+          action="{{ url_for('viewer.uploads_delete_all') }}"
+          onsubmit="return window.confirm('Remove all viewer-managed uploads from this storage root?');"
+        >
+          <button type="submit" class="btn btn-sm btn-outline-danger">Delete All</button>
+        </form>
+      {% endif %}
+    </div>
 
     <div class="table-responsive">
       <table class="table table-sm table-striped align-middle">

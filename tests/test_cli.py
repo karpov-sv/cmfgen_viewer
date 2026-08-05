@@ -47,6 +47,7 @@ def test_load_config_defaults_from_json(tmp_path: Path) -> None:
                     "lambda_min": "900.0",
                     "lambda_max": 20000,
                     "fit_pool_size": "2",
+                    "upload_dir": "/tmp/spectrum-uploads",
                     "auth_user": "u",
                     "auth_password": "p",
                     "auth_realm": "Realm",
@@ -62,6 +63,7 @@ def test_load_config_defaults_from_json(tmp_path: Path) -> None:
     assert defaults["lambda_min"] == 900.0
     assert defaults["lambda_max"] == 20000.0
     assert defaults["fit_pool_size"] == 2
+    assert defaults["upload_root"] == "/tmp/spectrum-uploads"
     assert defaults["auth_user"] == "u"
     assert defaults["auth_password"] == "p"
     assert defaults["auth_realm"] == "Realm"
@@ -78,6 +80,7 @@ all = false
 lambda_min = 1000.0
 lambda_max = 21000.0
 fit_pool_size = 4
+upload_root = "/tmp/toml-spectrum-uploads"
 debug = true
 """.strip(),
         encoding="utf-8",
@@ -89,6 +92,7 @@ debug = true
     assert defaults["lambda_min"] == 1000.0
     assert defaults["lambda_max"] == 21000.0
     assert defaults["fit_pool_size"] == 4
+    assert defaults["upload_root"] == "/tmp/toml-spectrum-uploads"
     assert defaults["debug"] is True
 
 
@@ -101,6 +105,7 @@ def test_load_config_defaults_rejects_unknown_keys(tmp_path: Path) -> None:
 
 def test_main_invokes_create_app_and_run(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     captured: dict[str, object] = {}
+    upload_root = tmp_path / "persistent-uploads"
 
     class DummyApp:
         def run(self, *, host: str, port: int, debug: bool) -> None:
@@ -126,6 +131,8 @@ def test_main_invokes_create_app_and_run(monkeypatch: pytest.MonkeyPatch, tmp_pa
             "9000",
             "--fit-pool-size",
             "2",
+            "--upload-dir",
+            str(upload_root),
             "--secret",
             "fixed",
             "--auth-user",
@@ -144,6 +151,7 @@ def test_main_invokes_create_app_and_run(monkeypatch: pytest.MonkeyPatch, tmp_pa
     assert create_kwargs["lambda_min_angstrom"] == 1000.0
     assert create_kwargs["lambda_max_angstrom"] == 9000.0
     assert create_kwargs["fit_pool_size_max"] == 2
+    assert create_kwargs["upload_root"] == str(upload_root.resolve())
     assert create_kwargs["auth_username"] == "viewer"
     assert create_kwargs["auth_password"] == "secret"
     assert create_kwargs["auth_realm"] == "Realm"
@@ -159,3 +167,8 @@ def test_main_rejects_invalid_inputs(tmp_path: Path) -> None:
 
     with pytest.raises(SystemExit):
         cli.main(["--dir", str(tmp_path), "--auth-user", "viewer"])
+
+    upload_file = tmp_path / "not-a-directory"
+    upload_file.write_text("x", encoding="utf-8")
+    with pytest.raises(SystemExit):
+        cli.main(["--dir", str(tmp_path), "--upload-dir", str(upload_file)])

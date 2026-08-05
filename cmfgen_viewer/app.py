@@ -14,6 +14,7 @@ def create_app(
     show_all: bool = False,
     lambda_min_angstrom: float = 800.0,
     lambda_max_angstrom: float = 250000.0,
+    upload_root: str | None = None,
     secret_key: str | None = None,
     fit_pool_size_max: int = 0,
     auth_username: str | None = None,
@@ -23,6 +24,12 @@ def create_app(
     """Create Flask app for browsing CMFGEN model outputs."""
     app = Flask(__name__)
     default_summary_cache_db = (Path(__file__).resolve().parent.parent / "model_summary_cache.sqlite").resolve()
+    default_upload_root = (Path(tempfile.gettempdir()) / "cmfgen_viewer_uploads").resolve()
+    configured_upload_root = (
+        Path(upload_root).expanduser().resolve()
+        if isinstance(upload_root, str) and upload_root.strip()
+        else default_upload_root
+    )
     auth_user = auth_username if isinstance(auth_username, str) else ""
     auth_pass = auth_password if isinstance(auth_password, str) else ""
     auth_enabled = bool(auth_user and auth_pass)
@@ -34,7 +41,7 @@ def create_app(
         "lambda_min_angstrom": float(lambda_min_angstrom),
         "lambda_max_angstrom": float(lambda_max_angstrom),
         "fit_pool_size_max": max(0, int(fit_pool_size_max)),
-        "upload_root": str((Path(tempfile.gettempdir()) / "cmfgen_viewer_uploads").resolve()),
+        "upload_root": str(configured_upload_root),
         "summary_cache_db": str(default_summary_cache_db),
         "auth_enabled": auth_enabled,
         "auth_realm": auth_realm_text,

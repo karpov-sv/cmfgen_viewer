@@ -12,6 +12,7 @@ def _basic_auth_header(username: str, password: str) -> dict[str, str]:
 
 
 def test_create_app_sets_expected_config_values(tmp_path: Path) -> None:
+    upload_root = tmp_path / "persistent-uploads"
     app = create_app(
         basepath=str(tmp_path),
         show_all=True,
@@ -19,6 +20,7 @@ def test_create_app_sets_expected_config_values(tmp_path: Path) -> None:
         lambda_max_angstrom=9000.0,
         secret_key="fixed-secret",
         fit_pool_size_max=-4,
+        upload_root=str(upload_root),
     )
     cfg = app.config["CMFGEN_VIEWER"]
     assert cfg["basepath"] == str(tmp_path.resolve())
@@ -26,6 +28,7 @@ def test_create_app_sets_expected_config_values(tmp_path: Path) -> None:
     assert cfg["lambda_min_angstrom"] == 1000.0
     assert cfg["lambda_max_angstrom"] == 9000.0
     assert cfg["fit_pool_size_max"] == 0
+    assert cfg["upload_root"] == str(upload_root.resolve())
     assert app.secret_key == "fixed-secret"
 
 

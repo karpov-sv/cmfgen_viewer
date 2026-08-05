@@ -27,6 +27,7 @@ from .observed_spectrum import (
     is_valid_upload_token,
     list_upload_manifests,
     parse_uploaded_spectrum,
+    read_upload_manifest,
     remove_upload_bundle,
     write_upload_manifest,
 )
@@ -188,7 +189,7 @@ def spectrum_upload_remove(path: str):
 
     token = request.form.get("token", "").strip() or request.form.get("obs", "").strip()
     upload_root = _upload_root(config)
-    if is_valid_upload_token(token):
+    if is_valid_upload_token(token) and read_upload_manifest(upload_root, token) is not None:
         remove_upload_bundle(upload_root, token)
 
     remaining = _collect_obs_tokens(request.form.getlist("obs"))
@@ -588,5 +589,4 @@ def spectrum(path: str):
         transform_params=transform_params,
         **context,
     )
-
 

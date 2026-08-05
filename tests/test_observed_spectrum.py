@@ -43,6 +43,24 @@ def test_cleanup_upload_root_removes_expired_entries(tmp_path: Path) -> None:
     assert (tmp_path / new_token).exists()
 
 
+def test_remove_all_upload_bundles_preserves_unmanaged_entries(tmp_path: Path) -> None:
+    for token in ("Token_1001", "Token_1002"):
+        obs.write_upload_manifest(tmp_path, token, {"stored_name": "source.phot", "created_at": time.time()})
+        (tmp_path / token / "source.phot").write_text("5000 100 1\n", encoding="utf-8")
+
+    unmanaged_dir = tmp_path / "Unmanaged_1"
+    unmanaged_dir.mkdir()
+    (unmanaged_dir / "spectrum.fits").write_text("keep", encoding="utf-8")
+    unrelated_file = tmp_path / "notes.txt"
+    unrelated_file.write_text("keep", encoding="utf-8")
+
+    removed, failed = obs.remove_all_upload_bundles(tmp_path)
+
+    assert (removed, failed) == (2, 0)
+    assert unmanaged_dir.is_dir()
+    assert unrelated_file.is_file()
+
+
 def test_parse_uploaded_spectrum_photometry_mode_and_filters(tmp_path: Path) -> None:
     path = tmp_path / "upload.phot"
     path.write_text(

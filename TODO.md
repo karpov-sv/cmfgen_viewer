@@ -5,10 +5,10 @@
 - Add a configurable upload-size limit and reject oversized requests before
   saving or parsing them. FITS parsing should also have an explicit resource
   budget appropriate for in-memory Astropy/NumPy processing.
-- Replace the shared `/tmp/cmfgen_viewer_uploads` default with an
-  instance-specific upload namespace so separately configured viewer
-  processes do not list or access each other's uploads. Create upload
-  directories with restrictive permissions.
+- Consider replacing the shared `/tmp/cmfgen_viewer_uploads` default with an
+  instance-specific namespace. A persistent location can now be selected with
+  `--upload-dir`, but viewer processes using the same configured directory
+  intentionally share its managed uploads.
 - Wire the existing upload TTL cleanup into application startup or a bounded
   periodic maintenance path so expired upload bundles do not accumulate.
 

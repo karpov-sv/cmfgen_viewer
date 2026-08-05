@@ -87,6 +87,23 @@ def remove_upload_bundle(upload_root: Path, token: str) -> None:
     shutil.rmtree(upload_root / token, ignore_errors=True)
 
 
+def remove_all_upload_bundles(upload_root: Path) -> tuple[int, int]:
+    """Remove viewer-managed upload bundles, leaving unrelated entries intact."""
+    removed = 0
+    failed = 0
+    for item in list_upload_manifests(upload_root):
+        token = str(item.get("token", ""))
+        if not is_valid_upload_token(token):
+            continue
+        bundle_path = upload_root / token
+        remove_upload_bundle(upload_root, token)
+        if bundle_path.exists():
+            failed += 1
+        else:
+            removed += 1
+    return removed, failed
+
+
 def list_upload_manifests(upload_root: Path) -> list[dict[str, Any]]:
     upload_root.mkdir(parents=True, exist_ok=True)
     items: list[dict[str, Any]] = []
