@@ -25,7 +25,7 @@ This project provides a practical local web UI for inspecting CMFGEN model folde
 ### Out of scope (current)
 
 - Running CMFGEN/CMF_FLUX jobs.
-- Arbitrary editing of model files from the UI beyond controlled model creation workflows.
+- Arbitrary editing of model files from the UI beyond controlled model creation and rename workflows.
 - Full binary/direct-access file decoding for all `_INFO`/direct-access artifacts.
 - Auth/multi-user deployment hardening.
 
@@ -202,7 +202,9 @@ Flux handling:
   - startup-gated model-directory write access (`--read-write`, disabled by default),
   - preview-first creation of a fresh non-SN model from an existing solution using the CMFGEN
     `GAMMAS → GAMMAS_IN` and `*OUT → *_IN` staging conventions,
-  - transactional copy into a new destination without merging, overwriting, or carrying restart/diagnostic files.
+  - transactional copy into a new destination without merging, overwriting, or carrying restart/diagnostic files,
+  - collision-safe model renaming or moving within the configured root, including cross-filesystem moves,
+    with matching summary-cache relocation.
 - Configurable wavelength window for all displayed spectra:
   - `--lambda-min` / `--lambda-max` bounds applied to both model spectra and uploaded overlays.
 - Documentation section with top-nav dropdown populated from `doc/*.md`, rendered as markdown with code highlighting.

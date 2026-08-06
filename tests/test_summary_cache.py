@@ -12,6 +12,7 @@ from cmfgen_viewer.summary_cache import (
     inspect_model_summary_entry,
     list_model_summaries,
     list_model_summary_namespaces,
+    relocate_model_summary_entry,
     upsert_model_summary,
 )
 
@@ -71,6 +72,58 @@ def test_summary_cache_inspects_one_entry_or_reports_absent(tmp_path: Path) -> N
         basepath=str(base),
         relpath="model_A",
     )["status"] == "valid"
+
+
+def test_summary_cache_relocates_entry_and_replaces_stale_destination(tmp_path: Path) -> None:
+    db_path = tmp_path / "cache.sqlite"
+    base = tmp_path / "models"
+    source = base / "model_old"
+    source.mkdir(parents=True)
+    (source / "VADAT").write_text("1 [LSTAR]\n", encoding="utf-8")
+    (source / "MOD_SUM").write_text("summary\n", encoding="utf-8")
+    upsert_model_summary(
+        str(db_path),
+        basepath=str(base),
+        relpath="model_old",
+        model_dir=source,
+        model_name="model_old",
+        values=["model_old", "1"],
+        vadat_mtime=(source / "VADAT").stat().st_mtime,
+        mod_sum_mtime=(source / "MOD_SUM").stat().st_mtime,
+    )
+    upsert_model_summary(
+        str(db_path),
+        basepath=str(base),
+        relpath="model_new",
+        model_dir=tmp_path / "stale-model",
+        model_name="stale-model",
+        values=["stale-model", "2"],
+        vadat_mtime=1.0,
+        mod_sum_mtime=2.0,
+    )
+
+    destination = base / "model_new"
+    source.rename(destination)
+    status = relocate_model_summary_entry(
+        str(db_path),
+        basepath=str(base),
+        source_relpath="model_old",
+        destination_relpath="model_new",
+        model_dir=destination,
+        model_name="model_new",
+    )
+
+    assert status == "relocated"
+    assert inspect_model_summary_entry(
+        str(db_path), basepath=str(base), relpath="model_old"
+    )["status"] == "absent"
+    assert inspect_model_summary_entry(
+        str(db_path), basepath=str(base), relpath="model_new"
+    )["status"] == "valid"
+    rows = list_model_summaries(str(db_path), basepath=str(base), expected_columns=2)
+    assert len(rows) == 1
+    assert rows[0]["path"] == "model_new"
+    assert rows[0]["values"][0] == "model_new"
 
 
 def test_summary_cache_skips_invalid_payload_rows(tmp_path: Path) -> None:

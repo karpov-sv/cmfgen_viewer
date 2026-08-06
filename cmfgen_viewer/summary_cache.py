@@ -366,6 +366,77 @@ def delete_model_summary_entries(db_path: str, *, basepath: str, relpaths: list[
     return int(deleted)
 
 
+def relocate_model_summary_entry(
+    db_path: str,
+    *,
+    basepath: str,
+    source_relpath: str,
+    destination_relpath: str,
+    model_dir: Path,
+    model_name: str,
+) -> str:
+    """Move one cache entry to a renamed model path, replacing stale destination state."""
+    source_relpath = str(source_relpath).strip().strip("/")
+    destination_relpath = str(destination_relpath).strip().strip("/")
+    if not source_relpath or not destination_relpath:
+        raise ValueError("Source and destination cache paths are required.")
+
+    with _connect(db_path) as connection:
+        source = connection.execute(
+            """
+            SELECT summary_json
+            FROM model_summary_cache
+            WHERE basepath = ? AND relpath = ?
+            """,
+            (str(basepath), source_relpath),
+        ).fetchone()
+        connection.execute(
+            "DELETE FROM model_summary_cache WHERE basepath = ? AND relpath = ?",
+            (str(basepath), destination_relpath),
+        )
+        if source is None:
+            connection.commit()
+            return "absent"
+
+        try:
+            values = json.loads(str(source["summary_json"]))
+        except json.JSONDecodeError:
+            values = None
+        if not isinstance(values, list):
+            connection.execute(
+                "DELETE FROM model_summary_cache WHERE basepath = ? AND relpath = ?",
+                (str(basepath), source_relpath),
+            )
+            connection.commit()
+            return "invalidated"
+        if values:
+            values[0] = str(model_name)
+        else:
+            values.append(str(model_name))
+
+        connection.execute(
+            """
+            UPDATE model_summary_cache
+            SET
+                model_key = ?,
+                relpath = ?,
+                model_name = ?,
+                summary_json = ?
+            WHERE basepath = ? AND relpath = ?
+            """,
+            (
+                str(model_dir.expanduser().resolve()),
+                destination_relpath,
+                str(model_name),
+                json.dumps([str(value) for value in values], separators=(",", ":")),
+                str(basepath),
+                source_relpath,
+            ),
+        )
+        connection.commit()
+    return "relocated"
+
+
 def delete_model_summary_namespace(db_path: str, *, basepath: str) -> int:
     with _connect(db_path) as connection:
         cursor = connection.execute("DELETE FROM model_summary_cache WHERE basepath = ?", (str(basepath),))

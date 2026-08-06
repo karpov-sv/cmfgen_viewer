@@ -169,8 +169,10 @@ def view(path: str):
         context["enable_multi_model_ops"] = not current_path_in_model
         context["model_create_source"] = path if concrete_model_root else ""
         context["model_create_supported"] = concrete_model_root and not is_sn_model_directory(target)
+        context["model_rename_source"] = path if concrete_model_root else ""
         context["read_write_enabled"] = bool(config.get("read_write_enabled", False))
         context["model_created"] = request.args.get("created", "").strip() == "1"
+        context["model_renamed"] = request.args.get("renamed", "").strip() == "1"
         try:
             context["model_cache_status"] = _cache_model_summary_on_visit(
                 config=config,

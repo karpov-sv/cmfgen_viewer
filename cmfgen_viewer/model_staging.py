@@ -32,7 +32,7 @@ MODEL_CREATE_SN_MARKERS = {
     "OLD_MODEL_DATA",
     "NUC_DECAY_DATA",
 }
-MODEL_CREATE_LOCK = Lock()
+MODEL_WRITE_LOCK = Lock()
 
 
 class ModelStagingError(ValueError):
@@ -204,7 +204,7 @@ def create_model_from_solution(
     source_relpath: str,
     destination_relpath: str,
 ) -> dict[str, object]:
-    with MODEL_CREATE_LOCK:
+    with MODEL_WRITE_LOCK:
         plan = plan_model_from_solution(
             basepath,
             source_relpath=source_relpath,
@@ -244,3 +244,39 @@ def create_model_from_solution(
             if staging_path is not None and staging_path.exists():
                 shutil.rmtree(staging_path)
         return plan
+
+
+def rename_model_directory(
+    basepath: str,
+    *,
+    source_relpath: str,
+    destination_relpath: str,
+) -> dict[str, str]:
+    """Atomically rename or move a model directory within the configured root."""
+    normalized_source = _normalize_relpath(source_relpath, label="Source model path")
+
+    with MODEL_WRITE_LOCK:
+        try:
+            source = resolve_path(basepath, normalized_source)
+        except FileNotFoundError as exc:
+            raise ModelStagingError("Source model directory was not found.") from exc
+        if not is_model_directory(source):
+            raise ModelStagingError("Source path is not a recognized CMFGEN model directory.")
+        destination_relpath, destination = _model_destination(
+            basepath,
+            source_relpath=normalized_source,
+            destination_relpath=destination_relpath,
+        )
+        try:
+            shutil.move(str(source), str(destination))
+        except (OSError, shutil.Error) as exc:
+            raise ModelStagingError(f"Could not rename or move model: {exc}") from exc
+
+    return {
+        "source_relpath": normalized_source,
+        "source_path": str(source),
+        "destination_relpath": destination_relpath,
+        "destination_path": str(destination),
+        "resolved_destination_path": str(destination.resolve()),
+        "model_name": destination.name,
+    }

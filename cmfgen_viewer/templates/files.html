@@ -4,6 +4,9 @@
   {% if model_created %}
     <div class="alert alert-success py-2">New model created from the selected solution.</div>
   {% endif %}
+  {% if model_renamed %}
+    <div class="alert alert-success py-2">Model directory renamed or moved successfully.</div>
+  {% endif %}
   <div class="mb-3">
     <div class="small text-muted">Base path: <code>{{ basepath }}</code></div>
     <div class="small text-muted">Show hidden files: <code>{{ "yes" if show_all else "no" }}</code></div>

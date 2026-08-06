@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import errno
 from pathlib import Path
 import shutil
 
@@ -9,6 +10,7 @@ from cmfgen_viewer.model_staging import (
     ModelStagingError,
     create_model_from_solution,
     plan_model_from_solution,
+    rename_model_directory,
 )
 
 
@@ -175,3 +177,88 @@ def test_model_creation_removes_staging_directory_after_copy_failure(tmp_path: P
 
     assert not (tmp_path / "model_b").exists()
     assert list(tmp_path.glob(".cmfgen-create-*")) == []
+
+
+def test_rename_model_directory_moves_model_without_changing_contents(tmp_path: Path) -> None:
+    source = tmp_path / "grid" / "model_a"
+    _write_solution(source)
+    (source / "SN_HYDRO_DATA").write_text("sn marker\n", encoding="utf-8")
+    (tmp_path / "archive").mkdir()
+
+    renamed = rename_model_directory(
+        str(tmp_path),
+        source_relpath="grid/model_a",
+        destination_relpath="archive/model_b",
+    )
+
+    destination = tmp_path / "archive" / "model_b"
+    assert renamed["source_relpath"] == "grid/model_a"
+    assert renamed["destination_relpath"] == "archive/model_b"
+    assert not source.exists()
+    assert (destination / "MODEL_SPEC").is_file()
+    assert (destination / "SN_HYDRO_DATA").read_text(encoding="utf-8") == "sn marker\n"
+
+
+def test_rename_model_directory_allows_destination_below_symlink(tmp_path: Path) -> None:
+    source = tmp_path / "model_a"
+    _write_solution(source)
+    archive = tmp_path / "external-archive"
+    archive.mkdir()
+    (tmp_path / "archive").symlink_to(archive, target_is_directory=True)
+
+    renamed = rename_model_directory(
+        str(tmp_path),
+        source_relpath="model_a",
+        destination_relpath="archive/model_b",
+    )
+
+    assert renamed["destination_relpath"] == "archive/model_b"
+    assert renamed["resolved_destination_path"] == str(archive / "model_b")
+    assert (archive / "model_b" / "MODEL_SPEC").is_file()
+
+
+@pytest.mark.parametrize("destination", ["", ".", "..", "../model_b", "/model_b", "model_a", "model_a/child"])
+def test_rename_model_directory_rejects_invalid_destinations(tmp_path: Path, destination: str) -> None:
+    _write_solution(tmp_path / "model_a")
+    with pytest.raises(ModelStagingError):
+        rename_model_directory(
+            str(tmp_path),
+            source_relpath="model_a",
+            destination_relpath=destination,
+        )
+
+
+def test_rename_model_directory_does_not_overwrite_existing_entry(tmp_path: Path) -> None:
+    source = tmp_path / "model_a"
+    _write_solution(source)
+    destination = tmp_path / "model_b"
+    destination.mkdir()
+
+    with pytest.raises(ModelStagingError, match="already exists"):
+        rename_model_directory(
+            str(tmp_path),
+            source_relpath="model_a",
+            destination_relpath="model_b",
+        )
+
+    assert source.is_dir()
+    assert destination.is_dir()
+
+
+def test_rename_model_directory_falls_back_to_cross_filesystem_move(tmp_path: Path, monkeypatch) -> None:
+    source = tmp_path / "model_a"
+    _write_solution(source)
+
+    def fail_cross_device(_source, _destination):
+        raise OSError(errno.EXDEV, "Invalid cross-device link")
+
+    monkeypatch.setattr("cmfgen_viewer.model_staging.os.rename", fail_cross_device)
+    renamed = rename_model_directory(
+        str(tmp_path),
+        source_relpath="model_a",
+        destination_relpath="model_b",
+    )
+
+    assert renamed["destination_relpath"] == "model_b"
+    assert not source.exists()
+    assert (tmp_path / "model_b" / "MODEL_SPEC").is_file()

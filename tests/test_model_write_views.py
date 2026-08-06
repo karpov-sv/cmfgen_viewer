@@ -28,8 +28,11 @@ def test_create_from_solution_route_previews_and_creates_model(tmp_path: Path) -
 
     source_page = client.get("/view/grid/model_a")
     assert source_page.status_code == 200
-    assert b"New Model from Current Solution" in source_page.data
+    assert b"New Model from Current" in source_page.data
+    assert b"Model actions:" in source_page.data
+    assert b"Rename / Move Model" in source_page.data
     assert b'/model-actions/create/grid/model_a' in source_page.data
+    assert b'/model-actions/rename/grid/model_a' in source_page.data
 
     preview = client.post(
         "/model-actions/create/grid/model_a",
@@ -63,7 +66,9 @@ def test_create_from_solution_requires_read_write_mode(tmp_path: Path) -> None:
     assert source_page.status_code == 200
     assert b"Model-directory read-write mode is disabled" in source_page.data
     assert b'/model-actions/create/model_a' not in source_page.data
+    assert b'/model-actions/rename/model_a' not in source_page.data
     assert client.get("/model-actions/create/model_a").status_code == 403
+    assert client.get("/model-actions/rename/model_a").status_code == 403
     assert not (tmp_path / "model_a_new").exists()
 
 
@@ -74,8 +79,9 @@ def test_create_from_solution_disables_and_rejects_sn_models(tmp_path: Path) -> 
 
     source_page = client.get("/view/SN/model_sn")
     assert source_page.status_code == 200
-    assert b"SN model creation is not supported yet" in source_page.data
+    assert b"Creating new models from SN solutions is not supported yet" in source_page.data
     assert b'/model-actions/create/SN/model_sn' not in source_page.data
+    assert b'/model-actions/rename/SN/model_sn' in source_page.data
 
     create_page = client.get("/model-actions/create/SN/model_sn")
     assert create_page.status_code == 200
@@ -133,3 +139,61 @@ def test_created_model_replaces_stale_destination_cache_and_is_cached_after_run(
     )
     assert cached["status"] == "valid"
     assert cached["model_name"] == "model_b"
+
+
+def test_rename_model_route_moves_cache_entry_and_redirects(tmp_path: Path) -> None:
+    source = tmp_path / "grid" / "model_a"
+    _write_solution(source)
+    (source / "MOD_SUM").write_text("summary\n", encoding="utf-8")
+    (tmp_path / "archive").mkdir()
+    app = _make_app(tmp_path, read_write=True)
+    client = app.test_client()
+    config = app.config["CMFGEN_VIEWER"]
+    db_path = str(config["summary_cache_db"])
+    basepath = str(config["basepath"])
+
+    assert client.get("/view/grid/model_a").status_code == 200
+    assert inspect_model_summary_entry(
+        db_path, basepath=basepath, relpath="grid/model_a"
+    )["status"] == "valid"
+    rename_page = client.get("/model-actions/rename/grid/model_a")
+    assert rename_page.status_code == 200
+    assert b"Rename or Move Model" in rename_page.data
+    assert b'value="grid/model_a"' in rename_page.data
+
+    renamed = client.post(
+        "/model-actions/rename/grid/model_a",
+        data={"destination_relpath": "archive/model_b"},
+        follow_redirects=False,
+    )
+    assert renamed.status_code == 302
+    assert renamed.headers["Location"] == "/view/archive/model_b?renamed=1"
+    assert not source.exists()
+    assert (tmp_path / "archive" / "model_b" / "MODEL_SPEC").is_file()
+    assert inspect_model_summary_entry(
+        db_path, basepath=basepath, relpath="grid/model_a"
+    )["status"] == "absent"
+    new_cache = inspect_model_summary_entry(
+        db_path, basepath=basepath, relpath="archive/model_b"
+    )
+    assert new_cache["status"] == "valid"
+    assert new_cache["model_name"] == "model_b"
+
+    result_page = client.get(renamed.headers["Location"])
+    assert result_page.status_code == 200
+    assert b"Model directory renamed or moved successfully" in result_page.data
+
+
+def test_rename_model_route_rejects_existing_name_without_moving_source(tmp_path: Path) -> None:
+    _write_solution(tmp_path / "model_a")
+    (tmp_path / "model_b").mkdir()
+    app = _make_app(tmp_path, read_write=True)
+
+    response = app.test_client().post(
+        "/model-actions/rename/model_a",
+        data={"destination_relpath": "model_b"},
+    )
+
+    assert response.status_code == 200
+    assert b"already exists" in response.data
+    assert (tmp_path / "model_a").is_dir()

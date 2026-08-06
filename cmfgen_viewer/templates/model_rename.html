@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{% block title %}Rename or Move Model - CMFGEN Viewer{% endblock %}
+
+{% block body %}
+  {% if breadcrumb %}
+    <nav aria-label="breadcrumb">
+      <ol class="breadcrumb">
+        {% for item in breadcrumb %}
+          <li class="breadcrumb-item {% if item.path is none %}active{% endif %}">
+            {% if item.path is not none %}
+              <a href="{{ url_for('viewer.view', path=item.path) }}">{{ item.name }}</a>
+            {% else %}
+              {{ item.name }}
+            {% endif %}
+          </li>
+        {% endfor %}
+      </ol>
+    </nav>
+  {% endif %}
+
+  <section class="mb-4">
+    <h2 class="h4 mb-3">Rename or Move Model</h2>
+    <p class="text-muted">
+      Rename <code>{{ source_path }}</code>, or move it to another existing directory under the configured model root.
+      Model contents are not changed.
+    </p>
+    {% if error %}<div class="alert alert-danger py-2">{{ error }}</div>{% endif %}
+
+    <form
+      method="post"
+      class="card card-body"
+      onsubmit="return window.confirm('Rename or move this model directory?');"
+    >
+      <label class="form-label fw-semibold" for="model-destination">New model path</label>
+      <input
+        id="model-destination"
+        class="form-control font-monospace"
+        type="text"
+        name="destination_relpath"
+        value="{{ destination_relpath }}"
+        required
+        autocomplete="off"
+      >
+      <div class="form-text mb-3">
+        Enter a path relative to the configured model root. Its parent directory must already exist.
+        Cross-filesystem moves are copied and then removed, so they may take longer.
+      </div>
+      <div><button class="btn btn-primary" type="submit">Rename or Move Model</button></div>
+    </form>
+  </section>
+{% endblock %}

@@ -1,25 +1,35 @@
 {% extends "files.html" %}
 
 {% block files_body %}
-  {% if model_create_source %}
-    <div class="mb-3 d-flex flex-wrap align-items-center gap-2">
+  {% if model_create_source or model_rename_source %}
+    <div class="quick-links mb-3">
+      <span class="small text-muted me-2">Model actions:</span>
       {% if read_write_enabled and model_create_supported %}
-        <a class="btn btn-sm btn-outline-success" href="{{ url_for('viewer.model_create_from_solution', source_path=model_create_source) }}">
+        <a class="btn btn-sm btn-outline-danger" href="{{ url_for('viewer.model_create_from_solution', source_path=model_create_source) }}">
           <i class="fa fa-files-o me-1" aria-hidden="true"></i>
-          New Model from Current Solution
+          New Model from Current
         </a>
       {% else %}
         <button class="btn btn-sm btn-outline-secondary" type="button" disabled>
           <i class="fa fa-files-o me-1" aria-hidden="true"></i>
-          New Model from Current Solution
+          New Model from Current
         </button>
-        <span class="small text-muted">
-          {% if not model_create_supported %}
-            SN model creation is not supported yet.
-          {% else %}
-            Model-directory read-write mode is disabled.
-          {% endif %}
-        </span>
+      {% endif %}
+      {% if read_write_enabled %}
+        <a class="btn btn-sm btn-outline-primary" href="{{ url_for('viewer.model_rename', source_path=model_rename_source) }}">
+          <i class="fa fa-pencil me-1" aria-hidden="true"></i>
+          Rename / Move Model
+        </a>
+      {% else %}
+        <button class="btn btn-sm btn-outline-secondary" type="button" disabled>
+          <i class="fa fa-pencil me-1" aria-hidden="true"></i>
+          Rename / Move Model
+        </button>
+      {% endif %}
+      {% if not read_write_enabled %}
+        <span class="small text-muted">Model-directory read-write mode is disabled.</span>
+      {% elif not model_create_supported %}
+        <span class="small text-muted">Creating new models from SN solutions is not supported yet.</span>
       {% endif %}
     </div>
   {% endif %}
