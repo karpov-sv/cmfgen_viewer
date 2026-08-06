@@ -9,6 +9,16 @@
     {% if error %}<div class="alert alert-danger py-2">{{ error }}</div>{% endif %}
     {% set cache_job_running = maintenance_job and maintenance_job.status == 'running' %}
 
+    <div class="alert {% if read_write_enabled %}alert-warning{% else %}alert-secondary{% endif %} py-2" role="status">
+      <strong>Model-directory access:</strong>
+      {% if read_write_enabled %}
+        Read-write mode is enabled. Operations that modify the configured model tree may be used.
+      {% else %}
+        Read-only mode is active. Restart with <code>--read-write</code> to enable model-changing operations.
+      {% endif %}
+      Viewer-managed uploads and caches remain writable in either mode.
+    </div>
+
     <div class="card mb-4">
       <div class="card-header fw-semibold">Runtime Configuration</div>
       <div class="table-responsive">

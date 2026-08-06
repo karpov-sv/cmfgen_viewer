@@ -57,6 +57,7 @@ def test_system_page_lists_runtime_cache_namespaces_and_guarded_cleanup(tmp_path
     assert b"Upload Storage" in response.data
     assert b"Background Tasks" in response.data
     assert b"Model Summary Cache" in response.data
+    assert b"Read-only mode is active" in response.data
     assert basepath.encode() in response.data
     assert old_base.encode() in response.data
     assert b"Remove Unavailable Bases" in response.data
@@ -75,6 +76,18 @@ def test_system_page_lists_runtime_cache_namespaces_and_guarded_cleanup(tmp_path
     clear_current = client.post("/system/cache/delete-base", data={"basepath": basepath})
     assert clear_current.status_code == 302
     assert list_model_summary_namespaces(db_path) == []
+
+
+def test_system_page_reports_read_write_mode(tmp_path: Path) -> None:
+    app = _make_app(tmp_path)
+    app.config["CMFGEN_VIEWER"]["read_write_enabled"] = True
+
+    response = app.test_client().get("/system/")
+
+    assert response.status_code == 200
+    assert b"Read-write mode is enabled" in response.data
+    assert b"Model directory access" in response.data
+    assert b"Read-write" in response.data
 
 
 def test_cache_maintenance_refreshes_stale_entries(tmp_path: Path) -> None:

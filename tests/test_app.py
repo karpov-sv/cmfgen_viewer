@@ -20,6 +20,7 @@ def test_create_app_sets_expected_config_values(tmp_path: Path) -> None:
         lambda_max_angstrom=9000.0,
         secret_key="fixed-secret",
         fit_pool_size_max=-4,
+        read_write_enabled=True,
         upload_root=str(upload_root),
     )
     cfg = app.config["CMFGEN_VIEWER"]
@@ -28,12 +29,14 @@ def test_create_app_sets_expected_config_values(tmp_path: Path) -> None:
     assert cfg["lambda_min_angstrom"] == 1000.0
     assert cfg["lambda_max_angstrom"] == 9000.0
     assert cfg["fit_pool_size_max"] == 0
+    assert cfg["read_write_enabled"] is True
     assert cfg["upload_root"] == str(upload_root.resolve())
     assert app.secret_key == "fixed-secret"
 
 
 def test_create_app_without_auth_allows_requests(tmp_path: Path) -> None:
     app = create_app(basepath=str(tmp_path), secret_key="x")
+    assert app.config["CMFGEN_VIEWER"]["read_write_enabled"] is False
     client = app.test_client()
     response = client.get("/", follow_redirects=False)
     assert response.status_code != 401

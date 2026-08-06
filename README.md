@@ -84,6 +84,7 @@ lambda_min = 800
 lambda_max = 250000
 fit_pool_size = 0
 upload_dir = "/path/to/persistent/spectrum-uploads"
+read_write = false
 debug = false
 # Optional:
 # secret = "fixed-secret"
@@ -101,6 +102,8 @@ debug = false
 - `--lambda-max 250000` maximum wavelength (Angstroms) used for spectrum parsing/display (25 um).
 - `--upload-dir <path>` store uploaded-spectrum bundles in a persistent directory instead of the default temporary location.
 - `--fit-pool-size 0` max worker processes for upload grid fitting (`0` = auto/CPU count).
+- `--read-write` enable operations that modify the configured model directory tree (disabled by default).
+- `--read-only` explicitly disable model-directory mutations, overriding a read-write config setting.
 - `--auth-user <name>` enable HTTP Basic Auth (must be paired with `--auth-password`).
 - `--auth-password <value>` HTTP Basic Auth password (must be paired with `--auth-user`).
 - `--auth-realm <label>` auth prompt realm text (default: `CMFGEN Viewer`).

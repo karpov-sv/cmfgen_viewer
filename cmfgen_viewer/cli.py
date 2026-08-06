@@ -23,6 +23,8 @@ CONFIG_KEY_ALIASES: dict[str, str] = {
     "lambda_min": "lambda_min",
     "lambda_max": "lambda_max",
     "fit_pool_size": "fit_pool_size",
+    "read_write": "read_write",
+    "read_write_enabled": "read_write",
     "upload_dir": "upload_root",
     "upload_root": "upload_root",
     "debug": "debug",
@@ -157,7 +159,7 @@ def _load_config_defaults(config_path: str) -> dict[str, object]:
 
     normalized_defaults: dict[str, object] = {}
     for key, value in defaults.items():
-        if key in {"show_all", "debug"}:
+        if key in {"show_all", "debug", "read_write"}:
             normalized_defaults[key] = _parse_bool_config_value(key, value)
         elif key in {"port", "fit_pool_size"}:
             normalized_defaults[key] = _parse_int_config_value(key, value)
@@ -239,6 +241,20 @@ def build_parser() -> argparse.ArgumentParser:
             "(0 = auto based on CPU count, default: 0)"
         ),
     )
+    access_group = parser.add_mutually_exclusive_group()
+    access_group.add_argument(
+        "--read-write",
+        dest="read_write",
+        action="store_true",
+        help="Allow operations that modify model directories (disabled by default)",
+    )
+    access_group.add_argument(
+        "--read-only",
+        dest="read_write",
+        action="store_false",
+        help="Disable operations that modify model directories (the default; overrides config)",
+    )
+    parser.set_defaults(read_write=False)
     parser.add_argument(
         "--auth-user",
         dest="auth_user",
@@ -336,6 +352,7 @@ def main(argv: list[str] | None = None) -> None:
         lambda_max_angstrom=args.lambda_max,
         upload_root=str(upload_root) if upload_root is not None else None,
         fit_pool_size_max=args.fit_pool_size,
+        read_write_enabled=args.read_write,
         secret_key=args.secret,
         auth_username=auth_user,
         auth_password=auth_password,

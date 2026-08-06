@@ -91,8 +91,10 @@ def system_status():
     active_grid_jobs = len(_grid_search_running_job_snapshots())
     active_cache_jobs = len(cache_maintenance_running_job_snapshots())
     fit_pool_size = int(config.get("fit_pool_size_max", 0) or 0)
+    read_write_enabled = bool(config.get("read_write_enabled", False))
     runtime_rows = [
         ["Model base directory", basepath],
+        ["Model directory access", "Read-write" if read_write_enabled else "Read-only"],
         ["Summary cache database", summary_cache_db],
         ["Summary cache size", _format_size(cache_size)],
         ["Upload storage", str(upload_root)],
@@ -121,6 +123,7 @@ def system_status():
         active_grid_jobs=active_grid_jobs,
         active_cache_jobs=active_cache_jobs,
         active_task_count=active_grid_jobs + active_cache_jobs,
+        read_write_enabled=read_write_enabled,
         message=str(request.args.get("message", "")).strip(),
         error=str(request.args.get("error", "")).strip(),
     )
