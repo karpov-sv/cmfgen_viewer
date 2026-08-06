@@ -235,7 +235,7 @@ Flux handling:
 - The UI is optimized for local analysis workflows and iterative parser development.
 - Large-file parsing is guarded (`MAX_PARSE_FILE_BYTES`) to avoid heavy accidental loads.
 - Documentation pages are generated from repository markdown; update files in `doc/` to extend in-app docs.
-- Upload grid fitting requires a populated summary cache database (`model_summary_cache.sqlite`), typically produced by the `Summarize` workflow.
+- Upload grid fitting requires a populated summary cache database (`model_summary_cache.sqlite`). Visiting a model folder that contains both `VADAT` and `MOD_SUM` automatically adds it to the cache, or refreshes its entry when either file has changed. The folder-level `Summarize` workflow remains available for adding multiple selected models at once; cache maintenance refreshes stale entries already known to the cache but does not discover new models.
 - Optional app-wide HTTP Basic Auth can be enabled from CLI using `--auth-user` and `--auth-password`.
 - Uploaded spectra can be removed individually or all at once from the Uploads page. “Delete All” only removes valid viewer-managed bundles and leaves unrelated files in the configured upload directory untouched.
 - The upload directory uses the viewer's token/manifest bundle layout; loose spectrum files placed directly in that directory are left untouched and are not automatically imported into the Uploads page.

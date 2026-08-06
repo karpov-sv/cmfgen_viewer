@@ -9,6 +9,7 @@ from cmfgen_viewer.summary_cache import (
     delete_model_summary_namespace,
     delete_model_summary_namespaces_except,
     inspect_model_summary_cache,
+    inspect_model_summary_entry,
     list_model_summaries,
     list_model_summary_namespaces,
     upsert_model_summary,
@@ -38,6 +39,38 @@ def test_summary_cache_upsert_and_list_roundtrip(tmp_path: Path) -> None:
     assert row["values"][0] == "model_A"
     assert row["values"][1] == "1.0"
     assert row["values"][2] == "2023-11-14 22:13:20"
+
+
+def test_summary_cache_inspects_one_entry_or_reports_absent(tmp_path: Path) -> None:
+    db_path = tmp_path / "cache.sqlite"
+    base = tmp_path / "models"
+    model_dir = base / "model_A"
+    model_dir.mkdir(parents=True)
+    (model_dir / "VADAT").write_text("1 [LSTAR]\n", encoding="utf-8")
+    (model_dir / "MOD_SUM").write_text("summary\n", encoding="utf-8")
+
+    absent = inspect_model_summary_entry(
+        str(db_path),
+        basepath=str(base),
+        relpath="model_A",
+    )
+    assert absent["status"] == "absent"
+
+    upsert_model_summary(
+        str(db_path),
+        basepath=str(base),
+        relpath="model_A",
+        model_dir=model_dir,
+        model_name="model_A",
+        values=["model_A"],
+        vadat_mtime=(model_dir / "VADAT").stat().st_mtime,
+        mod_sum_mtime=(model_dir / "MOD_SUM").stat().st_mtime,
+    )
+    assert inspect_model_summary_entry(
+        str(db_path),
+        basepath=str(base),
+        relpath="model_A",
+    )["status"] == "valid"
 
 
 def test_summary_cache_skips_invalid_payload_rows(tmp_path: Path) -> None:

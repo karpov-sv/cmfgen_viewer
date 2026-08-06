@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import io
+import os
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from cmfgen_viewer.app import create_app
 from cmfgen_viewer.observed_spectrum import list_upload_manifests, read_upload_manifest, write_upload_manifest
+from cmfgen_viewer.summary_cache import inspect_model_summary_entry, list_model_summaries
 from cmfgen_viewer.view_common import SUMMARY_COLUMNS
 from cmfgen_viewer.vizier_photometry import VizierPhotometryPoint
 
@@ -97,6 +99,49 @@ Velocity
 
     missing_response = client.get("/view/missing")
     assert missing_response.status_code == 404
+
+
+def test_visiting_model_folder_adds_and_refreshes_summary_cache(tmp_path: Path) -> None:
+    model_dir = tmp_path / "model_cached"
+    model_dir.mkdir()
+    (model_dir / "VADAT").write_text("1.0 [LSTAR]\n", encoding="utf-8")
+    (model_dir / "MOD_SUM").write_text("summary\n", encoding="utf-8")
+
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    config = app.config["CMFGEN_VIEWER"]
+    db_path = str(config["summary_cache_db"])
+    basepath = str(config["basepath"])
+
+    first_response = client.get("/view/model_cached")
+    assert first_response.status_code == 200
+    first_rows = list_model_summaries(db_path, basepath=basepath, expected_columns=len(SUMMARY_COLUMNS))
+    assert [row["path"] for row in first_rows] == ["model_cached"]
+    first_summarized_at = first_rows[0]["summarized_at"]
+
+    second_response = client.get("/view/model_cached")
+    assert second_response.status_code == 200
+    unchanged_rows = list_model_summaries(db_path, basepath=basepath, expected_columns=len(SUMMARY_COLUMNS))
+    assert unchanged_rows[0]["summarized_at"] == first_summarized_at
+
+    vadat = model_dir / "VADAT"
+    original_mtime = vadat.stat().st_mtime
+    vadat.write_text("2.0 [LSTAR]\n", encoding="utf-8")
+    vadat.touch()
+    if vadat.stat().st_mtime == original_mtime:
+        vadat_stat = vadat.stat()
+        vadat.touch()
+        os.utime(vadat, ns=(vadat_stat.st_atime_ns, vadat_stat.st_mtime_ns + 1_000_000_000))
+
+    stale = inspect_model_summary_entry(db_path, basepath=basepath, relpath="model_cached")
+    assert stale["status"] == "stale"
+    refreshed_response = client.get("/view/model_cached")
+    assert refreshed_response.status_code == 200
+    assert inspect_model_summary_entry(
+        db_path,
+        basepath=basepath,
+        relpath="model_cached",
+    )["status"] == "valid"
 
 
 def test_extended_text_and_binary_file_routes_default_to_parsed_view(tmp_path: Path) -> None:

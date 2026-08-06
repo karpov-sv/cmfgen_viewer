@@ -194,6 +194,41 @@ def list_model_summaries(
     return items
 
 
+def inspect_model_summary_entry(
+    db_path: str,
+    *,
+    basepath: str,
+    relpath: str,
+) -> dict[str, object]:
+    """Inspect one cached model without scanning the full cache namespace."""
+    normalized_relpath = str(relpath).strip().strip("/") or "."
+    with _connect(db_path) as connection:
+        row = connection.execute(
+            """
+            SELECT
+                model_key, relpath, model_name, vadat_mtime,
+                mod_sum_mtime, summarized_at
+            FROM model_summary_cache
+            WHERE basepath = ? AND relpath = ?
+            """,
+            (str(basepath), normalized_relpath),
+        ).fetchone()
+
+    if row is None:
+        return {
+            "model_key": "",
+            "relpath": normalized_relpath,
+            "model_name": "",
+            "status": "absent",
+            "reason": "Model summary is not cached.",
+        }
+    return _inspect_model_summary_entry(
+        Path(basepath).expanduser(),
+        relpath=normalized_relpath,
+        row=row,
+    )
+
+
 def list_model_summary_namespaces(db_path: str) -> list[dict[str, object]]:
     with _connect(db_path) as connection:
         rows = connection.execute(
