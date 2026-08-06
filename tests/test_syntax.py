@@ -24,3 +24,8 @@ def test_align_cmfgen_columns_aligns_comment_column() -> None:
 def test_align_cmfgen_columns_leaves_non_control_brackets_unchanged() -> None:
     original = "Fo[7/2] term label\n"
     assert _align_cmfgen_columns(original) == original
+
+
+def test_gamma_ray_params_uses_cmfgen_control_lexer() -> None:
+    _html, lexer_name = highlight_text("30000 [NU_GRID_MAX]\n", filename="GAMRAY_PARAMS", role="input_control")
+    assert lexer_name == "CMFGEN Input"

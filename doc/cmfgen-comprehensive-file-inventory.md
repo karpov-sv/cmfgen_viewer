@@ -772,3 +772,10 @@ Lower priority / internal:
 
 3. Additional "files like that"
     - Yes; generator scripts can produce many alias names (obs_cmf*, hydro_fin*, meanopac*, full_timing*, J_COMP*).
+
+Viewer implementation note:
+- Structured dispatch treats `hydro_fin*` and `hydro_cont*` as `HYDRO`,
+  `meanopac_fin*` as `MEANOPAC`, `ewdata_fin*`/`EWDATA_xtgrid*` as
+  `EWDATA`, and `full_timing*`/`cont_timing*` as timing logs.
+- The SN spellings `GAMFLUX_NEW`, `GAMRAY_E_DEP`, and
+  `GAMRAY_E_DEP_MOD` are routed to their canonical gamma parsers.

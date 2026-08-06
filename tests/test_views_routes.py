@@ -99,6 +99,25 @@ Velocity
     assert missing_response.status_code == 404
 
 
+def test_extended_text_and_binary_file_routes_default_to_parsed_view(tmp_path: Path) -> None:
+    model_dir = tmp_path / "model_extended"
+    model_dir.mkdir()
+    (model_dir / "cmf.sed").write_text("100 1e-12\n200 2e-12\n", encoding="utf-8")
+    (model_dir / "IP_DATA_NEW").write_bytes(b"\0" * 32)
+    (model_dir / "IP_DATA_NEW_INFO").write_text("2 16 8 1 4 T\n", encoding="utf-8")
+
+    client = _make_app(tmp_path).test_client()
+    spectrum = client.get("/view/model_extended/cmf.sed")
+    binary = client.get("/view/model_extended/IP_DATA_NEW")
+
+    assert spectrum.status_code == 200
+    assert b"post-processed CMF spectrum" in spectrum.data
+    assert b"CMF_SPECTRUM" in spectrum.data
+    assert binary.status_code == 200
+    assert b"binary metadata" in binary.data
+    assert b"DIRECT_ACCESS_INFO" in binary.data
+
+
 def test_models_summary_exposes_plot_open_and_selection_filter_controls(tmp_path: Path, monkeypatch) -> None:
     values = [""] * len(SUMMARY_COLUMNS)
     values[0] = "model_a"

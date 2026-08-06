@@ -448,3 +448,5 @@ Generic family renames:
 Viewer implication:
 - Distinguish native writer names from script aliases.
 - Treat alias names as equivalent identities during directory scans.
+- The viewer implements these alias identities for observer spectra, HYDRO,
+  MEANOPAC, EWDATA, TIMING, gamma spectra, and gamma deposition products.

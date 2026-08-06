@@ -44,12 +44,25 @@ QUICK_LINK_FILES = (
     "OUTGEN",
     "WARNINGS",
     "CORRECTION_SUM",
+    "GAMFLUX",
+    "GAMFLUX_NEW",
+    "GAMRAY_E_DEP",
+    "GAMRAY_E_DEP_MOD",
+    "ENERGY_COMP",
+    "SPECIES_MASSES",
+    "GENCOOL",
 )
 QUICK_LINK_GLOBS = (
     "obs_fin*",
     "obs_cont*",
     "obs/obs_fin*",
     "obs/obs_cont*",
+    "obs/hydro_fin*",
+    "obs/hydro_cont*",
+    "obs/meanopac_fin*",
+    "obs/ewdata_fin*",
+    "obs/full_timing*",
+    "obs/cont_timing*",
 )
 
 SUMMARY_COLUMNS = [
@@ -750,5 +763,3 @@ def _spectrum_link_context(basepath: str, relpath: str) -> dict[str, object] | N
         "model_path": model_root,
         "fin_count": len(files["fin_files"]),
     }
-
-

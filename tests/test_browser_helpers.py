@@ -34,6 +34,33 @@ def test_classify_cmfgen_role_covers_key_categories() -> None:
     assert browser.classify_cmfgen_role("run.sh", relpath="runs/model_x/run.sh") == "script"
 
 
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [
+        ("C2PRRR", "optional_diagnostic"),
+        ("GAMRAY_E_DEP", "optional_diagnostic"),
+        ("GAMFLUX_NEW", "optional_diagnostic"),
+        ("hydro_cont", "optional_diagnostic"),
+        ("ewdata_fin", "optional_diagnostic"),
+        ("cmf.sed", "optional_diagnostic"),
+        ("model.uv", "optional_diagnostic"),
+        ("ETA_ISO_001.dat", "optional_diagnostic"),
+        ("CFDAT__IN", "input_grid_profile"),
+        ("GAMRAY_PARAMS", "input_control"),
+        ("IP_DATA_NEW", "restart_internal"),
+        ("MnSEV_F_OSCDA", "input_atomic_core"),
+        ("MnSEV_F_TO_", "input_atomic_core"),
+    ],
+)
+def test_classify_cmfgen_role_covers_extended_model_families(name: str, expected: str) -> None:
+    assert browser.classify_cmfgen_role(name, model_context=True) == expected
+
+
+def test_save_and_editor_artifacts_are_not_promoted_by_their_stems() -> None:
+    assert browser.classify_cmfgen_role("GAMFLUX_NEW.sve", model_context=True) == "other"
+    assert browser.classify_cmfgen_role("MODEL_SPEC~", model_context=True) == "other"
+
+
 def test_model_context_detects_cmfgen_markers_without_model_prefix(tmp_path: Path) -> None:
     model = tmp_path / "CMF1770005901JULIKAS3"
     model.mkdir()
@@ -103,3 +130,14 @@ Velocity
     parsed = context.get("parsed")
     assert isinstance(parsed, dict)
     assert parsed["parser"] == "RVTJ"
+
+
+def test_describe_file_returns_metadata_payload_for_known_binary_file(tmp_path: Path) -> None:
+    (tmp_path / "IP_DATA_NEW").write_bytes(b"\0" * 32)
+    _write_file(tmp_path / "IP_DATA_NEW_INFO", "2 16 8 1 4 T\n")
+
+    context = browser.describe_file(str(tmp_path), "IP_DATA_NEW")
+
+    assert context["mode"] == "download"
+    assert context["cmfgen_role"] == "restart_internal"
+    assert context["parsed"]["parser"] == "DIRECT_ACCESS_INFO"

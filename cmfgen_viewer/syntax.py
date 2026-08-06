@@ -13,7 +13,7 @@ from pygments.util import ClassNotFound
 
 _FORMATTER = HtmlFormatter(cssclass="cmf-codehilite")
 _CMFGEN_INPUT_SUFFIXES = {"", ".dat", ".txt", ".in"}
-_CMFGEN_CONTROL_FILES = {"MODEL_SPEC", "VADAT", "IN_ITS"}
+_CMFGEN_CONTROL_FILES = {"MODEL_SPEC", "VADAT", "IN_ITS", "GAMRAY_PARAMS"}
 _CMFGEN_CONTROL_STYLE_ROLES = {"input_control", "input_hydro_iteration"}
 _CMFGEN_KEY_PATTERN = re.compile(r"\[[^\]\n]+\]")
 

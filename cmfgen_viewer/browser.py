@@ -71,6 +71,34 @@ OPTIONAL_FILES = {
     "OLD_GRID",
     "CORRECTION_SUM",
     "CORRECTION_LINK",
+    "ADIABAT_CHK",
+    "COLLISION_SUMMARY",
+    "TWO_PHOT_SUM",
+    "GENCOOL",
+    "NORM_FACTORS",
+    "ENERGY_COMP",
+    "SPECIES_MASSES",
+    "NON_THERM_ION_SUM",
+    "GAMMA_MODEL",
+    "GAMRAY_E_DEP",
+    "GAMRAY_E_DEP_MOD",
+    "GAMFLUX_NEW",
+    "NEW_SN_R_GRID",
+    "OLD_SN_R_GRID",
+    "SN_DATA_INPUT_CHK",
+    "SN_GREY_CHK",
+    "CHG_EXCH_CHK",
+    "CHG_EXCH_RD_CHK",
+    "DDT_WORK_CHK",
+    "MU_VALUE_CHK",
+    "CHECK_DECAYS.DAT",
+    "CHECK_DECAYS_ENERGY_COMPARE.DAT",
+    "CHECK_EDEP.DAT",
+    "RAY_CHECK_FOR_GRAYS.DAT",
+    "ADJUST_CORRECTIONS",
+    "LCH2.DAT",
+    "RELCH.DAT",
+    "RELCH2.DAT",
 }
 
 RESTART_INTERNAL_FILES = {
@@ -103,6 +131,8 @@ INPUT_CONTROL_FILES = {
     "IN_ITS",
     "CMF_FLUX_PARAM",
     "FORB_LINE_CONTROL",
+    "GAMRAY_PARAMS",
+    "GAMMA_MODEL",
 }
 
 INPUT_RESTART_FILES = {
@@ -138,6 +168,7 @@ INPUT_INIT_MODEL_FILES = {
 
 INPUT_GRID_PROFILE_FILES = {
     "CFDAT",
+    "CFDAT__IN",
     "GRID_PARAMS",
     "PROF_T_ED",
     "REVISED_LAMBDAS",
@@ -171,11 +202,42 @@ INPUT_HYDRO_ITERATION_FILES = {
 
 ION_OSC_PATTERN = re.compile(r"^[A-Z0-9]+_F_OSCDAT$")
 ION_MAP_PATTERN = re.compile(r"^[A-Z0-9]+_F_TO_S$")
+# A few archived LTE trees contain names clipped by one character.  They are
+# still recognizable members of the same atomic-data families.
+ION_OSC_TRUNCATED_PATTERN = re.compile(r"^[A-Z0-9]+_F_OSCDA$")
+ION_MAP_TRUNCATED_PATTERN = re.compile(r"^[A-Z0-9]+_F_TO_$")
 ION_PHOT_PATTERN = re.compile(r"^PHOT[A-Z0-9]+_[A-Z]+$")
 ION_COL_PATTERN = re.compile(r"^[A-Z0-9]+_COL_DATA$")
 ION_DIE_PATTERN = re.compile(r"^DIE[A-Z0-9]+$")
 ION_AUTO_PATTERN = re.compile(r"^[A-Z0-9]+_AUTO_DATA$")
 ION_INIT_PATTERN = re.compile(r"^[A-Z0-9]+_IN$")
+ION_PRRR_PATTERN = re.compile(r"^[A-Z0-9]+PRRR$")
+AUTO_CHECK_PATTERN = re.compile(r"^AUTO_CHK_[A-Z0-9]+$")
+CMF_SPECTRUM_PATTERN = re.compile(r"^.+\.(?:C?UV|C?VIS|C?IR)$")
+GAMMA_VERBOSE_PATTERN = re.compile(r"^(?:ETA_ISO_\d+|ETA_MUAVG_\d+_\d+|GAMMA_J_\d+_\d+)\.DAT$")
+GAMMA_VERBOSE_FILES = {
+    "DIAGN_EDEP",
+    "E_SCAT_ARRAY",
+    "ELECTRON_DENSITY.DAT",
+    "GAM_MU_GRID",
+    "GAMMA_NU_GRID.DAT",
+    "GAMMA_RAY_LINES",
+    "GAMMA_RAY_LOCAL_EMISSION.DAT",
+    "GAMMA_RAY_LUM.DAT",
+    "GAMMA_RAY_LUM_J.DAT",
+    "NU_END.DAT",
+    "PHOTONS.DAT",
+    "RAY1_INTENSITY.DAT",
+    "SCATTERING_DIFF.DAT",
+    "TAU_GAM_XRAY.DAT",
+    "TAU_RAY.DAT",
+    "VELOCITY_STEP.DAT",
+}
+DIRECT_ACCESS_DATA_PATTERN = re.compile(
+    r"^(?:EDDFACTOR|FLUX_FILE|CMF_FORCE_DATA|ETA_DATA|CHI_DATA|RAY_DATA|"
+    r"SOB_FORCE_DATA|IP_DATA(?:_NEW)?|RTAU_DATA|ZTAU_DATA|DFR_DATA|"
+    r"JH_AT_(?:CURRENT|OLD)_TIME|CUR_MODEL_DATA|OLD_MODEL_DATA|ES_J_CONV)$"
+)
 
 TEXT_EXTENSIONS = {
     ".txt",
@@ -291,6 +353,13 @@ def classify_cmfgen_role(
 
     if suffix == ".sh" and (model_context or _is_in_model_dir(relpath or filename)):
         return "script"
+    if suffix == ".sve" or filename.endswith("~"):
+        return "other"
+
+    # Post-processed spectrum suffixes can have a stem such as ``MODEL`` that is
+    # also a canonical control filename.  The compound filename is authoritative.
+    if name in {"CMF.SED", "SP.DAT", "SPC.DAT"} or CMF_SPECTRUM_PATTERN.match(name):
+        return "optional_diagnostic"
 
     if any(candidate.startswith("CMF_FLUX_PARAM") for candidate in names):
         return "input_control"
@@ -331,10 +400,30 @@ def classify_cmfgen_role(
         return "optional_diagnostic"
     if any(candidate.startswith("FULL_TIMING") for candidate in names):
         return "optional_diagnostic"
+    if any(candidate.startswith("CONT_TIMING") for candidate in names):
+        return "optional_diagnostic"
     if any(candidate.startswith("J_COMP") for candidate in names):
         return "optional_diagnostic"
+    if any(candidate.startswith("HYDRO_CONT") for candidate in names):
+        return "optional_diagnostic"
+    if any(candidate.startswith("EWDATA_FIN") or candidate.startswith("EWDATA_XTGRID") for candidate in names):
+        return "optional_diagnostic"
+    if any(candidate.startswith("GAMFLUX_NEW") for candidate in names):
+        return "optional_diagnostic"
+    if any(candidate.startswith("GAMRAY_E_DEP") for candidate in names):
+        return "optional_diagnostic"
+    if any(re.match(r"^CORRECTIONS\.\d+$", candidate) for candidate in names):
+        return "optional_diagnostic"
+    if any(ION_PRRR_PATTERN.match(candidate) for candidate in names):
+        return "optional_diagnostic"
+    if any(AUTO_CHECK_PATTERN.match(candidate) for candidate in names):
+        return "optional_diagnostic"
+    if any(candidate in GAMMA_VERBOSE_FILES or GAMMA_VERBOSE_PATTERN.match(candidate) for candidate in names):
+        return "optional_diagnostic"
+    if any(DIRECT_ACCESS_DATA_PATTERN.match(candidate) for candidate in names):
+        return "restart_internal"
 
-    if any(ION_OSC_PATTERN.match(candidate) for candidate in names) or any(ION_MAP_PATTERN.match(candidate) for candidate in names) or any(ION_PHOT_PATTERN.match(candidate) for candidate in names) or any(ION_COL_PATTERN.match(candidate) for candidate in names):
+    if any(ION_OSC_PATTERN.match(candidate) or ION_OSC_TRUNCATED_PATTERN.match(candidate) for candidate in names) or any(ION_MAP_PATTERN.match(candidate) or ION_MAP_TRUNCATED_PATTERN.match(candidate) for candidate in names) or any(ION_PHOT_PATTERN.match(candidate) for candidate in names) or any(ION_COL_PATTERN.match(candidate) for candidate in names):
         return "input_atomic_core"
     if any(ION_DIE_PATTERN.match(candidate) for candidate in names) or any(ION_AUTO_PATTERN.match(candidate) for candidate in names):
         return "input_atomic_optional"
@@ -492,6 +581,13 @@ def describe_file(basepath: str, relpath: str) -> dict[str, object]:
         "mode": "download",
     }
 
+    try:
+        parsed = parse_known_file(target)
+        if parsed is not None:
+            context["parsed"] = parsed
+    except Exception as exc:
+        context["parse_error"] = str(exc)
+
     if kind == "text":
         contents, truncated = _text_preview(target)
         context["mode"] = "text"
@@ -506,12 +602,6 @@ def describe_file(basepath: str, relpath: str) -> dict[str, object]:
         context["highlighted_html"] = highlighted_html
         context["highlight_css"] = syntax_css()
         context["highlight_lexer"] = lexer_name
-        try:
-            parsed = parse_known_file(target)
-            if parsed is not None:
-                context["parsed"] = parsed
-        except Exception as exc:
-            context["parse_error"] = str(exc)
     elif kind == "image":
         context["mode"] = "image"
 

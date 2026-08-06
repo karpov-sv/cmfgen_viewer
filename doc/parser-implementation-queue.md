@@ -1,110 +1,88 @@
-# Parser Implementation Queue
+# Parser Support and Remaining Queue
 
-## Objective
-Define a concrete, execution-ready parser roadmap for files that currently do not have structured viewers.
+## Current Structured Support
 
-## Baseline (Already Implemented)
-- `RVTJ`
-- `OBSFLUX`
-- `MOD_SUM`
+### Core model products
 
-## Ticket Definition of Done
-For each ticket below:
-- parser integrated in `cmfgen_viewer/parsers/` and registered in `PARSERS`,
-- parsed summary table is visible in UI,
-- at least one meaningful table/plot is shown when data permits,
-- malformed/partial input produces non-fatal parser warnings,
-- parser does not regress raw view fallback.
+- `RVTJ`, `OBSFLUX`, `OBSFRAME`, `MOD_SUM`
+- `MEANOPAC`, `HYDRO`, `GAMMAS`, `CORRECTION_SUM`
+- `POP*`, ion `*OUT`, and ion `*PRRR` families
+- `J_COMP`, `NETRATE`, `TOTRATE`, `EWDATA`, `LINEHEAT`
 
-## Phase 1: Highest Priority Text Parsers
+### Workflow aliases
 
-### P1-01 `MEANOPAC`
-Scope: parse depth-wise opacity/tau diagnostics and core columns.
-Acceptance: summary + table + opacity/tau profile plots.
+Aliases retain the parser used by their canonical producer:
 
-### P1-02 `HYDRO`
-Scope: parse momentum/force-balance terms by depth.
-Acceptance: summary + term comparison plots + mismatch warnings.
+- `obs_fin*`, `obs_cont*` -> observer spectrum parser
+- `hydro_fin*`, `hydro_cont*` -> `HYDRO`
+- `meanopac_fin*` -> `MEANOPAC`
+- `ewdata_fin*`, `EWDATA_xtgrid*` -> `EWDATA`
+- `GAMFLUX_NEW` -> `GAMFLUX`
+- `GAMRAY_E_DEP`, `GAMRAY_E_DEP_MOD` -> gamma deposition parser
+- `full_timing*`, `cont_timing*` -> timing log parser
+- `corrections.<iteration>` -> correction-summary parser
 
-### P1-03 `OBSFRAME`
-Scope: parse observer-frame synthetic spectrum output.
-Acceptance: wavelength/frequency spectrum plot with axis toggles.
+### Post-processed spectra
 
-### P1-04 `OUT_FLUX`
-Scope: parse run log milestones, warnings, and completion state.
-Acceptance: timeline-like summary table + extracted warning list.
+Two-column wavelength/flux viewers are available for:
 
-### P1-05 `GAMMAS`
-Scope: parse mean ionic charge profiles by species.
-Acceptance: species-selectable profile plot + species table.
+- `cmf.sed`
+- model `*.uv`, `*.vis`, `*.ir` products
+- continuum `*.cuv`, `*.cvis`, `*.cir` products
+- `sp.dat`, `spc.dat`
 
-### P1-06 `POP*` Family
-Scope: generic parser for species population files.
-Acceptance: per-species depth profile plots and key header metadata.
+### Stable CMFGEN and SN diagnostics
 
-### P1-07 `*OUT` Family
-Scope: generic departure-coefficient parser.
-Acceptance: parsed physical columns and log/linear coefficient plots.
+- `ADIABAT_CHK`, `AUTO_CHK_*`, `COLLISION_SUMMARY`
+- `GENCOOL`, `TWO_PHOT_SUM`, `STEQ_VALS`
+- `ENERGY_COMP`, `SPECIES_MASSES`
+- `GAMMA_MODEL`, `GAMRAY_PARAMS`
+- `NON_THERM_COOL`, `NON_THERM_ION_SUM`, `NON_THERM_SPEC_INFO`
+- `NEW_SN_R_GRID`, `OLD_SN_R_GRID`, `SN_HYDRO_FOR_NEXT_MODEL`
+- decay, charge-exchange, SN grey, and energy-deposition check files
+- `GREY_SCL_FACOUT`, `NEW_CALC_GRID`, `NEG_OPAC`
+- `OUTGEN`, `WARNINGS`, `TIMING`, `MOM_J_ERRORS`, and related logs
 
-## Phase 2: Diagnostic and CMF_FLUX Text Parsers
+### Verbose gamma-transport diagnostics
 
-### P2-01 `J_COMP`
-Scope: parse boundary J consistency diagnostics.
-Acceptance: J(moment) vs J(ray) comparison plots and residual stats.
+Generic table/plot support is available for the `data/` products observed in the
+SN models, including:
 
-### P2-02 Rate Files `NETRATE` `TOTRATE` `EWDATA` `LINEHEAT`
-Scope: shared rate parser framework for related formats.
-Acceptance: consistent table layout + filterable/plot-ready vectors.
+- `ETA_ISO_<depth>.dat`
+- `ETA_MUAVG_<angle>_<depth>.dat`
+- `GAMMA_J_<angle>_<depth>.dat`
+- gamma frequency, optical-depth, scattering, luminosity, and emission tables
 
-### P2-03 `TRANS_INFO` and `SOB_FORCE_MULT`
-Scope: parse transfer and Sobolev-force diagnostics.
-Acceptance: key scalar extraction + profile/summary plots.
+These are implementation/debug products rather than a stable CMFGEN interface.
+They use bounded table rendering and downsampled plots to keep the browser usable.
 
-### P2-04 `GAMFLUX` and `GAMRAY_ENERGY_DEP`
-Scope: gamma transport outputs (spectrum + deposition profiles).
-Acceptance: spectrum/deposition panels with units-aware labels.
+### Direct-access and restart binaries
 
-### P2-05 CMF_FLUX Support Text Files
-Scope: `OUT_PARAMS`, `CFDAT_OUT`, `CONT_FREQ`, `OBS_FREQ`.
-Acceptance: parsed diagnostics tables and preview plots where relevant.
+The viewer reads current six-field and legacy four-field `_INFO` sidecars and
+shows record length, word size, endianness when recorded, depth count, and the
+record count implied by file size. This covers observed `EDDFACTOR`, `IP_DATA`,
+`IP_DATA_NEW`, `SOB_FORCE_DATA`, and `JH_AT_*_TIME` files. Sequential state files
+without a compatible sidecar receive a safe metadata-only view.
 
-## Phase 3: Direct-Access/Binary Parsers
+The binary record payload is deliberately not decoded yet; its record schema is
+product-specific even when the storage metadata is shared.
 
-### P3-01 `_INFO` Sidecar Reader Infrastructure
-Scope: implement shared direct-access metadata decoding (`RECL`, word-size, endian).
-Acceptance: validated loader used by all binary parser tickets.
+## Remaining Work
 
-### P3-02 `ETA_DATA` `CHI_DATA` `RAY_DATA`
-Scope: parse primary direct-access transfer fields.
-Acceptance: indexed extraction and profile/slice visualization.
+1. Add product-specific binary payload schemas for `ETA_DATA`, `CHI_DATA`,
+   `RAY_DATA`, `FLUX_FILE`, `CMF_FORCE_DATA`, `SOB_FORCE_DATA`, `IP_DATA`,
+   `RTAU_DATA`, `ZTAU_DATA`, and `dFR_DATA` when representative files are
+   available.
+2. Add richer domain-specific column labels to unstable gamma debug tables as
+   their producer formats are documented.
+3. Treat `fort.*`, editor backups, `.sve` plotting state, scheduler logs, and
+   helper-script scratch files as artifacts. They remain available through raw
+   preview/download but are not CMFGEN parser APIs.
 
-### P3-03 `FLUX_FILE` `CMF_FORCE_DATA` `SOB_FORCE_DATA`
-Scope: parse direct-access force/flux products.
-Acceptance: profile tables + force/flux plots.
+## Parser Definition of Done
 
-### P3-04 `IP_DATA` `RTAU_DATA` `ZTAU_DATA` `dFR_DATA`
-Scope: observer-frame auxiliary direct-access outputs.
-Acceptance: parsed diagnostic panels linked from `OBSFRAME` context.
-
-### P3-05 Reuse/Continuation Diagnostics
-Scope: `JH_AT_CURRENT_TIME`, `EDDFACTOR`, `ES_J_CONV` (with `_INFO`).
-Acceptance: read-only diagnostics with graceful fallback when sidecars are missing.
-
-## Recommended Execution Order
-1. P1-01
-2. P1-02
-3. P1-03
-4. P1-04
-5. P1-05
-6. P1-06
-7. P1-07
-8. P2-01
-9. P2-02
-10. P2-04
-11. P2-03
-12. P2-05
-13. P3-01
-14. P3-02
-15. P3-03
-16. P3-04
-17. P3-05
+- parser is registered by canonical name or an explicit family/alias rule;
+- summary and meaningful tables/plots are shown when data permits;
+- malformed, partial, empty, or oversized inputs fail safely with warnings;
+- raw view/download remains available;
+- representative real model files and focused fixtures are exercised.

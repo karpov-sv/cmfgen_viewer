@@ -59,9 +59,66 @@ def test_parse_known_file_resolves_rvsig_alias(tmp_path: Path) -> None:
     assert parsed["parser"] == "RVSIG_COL"
 
 
+@pytest.mark.parametrize(
+    ("name", "expected_parser"),
+    [
+        ("hydro_cont", "HYDRO"),
+        ("hydro_fin", "HYDRO"),
+        ("meanopac_fin", "MEANOPAC"),
+        ("GAMFLUX_NEW", "GAMFLUX"),
+        ("GAMRAY_E_DEP", "GAMRAY_ENERGY_DEP"),
+        ("GAMRAY_E_DEP_MOD", "GAMRAY_ENERGY_DEP"),
+        ("C2PRRR", "*PRRR"),
+        ("cmf.sed", "CMF_SPECTRUM"),
+        ("ETA_ISO_001.dat", "ETA_ISO_001.DAT"),
+        ("cont_timing", "CONT_TIMING"),
+    ],
+)
+def test_parse_known_file_resolves_extended_aliases(tmp_path: Path, name: str, expected_parser: str) -> None:
+    path = _write_file(tmp_path, name, "Radius\n1 2 3\nTemperature\n4 5 6\n")
+    parsed = parsers.parse_known_file(path)
+    assert parsed is not None
+    assert parsed["parser"] == expected_parser
+
+
+def test_parse_known_file_resolves_direct_access_binary(tmp_path: Path) -> None:
+    path = tmp_path / "IP_DATA_NEW"
+    path.write_bytes(b"\0" * 32)
+    _write_file(
+        tmp_path,
+        "IP_DATA_NEW_INFO",
+        """12-Apr-2017 !INFO format date
+2 16 8 1 4 T
+ND RECL WORD_SIZE UNIT_SIZE INT_SIZE LIT_END
+""",
+    )
+    parsed = parsers.parse_known_file(path)
+    assert parsed is not None
+    assert parsed["parser"] == "DIRECT_ACCESS_INFO"
+    assert dict(parsed["summary_table"]["rows"])["complete_records_from_size"] == "2"
+
+
+def test_parse_known_file_accepts_legacy_direct_access_sidecar(tmp_path: Path) -> None:
+    path = tmp_path / "JH_AT_OLD_TIME"
+    path.write_bytes(b"\0" * 32)
+    _write_file(tmp_path, "JH_AT_OLD_TIME_INFO", "2 16 8 1\nND RECL WORD_SIZE UNIT_SIZE\n")
+    parsed = parsers.parse_known_file(path)
+    assert parsed is not None
+    summary = dict(parsed["summary_table"]["rows"])
+    assert summary["complete_records_from_size"] == "2"
+    assert summary["byte_order"] == "not recorded"
+
+
 def test_parse_known_file_returns_none_for_unknown_file(tmp_path: Path) -> None:
     path = _write_file(tmp_path, "notes.abc", "plain text\n")
     assert parsers.parse_known_file(path) is None
+
+
+def test_parse_known_file_ignores_save_and_editor_artifacts(tmp_path: Path) -> None:
+    save = _write_file(tmp_path, "GAMFLUX_NEW.sve", "saved plotting state\n")
+    backup = _write_file(tmp_path, "OBSFLUX~", "saved editor backup\n")
+    assert parsers.parse_known_file(save) is None
+    assert parsers.parse_known_file(backup) is None
 
 
 def test_parse_known_file_uses_size_guard(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
