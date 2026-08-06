@@ -6,9 +6,17 @@ from pathlib import Path
 
 from flask import abort, current_app, redirect, render_template, request, send_file, url_for
 
-from .browser import describe_file, is_model_context_path, list_directory, make_breadcrumb, resolve_path
+from .browser import (
+    describe_file,
+    is_model_context_path,
+    is_model_directory,
+    list_directory,
+    make_breadcrumb,
+    resolve_path,
+)
 from .documentation import discover_docs as _discover_docs, render_document
 from .final_spectrum import read_model
+from .model_staging import is_sn_model_directory
 from .summary_cache import inspect_model_summary_entry, upsert_model_summary
 from .view_common import (
     _build_summary_row,
@@ -138,6 +146,7 @@ def view(path: str):
     if target.is_dir():
         current_dir_name = target.name.lower()
         current_dir_is_model = current_dir_name.startswith("model") and current_dir_name != "models"
+        concrete_model_root = is_model_directory(target)
         current_path_in_model = is_model_context_path(path) or is_model_context_path(str(target)) or current_dir_is_model
         context["show_role_badges"] = current_path_in_model
         model_context = current_path_in_model
@@ -158,6 +167,10 @@ def view(path: str):
         context["symlink_toggle_query"] = symlink_toggle_query
         context["quick_links"] = _collect_quick_links(basepath, path)
         context["enable_multi_model_ops"] = not current_path_in_model
+        context["model_create_source"] = path if concrete_model_root else ""
+        context["model_create_supported"] = concrete_model_root and not is_sn_model_directory(target)
+        context["read_write_enabled"] = bool(config.get("read_write_enabled", False))
+        context["model_created"] = request.args.get("created", "").strip() == "1"
         try:
             context["model_cache_status"] = _cache_model_summary_on_visit(
                 config=config,

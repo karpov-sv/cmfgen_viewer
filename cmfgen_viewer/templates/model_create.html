@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+
+{% block title %}Create New Model - CMFGEN Viewer{% endblock %}
+
+{% block body %}
+  {% if breadcrumb %}
+    <nav aria-label="breadcrumb">
+      <ol class="breadcrumb">
+        {% for item in breadcrumb %}
+          <li class="breadcrumb-item {% if item.path is none %}active{% endif %}">
+            {% if item.path is not none %}
+              <a href="{{ url_for('viewer.view', path=item.path) }}">{{ item.name }}</a>
+            {% else %}
+              {{ item.name }}
+            {% endif %}
+          </li>
+        {% endfor %}
+      </ol>
+    </nav>
+  {% endif %}
+
+  <section class="mb-4">
+    <h2 class="h4 mb-3">Create New Model from Current Solution</h2>
+    <p class="text-muted">
+      Source: <code>{{ source_path }}</code>. This stages a fresh non-SN model using the source controls,
+      <code>GAMMAS → GAMMAS_IN</code>, and <code>*OUT → *_IN</code>. Restart state and previous diagnostics are not copied.
+    </p>
+    <div class="alert alert-info py-2 small">
+      This is the top-level <code>cpmod</code>-style staging step. Atomic-data links and <code>obs/</code>,
+      <code>lte/</code>, or hydro work directories are not copied and should be handled by later setup/preflight operations.
+    </div>
+
+    {% if error %}<div class="alert alert-danger py-2">{{ error }}</div>{% endif %}
+
+    <form method="post" class="card card-body mb-4">
+      <input type="hidden" name="action" value="preview">
+      <label class="form-label fw-semibold" for="destination-relpath">Destination path relative to the model base</label>
+      <div class="input-group">
+        <input
+          id="destination-relpath"
+          class="form-control font-monospace"
+          type="text"
+          name="destination_relpath"
+          value="{{ destination_relpath }}"
+          required
+          autocomplete="off"
+        >
+        <button class="btn btn-outline-primary" type="submit">Preview</button>
+      </div>
+      <div class="form-text">The destination parent must exist. Existing files or directories are never merged or overwritten.</div>
+    </form>
+
+    {% if plan %}
+      <div class="card mb-4">
+        <div class="card-header fw-semibold">Copy Preview</div>
+        <div class="card-body">
+          <dl class="row small mb-3">
+            <dt class="col-sm-3">Destination</dt><dd class="col-sm-9"><code>{{ plan.destination_path }}</code></dd>
+            {% if plan.resolved_destination_path != plan.destination_path %}
+              <dt class="col-sm-3">Resolved destination</dt><dd class="col-sm-9"><code>{{ plan.resolved_destination_path }}</code></dd>
+            {% endif %}
+            <dt class="col-sm-3">Files</dt><dd class="col-sm-9">{{ plan.entry_count }}</dd>
+            <dt class="col-sm-3">Estimated size</dt><dd class="col-sm-9">{{ plan.human_size }}</dd>
+          </dl>
+
+          {% if plan.missing_required %}
+            <div class="alert alert-danger py-2">
+              Missing required source files: <code>{{ plan.missing_required|join(', ') }}</code>.
+            </div>
+          {% endif %}
+
+          <div class="table-responsive mb-3">
+            <table class="table table-sm table-striped align-middle mb-0">
+              <thead><tr><th>Category</th><th>Source</th><th>Destination</th><th class="text-end">Size</th></tr></thead>
+              <tbody>
+                {% for item in plan.entries %}
+                  <tr>
+                    <td>{{ item.category }}</td>
+                    <td><code>{{ item.source_name }}</code></td>
+                    <td>
+                      <code>{{ item.destination_name }}</code>
+                      {% if item.renamed %}<span class="badge text-bg-secondary">renamed</span>{% endif %}
+                    </td>
+                    <td class="text-end">{{ item.human_size }}</td>
+                  </tr>
+                {% else %}
+                  <tr><td colspan="4" class="text-muted">No files selected.</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+
+          {% if plan.ready %}
+            <form method="post" onsubmit="return window.confirm('Create this model directory from the displayed files?');">
+              <input type="hidden" name="action" value="create">
+              <input type="hidden" name="destination_relpath" value="{{ plan.destination_relpath }}">
+              <button class="btn btn-success" type="submit">Create New Model</button>
+            </form>
+          {% endif %}
+        </div>
+      </div>
+    {% endif %}
+  </section>
+{% endblock %}

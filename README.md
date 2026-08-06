@@ -25,7 +25,7 @@ This project provides a practical local web UI for inspecting CMFGEN model folde
 ### Out of scope (current)
 
 - Running CMFGEN/CMF_FLUX jobs.
-- Editing/writing model files from the UI.
+- Arbitrary editing of model files from the UI beyond controlled model creation workflows.
 - Full binary/direct-access file decoding for all `_INFO`/direct-access artifacts.
 - Auth/multi-user deployment hardening.
 
@@ -198,6 +198,11 @@ Flux handling:
   - runtime configuration, upload-storage usage, and active background-task counts,
   - explicit model-summary cache checks for missing, stale, or retargeted entries,
   - background refresh/removal actions plus guarded cleanup of current, unavailable, or non-current cache namespaces.
+- Read-write model operations:
+  - startup-gated model-directory write access (`--read-write`, disabled by default),
+  - preview-first creation of a fresh non-SN model from an existing solution using the CMFGEN
+    `GAMMAS → GAMMAS_IN` and `*OUT → *_IN` staging conventions,
+  - transactional copy into a new destination without merging, overwriting, or carrying restart/diagnostic files.
 - Configurable wavelength window for all displayed spectra:
   - `--lambda-min` / `--lambda-max` bounds applied to both model spectra and uploaded overlays.
 - Documentation section with top-nav dropdown populated from `doc/*.md`, rendered as markdown with code highlighting.
@@ -221,6 +226,8 @@ Flux handling:
     model-grid APIs, job orchestration, numerical fitting, and grid discovery.
   - `system_views.py`, `cache_jobs.py`, `summary_cache.py`:
     runtime status, explicit cache maintenance jobs, and cached model-summary storage.
+  - `model_write_views.py`, `model_staging.py`:
+    guarded model-operation routes and non-SN model staging contracts.
   - `browser.py`: directory/file metadata and role classification.
   - `final_spectrum.py`: CMFGEN final-spectrum parsing, conversion, and plot assembly helpers.
   - `observed_spectrum.py`: uploaded observed-spectrum parsing and upload-manifest lifecycle.

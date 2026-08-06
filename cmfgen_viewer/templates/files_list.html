@@ -1,6 +1,28 @@
 {% extends "files.html" %}
 
 {% block files_body %}
+  {% if model_create_source %}
+    <div class="mb-3 d-flex flex-wrap align-items-center gap-2">
+      {% if read_write_enabled and model_create_supported %}
+        <a class="btn btn-sm btn-outline-success" href="{{ url_for('viewer.model_create_from_solution', source_path=model_create_source) }}">
+          <i class="fa fa-files-o me-1" aria-hidden="true"></i>
+          New Model from Current Solution
+        </a>
+      {% else %}
+        <button class="btn btn-sm btn-outline-secondary" type="button" disabled>
+          <i class="fa fa-files-o me-1" aria-hidden="true"></i>
+          New Model from Current Solution
+        </button>
+        <span class="small text-muted">
+          {% if not model_create_supported %}
+            SN model creation is not supported yet.
+          {% else %}
+            Model-directory read-write mode is disabled.
+          {% endif %}
+        </span>
+      {% endif %}
+    </div>
+  {% endif %}
   {% if show_symlink_toggle %}
     <div class="mb-2 d-flex align-items-center gap-2">
       <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('viewer.view', path=path, **symlink_toggle_query) }}">

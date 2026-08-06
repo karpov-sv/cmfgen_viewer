@@ -71,6 +71,8 @@ def test_model_context_detects_cmfgen_markers_without_model_prefix(tmp_path: Pat
 
     assert browser.is_model_context_path(str(model))
     assert browser.is_model_context_path(str(obs))
+    assert browser.is_model_directory(model)
+    assert not browser.is_model_directory(obs)
 
 
 def test_marker_detected_model_assigns_script_role(tmp_path: Path) -> None:

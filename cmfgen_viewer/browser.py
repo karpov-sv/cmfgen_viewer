@@ -309,6 +309,18 @@ def _is_in_model_dir(relpath: str) -> bool:
     return False
 
 
+def is_model_directory(path: str | Path) -> bool:
+    """Return whether *path* itself contains the markers for a CMFGEN model."""
+    directory = Path(path).expanduser()
+    if not directory.is_dir():
+        return False
+    try:
+        names = {entry.name.upper() for entry in directory.iterdir()}
+    except OSError:
+        return False
+    return MODEL_PRIMARY_MARKERS <= names and bool(MODEL_SECONDARY_MARKERS & names)
+
+
 def is_model_context_path(relpath: str) -> bool:
     """
     Return True when the path is in a concrete model folder.
@@ -329,11 +341,7 @@ def is_model_context_path(relpath: str) -> bool:
         path = path.parent
 
     for directory in (path, *path.parents):
-        try:
-            names = {entry.name.upper() for entry in directory.iterdir()}
-        except (OSError, NotADirectoryError):
-            continue
-        if MODEL_PRIMARY_MARKERS <= names and MODEL_SECONDARY_MARKERS & names:
+        if is_model_directory(directory):
             return True
     return False
 
