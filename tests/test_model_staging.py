@@ -8,7 +8,9 @@ import pytest
 
 from cmfgen_viewer.model_staging import (
     ModelStagingError,
+    cleanup_model_directory,
     create_model_from_solution,
+    plan_model_cleanup,
     plan_model_from_solution,
     rename_model_directory,
 )
@@ -262,3 +264,52 @@ def test_rename_model_directory_falls_back_to_cross_filesystem_move(tmp_path: Pa
     assert renamed["destination_relpath"] == "model_b"
     assert not source.exists()
     assert (tmp_path / "model_b" / "MODEL_SPEC").is_file()
+
+
+def test_model_cleanup_plans_and_removes_only_canonical_top_level_candidates(tmp_path: Path) -> None:
+    source = tmp_path / "model_a"
+    _write_solution(source)
+    for name in ("BAION", "BAMAT", "BA_ASCI_N_D7", "RUN_SCRATCH_1", "fort.63", "EDDFACTOR"):
+        (source / name).write_text(name, encoding="utf-8")
+    nested = source / "obs"
+    nested.mkdir()
+    (nested / "BAMAT").write_text("nested", encoding="utf-8")
+    link_target = tmp_path / "atomic-data"
+    link_target.write_text("shared", encoding="utf-8")
+    (source / "atomic_link").symlink_to(link_target)
+
+    plan = plan_model_cleanup(str(tmp_path), model_relpath="model_a")
+    names = {str(item["name"]) for item in plan["entries"]}
+
+    assert {"BAION", "BAMAT", "BA_ASCI_N_D7", "RUN_SCRATCH_1", "fort.63", "atomic_link"} <= names
+    assert "EDDFACTOR" not in names
+    assert "SCRTEMP" not in names
+    assert "obs" not in names
+
+    result = cleanup_model_directory(
+        str(tmp_path),
+        model_relpath="model_a",
+        selected_names=sorted(names) + ["MODEL_SPEC"],
+    )
+
+    assert result["removed_count"] == len(names)
+    assert result["skipped"] == ["MODEL_SPEC"]
+    assert all(not (source / name).exists() for name in names)
+    assert (source / "EDDFACTOR").is_file()
+    assert (source / "SCRTEMP").is_file()
+    assert (nested / "BAMAT").is_file()
+    assert (source / "MODEL_SPEC").is_file()
+    assert link_target.is_file()
+
+
+def test_model_cleanup_requires_a_valid_explicit_selection(tmp_path: Path) -> None:
+    _write_solution(tmp_path / "model_a")
+
+    with pytest.raises(ModelStagingError, match="Select at least one"):
+        cleanup_model_directory(str(tmp_path), model_relpath="model_a", selected_names=[])
+    with pytest.raises(ModelStagingError, match="invalid file name"):
+        cleanup_model_directory(
+            str(tmp_path),
+            model_relpath="model_a",
+            selected_names=["obs/BAMAT"],
+        )

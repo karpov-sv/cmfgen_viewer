@@ -31,8 +31,10 @@ def test_create_from_solution_route_previews_and_creates_model(tmp_path: Path) -
     assert b"New Model from Current" in source_page.data
     assert b"Model actions:" in source_page.data
     assert b"Rename / Move Model" in source_page.data
+    assert b"Cleanup Model" in source_page.data
     assert b'/model-actions/create/grid/model_a' in source_page.data
     assert b'/model-actions/rename/grid/model_a' in source_page.data
+    assert b'/model-actions/cleanup/grid/model_a' in source_page.data
 
     preview = client.post(
         "/model-actions/create/grid/model_a",
@@ -67,8 +69,10 @@ def test_create_from_solution_requires_read_write_mode(tmp_path: Path) -> None:
     assert b"Model-directory read-write mode is disabled" in source_page.data
     assert b'/model-actions/create/model_a' not in source_page.data
     assert b'/model-actions/rename/model_a' not in source_page.data
+    assert b'/model-actions/cleanup/model_a' not in source_page.data
     assert client.get("/model-actions/create/model_a").status_code == 403
     assert client.get("/model-actions/rename/model_a").status_code == 403
+    assert client.get("/model-actions/cleanup/model_a").status_code == 403
     assert not (tmp_path / "model_a_new").exists()
 
 
@@ -82,6 +86,7 @@ def test_create_from_solution_disables_and_rejects_sn_models(tmp_path: Path) -> 
     assert b"Creating new models from SN solutions is not supported yet" in source_page.data
     assert b'/model-actions/create/SN/model_sn' not in source_page.data
     assert b'/model-actions/rename/SN/model_sn' in source_page.data
+    assert b'/model-actions/cleanup/SN/model_sn' in source_page.data
 
     create_page = client.get("/model-actions/create/SN/model_sn")
     assert create_page.status_code == 200
@@ -197,3 +202,81 @@ def test_rename_model_route_rejects_existing_name_without_moving_source(tmp_path
     assert response.status_code == 200
     assert b"already exists" in response.data
     assert (tmp_path / "model_a").is_dir()
+
+
+def test_cleanup_model_route_previews_and_selectively_removes_candidates(tmp_path: Path) -> None:
+    source = tmp_path / "grid" / "model_a"
+    _write_solution(source)
+    (source / "MOD_SUM").write_text("summary\n", encoding="utf-8")
+    (source / "BAMAT").write_text("matrix", encoding="utf-8")
+    (source / "EWDATA").write_text("diagnostic", encoding="utf-8")
+    app = _make_app(tmp_path, read_write=True)
+    client = app.test_client()
+    config = app.config["CMFGEN_VIEWER"]
+    db_path = str(config["summary_cache_db"])
+    basepath = str(config["basepath"])
+
+    assert client.get("/view/grid/model_a").status_code == 200
+    cleanup_page = client.get("/model-actions/cleanup/grid/model_a")
+    assert cleanup_page.status_code == 200
+    assert b"Cleanup Preview" in cleanup_page.data
+    assert b'value="BAMAT"' in cleanup_page.data
+    assert b'value="EWDATA"' in cleanup_page.data
+
+    unconfirmed = client.post(
+        "/model-actions/cleanup/grid/model_a",
+        data={"entries": "BAMAT"},
+    )
+    assert unconfirmed.status_code == 200
+    assert b"Confirm that the selected files" in unconfirmed.data
+    assert (source / "BAMAT").is_file()
+
+    cleaned = client.post(
+        "/model-actions/cleanup/grid/model_a",
+        data={"entries": "BAMAT", "confirm_cleanup": "1"},
+        follow_redirects=False,
+    )
+    assert cleaned.status_code == 302
+    assert cleaned.headers["Location"] == "/view/grid/model_a?cleaned=1&removed=1"
+    assert not (source / "BAMAT").exists()
+    assert (source / "EWDATA").is_file()
+    assert inspect_model_summary_entry(
+        db_path, basepath=basepath, relpath="grid/model_a"
+    )["status"] == "valid"
+
+    result_page = client.get(cleaned.headers["Location"])
+    assert result_page.status_code == 200
+    assert b"Model cleanup removed 1 item" in result_page.data
+
+
+def test_cleanup_model_route_invalidates_cache_if_vadat_symlink_is_removed(tmp_path: Path) -> None:
+    source = tmp_path / "model_a"
+    _write_solution(source)
+    vadat_target = tmp_path / "shared-vadat"
+    vadat_target.write_text("1 [LSTAR]\n", encoding="utf-8")
+    (source / "VADAT").unlink()
+    (source / "VADAT").symlink_to(vadat_target)
+    (source / "MOD_SUM").write_text("summary\n", encoding="utf-8")
+    app = _make_app(tmp_path, read_write=True)
+    client = app.test_client()
+    config = app.config["CMFGEN_VIEWER"]
+    db_path = str(config["summary_cache_db"])
+    basepath = str(config["basepath"])
+
+    assert client.get("/view/model_a").status_code == 200
+    assert inspect_model_summary_entry(
+        db_path, basepath=basepath, relpath="model_a"
+    )["status"] == "valid"
+
+    response = client.post(
+        "/model-actions/cleanup/model_a",
+        data={"entries": "VADAT", "confirm_cleanup": "1"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    assert not (source / "VADAT").exists()
+    assert vadat_target.is_file()
+    assert inspect_model_summary_entry(
+        db_path, basepath=basepath, relpath="model_a"
+    )["status"] == "absent"

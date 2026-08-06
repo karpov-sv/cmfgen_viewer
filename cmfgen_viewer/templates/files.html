@@ -7,6 +7,11 @@
   {% if model_renamed %}
     <div class="alert alert-success py-2">Model directory renamed or moved successfully.</div>
   {% endif %}
+  {% if model_cleaned %}
+    <div class="alert alert-success py-2">
+      Model cleanup removed {{ model_cleanup_removed }} item{% if model_cleanup_removed != 1 %}s{% endif %}.
+    </div>
+  {% endif %}
   <div class="mb-3">
     <div class="small text-muted">Base path: <code>{{ basepath }}</code></div>
     <div class="small text-muted">Show hidden files: <code>{{ "yes" if show_all else "no" }}</code></div>

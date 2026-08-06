@@ -204,7 +204,9 @@ Flux handling:
     `GAMMAS → GAMMAS_IN` and `*OUT → *_IN` staging conventions,
   - transactional copy into a new destination without merging, overwriting, or carrying restart/diagnostic files,
   - collision-safe model renaming or moving within the configured root, including cross-filesystem moves,
-    with matching summary-cache relocation.
+    with matching summary-cache relocation,
+  - previewed, selectively confirmed cleanup of completed-run transient files and top-level symlinks,
+    following the active policy in CMFGEN's canonical `com/clean.sh`.
 - Configurable wavelength window for all displayed spectra:
   - `--lambda-min` / `--lambda-max` bounds applied to both model spectra and uploaded overlays.
 - Documentation section with top-nav dropdown populated from `doc/*.md`, rendered as markdown with code highlighting.

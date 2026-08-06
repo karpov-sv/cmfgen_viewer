@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+
+{% block title %}Cleanup Model - CMFGEN Viewer{% endblock %}
+
+{% block body %}
+  {% if breadcrumb %}
+    <nav aria-label="breadcrumb">
+      <ol class="breadcrumb">
+        {% for item in breadcrumb %}
+          <li class="breadcrumb-item {% if item.path is none %}active{% endif %}">
+            {% if item.path is not none %}
+              <a href="{{ url_for('viewer.view', path=item.path) }}">{{ item.name }}</a>
+            {% else %}
+              {{ item.name }}
+            {% endif %}
+          </li>
+        {% endfor %}
+      </ol>
+    </nav>
+  {% endif %}
+
+  <section class="mb-4">
+    <h2 class="h4 mb-3">Cleanup Model</h2>
+    <p class="text-muted">
+      Remove completed-run workspace and diagnostic files from <code>{{ source_path }}</code>.
+      The policy follows the active commands in <code>cur_cmf/com/clean.sh</code>.
+    </p>
+    <div class="alert alert-warning py-2 small">
+      Cleanup is permanent. It only considers direct children of the model directory; subdirectories are not traversed.
+      All top-level symlinks are candidates. The commented-out <code>EDDFACTOR*</code> commands are not applied.
+    </div>
+
+    {% if error %}<div class="alert alert-danger py-2">{{ error }}</div>{% endif %}
+    {% if result and result.removed_count %}
+      <div class="alert alert-info py-2">Removed {{ result.removed_count }} item(s) before an error occurred.</div>
+    {% endif %}
+
+    <div class="card mb-4">
+      <div class="card-header fw-semibold">Cleanup Preview</div>
+      <div class="card-body">
+        <dl class="row small mb-3">
+          <dt class="col-sm-3">Model</dt><dd class="col-sm-9"><code>{{ plan.model_path }}</code></dd>
+          <dt class="col-sm-3">Candidates</dt><dd class="col-sm-9">{{ plan.entry_count }}</dd>
+          <dt class="col-sm-3">Estimated size</dt><dd class="col-sm-9">{{ plan.human_size }}</dd>
+        </dl>
+
+        {% if plan.entries %}
+          <form method="post" onsubmit="return window.confirm('Permanently delete the selected model files?');">
+            <div class="table-responsive mb-3">
+              <table class="table table-sm table-striped align-middle mb-0">
+                <thead>
+                  <tr><th>Remove</th><th>Name</th><th>Type</th><th>Reason</th><th class="text-end">Size</th></tr>
+                </thead>
+                <tbody>
+                  {% for item in plan.entries %}
+                    <tr>
+                      <td><input class="form-check-input" type="checkbox" name="entries" value="{{ item.name }}" checked></td>
+                      <td>
+                        <code>{{ item.name }}</code>
+                        {% if item.target %}<div class="small text-muted">→ <code>{{ item.target }}</code></div>{% endif %}
+                      </td>
+                      <td>{{ item.kind }}</td>
+                      <td>{{ item.reason }}</td>
+                      <td class="text-end">{{ item.human_size }}</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+
+            <div class="form-check mb-3">
+              <input class="form-check-input" type="checkbox" name="confirm_cleanup" value="1" id="confirm-cleanup" required>
+              <label class="form-check-label" for="confirm-cleanup">
+                I understand that the selected files and symlinks will be permanently deleted.
+              </label>
+            </div>
+            <button class="btn btn-danger" type="submit">Delete Selected Items</button>
+          </form>
+        {% else %}
+          <div class="alert alert-success mb-0">No cleanup candidates were found. This model is already clean.</div>
+        {% endif %}
+      </div>
+    </div>
+  </section>
+{% endblock %}

@@ -9,8 +9,10 @@ from flask import abort, current_app, redirect, render_template, request, url_fo
 from .browser import is_model_directory, make_breadcrumb, resolve_path
 from .model_staging import (
     ModelStagingError,
+    cleanup_model_directory,
     create_model_from_solution,
     is_sn_model_directory,
+    plan_model_cleanup,
     plan_model_from_solution,
     rename_model_directory,
 )
@@ -180,4 +182,72 @@ def model_rename(source_path: str):
         destination_relpath=destination_relpath,
         error=error,
         breadcrumb=_model_action_breadcrumb(source_path, "Rename or move model"),
+    )
+
+
+@bp.route("/model-actions/cleanup/<path:source_path>", methods=["GET", "POST"])
+def model_cleanup(source_path: str):
+    config = _viewer_config()
+    if not bool(config.get("read_write_enabled", False)):
+        abort(403)
+    basepath = str(config.get("basepath", "."))
+    try:
+        source = resolve_path(basepath, source_path)
+    except FileNotFoundError:
+        abort(404)
+    if not is_model_directory(source):
+        abort(404)
+
+    error = ""
+    result: dict[str, object] | None = None
+    try:
+        plan = plan_model_cleanup(basepath, model_relpath=source_path)
+        if request.method == "POST":
+            if request.form.get("confirm_cleanup") != "1":
+                raise ModelStagingError("Confirm that the selected files may be permanently deleted.")
+            result = cleanup_model_directory(
+                basepath,
+                model_relpath=source_path,
+                selected_names=request.form.getlist("entries"),
+            )
+            try:
+                if not (source / "VADAT").is_file() or not (source / "MOD_SUM").is_file():
+                    delete_model_summary_entries(
+                        str(config.get("summary_cache_db", "model_summary_cache.sqlite")),
+                        basepath=basepath,
+                        relpaths=[source_path],
+                    )
+            except Exception:
+                current_app.logger.warning(
+                    "Failed to update the model summary cache after cleaning %s",
+                    source_path,
+                    exc_info=True,
+                )
+            failed_count = int(result.get("failed_count", 0))
+            if failed_count == 0:
+                return redirect(
+                    url_for(
+                        "viewer.view",
+                        path=source_path,
+                        cleaned="1",
+                        removed=int(result.get("removed_count", 0)),
+                    )
+                )
+            failures = result.get("failures", [])
+            failed_names = ", ".join(
+                str(item.get("name", "")) for item in failures if isinstance(item, dict)
+            )
+            error = f"Some files could not be removed: {failed_names}."
+            plan = plan_model_cleanup(basepath, model_relpath=source_path)
+    except ModelStagingError as exc:
+        error = str(exc)
+        plan = plan_model_cleanup(basepath, model_relpath=source_path)
+
+    return render_template(
+        "model_cleanup.html",
+        source_path=source_path,
+        plan=plan,
+        result=result,
+        error=error,
+        breadcrumb=_model_action_breadcrumb(source_path, "Cleanup model"),
     )

@@ -1,7 +1,8 @@
-"""Create a fresh non-SN CMFGEN model from an existing model solution."""
+"""Guarded filesystem operations for creating, moving, and cleaning CMFGEN models."""
 
 from __future__ import annotations
 
+from fnmatch import fnmatchcase
 import os
 from pathlib import Path
 import shutil
@@ -32,6 +33,32 @@ MODEL_CREATE_SN_MARKERS = {
     "OLD_MODEL_DATA",
     "NUC_DECAY_DATA",
 }
+# Active deletions in cur_cmf/com/clean.sh. EDDFACTOR and EDDFACTOR_INFO are
+# intentionally absent because their commands are commented out in that canonical script.
+MODEL_CLEANUP_FILES = {
+    "BAION": "Matrix workspace",
+    "BAMAT": "Matrix workspace",
+    "BAIONPNT": "Matrix workspace",
+    "BAMATPNT": "Matrix workspace",
+    "BA_STEQ": "Matrix workspace",
+    "J_COMP": "Diagnostic output",
+    "JEW": "Diagnostic output",
+    "EWDATA": "Diagnostic output",
+    "STEQ_VALS": "Diagnostic output",
+    "LINEHEAT": "Diagnostic output",
+    "NETRATE": "Diagnostic output",
+    "TOTRATE": "Diagnostic output",
+    "TRANS_INFO": "Diagnostic output",
+    "CFDAT_OUT": "Diagnostic output",
+    "CONT_FREQ": "Diagnostic output",
+    "fort.63": "Fortran scratch unit",
+    "fort.88": "Fortran scratch unit",
+    "fort.53": "Fortran scratch unit",
+}
+MODEL_CLEANUP_PATTERNS = (
+    ("BA_ASCI_N_D*", "Matrix workspace"),
+    ("*SCRATCH*", "Scratch file"),
+)
 MODEL_WRITE_LOCK = Lock()
 
 
@@ -279,4 +306,125 @@ def rename_model_directory(
         "destination_path": str(destination),
         "resolved_destination_path": str(destination.resolve()),
         "model_name": destination.name,
+    }
+
+
+def _cleanup_model_source(basepath: str, model_relpath: str) -> tuple[str, Path]:
+    normalized = _normalize_relpath(model_relpath, label="Model path")
+    try:
+        model_dir = resolve_path(basepath, normalized)
+    except FileNotFoundError as exc:
+        raise ModelStagingError("Model directory was not found.") from exc
+    if not is_model_directory(model_dir):
+        raise ModelStagingError("Path is not a recognized CMFGEN model directory.")
+    return normalized, model_dir
+
+
+def _cleanup_reason(name: str, *, is_symlink: bool) -> str | None:
+    if is_symlink:
+        return "Top-level symlink (clean.sh rmlinks)"
+    reason = MODEL_CLEANUP_FILES.get(name)
+    if reason:
+        return reason
+    for pattern, pattern_reason in MODEL_CLEANUP_PATTERNS:
+        if fnmatchcase(name, pattern):
+            return pattern_reason
+    return None
+
+
+def _build_cleanup_plan(model_relpath: str, model_dir: Path) -> dict[str, object]:
+    entries: list[dict[str, object]] = []
+    try:
+        children = list(model_dir.iterdir())
+    except OSError as exc:
+        raise ModelStagingError(f"Could not list model directory: {exc}") from exc
+
+    for child in children:
+        try:
+            is_symlink = child.is_symlink()
+            if not is_symlink and not child.is_file():
+                continue
+            reason = _cleanup_reason(child.name, is_symlink=is_symlink)
+            if reason is None:
+                continue
+            size = int(child.lstat().st_size)
+            target = os.readlink(child) if is_symlink else ""
+        except OSError as exc:
+            raise ModelStagingError(f"Could not inspect cleanup candidate '{child.name}': {exc}") from exc
+        entries.append(
+            {
+                "name": child.name,
+                "path": str(child),
+                "kind": "Symlink" if is_symlink else "File",
+                "reason": reason,
+                "target": target,
+                "size": size,
+                "human_size": _human_size(size),
+            }
+        )
+
+    entries.sort(key=lambda item: str(item["name"]).lower())
+    total_size = sum(int(item["size"]) for item in entries)
+    return {
+        "model_relpath": model_relpath,
+        "model_path": str(model_dir),
+        "entries": entries,
+        "entry_count": len(entries),
+        "total_size": total_size,
+        "human_size": _human_size(total_size),
+    }
+
+
+def plan_model_cleanup(basepath: str, *, model_relpath: str) -> dict[str, object]:
+    normalized, model_dir = _cleanup_model_source(basepath, model_relpath)
+    return _build_cleanup_plan(normalized, model_dir)
+
+
+def cleanup_model_directory(
+    basepath: str,
+    *,
+    model_relpath: str,
+    selected_names: list[str],
+) -> dict[str, object]:
+    requested: list[str] = []
+    seen: set[str] = set()
+    for raw_name in selected_names:
+        name = str(raw_name)
+        name_path = Path(name)
+        if not name or name in {".", ".."} or len(name_path.parts) != 1 or name_path.name != name:
+            raise ModelStagingError("Cleanup selection contains an invalid file name.")
+        if name not in seen:
+            requested.append(name)
+            seen.add(name)
+    if not requested:
+        raise ModelStagingError("Select at least one cleanup candidate.")
+
+    with MODEL_WRITE_LOCK:
+        normalized, model_dir = _cleanup_model_source(basepath, model_relpath)
+        plan = _build_cleanup_plan(normalized, model_dir)
+        candidates = {str(item["name"]): item for item in plan["entries"] if isinstance(item, dict)}
+        removed: list[dict[str, object]] = []
+        skipped: list[str] = []
+        failures: list[dict[str, str]] = []
+        for name in requested:
+            candidate = candidates.get(name)
+            if candidate is None:
+                skipped.append(name)
+                continue
+            try:
+                (model_dir / name).unlink()
+            except OSError as exc:
+                failures.append({"name": name, "error": str(exc)})
+            else:
+                removed.append(candidate)
+
+    return {
+        "model_relpath": normalized,
+        "model_path": str(model_dir),
+        "removed": removed,
+        "removed_count": len(removed),
+        "skipped": skipped,
+        "skipped_count": len(skipped),
+        "failures": failures,
+        "failed_count": len(failures),
     }
