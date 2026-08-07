@@ -16,8 +16,9 @@ from .browser import (
 )
 from .documentation import discover_docs as _discover_docs, render_document
 from .final_spectrum import read_model
+from .model_editor import find_editable_model_file, model_inputs_modified_since_solution
 from .model_staging import is_sn_model_directory
-from .summary_cache import inspect_model_summary_entry, upsert_model_summary
+from .summary_cache import delete_model_summary_entries, inspect_model_summary_entry, upsert_model_summary
 from .view_common import (
     _build_summary_row,
     _collect_quick_links,
@@ -42,6 +43,13 @@ def _cache_model_summary_on_visit(
 
     normalized_relpath = str(relpath).strip().strip("/") or "."
     summary_cache_db = str(config.get("summary_cache_db", "model_summary_cache.sqlite"))
+    if model_inputs_modified_since_solution(model_dir):
+        delete_model_summary_entries(
+            summary_cache_db,
+            basepath=basepath,
+            relpaths=[normalized_relpath],
+        )
+        return "modified"
     cached = inspect_model_summary_entry(
         summary_cache_db,
         basepath=basepath,
@@ -171,6 +179,7 @@ def view(path: str):
         context["model_create_supported"] = concrete_model_root and not is_sn_model_directory(target)
         context["model_rename_source"] = path if concrete_model_root else ""
         context["model_cleanup_source"] = path if concrete_model_root else ""
+        context["model_parameters_source"] = path if concrete_model_root else ""
         context["read_write_enabled"] = bool(config.get("read_write_enabled", False))
         context["model_created"] = request.args.get("created", "").strip() == "1"
         context["model_renamed"] = request.args.get("renamed", "").strip() == "1"
@@ -179,6 +188,9 @@ def view(path: str):
             context["model_cleanup_removed"] = max(0, int(request.args.get("removed", "0")))
         except ValueError:
             context["model_cleanup_removed"] = 0
+        context["model_inputs_modified"] = bool(
+            concrete_model_root and model_inputs_modified_since_solution(target)
+        )
         try:
             context["model_cache_status"] = _cache_model_summary_on_visit(
                 config=config,
@@ -201,6 +213,8 @@ def view(path: str):
         context["show_role_badges"] = is_model_context_path(str(target.parent))
         context["quick_links"] = _collect_quick_links(basepath, parent_path)
         context["spectrum_view"] = _spectrum_link_context(basepath, parent_path)
+        context["read_write_enabled"] = bool(config.get("read_write_enabled", False))
+        context["model_edit_file"] = find_editable_model_file(basepath, path)
         has_parsed = bool(details.get("parsed"))
         requested_display = request.args.get("display", "").strip().lower()
         if has_parsed:

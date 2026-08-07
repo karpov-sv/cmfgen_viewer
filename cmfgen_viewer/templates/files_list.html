@@ -1,7 +1,7 @@
 {% extends "files.html" %}
 
 {% block files_body %}
-  {% if model_create_source or model_rename_source or model_cleanup_source %}
+  {% if model_create_source or model_rename_source or model_cleanup_source or model_parameters_source %}
     <div class="quick-links mb-3">
       <span class="small text-muted me-2">Model actions:</span>
       {% if read_write_enabled and model_create_supported %}
@@ -13,6 +13,17 @@
         <button class="btn btn-sm btn-outline-secondary" type="button" disabled>
           <i class="fa fa-files-o me-1" aria-hidden="true"></i>
           New Model from Current
+        </button>
+      {% endif %}
+      {% if read_write_enabled %}
+        <a class="btn btn-sm btn-outline-primary" href="{{ url_for('viewer.model_parameters', source_path=model_parameters_source) }}">
+          <i class="fa fa-sliders me-1" aria-hidden="true"></i>
+          Edit Parameters
+        </a>
+      {% else %}
+        <button class="btn btn-sm btn-outline-secondary" type="button" disabled>
+          <i class="fa fa-sliders me-1" aria-hidden="true"></i>
+          Edit Parameters
         </button>
       {% endif %}
       {% if read_write_enabled %}

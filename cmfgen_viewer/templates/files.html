@@ -12,6 +12,12 @@
       Model cleanup removed {{ model_cleanup_removed }} item{% if model_cleanup_removed != 1 %}s{% endif %}.
     </div>
   {% endif %}
+  {% if model_inputs_modified %}
+    <div class="alert alert-warning py-2">
+      Model inputs were edited after the current <code>MOD_SUM</code>. The computed solution and summary cache
+      are treated as stale until a newer solution is produced.
+    </div>
+  {% endif %}
   <div class="mb-3">
     <div class="small text-muted">Base path: <code>{{ basepath }}</code></div>
     <div class="small text-muted">Show hidden files: <code>{{ "yes" if show_all else "no" }}</code></div>

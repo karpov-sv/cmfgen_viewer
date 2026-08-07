@@ -373,3 +373,39 @@ a:focus {
 .doc-content table th {
     background: #f8f9fa;
 }
+.model-parameter-editor {
+    min-height: 60vh;
+    tab-size: 8;
+    white-space: pre;
+}
+
+.model-checkpoint-selector {
+    flex: 1 1 32rem;
+    max-width: 56rem;
+}
+
+.model-parameter-diff {
+    max-height: 60vh;
+    overflow: auto;
+    background: var(--bs-tertiary-bg);
+    white-space: pre;
+}
+
+.model-parameter-diff span {
+    display: block;
+    min-height: 1.2em;
+}
+
+.model-parameter-diff .diff-added {
+    background: rgba(25, 135, 84, 0.16);
+}
+
+.model-parameter-diff .diff-removed {
+    background: rgba(220, 53, 69, 0.16);
+}
+
+.model-parameter-diff .diff-header,
+.model-parameter-diff .diff-range {
+    color: var(--bs-primary-text-emphasis);
+    font-weight: 600;
+}

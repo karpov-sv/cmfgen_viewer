@@ -25,7 +25,7 @@ This project provides a practical local web UI for inspecting CMFGEN model folde
 ### Out of scope (current)
 
 - Running CMFGEN/CMF_FLUX jobs.
-- Arbitrary editing of model files from the UI beyond controlled model creation and rename workflows.
+- Arbitrary editing of model files beyond the allowlisted control-file editor and controlled model workflows.
 - Full binary/direct-access file decoding for all `_INFO`/direct-access artifacts.
 - Auth/multi-user deployment hardening.
 
@@ -206,7 +206,9 @@ Flux handling:
   - collision-safe model renaming or moving within the configured root, including cross-filesystem moves,
     with matching summary-cache relocation,
   - previewed, selectively confirmed cleanup of completed-run transient files and top-level symlinks,
-    following the active policy in CMFGEN's canonical `com/clean.sh`.
+    following the active policy in CMFGEN's canonical `com/clean.sh`,
+  - lossless editing of allowlisted model control files with diff review, optimistic concurrency checks,
+    atomic replacement, checkpoint loading/restoration, recoverable backups, and stale-solution/cache tracking.
 - Configurable wavelength window for all displayed spectra:
   - `--lambda-min` / `--lambda-max` bounds applied to both model spectra and uploaded overlays.
 - Documentation section with top-nav dropdown populated from `doc/*.md`, rendered as markdown with code highlighting.
@@ -232,6 +234,8 @@ Flux handling:
     runtime status, explicit cache maintenance jobs, and cached model-summary storage.
   - `model_write_views.py`, `model_staging.py`:
     guarded model-operation routes and non-SN model staging contracts.
+  - `model_editor_views.py`, `model_editor.py`:
+    allowlisted control-file editing routes, diff review, backups, and safe persistence.
   - `browser.py`: directory/file metadata and role classification.
   - `final_spectrum.py`: CMFGEN final-spectrum parsing, conversion, and plot assembly helpers.
   - `observed_spectrum.py`: uploaded observed-spectrum parsing and upload-manifest lifecycle.

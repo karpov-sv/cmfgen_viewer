@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+
+{% block title %}Edit Model Parameters - CMFGEN Viewer{% endblock %}
+
+{% block body %}
+  {% if breadcrumb %}
+    <nav aria-label="breadcrumb">
+      <ol class="breadcrumb">
+        {% for item in breadcrumb %}
+          <li class="breadcrumb-item {% if item.path is none %}active{% endif %}">
+            {% if item.path is not none %}
+              <a href="{{ url_for('viewer.view', path=item.path) }}">{{ item.name }}</a>
+            {% else %}
+              {{ item.name }}
+            {% endif %}
+          </li>
+        {% endfor %}
+      </ol>
+    </nav>
+  {% endif %}
+
+  <section class="mb-4">
+    <h2 class="h4 mb-3">Edit Model Parameters</h2>
+    <p class="text-muted">
+      Select an allowlisted control file in <code>{{ source_path }}</code>. Scripts, numerical state files,
+      outputs, binary files, and symlinks are intentionally excluded.
+    </p>
+    <div class="alert alert-info py-2 small">
+      Saving a solution control marks the model as modified until a newer <code>MOD_SUM</code> is produced.
+      Every save creates a recoverable copy under <code>.cmfgen-viewer-backups/</code>.
+    </div>
+
+    <div class="card">
+      <div class="card-header fw-semibold">Editable control files</div>
+      <div class="table-responsive">
+        <table class="table table-sm table-striped align-middle mb-0">
+          <thead><tr><th>Group</th><th>File</th><th>Description</th><th>Status</th><th></th></tr></thead>
+          <tbody>
+            {% for item in parameter_files.files %}
+              <tr>
+                <td>{{ item.group }}</td>
+                <td><code>{{ item.file_relpath }}</code></td>
+                <td>{{ item.description }}</td>
+                <td>
+                  {% if item.editable %}
+                    <span class="badge text-bg-success">editable</span>
+                  {% elif item.is_symlink %}
+                    <span class="badge text-bg-warning">symlink protected</span>
+                  {% elif item.exists %}
+                    <span class="badge text-bg-warning">not editable</span>
+                  {% elif item.required %}
+                    <span class="badge text-bg-danger">missing</span>
+                  {% else %}
+                    <span class="badge text-bg-secondary">not present</span>
+                  {% endif %}
+                </td>
+                <td class="text-end">
+                  {% if item.editable %}
+                    <a
+                      class="btn btn-sm btn-outline-primary"
+                      href="{{ url_for('viewer.model_parameters', source_path=source_path, file=item.file_relpath) }}"
+                    >Edit</a>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+{% endblock %}

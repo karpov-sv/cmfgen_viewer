@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+
+{% block title %}Edit {{ file_relpath }} - CMFGEN Viewer{% endblock %}
+
+{% block body %}
+  {% if breadcrumb %}
+    <nav aria-label="breadcrumb">
+      <ol class="breadcrumb">
+        {% for item in breadcrumb %}
+          <li class="breadcrumb-item {% if item.path is none %}active{% endif %}">
+            {% if item.path is not none %}
+              <a href="{{ url_for('viewer.view', path=item.path) }}">{{ item.name }}</a>
+            {% else %}
+              {{ item.name }}
+            {% endif %}
+          </li>
+        {% endfor %}
+      </ol>
+    </nav>
+  {% endif %}
+
+  <section class="mb-4">
+    <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+      <div>
+        <h2 class="h4 mb-1">Edit <code>{{ file_relpath }}</code></h2>
+        <div class="text-muted"><code>{{ source_path }}</code></div>
+      </div>
+      <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('viewer.model_parameters', source_path=source_path) }}">
+        Parameter Files
+      </a>
+    </div>
+
+    {% if saved %}
+      <div class="alert alert-success py-2">
+        Control file saved atomically.
+        {% if backup_relpath %}
+          Backup:
+          <a href="{{ url_for('viewer.view', path=backup_view_path) }}"><code>{{ backup_relpath }}</code></a>.
+        {% endif %}
+      </div>
+    {% endif %}
+    {% if error %}
+      <div class="alert alert-danger py-2">
+        {{ error }}
+        <a class="alert-link ms-1" href="{{ url_for('viewer.model_parameters', source_path=source_path, file=file_relpath) }}">Reload file</a>
+      </div>
+    {% endif %}
+
+    {% if file %}
+      {% if file.affects_solution %}
+        <div class="alert alert-warning py-2 small">
+          Saving this file marks the computed solution as potentially stale and removes its summary-cache entry.
+        </div>
+      {% endif %}
+
+      {% if loaded_checkpoint %}
+        <div class="alert alert-info py-2 small">
+          Loaded checkpoint <code>{{ loaded_checkpoint.name }}</code> into the editor; nothing has been saved yet.
+        </div>
+        {% if loaded_checkpoint.warnings %}
+          <div class="alert alert-warning py-2 small">
+            {% for warning in loaded_checkpoint.warnings %}<div>{{ warning }}</div>{% endfor %}
+          </div>
+        {% endif %}
+      {% endif %}
+
+      {% if file.warnings %}
+        <div class="alert alert-warning py-2 small">
+          {% for warning in file.warnings %}<div>{{ warning }}</div>{% endfor %}
+        </div>
+      {% endif %}
+
+      <form method="post" id="parameter-edit-form">
+        <input type="hidden" name="action" value="preview">
+        <input type="hidden" name="file_relpath" value="{{ file_relpath }}">
+        <input type="hidden" name="expected_digest" value="{{ expected_digest }}">
+        <label class="form-label fw-semibold" for="parameter-contents">File contents</label>
+        <textarea
+          id="parameter-contents"
+          class="form-control font-monospace model-parameter-editor"
+          name="contents"
+          rows="30"
+          spellcheck="false"
+        >{{ contents }}</textarea>
+        <div class="form-text mb-3">
+          Comments, whitespace, unknown keys, and the original newline style are preserved unless changed here.
+        </div>
+      </form>
+      <div class="d-flex flex-wrap align-items-start gap-2 mb-4">
+        <button class="btn btn-primary" type="submit" form="parameter-edit-form">Review Changes</button>
+        {% if checkpoints %}
+          <form method="get" class="input-group model-checkpoint-selector">
+            <input type="hidden" name="file" value="{{ file_relpath }}">
+            <label class="visually-hidden" for="parameter-checkpoint">Load a checkpoint</label>
+            <select class="form-select font-monospace" id="parameter-checkpoint" name="checkpoint" required>
+              <option value="">Choose a saved checkpoint…</option>
+              {% for checkpoint in checkpoints %}
+                <option
+                  value="{{ checkpoint.name }}"
+                  {% if loaded_checkpoint and loaded_checkpoint.name == checkpoint.name %}selected{% endif %}
+                >{{ checkpoint.modified_display }} — {{ checkpoint.name }}</option>
+              {% endfor %}
+            </select>
+            <button class="btn btn-outline-primary" type="submit">Load into Editor</button>
+          </form>
+        {% endif %}
+      </div>
+
+      {% if review %}
+        <div class="card mb-4" id="change-review">
+          <div class="card-header fw-semibold">Change Review</div>
+          <div class="card-body">
+            {% if review.warnings %}
+              <div class="alert alert-warning py-2 small">
+                {% for warning in review.warnings %}<div>{{ warning }}</div>{% endfor %}
+              </div>
+            {% endif %}
+            {% if review.changed %}
+              <pre class="model-parameter-diff border rounded p-2 mb-3">{% for line in review.diff_lines %}<span class="diff-{{ line.kind }}">{{ line.text }}</span>{% endfor %}</pre>
+              <form method="post">
+                <input type="hidden" name="action" value="save">
+                <input type="hidden" name="file_relpath" value="{{ file_relpath }}">
+                <input type="hidden" name="expected_digest" value="{{ expected_digest }}">
+                <input type="hidden" name="reviewed_digest" value="{{ review.proposed_digest }}">
+                <textarea class="d-none" name="contents" aria-hidden="true">{{ review.contents }}</textarea>
+                <button class="btn btn-danger" type="submit">Save Reviewed Changes</button>
+              </form>
+            {% else %}
+              <div class="alert alert-info mb-0">No changes to save.</div>
+            {% endif %}
+          </div>
+        </div>
+        <script>
+          document.addEventListener("DOMContentLoaded", function () {
+            var reviewPanel = document.getElementById("change-review");
+            if (!reviewPanel) {
+              return;
+            }
+            var reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+            reviewPanel.scrollIntoView({behavior: reduceMotion ? "auto" : "smooth", block: "start"});
+          });
+        </script>
+      {% endif %}
+    {% endif %}
+  </section>
+{% endblock %}

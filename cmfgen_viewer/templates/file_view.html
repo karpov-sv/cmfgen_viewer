@@ -5,6 +5,16 @@
     <a class="btn btn-sm btn-outline-primary" href="{{ url_for('viewer.download_file', path=path) }}">
       Download File
     </a>
+    {% if model_edit_file %}
+      {% if read_write_enabled %}
+        <a
+          class="btn btn-sm btn-outline-primary ms-2"
+          href="{{ url_for('viewer.model_parameters', source_path=model_edit_file.model_relpath, file=model_edit_file.file_relpath) }}"
+        >Edit Parameters</a>
+      {% else %}
+        <button class="btn btn-sm btn-outline-secondary ms-2" type="button" disabled>Edit Parameters</button>
+      {% endif %}
+    {% endif %}
     {% if has_parsed %}
       <div class="btn-group btn-group-sm ms-2" role="group" aria-label="Display mode">
         <a

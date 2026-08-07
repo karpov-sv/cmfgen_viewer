@@ -34,6 +34,7 @@ from .grid_catalog import (
 from . import browser_views as _browser_views  # noqa: E402,F401
 from . import grid_views as _grid_views  # noqa: E402,F401
 from . import model_views as _model_views  # noqa: E402,F401
+from . import model_editor_views as _model_editor_views  # noqa: E402,F401
 from . import model_write_views as _model_write_views  # noqa: E402,F401
 from . import spectrum_views as _spectrum_views  # noqa: E402,F401
 from . import system_views as _system_views  # noqa: E402,F401

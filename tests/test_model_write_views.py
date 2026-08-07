@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import os
 from pathlib import Path
 
 from cmfgen_viewer.app import create_app
@@ -32,9 +34,11 @@ def test_create_from_solution_route_previews_and_creates_model(tmp_path: Path) -
     assert b"Model actions:" in source_page.data
     assert b"Rename / Move Model" in source_page.data
     assert b"Cleanup Model" in source_page.data
+    assert b"Edit Parameters" in source_page.data
     assert b'/model-actions/create/grid/model_a' in source_page.data
     assert b'/model-actions/rename/grid/model_a' in source_page.data
     assert b'/model-actions/cleanup/grid/model_a' in source_page.data
+    assert b'/model-actions/edit/grid/model_a' in source_page.data
 
     preview = client.post(
         "/model-actions/create/grid/model_a",
@@ -70,9 +74,11 @@ def test_create_from_solution_requires_read_write_mode(tmp_path: Path) -> None:
     assert b'/model-actions/create/model_a' not in source_page.data
     assert b'/model-actions/rename/model_a' not in source_page.data
     assert b'/model-actions/cleanup/model_a' not in source_page.data
+    assert b'/model-actions/edit/model_a' not in source_page.data
     assert client.get("/model-actions/create/model_a").status_code == 403
     assert client.get("/model-actions/rename/model_a").status_code == 403
     assert client.get("/model-actions/cleanup/model_a").status_code == 403
+    assert client.get("/model-actions/edit/model_a").status_code == 403
     assert not (tmp_path / "model_a_new").exists()
 
 
@@ -87,6 +93,7 @@ def test_create_from_solution_disables_and_rejects_sn_models(tmp_path: Path) -> 
     assert b'/model-actions/create/SN/model_sn' not in source_page.data
     assert b'/model-actions/rename/SN/model_sn' in source_page.data
     assert b'/model-actions/cleanup/SN/model_sn' in source_page.data
+    assert b'/model-actions/edit/SN/model_sn' in source_page.data
 
     create_page = client.get("/model-actions/create/SN/model_sn")
     assert create_page.status_code == 200
@@ -178,6 +185,7 @@ def test_rename_model_route_moves_cache_entry_and_redirects(tmp_path: Path) -> N
     assert inspect_model_summary_entry(
         db_path, basepath=basepath, relpath="grid/model_a"
     )["status"] == "absent"
+
     new_cache = inspect_model_summary_entry(
         db_path, basepath=basepath, relpath="archive/model_b"
     )
@@ -280,3 +288,173 @@ def test_cleanup_model_route_invalidates_cache_if_vadat_symlink_is_removed(tmp_p
     assert inspect_model_summary_entry(
         db_path, basepath=basepath, relpath="model_a"
     )["status"] == "absent"
+
+
+def test_model_parameter_editor_reviews_saves_backs_up_and_marks_solution_stale(tmp_path: Path) -> None:
+    source = tmp_path / "grid" / "model_a"
+    _write_solution(source)
+    original = "1.0 [LSTAR] ! original\nF [DO_HYDRO]\n"
+    proposed = "2.0 [LSTAR] ! original\nF [DO_HYDRO]\n"
+    (source / "VADAT").write_text(original, encoding="utf-8")
+    (source / "MODEL_SPEC").write_text("10 [ND]\n", encoding="utf-8")
+    (source / "IN_ITS").write_text("10 [NUM_ITS]\n", encoding="utf-8")
+    (source / "MOD_SUM").write_text("summary\n", encoding="utf-8")
+    app = _make_app(tmp_path, read_write=True)
+    client = app.test_client()
+    config = app.config["CMFGEN_VIEWER"]
+    db_path = str(config["summary_cache_db"])
+    basepath = str(config["basepath"])
+
+    assert client.get("/view/grid/model_a").status_code == 200
+    assert inspect_model_summary_entry(
+        db_path, basepath=basepath, relpath="grid/model_a"
+    )["status"] == "valid"
+    index = client.get("/model-actions/edit/grid/model_a")
+    assert index.status_code == 200
+    assert b"Editable control files" in index.data
+    assert b"obs/CMF_FLUX_PARAM" in index.data
+
+    editor = client.get("/model-actions/edit/grid/model_a?file=VADAT")
+    assert editor.status_code == 200
+    assert original.encode("utf-8") in editor.data
+    file_page = client.get("/view/grid/model_a/VADAT")
+    assert file_page.status_code == 200
+    assert b'/model-actions/edit/grid/model_a?file=VADAT' in file_page.data
+    expected_digest = hashlib.sha256(original.encode("utf-8")).hexdigest()
+    proposed_digest = hashlib.sha256(proposed.encode("utf-8")).hexdigest()
+    preview = client.post(
+        "/model-actions/edit/grid/model_a",
+        data={
+            "action": "preview",
+            "file_relpath": "VADAT",
+            "expected_digest": expected_digest,
+            "contents": proposed,
+        },
+    )
+    assert preview.status_code == 200
+    assert b"Change Review" in preview.data
+    assert b'id="change-review"' in preview.data
+    assert b"scrollIntoView" in preview.data
+    assert b"Save Reviewed Changes" in preview.data
+
+    saved = client.post(
+        "/model-actions/edit/grid/model_a",
+        data={
+            "action": "save",
+            "file_relpath": "VADAT",
+            "expected_digest": expected_digest,
+            "reviewed_digest": proposed_digest,
+            "contents": proposed,
+        },
+        follow_redirects=False,
+    )
+    assert saved.status_code == 302
+    assert (source / "VADAT").read_text(encoding="utf-8") == proposed
+    backups = list((source / ".cmfgen-viewer-backups").glob("VADAT.*.bak"))
+    assert len(backups) == 1
+    assert backups[0].read_text(encoding="utf-8") == original
+    assert inspect_model_summary_entry(
+        db_path, basepath=basepath, relpath="grid/model_a"
+    )["status"] == "absent"
+
+    model_page = client.get("/view/grid/model_a")
+    assert model_page.status_code == 200
+    assert b"Model inputs were edited after the current" in model_page.data
+    assert inspect_model_summary_entry(
+        db_path, basepath=basepath, relpath="grid/model_a"
+    )["status"] == "absent"
+
+    marker_mtime = (source / ".cmfgen-viewer-input-modified.json").stat().st_mtime_ns
+    os.utime(source / "MOD_SUM", ns=(marker_mtime + 1_000_000, marker_mtime + 1_000_000))
+    refreshed_page = client.get("/view/grid/model_a")
+    assert b"Model inputs were edited after the current" not in refreshed_page.data
+    assert inspect_model_summary_entry(
+        db_path, basepath=basepath, relpath="grid/model_a"
+    )["status"] == "valid"
+
+
+def test_model_parameter_editor_rejects_concurrent_file_change(tmp_path: Path) -> None:
+    source = tmp_path / "model_a"
+    _write_solution(source)
+    original = "1.0 [LSTAR]\n"
+    (source / "VADAT").write_text(original, encoding="utf-8")
+    app = _make_app(tmp_path, read_write=True)
+    client = app.test_client()
+    expected_digest = hashlib.sha256(original.encode("utf-8")).hexdigest()
+    external = "3.0 [LSTAR]\n"
+    (source / "VADAT").write_text(external, encoding="utf-8")
+
+    response = client.post(
+        "/model-actions/edit/model_a",
+        data={
+            "action": "preview",
+            "file_relpath": "VADAT",
+            "expected_digest": expected_digest,
+            "contents": "2.0 [LSTAR]\n",
+        },
+    )
+
+    assert response.status_code == 200
+    assert b"changed after the editor loaded it" in response.data
+    assert (source / "VADAT").read_text(encoding="utf-8") == external
+
+
+def test_model_parameter_checkpoint_loads_into_editor_then_restores_through_review(tmp_path: Path) -> None:
+    source = tmp_path / "model_a"
+    _write_solution(source)
+    original = "1.0 [LSTAR] ! checkpoint\n"
+    changed = "2.0 [LSTAR] ! changed\n"
+    (source / "VADAT").write_text(original, encoding="utf-8")
+    app = _make_app(tmp_path, read_write=True)
+    client = app.test_client()
+
+    first_save = client.post(
+        "/model-actions/edit/model_a",
+        data={
+            "action": "save",
+            "file_relpath": "VADAT",
+            "expected_digest": hashlib.sha256(original.encode()).hexdigest(),
+            "reviewed_digest": hashlib.sha256(changed.encode()).hexdigest(),
+            "contents": changed,
+        },
+        follow_redirects=False,
+    )
+    assert first_save.status_code == 302
+    checkpoint_path = next((source / ".cmfgen-viewer-backups").glob("VADAT.*.bak"))
+
+    loaded = client.get(
+        "/model-actions/edit/model_a",
+        query_string={"file": "VADAT", "checkpoint": checkpoint_path.name},
+    )
+    assert loaded.status_code == 200
+    assert b"Loaded checkpoint" in loaded.data
+    assert original.encode() in loaded.data
+    assert (source / "VADAT").read_text(encoding="utf-8") == changed
+
+    preview = client.post(
+        "/model-actions/edit/model_a",
+        data={
+            "action": "preview",
+            "file_relpath": "VADAT",
+            "expected_digest": hashlib.sha256(changed.encode()).hexdigest(),
+            "contents": original,
+        },
+    )
+    assert preview.status_code == 200
+    assert b"Change Review" in preview.data
+    assert b"Save Reviewed Changes" in preview.data
+
+    restored = client.post(
+        "/model-actions/edit/model_a",
+        data={
+            "action": "save",
+            "file_relpath": "VADAT",
+            "expected_digest": hashlib.sha256(changed.encode()).hexdigest(),
+            "reviewed_digest": hashlib.sha256(original.encode()).hexdigest(),
+            "contents": original,
+        },
+        follow_redirects=False,
+    )
+    assert restored.status_code == 302
+    assert (source / "VADAT").read_text(encoding="utf-8") == original
+    assert len(list((source / ".cmfgen-viewer-backups").glob("VADAT.*.bak"))) == 2
