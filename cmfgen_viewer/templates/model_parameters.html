@@ -1,5 +1,38 @@
 {% extends "base.html" %}
 
+{% macro quick_parameter_fields(fields) %}
+  <div class="model-quick-parameter-grid">
+    {% for field in fields %}
+      <div class="model-quick-parameter-field">
+        <label class="form-label small fw-semibold mb-1" for="{{ field.input_id }}">{{ field.label }}</label>
+        <div class="input-group input-group-sm">
+          {% if field.kind == "boolean" %}
+            <select class="form-select font-monospace" id="{{ field.input_id }}" name="{{ field.field_name }}">
+              <option value="T" {% if field.value|upper == "T" %}selected{% endif %}>T — enabled</option>
+              <option value="F" {% if field.value|upper == "F" %}selected{% endif %}>F — disabled</option>
+            </select>
+          {% else %}
+            <input
+              class="form-control font-monospace"
+              id="{{ field.input_id }}"
+              name="{{ field.field_name }}"
+              value="{{ field.value }}"
+              inputmode="{% if field.kind in ['float', 'integer'] %}decimal{% else %}text{% endif %}"
+              autocomplete="off"
+              spellcheck="false"
+              required
+            >
+          {% endif %}
+          {% if field.unit %}<span class="input-group-text">{{ field.unit }}</span>{% endif %}
+        </div>
+        <div class="form-text model-quick-parameter-help">
+          <code>[{{ field.key }}]</code>{% if field.comment %} — {{ field.comment }}{% endif %}
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+{% endmacro %}
+
 {% block title %}Edit Model Parameters - CMFGEN Viewer{% endblock %}
 
 {% block body %}
@@ -29,6 +62,116 @@
       Saving a solution control marks the model as modified until a newer <code>MOD_SUM</code> is produced.
       Every save creates a recoverable copy under <code>.cmfgen-viewer-backups/</code>.
     </div>
+
+    {% if quick_saved %}
+      <div class="alert alert-success py-2">
+        Quick parameters in <code>{{ quick_saved }}</code> were saved atomically.
+        {% if backup_relpath %}
+          Backup:
+          <a href="{{ url_for('viewer.view', path=source_path.rstrip('/') ~ '/' ~ backup_relpath) }}"><code>{{ backup_relpath }}</code></a>.
+        {% endif %}
+      </div>
+    {% endif %}
+    {% if quick_error %}
+      <div class="alert alert-danger py-2">{{ quick_error }}</div>
+    {% endif %}
+
+    {% if quick_cards %}
+      <details class="card mb-4 model-quick-parameters-panel" open>
+        <summary class="card-header">
+          <span class="fw-semibold">Quick parameters</span>
+          <span class="small text-muted fw-normal d-block">
+            Only keys present exactly once are shown. Values are kept in their native CMFGEN notation.
+          </span>
+        </summary>
+        <div class="card-body">
+          {% for card in quick_cards %}
+            <section class="model-quick-card {% if not loop.last %}border-bottom pb-4 mb-4{% endif %}">
+              <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+                <div>
+                  <h3 class="h6 mb-1">{{ card.label }} <code class="ms-1">{{ card.file_relpath }}</code></h3>
+                  <div class="small text-muted">{{ card.description }}</div>
+                </div>
+                <a
+                  class="btn btn-sm btn-outline-secondary"
+                  href="{{ url_for('viewer.model_parameters', source_path=source_path, file=card.file_relpath) }}"
+                >Open Text Editor</a>
+              </div>
+
+              {% if card.issues %}
+                <div class="alert alert-warning py-2 small">
+                  {% for issue in card.issues %}<div>{{ issue }}</div>{% endfor %}
+                </div>
+              {% endif %}
+
+              {% if card.fields %}
+                <form method="post">
+                  <input type="hidden" name="action" value="quick_preview">
+                  <input type="hidden" name="quick_file_relpath" value="{{ card.file_relpath }}">
+                  <input type="hidden" name="expected_digest" value="{{ card.digest }}">
+                  {% for group in card.groups %}
+                    {% if group.collapsed %}
+                      <details class="model-quick-parameter-details mb-3">
+                        <summary class="small fw-semibold mb-2">{{ group.name }} ({{ group.fields|length }})</summary>
+                        {{ quick_parameter_fields(group.fields) }}
+                      </details>
+                    {% else %}
+                      <fieldset class="mb-3">
+                        <legend class="small fw-semibold mb-2">{{ group.name }}</legend>
+                        {{ quick_parameter_fields(group.fields) }}
+                      </fieldset>
+                    {% endif %}
+                  {% endfor %}
+                  <button class="btn btn-sm btn-primary" type="submit">Review {{ card.label }} Changes</button>
+                </form>
+              {% else %}
+                <div class="text-muted small">No supported quick parameters were found in this file.</div>
+              {% endif %}
+
+              {% if quick_review and quick_review.card.file_relpath == card.file_relpath %}
+                <div class="card mt-3" id="quick-change-review">
+                  <div class="card-header fw-semibold">Quick Change Review</div>
+                  <div class="card-body">
+                    {% if quick_review.warnings %}
+                      <div class="alert alert-warning py-2 small">
+                        {% for warning in quick_review.warnings %}<div>{{ warning }}</div>{% endfor %}
+                      </div>
+                    {% endif %}
+                    {% if quick_review.changed %}
+                      <pre class="model-parameter-diff border rounded p-2 mb-3">{% for line in quick_review.diff_lines %}<span class="diff-{{ line.kind }}">{{ line.text }}</span>{% endfor %}</pre>
+                      <form method="post">
+                        <input type="hidden" name="action" value="quick_save">
+                        <input type="hidden" name="quick_file_relpath" value="{{ card.file_relpath }}">
+                        <input type="hidden" name="expected_digest" value="{{ card.digest }}">
+                        <input type="hidden" name="reviewed_digest" value="{{ quick_review.proposed_digest }}">
+                        {% for field in card.fields %}
+                          <input type="hidden" name="{{ field.field_name }}" value="{{ field.value }}">
+                        {% endfor %}
+                        <button class="btn btn-danger" type="submit">Save Reviewed Quick Changes</button>
+                      </form>
+                    {% else %}
+                      <div class="alert alert-info mb-0">No changes to save.</div>
+                    {% endif %}
+                  </div>
+                </div>
+              {% endif %}
+            </section>
+          {% endfor %}
+        </div>
+      </details>
+      {% if quick_review %}
+        <script>
+          document.addEventListener("DOMContentLoaded", function () {
+            var reviewPanel = document.getElementById("quick-change-review");
+            if (!reviewPanel) {
+              return;
+            }
+            var reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+            reviewPanel.scrollIntoView({behavior: reduceMotion ? "auto" : "smooth", block: "start"});
+          });
+        </script>
+      {% endif %}
+    {% endif %}
 
     <div class="card">
       <div class="card-header fw-semibold">Editable control files</div>

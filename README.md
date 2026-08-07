@@ -208,7 +208,9 @@ Flux handling:
   - previewed, selectively confirmed cleanup of completed-run transient files and top-level symlinks,
     following the active policy in CMFGEN's canonical `com/clean.sh`,
   - lossless editing of allowlisted model control files with diff review, optimistic concurrency checks,
-    atomic replacement, checkpoint loading/restoration, recoverable backups, and stale-solution/cache tracking.
+    atomic replacement, checkpoint loading/restoration, recoverable backups, and stale-solution/cache tracking,
+  - compact quick editing of commonly changed `VADAT` stellar/wind, clumping, and abundance values plus
+    `IN_ITS` iteration controls, while preserving the surrounding control-file text and using the same review path.
 - Configurable wavelength window for all displayed spectra:
   - `--lambda-min` / `--lambda-max` bounds applied to both model spectra and uploaded overlays.
 - Documentation section with top-nav dropdown populated from `doc/*.md`, rendered as markdown with code highlighting.
@@ -234,8 +236,8 @@ Flux handling:
     runtime status, explicit cache maintenance jobs, and cached model-summary storage.
   - `model_write_views.py`, `model_staging.py`:
     guarded model-operation routes and non-SN model staging contracts.
-  - `model_editor_views.py`, `model_editor.py`:
-    allowlisted control-file editing routes, diff review, backups, and safe persistence.
+  - `model_editor_views.py`, `model_editor.py`, `model_quick_editor.py`:
+    allowlisted control-file editing routes, structured quick edits, diff review, backups, and safe persistence.
   - `browser.py`: directory/file metadata and role classification.
   - `final_spectrum.py`: CMFGEN final-spectrum parsing, conversion, and plot assembly helpers.
   - `observed_spectrum.py`: uploaded observed-spectrum parsing and upload-manifest lifecycle.

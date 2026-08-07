@@ -409,3 +409,35 @@ a:focus {
     color: var(--bs-primary-text-emphasis);
     font-weight: 600;
 }
+
+.model-quick-parameter-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+    gap: 0.8rem 1rem;
+}
+
+.model-quick-parameters-panel > summary {
+    cursor: pointer;
+}
+
+.model-quick-parameters-panel > summary:hover {
+    background: var(--bs-secondary-bg);
+}
+
+.model-quick-parameter-field {
+    min-width: 0;
+}
+
+.model-quick-parameter-help {
+    line-height: 1.25;
+    min-height: 1.25em;
+}
+
+.model-quick-parameter-details > summary {
+    cursor: pointer;
+    color: var(--bs-primary);
+}
+
+.model-quick-parameter-details[open] > summary {
+    margin-bottom: 0.75rem !important;
+}

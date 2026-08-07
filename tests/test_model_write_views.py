@@ -373,6 +373,92 @@ def test_model_parameter_editor_reviews_saves_backs_up_and_marks_solution_stale(
     )["status"] == "valid"
 
 
+def test_quick_parameter_editor_reviews_and_saves_vadat_values(tmp_path: Path) -> None:
+    source = tmp_path / "grid" / "model_a"
+    _write_solution(source)
+    original = (
+        "1.0D+05 [LSTAR] ! luminosity\n"
+        "2.0D-06 [MDOT] ! mass loss\n"
+        "3.0 [TEFF] ! full-editor only\n"
+        "T [DO_CL]\n"
+        "0.1 [CL_PAR_1]\n"
+        "1.0 [HYD/X]\n"
+        "2.0D-3 [NIT/X]\n"
+        "-6.8D-4 [SIL/X]\n"
+    )
+    proposed = original.replace("1.0D+05", "2.5D+05").replace("T [DO_CL]", "F [DO_CL]")
+    (source / "VADAT").write_text(original, encoding="utf-8")
+    (source / "IN_ITS").write_text(
+        "10 [NUM_ITS]\nF [DO_LAM_IT]\nT [DO_T_AUTO]\n",
+        encoding="utf-8",
+    )
+    (source / "MOD_SUM").write_text("summary\n", encoding="utf-8")
+    app = _make_app(tmp_path, read_write=True)
+    client = app.test_client()
+    config = app.config["CMFGEN_VIEWER"]
+    db_path = str(config["summary_cache_db"])
+    basepath = str(config["basepath"])
+
+    assert client.get("/view/grid/model_a").status_code == 200
+    index = client.get("/model-actions/edit/grid/model_a")
+    assert index.status_code == 200
+    assert b"Quick parameters" in index.data
+    assert b'<details class="card mb-4 model-quick-parameters-panel" open>' in index.data
+    assert b"Stellar and wind" in index.data
+    assert b"Additional abundances (1)" in index.data
+    assert b"Iteration controls" in index.data
+    assert b"TEFF" not in index.data
+
+    values = {
+        "quick_value:LSTAR": "2.5D+05",
+        "quick_value:MDOT": "2.0D-06",
+        "quick_value:DO_CL": "F",
+        "quick_value:CL_PAR_1": "0.1",
+        "quick_value:HYD/X": "1.0",
+        "quick_value:NIT/X": "2.0D-3",
+        "quick_value:SIL/X": "-6.8D-4",
+    }
+    expected_digest = hashlib.sha256(original.encode()).hexdigest()
+    proposed_digest = hashlib.sha256(proposed.encode()).hexdigest()
+    preview = client.post(
+        "/model-actions/edit/grid/model_a",
+        data={
+            "action": "quick_preview",
+            "quick_file_relpath": "VADAT",
+            "expected_digest": expected_digest,
+            **values,
+        },
+    )
+    assert preview.status_code == 200
+    assert b"Quick Change Review" in preview.data
+    assert b'id="quick-change-review"' in preview.data
+    assert b"Save Reviewed Quick Changes" in preview.data
+    assert (source / "VADAT").read_text(encoding="utf-8") == original
+
+    saved = client.post(
+        "/model-actions/edit/grid/model_a",
+        data={
+            "action": "quick_save",
+            "quick_file_relpath": "VADAT",
+            "expected_digest": expected_digest,
+            "reviewed_digest": proposed_digest,
+            **values,
+        },
+        follow_redirects=False,
+    )
+    assert saved.status_code == 302
+    assert "quick_saved=VADAT" in saved.headers["Location"]
+    assert (source / "VADAT").read_text(encoding="utf-8") == proposed
+    assert len(list((source / ".cmfgen-viewer-backups").glob("VADAT.*.bak"))) == 1
+    assert inspect_model_summary_entry(
+        db_path, basepath=basepath, relpath="grid/model_a"
+    )["status"] == "absent"
+
+    result = client.get(saved.headers["Location"])
+    assert result.status_code == 200
+    assert b"Quick parameters in <code>VADAT</code> were saved atomically" in result.data
+
+
 def test_model_parameter_editor_rejects_concurrent_file_change(tmp_path: Path) -> None:
     source = tmp_path / "model_a"
     _write_solution(source)
