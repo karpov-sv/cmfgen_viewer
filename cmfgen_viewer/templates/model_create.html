@@ -26,8 +26,8 @@
       <code>GAMMAS → GAMMAS_IN</code>, and <code>*OUT → *_IN</code>. Restart state and previous diagnostics are not copied.
     </p>
     <div class="alert alert-info py-2 small">
-      This is the top-level <code>cpmod</code>-style staging step. Atomic-data links and <code>obs/</code>,
-      <code>lte/</code>, or hydro work directories are not copied and should be handled by later setup/preflight operations.
+      This is a <code>cpmod</code>-style staging step. A filtered <code>obs/</code> bootstrap and cleanup scripts
+      are copied when available; old observer products, atomic-data links, <code>lte/</code>, and hydro work files are not.
     </div>
 
     {% if error %}<div class="alert alert-danger py-2">{{ error }}</div>{% endif %}
@@ -66,6 +66,11 @@
           {% if plan.missing_required %}
             <div class="alert alert-danger py-2">
               Missing required source files: <code>{{ plan.missing_required|join(', ') }}</code>.
+            </div>
+          {% endif %}
+          {% if plan.warnings %}
+            <div class="alert alert-warning py-2 small">
+              {% for warning in plan.warnings %}<div>{{ warning }}</div>{% endfor %}
             </div>
           {% endif %}
 

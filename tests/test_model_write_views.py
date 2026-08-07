@@ -24,21 +24,33 @@ def _write_solution(source: Path, *, sn: bool = False) -> None:
 
 
 def test_create_from_solution_route_previews_and_creates_model(tmp_path: Path) -> None:
-    _write_solution(tmp_path / "grid" / "model_a")
+    source = tmp_path / "grid" / "model_a"
+    _write_solution(source)
+    (source / "clean.sh").write_text("#!/bin/sh\n", encoding="utf-8")
+    observer = source / "obs"
+    observer.mkdir()
+    (observer / "batobs.sh").write_text("#!/bin/sh\n", encoding="utf-8")
+    (observer / "CMF_FLUX_PARAM_INIT").write_text("F [FLUX_CAL_ONLY]\n", encoding="utf-8")
+    (observer / "batobs.log").write_text("old observer log\n", encoding="utf-8")
     app = _make_app(tmp_path, read_write=True)
     client = app.test_client()
 
     source_page = client.get("/view/grid/model_a")
     assert source_page.status_code == 200
     assert b"New Model from Current" in source_page.data
-    assert b"Model actions:" in source_page.data
+    assert b"Model maintenance:" in source_page.data
+    assert b"Model workflow:" in source_page.data
     assert b"Rename / Move Model" in source_page.data
     assert b"Cleanup Model" in source_page.data
     assert b"Edit Parameters" in source_page.data
+    assert b"LTE / Hydro" in source_page.data
+    assert b"Main Computation" in source_page.data
     assert b'/model-actions/create/grid/model_a' in source_page.data
     assert b'/model-actions/rename/grid/model_a' in source_page.data
     assert b'/model-actions/cleanup/grid/model_a' in source_page.data
     assert b'/model-actions/edit/grid/model_a' in source_page.data
+    assert b'/model-actions/lte-hydro/grid/model_a' in source_page.data
+    assert b'/model-actions/main-computation/grid/model_a' in source_page.data
 
     preview = client.post(
         "/model-actions/create/grid/model_a",
@@ -48,6 +60,9 @@ def test_create_from_solution_route_previews_and_creates_model(tmp_path: Path) -
     assert b"Copy Preview" in preview.data
     assert b"GAMMAS_IN" in preview.data
     assert b"HeI_IN" in preview.data
+    assert b"obs/batobs.sh" in preview.data
+    assert b"obs/CMF_FLUX_PARAM_INIT" in preview.data
+    assert b"obs/batobs.log" not in preview.data
 
     response = client.post(
         "/model-actions/create/grid/model_a",
@@ -57,6 +72,9 @@ def test_create_from_solution_route_previews_and_creates_model(tmp_path: Path) -
     assert response.status_code == 302
     assert response.headers["Location"] == "/view/grid/model_b?created=1"
     assert (tmp_path / "grid" / "model_b" / "MODEL_SPEC").is_file()
+    assert (tmp_path / "grid" / "model_b" / "clean.sh").is_file()
+    assert (tmp_path / "grid" / "model_b" / "obs" / "batobs.sh").is_file()
+    assert not (tmp_path / "grid" / "model_b" / "obs" / "batobs.log").exists()
 
     created_page = client.get(response.headers["Location"])
     assert created_page.status_code == 200
@@ -75,10 +93,14 @@ def test_create_from_solution_requires_read_write_mode(tmp_path: Path) -> None:
     assert b'/model-actions/rename/model_a' not in source_page.data
     assert b'/model-actions/cleanup/model_a' not in source_page.data
     assert b'/model-actions/edit/model_a' not in source_page.data
+    assert b'/model-actions/lte-hydro/model_a' not in source_page.data
+    assert b'/model-actions/main-computation/model_a' not in source_page.data
     assert client.get("/model-actions/create/model_a").status_code == 403
     assert client.get("/model-actions/rename/model_a").status_code == 403
     assert client.get("/model-actions/cleanup/model_a").status_code == 403
     assert client.get("/model-actions/edit/model_a").status_code == 403
+    assert client.get("/model-actions/lte-hydro/model_a").status_code == 403
+    assert client.get("/model-actions/main-computation/model_a").status_code == 403
     assert not (tmp_path / "model_a_new").exists()
 
 
@@ -380,6 +402,7 @@ def test_quick_parameter_editor_reviews_and_saves_vadat_values(tmp_path: Path) -
         "1.0D+05 [LSTAR] ! luminosity\n"
         "2.0D-06 [MDOT] ! mass loss\n"
         "3.0 [TEFF] ! full-editor only\n"
+        "3.5 [LOGG]\n"
         "T [DO_CL]\n"
         "0.1 [CL_PAR_1]\n"
         "1.0 [HYD/X]\n"
@@ -408,10 +431,12 @@ def test_quick_parameter_editor_reviews_and_saves_vadat_values(tmp_path: Path) -
     assert b"Additional abundances (1)" in index.data
     assert b"Iteration controls" in index.data
     assert b"TEFF" not in index.data
+    assert b"Changing LOGG requires regenerating the LTE/hydro structure" in index.data
 
     values = {
         "quick_value:LSTAR": "2.5D+05",
         "quick_value:MDOT": "2.0D-06",
+        "quick_value:LOGG": "3.5",
         "quick_value:DO_CL": "F",
         "quick_value:CL_PAR_1": "0.1",
         "quick_value:HYD/X": "1.0",

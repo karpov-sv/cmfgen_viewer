@@ -16,6 +16,7 @@ from .browser import is_model_directory, resolve_path
 MODEL_CREATE_REQUIRED_FILES = ("batch.sh", "IN_ITS", "VADAT", "MODEL_SPEC", "GAMMAS")
 MODEL_CREATE_OPTIONAL_FILES = (
     "batch_ins.sh",
+    "clean.sh",
     "RVSIG_COL",
     "HYDRO_DEFAULTS",
     "ROSSELAND_LTE_TAB",
@@ -23,6 +24,18 @@ MODEL_CREATE_OPTIONAL_FILES = (
     "ADJUST_R_DEFAULTS",
     "IT_SPECIFIER",
     "arnaud_rothenflug.dat",
+)
+MODEL_CREATE_OBSERVER_REQUIRED_FILES = (
+    "batobs.sh",
+    "CMF_FLUX_PARAM_INIT",
+)
+MODEL_CREATE_OBSERVER_OPTIONAL_FILES = (
+    "bat_ins.sh",
+    "IN_FILE",
+    "CFDAT_IN",
+    "TWO_PHOT_DATA",
+    "MODEL_SPEC",
+    "rmlinks_local",
 )
 MODEL_CREATE_SN_MARKERS = {
     "SN_HYDRO_DATA",
@@ -131,20 +144,27 @@ def _model_destination(
     return normalized, destination
 
 
-def _copy_entry(source: Path, *, destination_name: str, category: str) -> dict[str, object]:
+def _copy_entry(
+    source: Path,
+    *,
+    destination_name: str,
+    category: str,
+    source_name: str | None = None,
+) -> dict[str, object]:
     try:
         file_stat = source.stat()
     except OSError as exc:
         raise ModelStagingError(f"Could not inspect required source file '{source.name}': {exc}") from exc
     if not source.is_file():
         raise ModelStagingError(f"Source entry '{source.name}' is not a regular file.")
+    source_label = source_name or source.name
     return {
-        "source_name": source.name,
+        "source_name": source_label,
         "destination_name": destination_name,
         "category": category,
         "size": int(file_stat.st_size),
         "human_size": _human_size(int(file_stat.st_size)),
-        "renamed": source.name != destination_name,
+        "renamed": Path(source_label).name != Path(destination_name).name,
     }
 
 
@@ -163,6 +183,7 @@ def plan_model_from_solution(
 
     entries: list[dict[str, object]] = []
     missing_required: list[str] = []
+    warnings: list[str] = []
     destination_names: set[str] = set()
 
     for name in MODEL_CREATE_REQUIRED_FILES:
@@ -202,7 +223,62 @@ def plan_model_from_solution(
         entries.append(_copy_entry(source_file, destination_name=name, category="Optional support"))
         destination_names.add(name)
 
-    category_order = {"Required": 0, "Solution output → input": 1, "Optional support": 2}
+    observer_dir = source / "obs"
+    observer_setup = observer_dir.is_dir()
+    if observer_setup:
+        for name in (*MODEL_CREATE_OBSERVER_REQUIRED_FILES, *MODEL_CREATE_OBSERVER_OPTIONAL_FILES):
+            source_file = observer_dir / name
+            if not source_file.is_file():
+                if name in MODEL_CREATE_OBSERVER_REQUIRED_FILES:
+                    warnings.append(f"Observer setup is missing obs/{name}.")
+                continue
+            destination_name = f"obs/{name}"
+            entries.append(
+                _copy_entry(
+                    source_file,
+                    source_name=f"obs/{name}",
+                    destination_name=destination_name,
+                    category="Observer setup",
+                )
+            )
+            destination_names.add(destination_name)
+
+        observer_clean = observer_dir / "clean.sh"
+        root_clean = source / "clean.sh"
+        if observer_clean.is_file():
+            entries.append(
+                _copy_entry(
+                    observer_clean,
+                    source_name="obs/clean.sh",
+                    destination_name="obs/clean.sh",
+                    category="Observer setup",
+                )
+            )
+            destination_names.add("obs/clean.sh")
+        elif root_clean.is_file():
+            entries.append(
+                _copy_entry(
+                    root_clean,
+                    source_name="clean.sh",
+                    destination_name="obs/clean.sh",
+                    category="Observer setup",
+                )
+            )
+            destination_names.add("obs/clean.sh")
+        else:
+            warnings.append("Observer setup has no clean.sh in obs/ or the model root.")
+    else:
+        warnings.append("Source model has no obs/ directory; observer-run setup will not be created.")
+
+    if not (source / "clean.sh").is_file():
+        warnings.append("Source model has no top-level clean.sh.")
+
+    category_order = {
+        "Required": 0,
+        "Solution output → input": 1,
+        "Optional support": 2,
+        "Observer setup": 3,
+    }
     entries.sort(
         key=lambda item: (
             category_order.get(str(item["category"]), 99),
@@ -221,6 +297,8 @@ def plan_model_from_solution(
         "total_size": total_size,
         "human_size": _human_size(total_size),
         "missing_required": missing_required,
+        "warnings": warnings,
+        "observer_setup": observer_setup,
         "ready": not missing_required,
     }
 
@@ -250,11 +328,17 @@ def create_model_from_solution(
             entries = plan.get("entries")
             if not isinstance(entries, list):
                 raise ModelStagingError("Model copy plan is invalid.")
+            if bool(plan.get("observer_setup", False)):
+                observer_source = source / "obs"
+                observer_destination = staging_path / "obs"
+                observer_destination.mkdir()
+                observer_destination.chmod(stat.S_IMODE(observer_source.stat().st_mode))
             for entry in entries:
                 if not isinstance(entry, dict):
                     raise ModelStagingError("Model copy plan contains an invalid entry.")
-                source_file = source / str(entry["source_name"])
-                destination_file = staging_path / str(entry["destination_name"])
+                source_file = source.joinpath(*Path(str(entry["source_name"])).parts)
+                destination_file = staging_path.joinpath(*Path(str(entry["destination_name"])).parts)
+                destination_file.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(source_file, destination_file, follow_symlinks=True)
 
             if destination.exists() or destination.is_symlink():

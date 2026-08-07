@@ -27,6 +27,7 @@ def _write_solution(source: Path) -> None:
         "HeIOUT": "helium-state\n",
         "GREY_SCL_FACOUT": "grey-state\n",
         "batch_ins.sh": "#!/bin/sh\n",
+        "clean.sh": "#!/bin/sh\nrm -f BAMAT\n",
         "RVSIG_COL": "structure\n",
         "MOD_SUM": "old summary\n",
         "POINT1": "restart pointer\n",
@@ -36,6 +37,26 @@ def _write_solution(source: Path) -> None:
     for name, content in files.items():
         (source / name).write_text(content, encoding="utf-8")
     (source / "batch.sh").chmod(0o750)
+    (source / "clean.sh").chmod(0o750)
+    observer = source / "obs"
+    observer.mkdir(mode=0o710)
+    observer_files = {
+        "batobs.sh": "#!/bin/sh\n",
+        "bat_ins.sh": "# observer sweep\n",
+        "CMF_FLUX_PARAM_INIT": "F [FLUX_CAL_ONLY]\n",
+        "IN_FILE": "../RVTJ [RVTJ]\n",
+        "CFDAT_IN": "frequency input\n",
+        "TWO_PHOT_DATA": "atomic support\n",
+        "clean.sh": "#!/bin/sh\nrm -f fort.*\n",
+        "batobs.log": "old log\n",
+        "CMF_FLUX_PARAM": "generated controls\n",
+        "obs_fin": "old spectrum\n",
+        "fort.8": "scratch\n",
+    }
+    for name, content in observer_files.items():
+        (observer / name).write_text(content, encoding="utf-8")
+    (observer / "batobs.sh").chmod(0o740)
+    (observer / "clean.sh").chmod(0o750)
 
 
 def test_plan_and_create_model_from_solution(tmp_path: Path) -> None:
@@ -56,10 +77,20 @@ def test_plan_and_create_model_from_solution(tmp_path: Path) -> None:
     assert mappings["HeIOUT"] == "HeI_IN"
     assert mappings["GREY_SCL_FACOUT"] == "GREY_SCL_FAC_IN"
     assert mappings["batch_ins.sh"] == "batch_ins.sh"
+    assert mappings["clean.sh"] == "clean.sh"
+    assert mappings["obs/batobs.sh"] == "obs/batobs.sh"
+    assert mappings["obs/CMF_FLUX_PARAM_INIT"] == "obs/CMF_FLUX_PARAM_INIT"
+    assert mappings["obs/clean.sh"] == "obs/clean.sh"
     assert "MOD_SUM" not in mappings
     assert "POINT1" not in mappings
     assert "SCRTEMP" not in mappings
     assert "HeI_IN" not in mappings
+    assert "obs/batobs.log" not in mappings
+    assert "obs/CMF_FLUX_PARAM" not in mappings
+    assert "obs/obs_fin" not in mappings
+    assert "obs/fort.8" not in mappings
+    assert plan["observer_setup"] is True
+    assert plan["warnings"] == []
 
     created = create_model_from_solution(
         str(tmp_path),
@@ -72,8 +103,41 @@ def test_plan_and_create_model_from_solution(tmp_path: Path) -> None:
     assert (destination / "HeI_IN").read_text(encoding="utf-8") == "helium-state\n"
     assert (destination / "GREY_SCL_FAC_IN").is_file()
     assert (destination / "batch.sh").stat().st_mode & 0o777 == 0o750
+    assert (destination / "clean.sh").stat().st_mode & 0o777 == 0o750
+    assert (destination / "obs").stat().st_mode & 0o777 == 0o710
+    assert (destination / "obs" / "batobs.sh").stat().st_mode & 0o777 == 0o740
+    assert (destination / "obs" / "CMF_FLUX_PARAM_INIT").is_file()
+    assert (destination / "obs" / "CFDAT_IN").is_file()
+    assert not (destination / "obs" / "batobs.log").exists()
+    assert not (destination / "obs" / "CMF_FLUX_PARAM").exists()
+    assert not (destination / "obs" / "obs_fin").exists()
     assert destination.stat().st_mode & 0o777 == 0o750
     assert not (destination / "MOD_SUM").exists()
+
+
+def test_model_creation_uses_root_clean_script_as_observer_fallback(tmp_path: Path) -> None:
+    source = tmp_path / "model_a"
+    _write_solution(source)
+    (source / "obs" / "clean.sh").unlink()
+
+    plan = plan_model_from_solution(
+        str(tmp_path),
+        source_relpath="model_a",
+        destination_relpath="model_b",
+    )
+    observer_clean = next(
+        item for item in plan["entries"] if item["destination_name"] == "obs/clean.sh"
+    )
+    assert observer_clean["source_name"] == "clean.sh"
+
+    create_model_from_solution(
+        str(tmp_path),
+        source_relpath="model_a",
+        destination_relpath="model_b",
+    )
+    assert (tmp_path / "model_b" / "obs" / "clean.sh").read_text(encoding="utf-8") == (
+        source / "clean.sh"
+    ).read_text(encoding="utf-8")
 
 
 def test_model_creation_rejects_missing_inputs_existing_targets_and_sn(tmp_path: Path) -> None:
@@ -272,7 +336,6 @@ def test_model_cleanup_plans_and_removes_only_canonical_top_level_candidates(tmp
     for name in ("BAION", "BAMAT", "BA_ASCI_N_D7", "RUN_SCRATCH_1", "fort.63", "EDDFACTOR"):
         (source / name).write_text(name, encoding="utf-8")
     nested = source / "obs"
-    nested.mkdir()
     (nested / "BAMAT").write_text("nested", encoding="utf-8")
     link_target = tmp_path / "atomic-data"
     link_target.write_text("shared", encoding="utf-8")

@@ -49,6 +49,20 @@ EDITABLE_MODEL_FILES: dict[str, dict[str, object]] = {
         "required": False,
         "affects_solution": True,
     },
+    "HYDRO_PARAMS": {
+        "label": "HYDRO_PARAMS",
+        "group": "LTE / hydro controls",
+        "description": "Inputs for constructing the hydrostatic structure from the LTE result.",
+        "required": False,
+        "affects_solution": True,
+    },
+    "GRID_PARAMS": {
+        "label": "GRID_PARAMS",
+        "group": "LTE / hydro controls",
+        "description": "LTE grid-construction controls.",
+        "required": False,
+        "affects_solution": True,
+    },
     "ADJUST_R_DEFAULTS": {
         "label": "ADJUST_R_DEFAULTS",
         "group": "Optional controls",
@@ -508,6 +522,20 @@ def _write_modified_marker(model_dir: Path, *, file_relpath: str, backup_relpath
     return marker.name
 
 
+def mark_model_inputs_modified(
+    model_dir: Path,
+    *,
+    file_relpath: str,
+    backup_relpath: str,
+) -> str:
+    """Record a non-editor input change using the editor's stale-solution marker."""
+    return _write_modified_marker(
+        model_dir,
+        file_relpath=file_relpath,
+        backup_relpath=backup_relpath,
+    )
+
+
 def save_model_parameter_edit(
     basepath: str,
     *,
@@ -515,6 +543,7 @@ def save_model_parameter_edit(
     file_relpath: str,
     expected_digest: str,
     contents: str,
+    preserve_modified_time: bool = False,
 ) -> dict[str, object]:
     with MODEL_WRITE_LOCK:
         record, proposed = _verified_edit_payload(
@@ -533,7 +562,8 @@ def save_model_parameter_edit(
         if proposed == current:
             raise ModelEditorError("No changes were made.")
         try:
-            mode = stat.S_IMODE(target.stat().st_mode)
+            target_stat = target.stat()
+            mode = stat.S_IMODE(target_stat.st_mode)
         except OSError as exc:
             raise ModelEditorError(f"Could not inspect control-file permissions: {exc}") from exc
         backup_relpath = _write_backup(
@@ -543,6 +573,12 @@ def save_model_parameter_edit(
             str(record["digest"]),
         )
         _atomic_replace(target, proposed, mode=mode)
+        timestamp_error = ""
+        if preserve_modified_time:
+            try:
+                os.utime(target, ns=(target_stat.st_atime_ns, target_stat.st_mtime_ns))
+            except OSError as exc:
+                timestamp_error = str(exc)
         marker = ""
         marker_error = ""
         if bool(record.get("affects_solution", False)):
@@ -560,6 +596,7 @@ def save_model_parameter_edit(
         "backup_relpath": backup_relpath,
         "modified_marker": marker,
         "marker_error": marker_error,
+        "timestamp_error": timestamp_error,
     }
 
 

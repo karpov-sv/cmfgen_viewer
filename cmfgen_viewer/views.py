@@ -36,6 +36,8 @@ from . import grid_views as _grid_views  # noqa: E402,F401
 from . import model_views as _model_views  # noqa: E402,F401
 from . import model_editor_views as _model_editor_views  # noqa: E402,F401
 from . import model_write_views as _model_write_views  # noqa: E402,F401
+from . import model_workflow_views as _model_workflow_views  # noqa: E402,F401
+from . import model_run_workflow_views as _model_run_workflow_views  # noqa: E402,F401
 from . import spectrum_views as _spectrum_views  # noqa: E402,F401
 from . import system_views as _system_views  # noqa: E402,F401
 from . import task_views as _task_views  # noqa: E402,F401

@@ -62,6 +62,7 @@ QUICK_PARAMETER_DEFINITIONS: dict[str, dict[str, dict[str, str]]] = {
             "group": "Stellar and wind",
             "kind": "float",
             "unit": "log g",
+            "notice": "Changing LOGG requires regenerating the LTE/hydro structure; this edit alone is not sufficient.",
         },
         "DO_CL": {
             "label": "Enable clumping",

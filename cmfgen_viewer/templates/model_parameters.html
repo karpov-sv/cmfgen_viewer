@@ -28,6 +28,9 @@
         <div class="form-text model-quick-parameter-help">
           <code>[{{ field.key }}]</code>{% if field.comment %} — {{ field.comment }}{% endif %}
         </div>
+        {% if field.notice %}
+          <div class="form-text text-warning-emphasis model-quick-parameter-help">{{ field.notice }}</div>
+        {% endif %}
       </div>
     {% endfor %}
   </div>

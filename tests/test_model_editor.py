@@ -148,6 +148,7 @@ def test_quick_model_parameters_preserve_control_file_structure(tmp_path: Path) 
         "  1.0D+05   [LSTAR] ! luminosity\r\n"
         "2.0D-06     [MDOT] ! mass loss\r\n"
         "3.0         [TEFF] ! intentionally not a quick parameter\r\n"
+        "3.5         [LOGG] ! hydro rebuild required\r\n"
         "T           [DO_CL] ! clumping\r\n"
         "EXPO        [CL_LAW]\r\n"
         "0.1         [CL_PAR_1]\r\n"
@@ -162,6 +163,7 @@ def test_quick_model_parameters_preserve_control_file_structure(tmp_path: Path) 
     fields = {str(field["key"]): field for field in vadat["fields"]}
     assert "TEFF" not in fields
     assert fields["LSTAR"]["value"] == "1.0D+05"
+    assert "LTE/hydro" in str(fields["LOGG"]["notice"])
     assert fields["SIL/X"]["group"] == "Additional abundances"
     assert next(group for group in vadat["groups"] if group["name"] == "Additional abundances")[
         "collapsed"

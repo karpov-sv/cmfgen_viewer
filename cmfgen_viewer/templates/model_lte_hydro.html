@@ -1,0 +1,246 @@
+{% extends "base.html" %}
+
+{% block title %}LTE / Hydro - {{ source_path }}{% endblock %}
+
+{% block body %}
+  {% if breadcrumb %}
+    <nav aria-label="breadcrumb">
+      <ol class="breadcrumb">
+        {% for item in breadcrumb %}
+          <li class="breadcrumb-item {% if item.path is none %}active{% endif %}">
+            {% if item.path is not none %}<a href="{{ url_for('viewer.view', path=item.path) }}">{{ item.name }}</a>{% else %}{{ item.name }}{% endif %}
+          </li>
+        {% endfor %}
+      </ol>
+    </nav>
+  {% endif %}
+  <div class="container-fluid py-3">
+    <h2 class="h4 mb-1">LTE / hydro workflow</h2>
+    <p class="text-muted mb-3"><code>{{ state.model_path }}</code></p>
+
+    <div class="alert alert-info py-2">
+      This page only prepares and inspects files. It never starts a CMFGEN process; run the shown commands in your own terminal and refresh this page afterward.
+    </div>
+    {% if message %}<div class="alert alert-success py-2">{{ message }}</div>{% endif %}
+    {% if error %}<div class="alert alert-danger py-2">{{ error }}</div>{% endif %}
+
+    <div class="card mb-3">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <strong>1. Prepare the LTE workspace</strong>
+        {% if state.prepared %}<span class="badge bg-success">Ready</span>{% elif state.prepare_allowed %}<span class="badge bg-warning text-dark">Available</span>{% else %}<span class="badge bg-secondary">Blocked</span>{% endif %}
+      </div>
+      <div class="card-body">
+        <p class="small text-muted">Creates <code>lte/</code>, copies the model controls and templates, and preserves the original structure as <code>RVSIG_COL_OLD</code>.</p>
+        <div class="row">
+          <div class="col-lg-6">
+            <h3 class="h6">Model inputs</h3>
+            <ul class="list-unstyled small">
+              {% for file in state.root_files %}<li>{% if file.exists %}<span class="text-success">✓</span>{% elif file.required %}<span class="text-danger">✗</span>{% else %}<span class="text-muted">○</span>{% endif %} <code>{{ file.name }}</code>{% if not file.required %} <span class="text-muted">(optional checkpoint source)</span>{% endif %}</li>{% endfor %}
+            </ul>
+          </div>
+          <div class="col-lg-6">
+            <h3 class="h6">Templates from <code>{{ state.template_root }}</code></h3>
+            <ul class="list-unstyled small">
+              {% for file in state.template_files %}<li>{% if file.exists %}<span class="text-success">✓</span>{% else %}<span class="text-danger">✗</span>{% endif %} <code>{{ file.name }}</code>{% if file.path %} <span class="text-muted">— {{ file.path }}</span>{% endif %}</li>{% endfor %}
+            </ul>
+          </div>
+        </div>
+        {% if state.prepare_allowed %}
+          <form method="post"><input type="hidden" name="action" value="prepare"><button class="btn btn-primary" type="submit">Prepare LTE Workspace</button></form>
+        {% elif state.prepare_reason %}
+          <p class="mb-1 text-muted">{{ state.prepare_reason }}</p>
+          {% if state.missing_lte %}<p class="small text-muted mb-1">Missing from <code>lte/</code>: <code>{{ state.missing_lte | join(', ') }}</code></p>{% endif %}
+          {% if state.rvsig_backup_exists %}<p class="small text-success mb-0"><code>RVSIG_COL_OLD</code> checkpoint detected.</p>{% endif %}
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="card mb-3">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <strong>2. Configure and run LTE externally</strong>
+        {% if state.lte_output.fresh and state.lte_ready %}<span class="badge bg-success">Output ready</span>{% elif state.lte_ready %}<span class="badge bg-warning text-dark">Ready to run</span>{% elif state.prepared %}<span class="badge bg-warning text-dark">Needs configuration</span>{% else %}<span class="badge bg-secondary">Blocked</span>{% endif %}
+      </div>
+      <div class="card-body">
+        {% if state.prepared %}
+          <div class="mb-2 d-flex flex-wrap gap-2">
+            {% for name in ['VADAT', 'MODEL_SPEC', 'GRID_PARAMS'] %}<a class="btn btn-sm btn-outline-primary" href="{{ url_for('viewer.model_parameters', source_path=source_path ~ '/lte', file=name) }}">Edit {{ name }}</a>{% endfor %}
+          </div>
+          <div class="row g-3 mb-3">
+            {% for card in state.lte_quick_control_cards %}
+              <div class="col-lg-6">
+                <form method="post" class="card h-100">
+                  <div class="card-header d-flex justify-content-between align-items-center">
+                    <strong>Required controls: <code>{{ card.file_relpath }}</code></strong>
+                    <span class="small text-muted">Quick edit</span>
+                  </div>
+                  <div class="card-body">
+                    <input type="hidden" name="action" value="configure_lte">
+                    <input type="hidden" name="control_file" value="{{ card.file_relpath }}">
+                    <input type="hidden" name="expected_digest" value="{{ card.digest }}">
+                    <div class="row g-2">
+                      {% for field in card.fields %}
+                        <div class="{% if card.fields|length == 2 %}col-md-6{% else %}col-md-4{% endif %}">
+                          <label class="form-label small fw-semibold mb-1" for="lte-{{ card.file_relpath|lower }}-{{ field.key|lower }}">
+                            {{ field.label }} <code>[{{ field.key }}]</code>
+                          </label>
+                          {% if field.kind == 'boolean' %}
+                            <select
+                              class="form-select form-select-sm font-monospace"
+                              id="lte-{{ card.file_relpath|lower }}-{{ field.key|lower }}"
+                              name="{{ field.field_name }}"
+                            >
+                              <option value="F" {% if field.value|upper == 'F' %}selected{% endif %}>F — disabled</option>
+                              <option value="T" {% if field.value|upper == 'T' %}selected{% endif %}>T — enabled</option>
+                            </select>
+                          {% else %}
+                            <input
+                              class="form-control form-control-sm font-monospace"
+                              id="lte-{{ card.file_relpath|lower }}-{{ field.key|lower }}"
+                              name="{{ field.field_name }}"
+                              value="{{ field.value }}"
+                              inputmode="decimal"
+                              autocomplete="off"
+                              required
+                            >
+                          {% endif %}
+                          {% if not field.exists %}<div class="form-text text-warning-emphasis">Not present; it will be added.</div>{% endif %}
+                        </div>
+                      {% endfor %}
+                    </div>
+                    {% for issue in card.issues %}<div class="alert alert-warning py-1 small mt-2 mb-0">{{ issue }}</div>{% endfor %}
+                  </div>
+                  <div class="card-footer">
+                    <button class="btn btn-sm btn-primary" type="submit" {% if not card.can_save %}disabled{% endif %}>Save {{ card.file_relpath }} Controls</button>
+                  </div>
+                </form>
+              </div>
+            {% endfor %}
+          </div>
+          {% if state.missing_lte_control_keys %}
+            <div class="alert alert-warning py-2 mb-0">Add the required LTE controls before running: <code>{{ state.missing_lte_control_keys | join(', ') }}</code>.</div>
+          {% else %}
+            <p class="small mb-1">After reviewing TEFF/LOGG and the ND/NC/NP grid, run:</p>
+            <pre class="bg-light border rounded p-2"><code>{{ state.commands.lte }}</code></pre>
+            {% if state.lte_output.stale %}<div class="alert alert-warning py-2 mb-0"><code>ROSSELAND_LTE_TAB</code> is older than an LTE input; rerun LTE.</div>{% elif not state.lte_output.exists %}<p class="text-muted mb-0">Waiting for <code>lte/ROSSELAND_LTE_TAB</code>.</p>{% endif %}
+          {% endif %}
+        {% else %}<p class="text-muted mb-0">Complete workspace preparation first.</p>{% endif %}
+      </div>
+    </div>
+
+    <div class="card mb-3">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <strong>3. Configure and run hydro externally</strong>
+        {% if state.hydro_output_ready %}<span class="badge bg-success">Output ready</span>{% elif state.hydro_ready %}<span class="badge bg-warning text-dark">Ready to run</span>{% else %}<span class="badge bg-secondary">Blocked</span>{% endif %}
+      </div>
+      <div class="card-body">
+        {% if state.hydro_ready %}
+          <a class="btn btn-sm btn-outline-primary mb-2" href="{{ url_for('viewer.model_parameters', source_path=source_path ~ '/lte', file='HYDRO_PARAMS') }}">Edit HYDRO_PARAMS</a>
+          <p class="small mb-1">Verify LOGG, TEFF, luminosity and related values, then run:</p>
+          <pre class="bg-light border rounded p-2"><code>{{ state.commands.hydro }}</code></pre>
+          <p class="small mb-1">Interactive answers from the supplied instructions:</p>
+          <ol class="small">{% for answer in state.hydro_answers %}<li><code>{{ answer }}</code></li>{% endfor %}</ol>
+          {% if state.hydro_output.stale %}<div class="alert alert-warning py-2 mb-0"><code>RVSIG_COL_NEW</code> is older than its inputs; rerun wind_hyd.</div>{% elif not state.hydro_output.exists %}<p class="text-muted mb-0">Waiting for <code>lte/RVSIG_COL_NEW</code>.</p>{% endif %}
+        {% else %}<p class="text-muted mb-0">A fresh <code>lte/ROSSELAND_LTE_TAB</code> is required first{% if state.hydro_output.exists %}; the existing hydro output cannot be accepted while its upstream LTE result is stale{% endif %}.</p>{% endif %}
+      </div>
+    </div>
+
+    <div class="card mb-3" id="result-review">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <strong>4. Review and promote results</strong>
+        {% if state.promoted %}<span class="badge bg-success">Promoted</span>{% elif state.promotion_ready %}<span class="badge bg-warning text-dark">Ready to promote</span>{% else %}<span class="badge bg-secondary">Blocked</span>{% endif %}
+      </div>
+      <div class="card-body">
+        <div class="mb-3 d-flex flex-wrap gap-2">
+          {% if state.hydro_output.exists %}
+            <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('viewer.view', path=source_path ~ '/lte/RVSIG_COL_NEW') }}">Open RVSIG_COL_NEW</a>
+          {% endif %}
+          {% if state.lte_output.exists %}
+            <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('viewer.view', path=source_path ~ '/lte/ROSSELAND_LTE_TAB') }}">Open ROSSELAND_LTE_TAB</a>
+          {% endif %}
+          {% if state.prepared %}
+            <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('viewer.model_parameters', source_path=source_path ~ '/lte', file='HYDRO_PARAMS') }}">Edit HYDRO_PARAMS</a>
+            <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('viewer.model_parameters', source_path=source_path ~ '/lte', file='VADAT') }}">Edit VADAT</a>
+          {% endif %}
+        </div>
+        {% if state.result_summary %}
+          {% if state.result_summary.comparisons %}
+            <h3 class="h6">Generated quantities and configured values</h3>
+            <div class="table-responsive mb-3">
+              <table class="table table-sm table-bordered align-middle mb-0">
+                <thead><tr><th>Quantity</th><th>Generated</th><th>Configured / current</th><th>Difference</th></tr></thead>
+                <tbody>
+                  {% for row in state.result_summary.comparisons %}
+                    <tr>
+                      <th>{{ row.label }}</th>
+                      <td><code>{{ row.generated }}</code>{% if row.unit %} {{ row.unit }}{% endif %}</td>
+                      <td><code>{{ row.configured }}</code>{% if row.unit and row.configured != '—' %} {{ row.unit }}{% endif %}<div class="small text-muted">{{ row.configured_source }}</div></td>
+                      <td class="{% if row.status == 'success' %}text-success{% elif row.status == 'warning' %}text-warning-emphasis{% elif row.status == 'danger' %}text-danger{% endif %}"><code>{{ row.difference }}</code></td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          {% endif %}
+          {% if state.result_summary.diagnostics %}
+            <h3 class="h6">Additional generated diagnostics</h3>
+            <div class="row row-cols-2 row-cols-md-3 row-cols-xl-5 g-2 mb-3">
+              {% for item in state.result_summary.diagnostics %}
+                <div class="col"><div class="border rounded p-2 h-100"><div class="small text-muted">{{ item.label }}</div><code>{{ item.value }}</code>{% if item.unit %} <span class="small">{{ item.unit }}</span>{% endif %}</div></div>
+              {% endfor %}
+            </div>
+          {% endif %}
+        {% endif %}
+        {% if state.result_quick_control_cards %}
+          <div class="row g-3 mb-3">
+            {% for card in state.result_quick_control_cards %}
+              {% set field = card.fields[0] %}
+              <div class="col-lg-6">
+                <form method="post" class="card h-100">
+                  <div class="card-header"><strong>{{ field.label }} <code>[{{ field.key }}]</code></strong> in <code>{{ card.file_relpath }}</code></div>
+                  <div class="card-body">
+                    <input type="hidden" name="action" value="configure_results">
+                    <input type="hidden" name="control_file" value="{{ card.file_relpath }}">
+                    <input type="hidden" name="expected_digest" value="{{ card.digest }}">
+                    <input
+                      class="form-control form-control-sm font-monospace"
+                      name="{{ field.field_name }}"
+                      value="{{ field.value }}"
+                      inputmode="decimal"
+                      autocomplete="off"
+                      required
+                    >
+                    {% if field.help %}<div class="form-text">{{ field.help }}</div>{% endif %}
+                    {% if not field.exists %}<div class="form-text text-warning-emphasis">Not present; it will be added.</div>{% endif %}
+                    {% for issue in card.issues %}<div class="alert alert-warning py-1 small mt-2 mb-0">{{ issue }}</div>{% endfor %}
+                  </div>
+                  <div class="card-footer"><button class="btn btn-sm btn-primary" type="submit" {% if not card.can_save %}disabled{% endif %}>Save {{ field.key }}</button></div>
+                </form>
+              </div>
+            {% endfor %}
+          </div>
+        {% endif %}
+        {% if state.promotion_ready %}
+          <p class="small">Promotion copies <code>ROSSELAND_LTE_TAB</code>, <code>RVSIG_COL_NEW</code>, <code>RVSIG_COL</code>, and <code>VADAT</code> to the model root. Existing targets are checkpointed first.</p>
+          <form method="post">
+            <input type="hidden" name="action" value="promote">
+            <div class="form-check mb-2"><input class="form-check-input" id="results-checked" type="checkbox" name="results_checked" value="1"><label class="form-check-label" for="results-checked">I checked the luminosity in RVSIG_COL_NEW and placed the final radius ratio in VADAT [RMAX].</label></div>
+            <button class="btn btn-danger" type="submit">Promote Results</button>
+          </form>
+        {% else %}<p class="text-muted mb-0">Fresh LTE and hydro outputs are required. Files are considered stale when older than their relevant inputs.</p>{% endif %}
+      </div>
+    </div>
+
+    <div class="card mb-3">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <strong>5. Continue to main model computation</strong>
+        {% if state.main_ready %}<span class="badge bg-success">Handoff ready</span>{% else %}<span class="badge bg-secondary">Blocked</span>{% endif %}
+      </div>
+      <div class="card-body">
+        {% if state.main_ready %}
+          <p class="small text-muted">The promoted structure is available in the model root. Continue in the separate workflow responsible for the main CMFGEN run and its results.</p>
+          <a class="btn btn-primary" href="{{ url_for('viewer.model_main_computation', source_path=source_path) }}">Continue to Main Computation</a>
+        {% else %}<p class="text-muted mb-0">The handoff requires regular <code>batch.sh</code>, <code>VADAT</code>, <code>RVSIG_COL</code>, and <code>ROSSELAND_LTE_TAB</code> files in the model root.</p>{% endif %}
+      </div>
+    </div>
+  </div>
+{% endblock %}

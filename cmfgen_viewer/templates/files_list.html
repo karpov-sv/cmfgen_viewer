@@ -1,9 +1,9 @@
 {% extends "files.html" %}
 
 {% block files_body %}
-  {% if model_create_source or model_rename_source or model_cleanup_source or model_parameters_source %}
-    <div class="quick-links mb-3">
-      <span class="small text-muted me-2">Model actions:</span>
+  {% if model_create_source or model_rename_source or model_cleanup_source or model_parameters_source or model_workflow_source %}
+    <div class="quick-links mb-2">
+      <span class="small text-muted me-2">Model maintenance:</span>
       {% if read_write_enabled and model_create_supported %}
         <a class="btn btn-sm btn-outline-danger" href="{{ url_for('viewer.model_create_from_solution', source_path=model_create_source) }}">
           <i class="fa fa-files-o me-1" aria-hidden="true"></i>
@@ -13,17 +13,6 @@
         <button class="btn btn-sm btn-outline-secondary" type="button" disabled>
           <i class="fa fa-files-o me-1" aria-hidden="true"></i>
           New Model from Current
-        </button>
-      {% endif %}
-      {% if read_write_enabled %}
-        <a class="btn btn-sm btn-outline-primary" href="{{ url_for('viewer.model_parameters', source_path=model_parameters_source) }}">
-          <i class="fa fa-sliders me-1" aria-hidden="true"></i>
-          Edit Parameters
-        </a>
-      {% else %}
-        <button class="btn btn-sm btn-outline-secondary" type="button" disabled>
-          <i class="fa fa-sliders me-1" aria-hidden="true"></i>
-          Edit Parameters
         </button>
       {% endif %}
       {% if read_write_enabled %}
@@ -52,6 +41,42 @@
         <span class="small text-muted">Model-directory read-write mode is disabled.</span>
       {% elif not model_create_supported %}
         <span class="small text-muted">Creating new models from SN solutions is not supported yet.</span>
+      {% endif %}
+    </div>
+    <div class="quick-links mb-3">
+      <span class="small text-muted me-2">Model workflow:</span>
+      {% if read_write_enabled %}
+        <a class="btn btn-sm btn-outline-primary" href="{{ url_for('viewer.model_parameters', source_path=model_parameters_source) }}">
+          <i class="fa fa-sliders me-1" aria-hidden="true"></i>
+          Edit Parameters
+        </a>
+      {% else %}
+        <button class="btn btn-sm btn-outline-secondary" type="button" disabled>
+          <i class="fa fa-sliders me-1" aria-hidden="true"></i>
+          Edit Parameters
+        </button>
+      {% endif %}
+      {% if read_write_enabled and model_workflow_supported %}
+        <a class="btn btn-sm btn-outline-primary" href="{{ url_for('viewer.model_lte_hydro', source_path=model_workflow_source) }}">
+          <i class="fa fa-cogs me-1" aria-hidden="true"></i>
+          LTE / Hydro
+        </a>
+      {% else %}
+        <button class="btn btn-sm btn-outline-secondary" type="button" disabled>
+          <i class="fa fa-cogs me-1" aria-hidden="true"></i>
+          LTE / Hydro
+        </button>
+      {% endif %}
+      {% if read_write_enabled %}
+        <a class="btn btn-sm btn-outline-primary" href="{{ url_for('viewer.model_main_computation', source_path=model_workflow_source) }}">
+          <i class="fa fa-play-circle me-1" aria-hidden="true"></i>
+          Main Computation
+        </a>
+      {% else %}
+        <button class="btn btn-sm btn-outline-secondary" type="button" disabled>
+          <i class="fa fa-play-circle me-1" aria-hidden="true"></i>
+          Main Computation
+        </button>
       {% endif %}
     </div>
   {% endif %}

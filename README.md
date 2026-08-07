@@ -202,7 +202,8 @@ Flux handling:
   - startup-gated model-directory write access (`--read-write`, disabled by default),
   - preview-first creation of a fresh non-SN model from an existing solution using the CMFGEN
     `GAMMAS → GAMMAS_IN` and `*OUT → *_IN` staging conventions,
-  - transactional copy into a new destination without merging, overwriting, or carrying restart/diagnostic files,
+  - transactional copy into a new destination without merging, overwriting, or carrying restart/diagnostic files;
+    cleanup scripts and an allowlisted `obs/` bootstrap are included when available,
   - collision-safe model renaming or moving within the configured root, including cross-filesystem moves,
     with matching summary-cache relocation,
   - previewed, selectively confirmed cleanup of completed-run transient files and top-level symlinks,
@@ -211,6 +212,11 @@ Flux handling:
     atomic replacement, checkpoint loading/restoration, recoverable backups, and stale-solution/cache tracking,
   - compact quick editing of commonly changed `VADAT` stellar/wind, clumping, and abundance values plus
     `IN_ITS` iteration controls, while preserving the surrounding control-file text and using the same review path.
+  - guarded LTE/hydro workflow preparation: the app creates the input workspace, reports missing or stale
+    artifacts, gives copyable terminal commands, and checkpoints/promotes reviewed results, but deliberately
+    never starts or supervises CMFGEN processes,
+  - a separate main-model computation workflow with input guards, the external `batch.sh` command, and
+    current/stale `MOD_SUM` result tracking; LTE/hydro ends with a guarded handoff to this workflow.
 - Configurable wavelength window for all displayed spectra:
   - `--lambda-min` / `--lambda-max` bounds applied to both model spectra and uploaded overlays.
 - Documentation section with top-nav dropdown populated from `doc/*.md`, rendered as markdown with code highlighting.
