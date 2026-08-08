@@ -18,7 +18,7 @@
   <h2 class="h4 mb-1">Main model computation</h2>
   <p class="text-muted mb-3"><code>{{ state.model_path }}</code></p>
   <div class="alert alert-info py-2">
-    This workflow inspects inputs and results but never starts CMFGEN. Run the displayed command in your own terminal and refresh this page afterward.
+    This workflow inspects inputs and results but never starts CMFGEN or CMF_FLUX. Run the displayed command in your own terminal; process status updates automatically, while result guards require a page refresh.
   </div>
 
   <div class="card mb-3">
@@ -46,10 +46,14 @@
 
   <div class="card mb-3">
     <div class="card-header d-flex justify-content-between align-items-center">
-      <strong>2. Run CMFGEN externally</strong>
-      {% if state.ready %}<span class="badge bg-warning text-dark">Ready to run</span>{% else %}<span class="badge bg-secondary">Blocked</span>{% endif %}
+      <strong>2. Run CMFGEN / CMF_FLUX externally</strong>
+      {% if state.runtime.active %}<span class="badge bg-success">Running</span>{% elif state.ready %}<span class="badge bg-warning text-dark">Ready to run</span>{% else %}<span class="badge bg-secondary">Blocked</span>{% endif %}
     </div>
     <div class="card-body">
+      {% set runtime = state.runtime %}
+      {% set runtime_url = url_for('viewer.model_workflow_runtime', kind='main', source_path=source_path) %}
+      {% set runtime_source_path = source_path %}
+      {% include '_model_runtime_status.html' %}
       {% if state.ready %}
         <pre class="bg-light border rounded p-2 mb-0"><code>{{ state.command }}</code></pre>
       {% else %}
@@ -76,4 +80,5 @@
       </div>
     </div>
   </div>
+  <script src="{{ url_for('static', filename='model_runtime.js') }}" defer></script>
 {% endblock %}

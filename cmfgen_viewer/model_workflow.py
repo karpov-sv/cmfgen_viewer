@@ -21,6 +21,7 @@ from .model_editor import (
     save_model_parameter_edit,
 )
 from .model_staging import MODEL_WRITE_LOCK, is_sn_model_directory
+from .model_runtime import inspect_workflow_runtime
 from .parsers.common import parse_float_token
 from .parsers.extended_text import KEYWORD_ROW_RE
 
@@ -658,6 +659,8 @@ def inspect_lte_hydro_workflow(basepath: str, *, model_relpath: str) -> dict[str
             _result_quick_control_cards(basepath, normalized) if prepared and hydro_output["exists"] else []
         ),
         "result_summary": _rvsig_result_summary(lte_dir),
+        "lte_runtime": inspect_workflow_runtime(lte_dir, "lte"),
+        "hydro_runtime": inspect_workflow_runtime(lte_dir, "hydro"),
     }
 
 

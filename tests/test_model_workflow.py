@@ -319,6 +319,11 @@ def test_workflow_page_never_runs_processes_and_guards_read_only_mode(
     assert b"./ltebat.sh" in response.data
     assert b"Required controls:" in response.data
     assert b"Save VADAT Controls" in response.data
+    assert b'/model-actions/runtime/lte/model_a' in response.data
+    assert b'/model-actions/runtime/hydro/model_a' in response.data
+    assert response.data.count(b"model_runtime.js") == 1
+    assert client.get("/model-actions/runtime/lte/model_a").status_code == 200
+    assert client.get("/model-actions/runtime/hydro/model_a").status_code == 200
     configured = client.post(
         "/model-actions/lte-hydro/model_a",
         data={

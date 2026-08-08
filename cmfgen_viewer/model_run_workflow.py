@@ -7,6 +7,7 @@ import shlex
 
 from .browser import is_model_directory, resolve_path
 from .model_editor import model_inputs_modified_since_solution
+from .model_runtime import inspect_workflow_runtime
 
 
 class ModelRunWorkflowError(ValueError):
@@ -60,16 +61,14 @@ def inspect_main_model_workflow(basepath: str, *, model_relpath: str) -> dict[st
     normalized, model_dir = _resolve_model(basepath, model_relpath)
     prerequisites = [_file_record(model_dir / name) for name in MAIN_REQUIRED_FILES]
     gamma_candidates = (model_dir / "GAMMAS_IN", model_dir / "GAMMAS")
-    gamma_ready = any(_available_file(path) for path in gamma_candidates)
+    gamma_input = next((path for path in gamma_candidates if _available_file(path)), None)
+    gamma_ready = gamma_input is not None
     prerequisites.append(
         {
             "name": "GAMMAS_IN or GAMMAS",
             "path": " / ".join(str(path) for path in gamma_candidates),
             "exists": gamma_ready,
-            "modified_ns": max(
-                (path.stat().st_mtime_ns for path in gamma_candidates if _available_file(path)),
-                default=0,
-            ),
+            "modified_ns": gamma_input.stat().st_mtime_ns if gamma_input is not None else 0,
             "size": 0,
         }
     )
@@ -82,7 +81,8 @@ def inspect_main_model_workflow(basepath: str, *, model_relpath: str) -> dict[st
     ready = not missing
 
     dependency_paths = [model_dir / name for name in MAIN_REQUIRED_FILES]
-    dependency_paths.extend(path for path in gamma_candidates if _available_file(path))
+    if gamma_input is not None:
+        dependency_paths.append(gamma_input)
     try:
         dependency_paths.extend(
             path
@@ -132,4 +132,5 @@ def inspect_main_model_workflow(basepath: str, *, model_relpath: str) -> dict[st
         "result_status": result_status,
         "marker_stale": marker_stale,
         "lte_handoff_required": lte_handoff_required,
+        "runtime": inspect_workflow_runtime(model_dir, "main"),
     }

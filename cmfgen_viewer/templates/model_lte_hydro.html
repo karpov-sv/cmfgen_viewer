@@ -58,9 +58,13 @@
     <div class="card mb-3">
       <div class="card-header d-flex justify-content-between align-items-center">
         <strong>2. Configure and run LTE externally</strong>
-        {% if state.lte_output.fresh and state.lte_ready %}<span class="badge bg-success">Output ready</span>{% elif state.lte_ready %}<span class="badge bg-warning text-dark">Ready to run</span>{% elif state.prepared %}<span class="badge bg-warning text-dark">Needs configuration</span>{% else %}<span class="badge bg-secondary">Blocked</span>{% endif %}
+        {% if state.lte_runtime.active %}<span class="badge bg-success">Running</span>{% elif state.lte_output.fresh and state.lte_ready %}<span class="badge bg-success">Output ready</span>{% elif state.lte_ready %}<span class="badge bg-warning text-dark">Ready to run</span>{% elif state.prepared %}<span class="badge bg-warning text-dark">Needs configuration</span>{% else %}<span class="badge bg-secondary">Blocked</span>{% endif %}
       </div>
       <div class="card-body">
+        {% set runtime = state.lte_runtime %}
+        {% set runtime_url = url_for('viewer.model_workflow_runtime', kind='lte', source_path=source_path) %}
+        {% set runtime_source_path = source_path ~ '/lte' %}
+        {% include '_model_runtime_status.html' %}
         {% if state.prepared %}
           <div class="mb-2 d-flex flex-wrap gap-2">
             {% for name in ['VADAT', 'MODEL_SPEC', 'GRID_PARAMS'] %}<a class="btn btn-sm btn-outline-primary" href="{{ url_for('viewer.model_parameters', source_path=source_path ~ '/lte', file=name) }}">Edit {{ name }}</a>{% endfor %}
@@ -130,9 +134,13 @@
     <div class="card mb-3">
       <div class="card-header d-flex justify-content-between align-items-center">
         <strong>3. Configure and run hydro externally</strong>
-        {% if state.hydro_output_ready %}<span class="badge bg-success">Output ready</span>{% elif state.hydro_ready %}<span class="badge bg-warning text-dark">Ready to run</span>{% else %}<span class="badge bg-secondary">Blocked</span>{% endif %}
+        {% if state.hydro_runtime.active %}<span class="badge bg-success">Running</span>{% elif state.hydro_output_ready %}<span class="badge bg-success">Output ready</span>{% elif state.hydro_ready %}<span class="badge bg-warning text-dark">Ready to run</span>{% else %}<span class="badge bg-secondary">Blocked</span>{% endif %}
       </div>
       <div class="card-body">
+        {% set runtime = state.hydro_runtime %}
+        {% set runtime_url = url_for('viewer.model_workflow_runtime', kind='hydro', source_path=source_path) %}
+        {% set runtime_source_path = source_path ~ '/lte' %}
+        {% include '_model_runtime_status.html' %}
         {% if state.hydro_ready %}
           <a class="btn btn-sm btn-outline-primary mb-2" href="{{ url_for('viewer.model_parameters', source_path=source_path ~ '/lte', file='HYDRO_PARAMS') }}">Edit HYDRO_PARAMS</a>
           <p class="small mb-1">Verify LOGG, TEFF, luminosity and related values, then run:</p>
@@ -243,4 +251,5 @@
       </div>
     </div>
   </div>
+  <script src="{{ url_for('static', filename='model_runtime.js') }}" defer></script>
 {% endblock %}

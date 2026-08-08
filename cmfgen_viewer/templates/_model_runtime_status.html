@@ -1,0 +1,108 @@
+{% macro render_runtime_progress(progress, heading, active_bar) -%}
+  <div class="mb-2">
+    <div class="d-flex flex-wrap justify-content-between gap-2 mb-1">
+      <span><strong>{{ heading }}</strong> {{ progress.detail }}</span>
+      {% if progress.percent is not none %}<span>{{ progress.percent }}%</span>{% endif %}
+    </div>
+    {% if progress.percent is not none %}
+      <div class="progress mb-2" role="progressbar" aria-label="{{ progress.label }}" aria-valuenow="{{ progress.percent }}" aria-valuemin="0" aria-valuemax="100">
+        <div class="progress-bar{% if not active_bar %} bg-secondary{% endif %}" style="width: {{ progress.percent }}%"></div>
+      </div>
+    {% endif %}
+    {% if progress.metrics %}
+      <div class="d-flex flex-wrap gap-3 small">
+        {% for metric in progress.metrics %}<span><span class="text-muted">{{ metric.label }}:</span> <code>{{ metric.value }}</code></span>{% endfor %}
+      </div>
+    {% endif %}
+  </div>
+{%- endmacro %}
+
+<div
+  class="model-runtime-monitor border rounded p-3 mb-3"
+  data-model-runtime-url="{{ runtime_url }}"
+  data-runtime-view-prefix="{{ url_for('viewer.view', path=runtime_source_path) }}"
+  aria-live="polite"
+>
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+    <strong>Process and progress</strong>
+    <div>
+      <span class="badge {% if runtime.active %}bg-success{% else %}bg-secondary{% endif %}" data-runtime-state>
+        {% if runtime.active %}Running now · {{ runtime.phase_label }}{% else %}Not running{% endif %}
+      </span>
+      <span class="small text-muted ms-1" data-runtime-checked>Checked {{ runtime.checked_at }}</span>
+    </div>
+  </div>
+
+  <div data-runtime-processes>
+    {% if runtime.processes %}
+      <div class="table-responsive mb-2">
+        <table class="table table-sm align-middle mb-0">
+          <thead><tr><th>Process</th><th>State</th><th>Elapsed</th><th>CPU</th><th>Memory</th></tr></thead>
+          <tbody>
+            {% for process in runtime.processes %}
+              <tr>
+                <td><code>{{ process.name }}</code> <span class="small text-muted">PID {{ process.pid }}</span></td>
+                <td>{{ process.state }}</td>
+                <td>{{ process.elapsed }}</td>
+                <td>{{ process.cpu_time }} <span class="small text-muted">({{ process.cpu_percent }}% avg)</span></td>
+                <td>{{ process.rss }} <span class="small text-muted">({{ process.threads }} threads)</span></td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p class="small text-muted mb-2">No matching external process detected.</p>
+    {% endif %}
+  </div>
+
+  <div data-runtime-progress>
+    {% if not runtime.active and runtime.recorded_progress %}
+      {% for record in runtime.recorded_progress %}
+        <div{% if not loop.first %} class="border-top pt-2 mt-2"{% endif %}>
+          {{ render_runtime_progress(record.progress, 'Last recorded ' ~ record.phase_label ~ ' progress:', false) }}
+        </div>
+      {% endfor %}
+    {% elif runtime.progress %}
+      {{ render_runtime_progress(runtime.progress, 'Estimated progress:', runtime.active) }}
+    {% elif runtime.active %}
+      <p class="small text-muted mb-0">The process is running, but no progress marker from this run is available yet.</p>
+    {% endif %}
+  </div>
+
+  <div data-runtime-diagnostics>
+    {% if runtime.diagnostics %}
+      <div class="border-top pt-2 mt-2">
+        <strong class="small">Latest run diagnostics</strong>
+        {% for diagnostic in runtime.diagnostics %}
+          <div class="d-flex flex-wrap align-items-start gap-2 mt-2">
+            <span class="badge {% if diagnostic.status == 'running' %}text-bg-primary{% elif diagnostic.status == 'succeeded' %}text-bg-success{% elif diagnostic.status == 'failed' %}text-bg-danger{% elif diagnostic.status == 'incomplete' %}text-bg-warning{% else %}text-bg-secondary{% endif %}">
+              {{ diagnostic.phase_label }} · {{ diagnostic.status_label }}
+            </span>
+            <div class="small flex-grow-1">
+              <div>{{ diagnostic.summary }}</div>
+              {% if diagnostic.details %}
+                <ul class="mb-0 ps-3">
+                  {% for detail in diagnostic.details %}
+                    <li class="{% if detail.level == 'danger' %}text-danger{% else %}text-warning-emphasis{% endif %}">
+                      {{ detail.message }}
+                      {% if detail.path and detail.available %}
+                        <a href="{{ url_for('viewer.view', path=runtime_source_path ~ '/' ~ detail.path) }}">Open <code>{{ detail.path }}</code>{% if detail.line %}, line {{ detail.line }}{% endif %}</a>
+                      {% elif detail.path %}
+                        <code>{{ detail.path }}</code>
+                      {% endif %}
+                    </li>
+                  {% endfor %}
+                </ul>
+              {% endif %}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </div>
+
+  <div class="small text-muted mt-2">
+    Running state is matched by process name and exact working directory. File-derived progress is an estimate and may update in batches. Diagnostics use explicit fatal signatures and current result files; benign numerical warnings are not treated as failures.
+  </div>
+</div>

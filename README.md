@@ -214,9 +214,12 @@ Flux handling:
     `IN_ITS` iteration controls, while preserving the surrounding control-file text and using the same review path.
   - guarded LTE/hydro workflow preparation: the app creates the input workspace, reports missing or stale
     artifacts, gives copyable terminal commands, and checkpoints/promotes reviewed results, but deliberately
-    never starts or supervises CMFGEN processes,
+    never starts or supervises CMFGEN processes; read-only monitors match externally launched processes by
+    name and working directory and estimate LTE/hydro progress from their output files,
   - a separate main-model computation workflow with input guards, the external `batch.sh` command, and
-    current/stale `MOD_SUM` result tracking; LTE/hydro ends with a guarded handoff to this workflow.
+    current/stale `MOD_SUM` result tracking, live CMFGEN and `obs/` CMF_FLUX process statistics, estimated
+    `OUTGEN` iteration progress, and CMF_FLUX pass/loop activity; LTE/hydro ends with a guarded handoff to
+    this workflow.
 - Configurable wavelength window for all displayed spectra:
   - `--lambda-min` / `--lambda-max` bounds applied to both model spectra and uploaded overlays.
 - Documentation section with top-nav dropdown populated from `doc/*.md`, rendered as markdown with code highlighting.
