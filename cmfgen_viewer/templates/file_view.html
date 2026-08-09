@@ -785,7 +785,7 @@
                   return;
                 }
                 var plotItems = {{ parsed.plots | tojson }};
-                var activeMode = "combined";
+                var activeMode = {{ parsed.default_plot_mode | default("combined") | tojson }};
 
                 function xAxisSignature(item) {
                   if (!item || !item.layout || !item.layout.xaxis) {

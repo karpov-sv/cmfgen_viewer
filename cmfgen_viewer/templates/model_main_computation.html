@@ -105,6 +105,112 @@
       {% if state.result_status == 'current' %}<span class="badge bg-success">Current result</span>{% elif state.result_status == 'stale' %}<span class="badge bg-warning text-dark">Stale result</span>{% else %}<span class="badge bg-secondary">Waiting for result</span>{% endif %}
     </div>
     <div class="card-body">
+      {% if state.convergence.available %}
+        <div class="border rounded p-3 mb-3">
+          <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+            <div>
+              <strong>Convergence overview</strong>
+              <div class="small text-muted">
+                Latest visible <code>OUTGEN</code> run{% if state.convergence.started_at %}, started {{ state.convergence.started_at }}{% endif %}.
+                {% if state.convergence.run_count > 1 %}{{ state.convergence.run_count }} appended run boundaries detected{% if state.convergence.run_count_is_lower_bound %} in the retained file tail{% endif %}.{% endif %}
+              </div>
+            </div>
+            <div class="d-flex flex-wrap gap-1">
+              {% if state.convergence.has_iterations %}<span class="badge text-bg-primary">{{ state.convergence.iterations|length }} iterations</span>{% endif %}
+              {% if state.convergence.warnings %}<span class="badge text-bg-warning">{{ state.convergence.warnings|length }} diagnostic groups</span>{% endif %}
+            </div>
+          </div>
+
+          {% if state.convergence.has_iterations %}
+            {% if state.convergence.cards %}
+              <div class="row row-cols-1 row-cols-md-2 row-cols-xl-3 g-2 mb-3">
+                {% for card in state.convergence.cards %}
+                  <div class="col">
+                    <div class="border rounded p-2 h-100">
+                      <div class="small text-muted">{{ card.label }}</div>
+                      <div class="fs-5"><code>{{ card.value }}</code></div>
+                      <div class="small">{{ card.detail }}</div>
+                    </div>
+                  </div>
+                {% endfor %}
+              </div>
+            {% endif %}
+
+            {% if state.convergence.plots %}
+              <div class="row g-3 mb-3">
+                {% for plot in state.convergence.plots %}
+                  <div class="col-xl-6">
+                    <div class="plot-wrap border rounded h-100">
+                      <div class="plot-title px-2 pt-2">{{ plot.title }}</div>
+                      <div class="plotly-resizable">
+                        <div class="plotly-chart" data-model-convergence-plot="{{ loop.index0 }}"></div>
+                        <div class="plot-resize-handle" role="separator" aria-orientation="vertical" aria-label="Resize plot"></div>
+                      </div>
+                    </div>
+                  </div>
+                {% endfor %}
+              </div>
+              <script id="model-convergence-plots" type="application/json">{{ state.convergence.plots | tojson }}</script>
+            {% endif %}
+
+            {% set correction = state.convergence.correction_summary %}
+            {% if correction.available %}
+              <div class="border-top pt-3 mt-2">
+                <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+                  <strong class="small">Final correction distribution</strong>
+                  <a class="small" href="{{ url_for('viewer.view', path=source_path ~ '/CORRECTION_SUM') }}">Open CORRECTION_SUM</a>
+                </div>
+                {% if not correction.current %}
+                  <p class="small text-warning-emphasis mb-0"><code>CORRECTION_SUM</code> predates the latest recorded run.</p>
+                {% elif correction.thresholds %}
+                  <div class="d-flex flex-wrap gap-3 small">
+                    {% if correction.nt %}<span><span class="text-muted">Variables per depth:</span> <code>{{ correction.nt }}</code></span>{% endif %}
+                    {% for threshold in correction.thresholds %}
+                      <span>
+                        <span class="text-muted">Above {{ threshold.threshold }}:</span>
+                        <code>{{ threshold.maximum_count }}</code> max
+                        {% if threshold.depth %} at depth {{ threshold.depth }}{% endif %}
+                        <span class="text-muted">({{ threshold.nonzero_depths }} affected depth{% if threshold.nonzero_depths != 1 %}s{% endif %})</span>
+                      </span>
+                    {% endfor %}
+                  </div>
+                {% else %}
+                  <p class="small text-muted mb-0">The current file could not be reduced to the expected threshold table.</p>
+                {% endif %}
+              </div>
+            {% endif %}
+
+            {% if state.convergence.warnings %}
+              <div class="border-top pt-3 mt-3">
+                <strong class="small">Grouped run diagnostics</strong>
+                <div class="list-group list-group-flush mt-1">
+                  {% for warning in state.convergence.warnings %}
+                    <div class="list-group-item px-0 py-2 d-flex align-items-start gap-2">
+                      <span class="badge {% if warning.level == 'warning' %}text-bg-warning{% else %}text-bg-info{% endif %}">{{ warning.level|capitalize }}</span>
+                      <div class="small flex-grow-1">
+                        <strong>{{ warning.label }}</strong> — {{ warning.detail }}
+                        <a class="ms-1" href="{{ url_for('viewer.view', path=source_path ~ '/' ~ warning.path) }}">Open {{ warning.path }}</a>
+                      </div>
+                    </div>
+                  {% endfor %}
+                </div>
+              </div>
+            {% endif %}
+
+            <p class="small text-muted mt-3 mb-0">
+              These values describe reported changes and recent direction; they are not a universal converged/not-converged verdict. Lambda and other special iterations may intentionally interrupt a smooth trend.
+            </p>
+          {% else %}
+            <p class="small text-muted mb-0">{{ state.convergence.message }}</p>
+          {% endif %}
+
+          <div class="d-flex flex-wrap gap-2 mt-3">
+            {% for name in state.convergence.diagnostic_links %}
+              <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('viewer.view', path=source_path ~ '/' ~ name) }}">Open {{ name }}</a>
+            {% endfor %}
+          </div>
+        </div>
+      {% endif %}
       {% if state.result_status == 'stale' %}
         <div class="alert alert-warning py-2">The existing <code>MOD_SUM</code> predates a current input or the model has a newer modified-input marker.</div>
       {% elif state.result_status == 'missing' %}
@@ -117,5 +223,6 @@
       </div>
     </div>
   </div>
+  <script src="{{ url_for('static', filename='model_convergence.js') }}" defer></script>
   <script src="{{ url_for('static', filename='model_runtime.js') }}" defer></script>
 {% endblock %}

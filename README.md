@@ -220,6 +220,10 @@ Flux handling:
     current/stale `MOD_SUM` result tracking, live CMFGEN and `obs/` CMF_FLUX process statistics, estimated
     `OUTGEN` iteration progress, and CMF_FLUX pass/loop activity; LTE/hydro ends with a guarded handoff to
     this workflow,
+  - a latest-run convergence overview built from appended `OUTGEN` iterations, including solver/population,
+    luminosity, spectrum-change and timing cards, interactive trends, compact `CORRECTION_SUM` thresholds,
+    and grouped scientific warnings without imposing a universal convergence threshold; the same analysis is
+    available as the structured parsed view when opening `OUTGEN`,
   - conservative read-only model preflight validation for executable/file usability, required grid and
     iteration controls, selected `RVSIG_COL` dimensions, clumping completeness, CMF_FLUX ranges, and newer
     unpromoted LTE/hydro results; blocking errors and advisory findings link to the relevant editor or file.
@@ -250,8 +254,9 @@ Flux handling:
     guarded model-operation routes and non-SN model staging contracts.
   - `model_editor_views.py`, `model_editor.py`, `model_quick_editor.py`:
     allowlisted control-file editing routes, structured quick edits, diff review, backups, and safe persistence.
-  - `model_preflight.py`, `model_run_workflow.py`, `model_runtime.py`:
-    pre-run consistency guards, external-run workflow state, process/progress monitoring, and result diagnostics.
+  - `model_preflight.py`, `model_convergence.py`, `model_run_workflow.py`, `model_runtime.py`:
+    pre-run consistency guards, convergence summaries, external-run workflow state, process/progress monitoring,
+    and result diagnostics.
   - `browser.py`: directory/file metadata and role classification.
   - `final_spectrum.py`: CMFGEN final-spectrum parsing, conversion, and plot assembly helpers.
   - `observed_spectrum.py`: uploaded observed-spectrum parsing and upload-manifest lifecycle.

@@ -45,6 +45,29 @@ def test_parse_known_file_resolves_pop_and_out_families(tmp_path: Path) -> None:
     assert out_parsed is not None and out_parsed["parser"] == "*OUT"
 
 
+def test_parse_known_file_resolves_outgen_and_tracks_auxiliary_cache_inputs(
+    tmp_path: Path,
+) -> None:
+    path = _write_file(
+        tmp_path,
+        "OUTGEN",
+        "Model started on: 01-Jan-2026 00:00:00\n"
+        "Current great iteration count is 1\n"
+        "Maximm changes as returned by SOLVEBA_V13 is 5.0E-01\n",
+    )
+    _write_file(tmp_path, "IN_ITS", "2 [NUM_ITS]\n")
+
+    first = parsers.parse_known_file(path)
+    assert first is not None and first["parser"] == "OUTGEN"
+    assert dict(first["summary_table"]["rows"])["requested_iterations"] == "2"
+
+    _write_file(tmp_path, "IN_ITS", "5 [NUM_ITS]\n")
+    second = parsers.parse_known_file(path)
+
+    assert second is not None
+    assert dict(second["summary_table"]["rows"])["requested_iterations"] == "5"
+
+
 def test_parse_known_file_resolves_rvsig_alias(tmp_path: Path) -> None:
     path = _write_file(
         tmp_path,
@@ -139,3 +162,22 @@ Radius
     summary_rows = dict(parsed["summary_table"]["rows"])
     assert summary_rows["status"] == "skipped"
     assert summary_rows["reason"] == "file is larger than 8 bytes"
+
+
+def test_outgen_bounded_tail_parser_is_not_blocked_by_generic_size_guard(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(parsers, "MAX_PARSE_FILE_BYTES", 8)
+    path = _write_file(
+        tmp_path,
+        "OUTGEN",
+        "Model started on: 01-Jan-2026 00:00:00\n"
+        "Current great iteration count is 1\n",
+    )
+
+    parsed = parsers.parse_known_file(path)
+
+    assert parsed is not None
+    assert parsed["parser"] == "OUTGEN"
+    assert dict(parsed["summary_table"]["rows"])["iteration_records"] == "1"

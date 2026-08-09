@@ -162,6 +162,35 @@ def test_main_computation_page_shows_recorded_cmfgen_and_flux_progress(tmp_path:
     assert page.status_code == 200
     assert b"Last recorded CMFGEN progress" in page.data
     assert b"Last recorded CMF_FLUX progress" in page.data
+    assert b"Convergence overview" in page.data
+
+
+def test_main_computation_page_renders_convergence_cards_and_plot_payload(
+    tmp_path: Path,
+) -> None:
+    model = _write_model(tmp_path)
+    (model / "IN_ITS").write_text("2 [NUM_ITS]\n", encoding="utf-8")
+    (model / "OUTGEN").write_text(
+        "Model started on: 01-Jan-2026 00:00:00\n"
+        "Current great iteration count is 10\n"
+        "Luminosity of star (iteration 10) is: 9.0E+04 1.0E+05\n"
+        "Maximm changes as returned by SOLVEBA_V13 is 4.0E-01\n"
+        "Current great iteration count is 11\n"
+        "Luminosity of star (iteration 11) is: 9.5E+04 1.0E+05\n"
+        "Maximm changes as returned by SOLVEBA_V13 is 2.0E-01\n",
+        encoding="utf-8",
+    )
+    app = create_app(basepath=str(tmp_path), read_write_enabled=True, secret_key="test")
+    app.testing = True
+
+    page = app.test_client().get("/model-actions/main-computation/model_a")
+
+    assert page.status_code == 200
+    assert b"Convergence overview" in page.data
+    assert b"Latest solver maximum change" in page.data
+    assert b"Latest luminosity difference" in page.data
+    assert b'id="model-convergence-plots"' in page.data
+    assert b"model_convergence.js" in page.data
 
 
 def test_main_computation_requires_promoted_structure_when_lte_workspace_exists(

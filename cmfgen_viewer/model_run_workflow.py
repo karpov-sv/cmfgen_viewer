@@ -6,6 +6,7 @@ from pathlib import Path
 import shlex
 
 from .browser import is_model_directory, resolve_path
+from .model_convergence import inspect_model_convergence
 from .model_editor import model_inputs_modified_since_solution
 from .model_preflight import inspect_model_preflight
 from .model_runtime import inspect_workflow_runtime
@@ -137,5 +138,6 @@ def inspect_main_model_workflow(basepath: str, *, model_relpath: str) -> dict[st
         "result_status": result_status,
         "marker_stale": marker_stale,
         "lte_handoff_required": lte_handoff_required,
+        "convergence": inspect_model_convergence(model_dir),
         "runtime": inspect_workflow_runtime(model_dir, "main"),
     }

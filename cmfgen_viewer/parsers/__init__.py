@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+import hashlib
 from pathlib import Path
 import re
 
@@ -33,6 +34,7 @@ from .diagnostic_text import (
 from .correction_sum import parse_correction_sum
 from .mod_sum import parse_mod_sum
 from .obsflux import parse_obsflux
+from .outgen import parse_outgen
 from .rvtj import parse_rvtj
 from .direct_access import parse_direct_access_file, parse_direct_info
 from .extended_text import (
@@ -112,7 +114,7 @@ PARSERS = {
     "HYDRO_ITERATION_INFO": parse_named_log,
     "HYDRO_OLD_MODEL": parse_named_log,
     "MOM_J_ERRORS": parse_named_log,
-    "OUTGEN": parse_named_log,
+    "OUTGEN": parse_outgen,
     "TIMING": parse_named_log,
     "WARNINGS": parse_named_log,
     "SN_DATA_INPUT_CHK": parse_named_log,
@@ -172,6 +174,18 @@ GAMMA_VERBOSE_NAMES = {
 }
 
 MAX_PARSE_FILE_BYTES = 256 * 1024 * 1024
+OUTGEN_CACHE_DEPENDENCIES = ("IN_ITS", "CORRECTION_SUM", "WARNINGS", "TIMING")
+
+
+def _file_digest(path: Path) -> str:
+    digest = hashlib.blake2b(digest_size=8)
+    try:
+        with path.open("rb") as stream:
+            while chunk := stream.read(1024 * 1024):
+                digest.update(chunk)
+    except OSError:
+        return "unreadable"
+    return digest.hexdigest()
 
 
 def _resolve_parser(path: Path):
@@ -230,12 +244,18 @@ def _resolve_parser(path: Path):
 
 
 @lru_cache(maxsize=64)
-def _parse_cached(path_str: str, mtime_ns: int, size: int) -> dict[str, object] | None:
+def _parse_cached(
+    path_str: str,
+    mtime_ns: int,
+    size: int,
+    dependency_token: tuple[tuple[str, int, int, str], ...] = (),
+) -> dict[str, object] | None:
+    del dependency_token  # Included in the cache key; parsers read the files themselves.
     path = Path(path_str)
     parser = _resolve_parser(path)
     if parser is None:
         return None
-    if size > MAX_PARSE_FILE_BYTES:
+    if size > MAX_PARSE_FILE_BYTES and parser is not parse_outgen:
         return {
             "parser": path.name.upper(),
             "title": f"{path.name} parsed view",
@@ -253,4 +273,22 @@ def _parse_cached(path_str: str, mtime_ns: int, size: int) -> dict[str, object] 
 
 def parse_known_file(path: Path) -> dict[str, object] | None:
     stat = path.stat()
-    return _parse_cached(str(path), stat.st_mtime_ns, stat.st_size)
+    dependency_token: tuple[tuple[str, int, int, str], ...] = ()
+    if path.name.upper() == "OUTGEN":
+        dependencies: list[tuple[str, int, int, str]] = []
+        for name in OUTGEN_CACHE_DEPENDENCIES:
+            dependency = path.parent / name
+            try:
+                dependency_stat = dependency.stat()
+            except OSError:
+                continue
+            dependencies.append(
+                (
+                    name,
+                    dependency_stat.st_mtime_ns,
+                    dependency_stat.st_size,
+                    _file_digest(dependency),
+                )
+            )
+        dependency_token = tuple(dependencies)
+    return _parse_cached(str(path), stat.st_mtime_ns, stat.st_size, dependency_token)
