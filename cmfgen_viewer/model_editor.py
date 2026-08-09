@@ -98,6 +98,13 @@ EDITABLE_MODEL_FILES: dict[str, dict[str, object]] = {
         "required": False,
         "affects_solution": False,
     },
+    "obs/CMF_FLUX_PARAM_INIT": {
+        "label": "obs/CMF_FLUX_PARAM_INIT",
+        "group": "Spectrum controls",
+        "description": "Template controls used by the external CMF_FLUX batch scripts.",
+        "required": False,
+        "affects_solution": False,
+    },
 }
 
 

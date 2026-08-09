@@ -219,7 +219,10 @@ Flux handling:
   - a separate main-model computation workflow with input guards, the external `batch.sh` command, and
     current/stale `MOD_SUM` result tracking, live CMFGEN and `obs/` CMF_FLUX process statistics, estimated
     `OUTGEN` iteration progress, and CMF_FLUX pass/loop activity; LTE/hydro ends with a guarded handoff to
-    this workflow.
+    this workflow,
+  - conservative read-only model preflight validation for executable/file usability, required grid and
+    iteration controls, selected `RVSIG_COL` dimensions, clumping completeness, CMF_FLUX ranges, and newer
+    unpromoted LTE/hydro results; blocking errors and advisory findings link to the relevant editor or file.
 - Configurable wavelength window for all displayed spectra:
   - `--lambda-min` / `--lambda-max` bounds applied to both model spectra and uploaded overlays.
 - Documentation section with top-nav dropdown populated from `doc/*.md`, rendered as markdown with code highlighting.
@@ -228,7 +231,7 @@ Flux handling:
 
 - Some CMFGEN output formats still rely on generic/plain text preview instead of dedicated parsers.
 - Generic direct-access/binary readers using `_INFO` sidecars.
-- Cross-file consistency checks and preflight validation workflows.
+- Broader scientific cross-file consistency checks beyond the conservative main-workflow preflight.
 - Persisting grid-fit jobs/results across Flask process restarts.
 
 ## Repository Layout
@@ -247,6 +250,8 @@ Flux handling:
     guarded model-operation routes and non-SN model staging contracts.
   - `model_editor_views.py`, `model_editor.py`, `model_quick_editor.py`:
     allowlisted control-file editing routes, structured quick edits, diff review, backups, and safe persistence.
+  - `model_preflight.py`, `model_run_workflow.py`, `model_runtime.py`:
+    pre-run consistency guards, external-run workflow state, process/progress monitoring, and result diagnostics.
   - `browser.py`: directory/file metadata and role classification.
   - `final_spectrum.py`: CMFGEN final-spectrum parsing, conversion, and plot assembly helpers.
   - `observed_spectrum.py`: uploaded observed-spectrum parsing and upload-manifest lifecycle.

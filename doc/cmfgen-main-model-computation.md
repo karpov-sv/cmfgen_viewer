@@ -10,6 +10,19 @@ cd /absolute/path/to/model && ./batch.sh
 
 The initial guard checks for `batch.sh`, `VADAT`, `MODEL_SPEC`, `IN_ITS`, and either `GAMMAS_IN` or `GAMMAS`. When both gamma files exist, `GAMMAS_IN` is the input freshness dependency and the generated `GAMMAS` is an output; `GAMMAS` is treated as an input only as a fallback when `GAMMAS_IN` is absent. LTE/hydro-derived models are handed off only after `RVSIG_COL` and `ROSSELAND_LTE_TAB` have been promoted to the model root.
 
+Before displaying the external command, the page also performs a read-only preflight validation. **Errors** block the command, **warnings** remain advisory, and **information** records intentional-but-notable configuration such as additional impact rays. The initial conservative checks cover:
+
+- readable, nonempty control files and an executable `batch.sh`;
+- unique and valid `MODEL_SPEC` values for `ND`, `NC`, and `NP`, requiring `NP >= ND + NC` (main models may intentionally include extra rays);
+- positive `IN_ITS [NUM_ITS]` and valid supported `T`/`F` controls;
+- finite positive values for commonly used stellar controls when they are present;
+- complete clumping parameters when `VADAT [DO_CL]` is enabled;
+- agreement between selected `RVSIG_COL` depth declarations, indexed rows, and `MODEL_SPEC [ND]`;
+- nonnegative and ordered CMF_FLUX turbulence and wavelength bounds in `obs/CMF_FLUX_PARAM_INIT`;
+- fresh LTE/hydro outputs that are newer than, and differ from, their promoted root copies.
+
+The validator deliberately avoids fixed astrophysical plausibility ranges and does not require `NP = ND + NC` outside LTE grid construction. Each issue links to the full editor when the file is allowlisted and is a regular file, or otherwise to its file view. Symbolic-link layouts remain readable but are not offered to the editor.
+
 The run section polls read-only status every five seconds. A process is considered part of the model only when its command/name resembles the CMFGEN executable or `batch.sh` **and** its `/proc` working directory exactly matches the model directory. For each match, the page shows PID, process state, elapsed time, accumulated CPU time and average CPU use, resident memory, and thread count. This is Linux-specific; if `/proc` is unavailable, the external command still works normally but the page reports no detected process.
 
 The same monitor follows the spectral phase when `batch.sh` changes into the model's `obs/` directory. In that phase it recognizes `batch.sh`, `batobs.sh`, `bat_ins.sh`, and `cmf_flux.exe` only with an exact `obs/` working-directory match. The display changes to **CMF_FLUX**, counts completed and running spectrum passes from the newly written `batobs.log`, derives the expected pass count from `batobs.sh` and `bat_ins.sh`, and shows the latest `OUT_FLUX` `LS loop` as an activity counter. LS loop totals are not known reliably in advance, so no within-pass percentage is invented.

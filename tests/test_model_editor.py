@@ -46,7 +46,33 @@ def test_model_parameter_policy_lists_only_allowlisted_controls(tmp_path: Path) 
     assert by_path["VADAT"]["editable"] is True
     assert by_path["HYDRO_DEFAULTS"]["editable"] is True
     assert by_path["obs/CMF_FLUX_PARAM"]["exists"] is False
+    assert by_path["obs/CMF_FLUX_PARAM_INIT"]["exists"] is False
     assert "batch.sh" not in by_path
+
+
+def test_cmf_flux_parameter_template_is_allowlisted_for_full_editor(tmp_path: Path) -> None:
+    model = tmp_path / "model_a"
+    _write_model(model)
+    obs = model / "obs"
+    obs.mkdir()
+    target = obs / "CMF_FLUX_PARAM_INIT"
+    target.write_text("15.0 [VTURB_FIX]\n", encoding="utf-8")
+
+    listing = list_model_parameter_files(str(tmp_path), model_relpath="model_a")
+    record = next(
+        item
+        for item in listing["files"]
+        if item["file_relpath"] == "obs/CMF_FLUX_PARAM_INIT"
+    )
+    loaded = load_model_parameter_file(
+        str(tmp_path),
+        model_relpath="model_a",
+        file_relpath="obs/CMF_FLUX_PARAM_INIT",
+    )
+
+    assert record["exists"] is True
+    assert record["editable"] is True
+    assert loaded["contents"] == "15.0 [VTURB_FIX]\n"
 
 
 def test_model_parameter_review_and_save_preserve_format_and_create_backup(tmp_path: Path) -> None:

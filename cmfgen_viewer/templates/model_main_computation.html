@@ -24,7 +24,7 @@
   <div class="card mb-3">
     <div class="card-header d-flex justify-content-between align-items-center">
       <strong>1. Check model inputs</strong>
-      {% if state.ready %}<span class="badge bg-success">Ready</span>{% else %}<span class="badge bg-secondary">Blocked</span>{% endif %}
+      {% if state.ready and state.preflight.counts.warning %}<span class="badge bg-warning text-dark">Ready with warnings</span>{% elif state.ready %}<span class="badge bg-success">Ready</span>{% else %}<span class="badge bg-secondary">Blocked</span>{% endif %}
     </div>
     <div class="card-body">
       <div class="table-responsive">
@@ -36,6 +36,41 @@
             {% endfor %}
           </tbody>
         </table>
+      </div>
+      <div class="border rounded p-3 mb-3">
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+          <strong>Preflight validation</strong>
+          <div class="d-flex flex-wrap gap-1">
+            {% if state.preflight.counts.error %}<span class="badge text-bg-danger">{{ state.preflight.counts.error }} error{% if state.preflight.counts.error != 1 %}s{% endif %}</span>{% endif %}
+            {% if state.preflight.counts.warning %}<span class="badge text-bg-warning">{{ state.preflight.counts.warning }} warning{% if state.preflight.counts.warning != 1 %}s{% endif %}</span>{% endif %}
+            {% if state.preflight.counts.info %}<span class="badge text-bg-info">{{ state.preflight.counts.info }} info</span>{% endif %}
+            {% if not state.preflight.issues %}<span class="badge text-bg-success">Passed</span>{% endif %}
+          </div>
+        </div>
+        {% if state.preflight.issues %}
+          <div class="list-group list-group-flush">
+            {% for issue in state.preflight.issues %}
+              <div class="list-group-item px-0 py-2 d-flex flex-wrap align-items-start gap-2">
+                <span class="badge {% if issue.severity == 'error' %}text-bg-danger{% elif issue.severity == 'warning' %}text-bg-warning{% else %}text-bg-info{% endif %}">{{ issue.severity|capitalize }}</span>
+                <div class="small flex-grow-1">
+                  <div>{{ issue.message }}</div>
+                  {% if issue.file %}
+                    <div class="mt-1">
+                      <code>{{ issue.file }}</code>{% if issue.line %}<span class="text-muted">, line {{ issue.line }}</span>{% endif %}
+                      {% if issue.editable %}
+                        <a class="ms-2" href="{{ url_for('viewer.model_parameters', source_path=source_path, file=issue.file) }}">Edit file</a>
+                      {% elif issue.available %}
+                        <a class="ms-2" href="{{ url_for('viewer.view', path=source_path ~ '/' ~ issue.file) }}">Open file</a>
+                      {% endif %}
+                    </div>
+                  {% endif %}
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <p class="small text-success mb-0">No structural or cross-file problems were detected.</p>
+        {% endif %}
       </div>
       <div class="d-flex flex-wrap gap-2">
         <a class="btn btn-sm btn-outline-primary" href="{{ url_for('viewer.model_parameters', source_path=source_path) }}">Edit Parameters</a>
@@ -56,8 +91,10 @@
       {% include '_model_runtime_status.html' %}
       {% if state.ready %}
         <pre class="bg-light border rounded p-2 mb-0"><code>{{ state.command }}</code></pre>
-      {% else %}
+      {% elif state.missing %}
         <p class="text-muted mb-0">Supply the missing inputs first: <code>{{ state.missing | join(', ') }}</code>.</p>
+      {% else %}
+        <p class="text-muted mb-0">Resolve the blocking preflight errors in step 1 before running the model.</p>
       {% endif %}
     </div>
   </div>

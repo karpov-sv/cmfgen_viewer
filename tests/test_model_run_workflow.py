@@ -10,7 +10,12 @@ from cmfgen_viewer.model_run_workflow import inspect_main_model_workflow
 def _write_model(root: Path) -> Path:
     model = root / "model_a"
     model.mkdir()
-    for name in ("batch.sh", "VADAT", "MODEL_SPEC", "IN_ITS", "GAMMAS_IN", "HI_IN"):
+    (model / "batch.sh").write_text("#!/bin/sh\n", encoding="utf-8")
+    (model / "batch.sh").chmod(0o755)
+    (model / "VADAT").write_text("1.0 [RSTAR]\n", encoding="utf-8")
+    (model / "MODEL_SPEC").write_text("2 [ND]\n1 [NC]\n3 [NP]\n", encoding="utf-8")
+    (model / "IN_ITS").write_text("10 [NUM_ITS]\n", encoding="utf-8")
+    for name in ("GAMMAS_IN", "HI_IN"):
         (model / name).write_text(f"{name}\n", encoding="utf-8")
     return model
 
@@ -31,6 +36,11 @@ def test_main_computation_state_tracks_missing_stale_and_current_results(tmp_pat
     current = inspect_main_model_workflow(str(tmp_path), model_relpath="model_a")
     assert current["result_status"] == "current"
     assert current["mod_sum_fresh"] is True
+
+    (model / "batch.sh").chmod(0o644)
+    blocked_rerun = inspect_main_model_workflow(str(tmp_path), model_relpath="model_a")
+    assert blocked_rerun["ready"] is False
+    assert blocked_rerun["result_status"] == "current"
 
 
 def test_generated_gammas_does_not_stale_result_when_gammas_in_exists(tmp_path: Path) -> None:
@@ -86,6 +96,8 @@ def test_main_computation_page_is_external_only_and_read_write_gated(tmp_path: P
     assert b"./batch.sh" in page.data
     assert b"Waiting for" in page.data
     assert b"Process and progress" in page.data
+    assert b"Preflight validation" in page.data
+    assert b"No structural or cross-file problems were detected" in page.data
     assert b"Latest run diagnostics" in page.data
     assert b"CMFGEN \xc2\xb7 Unknown" in page.data
     assert b"CMF_FLUX \xc2\xb7 Unknown" in page.data
@@ -106,6 +118,23 @@ def test_main_computation_page_is_external_only_and_read_write_gated(tmp_path: P
     read_only.testing = True
     assert read_only.test_client().get("/model-actions/main-computation/model_a").status_code == 403
     assert read_only.test_client().get("/model-actions/runtime/main/model_a").status_code == 403
+
+
+def test_main_computation_page_blocks_on_preflight_error_and_links_editor(
+    tmp_path: Path,
+) -> None:
+    model = _write_model(tmp_path)
+    (model / "MODEL_SPEC").write_text("2 [ND]\n1 [NC]\n2 [NP]\n", encoding="utf-8")
+    app = create_app(basepath=str(tmp_path), read_write_enabled=True, secret_key="test")
+    app.testing = True
+
+    page = app.test_client().get("/model-actions/main-computation/model_a")
+
+    assert page.status_code == 200
+    assert b"at least ND + NC = 3 impact parameters are required" in page.data
+    assert b"Resolve the blocking preflight errors" in page.data
+    assert b"Edit file" in page.data
+    assert b"/model-actions/edit/model_a?file=MODEL_SPEC" in page.data
 
 
 def test_main_computation_page_shows_recorded_cmfgen_and_flux_progress(tmp_path: Path) -> None:
@@ -145,6 +174,11 @@ def test_main_computation_requires_promoted_structure_when_lte_workspace_exists(
     assert blocked["lte_handoff_required"] is True
     assert blocked["missing"][-2:] == ["RVSIG_COL", "ROSSELAND_LTE_TAB"]
 
-    (model / "RVSIG_COL").write_text("structure\n", encoding="utf-8")
+    (model / "RVSIG_COL").write_text(
+        "2 ! Number of depth points\n"
+        "2.0 3.0 4.0 5.0 1\n"
+        "1.0 2.0 3.0 4.0 2\n",
+        encoding="utf-8",
+    )
     (model / "ROSSELAND_LTE_TAB").write_text("opacity\n", encoding="utf-8")
     assert inspect_main_model_workflow(str(tmp_path), model_relpath="model_a")["ready"] is True

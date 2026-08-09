@@ -7,6 +7,7 @@ import shlex
 
 from .browser import is_model_directory, resolve_path
 from .model_editor import model_inputs_modified_since_solution
+from .model_preflight import inspect_model_preflight
 from .model_runtime import inspect_workflow_runtime
 
 
@@ -78,7 +79,9 @@ def inspect_main_model_workflow(basepath: str, *, model_relpath: str) -> dict[st
             _file_record(model_dir / name) for name in ("RVSIG_COL", "ROSSELAND_LTE_TAB")
         )
     missing = [str(item["name"]) for item in prerequisites if not item["exists"]]
-    ready = not missing
+    files_ready = not missing
+    preflight = inspect_model_preflight(model_dir)
+    ready = bool(files_ready and not preflight["blocking"])
 
     dependency_paths = [model_dir / name for name in MAIN_REQUIRED_FILES]
     if gamma_input is not None:
@@ -109,7 +112,7 @@ def inspect_main_model_workflow(basepath: str, *, model_relpath: str) -> dict[st
     mod_sum = result_by_name["MOD_SUM"]
     marker_stale = model_inputs_modified_since_solution(model_dir)
     mod_sum_fresh = bool(
-        ready
+        files_ready
         and mod_sum["exists"]
         and int(mod_sum["modified_ns"]) >= dependency_mtime
         and not marker_stale
@@ -125,6 +128,8 @@ def inspect_main_model_workflow(basepath: str, *, model_relpath: str) -> dict[st
         "model_path": str(model_dir),
         "prerequisites": prerequisites,
         "missing": missing,
+        "files_ready": files_ready,
+        "preflight": preflight,
         "ready": ready,
         "command": f"cd {shlex.quote(str(model_dir))} && ./batch.sh",
         "results": results,
