@@ -22,6 +22,7 @@ from .model_editor import (
 )
 from .model_staging import MODEL_WRITE_LOCK, is_sn_model_directory
 from .model_runtime import inspect_workflow_runtime
+from .lte_hydro_diagnostics import inspect_lte_diagnostics, inspect_wind_hyd_diagnostics
 from .parsers.common import parse_float_token
 from .parsers.extended_text import KEYWORD_ROW_RE
 
@@ -613,8 +614,18 @@ def inspect_lte_hydro_workflow(basepath: str, *, model_relpath: str) -> dict[str
         for key in keys
     ]
     lte_ready = bool(prepared and not missing_lte_control_keys)
-    hydro_ready = bool(lte_ready and lte_output["fresh"])
-    hydro_output_ready = bool(hydro_ready and hydro_output["fresh"])
+    lte_runtime = inspect_workflow_runtime(lte_dir, "lte")
+    hydro_runtime = inspect_workflow_runtime(lte_dir, "hydro")
+    lte_diagnostics = inspect_lte_diagnostics(lte_dir, active=bool(lte_runtime["active"]))
+    hydro_diagnostics = inspect_wind_hyd_diagnostics(
+        lte_dir,
+        active=bool(hydro_runtime["active"]),
+    )
+    lte_result_usable = bool(lte_output["fresh"] and not lte_diagnostics.get("fatal"))
+    hydro_ready = bool(lte_ready and lte_result_usable)
+    hydro_output_ready = bool(
+        hydro_ready and hydro_output["fresh"] and not hydro_diagnostics.get("fatal")
+    )
     promotion_ready = hydro_output_ready
     promoted = bool(
         promotion_ready
@@ -628,7 +639,10 @@ def inspect_lte_hydro_workflow(basepath: str, *, model_relpath: str) -> dict[str
         model_dir / "batch.sh"
     )
     lte_command = f"cd {shlex.quote(str(lte_dir))} && ./ltebat.sh"
-    hydro_command = f"cd {shlex.quote(str(lte_dir))} && $cmfdist/exe/wind_hyd.exe"
+    hydro_command = (
+        f"cd {shlex.quote(str(lte_dir))} && set -o pipefail && "
+        "$cmfdist/exe/wind_hyd.exe 2>&1 | tee WIND_HYD"
+    )
     return {
         "model_relpath": normalized,
         "model_path": str(model_dir),
@@ -646,8 +660,10 @@ def inspect_lte_hydro_workflow(basepath: str, *, model_relpath: str) -> dict[str
         "rvsig_backup_exists": _regular_file(model_dir / "RVSIG_COL_OLD"),
         "lte_ready": lte_ready,
         "lte_output": lte_output,
+        "lte_diagnostics": lte_diagnostics,
         "hydro_ready": hydro_ready,
         "hydro_output": hydro_output,
+        "hydro_diagnostics": hydro_diagnostics,
         "hydro_output_ready": hydro_output_ready,
         "promotion_ready": promotion_ready,
         "promoted": promoted,
@@ -659,8 +675,8 @@ def inspect_lte_hydro_workflow(basepath: str, *, model_relpath: str) -> dict[str
             _result_quick_control_cards(basepath, normalized) if prepared and hydro_output["exists"] else []
         ),
         "result_summary": _rvsig_result_summary(lte_dir),
-        "lte_runtime": inspect_workflow_runtime(lte_dir, "lte"),
-        "hydro_runtime": inspect_workflow_runtime(lte_dir, "hydro"),
+        "lte_runtime": lte_runtime,
+        "hydro_runtime": hydro_runtime,
     }
 
 

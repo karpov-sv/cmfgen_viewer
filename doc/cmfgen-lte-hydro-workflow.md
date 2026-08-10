@@ -30,17 +30,21 @@ The next stage remains blocked until `lte/ROSSELAND_LTE_TAB` exists and is at le
 
 The LTE run panel recognizes `main_lte`/`ltebat` processes only when their `/proc` working directory exactly matches the model's `lte/` directory. It displays PID, state, elapsed and accumulated CPU time, average CPU use, memory, and thread count. The latest integer in `ML_COUNTER` is compared with the `Number of frequencies` reported by `OUTLTE` to give an estimated frequency-integration percentage. The counter may be written in batches, so it need not change on every poll.
 
+The same panel now gives a retained run summary when the process is absent. It combines bounded head/tail parsing of `OUTLTE` with `ML_COUNTER`, `ltebat.log`, `TIMING`, and the freshness of `ROSSELAND_LTE_TAB`. It reports frequency progress, `DELTA_ED`/`DELTA_T`, batch start/finish markers, accumulated timing, and grouped runtime, atomic-data, frequency-grid, and floating-point diagnostics. Fatal diagnostics in a current `OUTLTE` block the hydro handoff even if an older Rosseland result still exists. Opening `OUTLTE` in **Parsed** mode exposes the same analysis. Large logs are not rejected by the generic parser size limit.
+
 ## 3. Run hydro externally
 
 Review `lte/HYDRO_PARAMS`, including `LOGG`, `TEFF`, luminosity, and related model values. The displayed command uses the conventional `cmfdist` environment variable:
 
 ```bash
-cd /absolute/path/to/model/lte && $cmfdist/exe/wind_hyd.exe
+cd /absolute/path/to/model/lte && set -o pipefail && $cmfdist/exe/wind_hyd.exe 2>&1 | tee WIND_HYD
 ```
 
-The supplied free-form instructions give the interactive answers `/null`, `e`, `70`, followed by Enter (or the required maximum optical depth). These values are shown as instructions rather than piped automatically so they can be adjusted for the model.
+The supplied free-form instructions give the interactive answers `/null`, `e`, `70`, followed by Enter (or the required maximum optical depth). These values are shown as instructions rather than piped automatically so they can be adjusted for the model. The pipeline leaves stdin attached to the terminal, captures stdout and stderr in `WIND_HYD`, and uses `pipefail` so a failed executable is not hidden by a successful `tee`.
 
 The hydro panel similarly identifies `wind_hyd` by process name and exact `lte/` working directory and reports its runtime statistics. Hydro does not expose a comparably reliable inner-loop counter. If `RVSIG_COL_NEW` is visible while it is being written, the last output-grid index is compared with its declared depth-point count; otherwise the monitor shows the process without inventing a percentage.
+
+For newly captured runs, the panel and parsed `WIND_HYD` view extract fatal runtime messages, warnings, transition radius and velocity, effective temperature, Eddington parameter, stellar mass, and the final generated-versus-desired reference-radius difference. `RVSIG_COL_NEW` remains the authoritative result. Existing model workspaces without `WIND_HYD` continue to work and are labeled as legacy uncaptured runs.
 
 For both stages, process presence is authoritative. Output files can survive a completed or failed calculation, so with no matching process any parsed value is labeled **Last recorded progress**. Progress from an older run is hidden when its file predates a newly detected process. Process monitoring is Linux-specific and degrades to file status when `/proc` is unavailable.
 

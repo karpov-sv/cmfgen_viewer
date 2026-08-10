@@ -1,0 +1,53 @@
+{% if diagnostics.available %}
+  <div class="border rounded p-3 mb-3">
+    <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
+      <strong>{{ diagnostics_title }}</strong>
+      {% if diagnostics.status == 'failed' %}<span class="badge text-bg-danger">Failed</span>
+      {% elif diagnostics.status == 'running' %}<span class="badge text-bg-success">Running</span>
+      {% elif diagnostics.status == 'ready' %}<span class="badge text-bg-success">Result ready</span>
+      {% elif diagnostics.status == 'stale' %}<span class="badge text-bg-warning">Stale</span>
+      {% else %}<span class="badge text-bg-secondary">Incomplete</span>{% endif %}
+    </div>
+    {% if diagnostics.cards %}
+      <div class="row row-cols-1 row-cols-md-2 row-cols-xl-3 g-2 mb-3">
+        {% for card in diagnostics.cards %}
+          <div class="col">
+            <div class="border rounded p-2 h-100">
+              <div class="small text-muted">{{ card.label }}</div>
+              <div class="fw-semibold">{{ card.value }}</div>
+              <div class="small">{{ card.detail }}</div>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+    {% if diagnostics.scalars %}
+      <div class="d-flex flex-wrap gap-3 small mb-3">
+        {% for item in diagnostics.scalars %}
+          <span><span class="text-muted">{{ item.label }}:</span> <code>{{ item.value }}</code>{% if item.unit %} {{ item.unit }}{% endif %}</span>
+        {% endfor %}
+      </div>
+    {% endif %}
+    {% if diagnostics.diagnostics %}
+      <div class="list-group list-group-flush mb-2">
+        {% for item in diagnostics.diagnostics %}
+          <div class="list-group-item px-0 py-2 d-flex align-items-start gap-2">
+            <span class="badge {% if item.level == 'danger' %}text-bg-danger{% elif item.level == 'warning' %}text-bg-warning{% else %}text-bg-info{% endif %}">{{ item.level|capitalize }}</span>
+            <div class="small flex-grow-1">
+              <strong>{{ item.label }}</strong> — {{ item.detail }}
+              <a class="ms-1" href="{{ url_for('viewer.view', path=diagnostics_source_path ~ '/' ~ item.path) }}">Open {{ item.path }}</a>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+    <div class="d-flex flex-wrap gap-2">
+      {% for name in diagnostics.links %}
+        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('viewer.view', path=diagnostics_source_path ~ '/' ~ name) }}">Open {{ name }}</a>
+      {% endfor %}
+    </div>
+    {% if diagnostics.source_truncated %}<p class="small text-muted mt-2 mb-0">The analyzer used bounded head/tail reads; open the raw file for intervening output.</p>{% endif %}
+  </div>
+{% elif diagnostics.message %}
+  <p class="small text-muted mb-3">{{ diagnostics.message }}</p>
+{% endif %}

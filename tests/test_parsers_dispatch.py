@@ -95,6 +95,7 @@ def test_parse_known_file_resolves_rvsig_alias(tmp_path: Path) -> None:
         ("cmf.sed", "CMF_SPECTRUM"),
         ("ETA_ISO_001.dat", "ETA_ISO_001.DAT"),
         ("cont_timing", "CONT_TIMING"),
+        ("WIND_HYD", "WIND_HYD"),
     ],
 )
 def test_parse_known_file_resolves_extended_aliases(tmp_path: Path, name: str, expected_parser: str) -> None:
@@ -181,3 +182,22 @@ def test_outgen_bounded_tail_parser_is_not_blocked_by_generic_size_guard(
     assert parsed is not None
     assert parsed["parser"] == "OUTGEN"
     assert dict(parsed["summary_table"]["rows"])["iteration_records"] == "1"
+
+
+def test_outlte_parser_tracks_progress_dependency_and_bypasses_size_guard(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(parsers, "MAX_PARSE_FILE_BYTES", 8)
+    path = _write_file(tmp_path, "OUTLTE", "Number of frequencies is 10\n")
+    _write_file(tmp_path, "ML_COUNTER", "1\n")
+
+    first = parsers.parse_known_file(path)
+    assert first is not None and first["parser"] == "OUTLTE"
+    assert dict(first["summary_table"]["rows"])["frequency_current"] == "1"
+
+    _write_file(tmp_path, "ML_COUNTER", "5\n")
+    second = parsers.parse_known_file(path)
+
+    assert second is not None
+    assert dict(second["summary_table"]["rows"])["frequency_current"] == "5"

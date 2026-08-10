@@ -215,7 +215,9 @@ Flux handling:
   - guarded LTE/hydro workflow preparation: the app creates the input workspace, reports missing or stale
     artifacts, gives copyable terminal commands, and checkpoints/promotes reviewed results, but deliberately
     never starts or supervises CMFGEN processes; read-only monitors match externally launched processes by
-    name and working directory and estimate LTE/hydro progress from their output files,
+    name and working directory and estimate LTE/hydro progress from their output files; domain-aware LTE
+    diagnostics combine `OUTLTE`, frequency progress, batch markers, timing, and result freshness, while the
+    hydro command preserves interactive output in a parsed `WIND_HYD` log,
   - a separate main-model computation workflow with input guards, the external `batch.sh` command, and
     current/stale `MOD_SUM` result tracking, live CMFGEN and `obs/` CMF_FLUX process statistics, estimated
     `OUTGEN` iteration progress, and CMF_FLUX pass/loop activity; LTE/hydro ends with a guarded handoff to

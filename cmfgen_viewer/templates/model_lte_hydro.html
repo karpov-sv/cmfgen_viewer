@@ -58,13 +58,17 @@
     <div class="card mb-3">
       <div class="card-header d-flex justify-content-between align-items-center">
         <strong>2. Configure and run LTE externally</strong>
-        {% if state.lte_runtime.active %}<span class="badge bg-success">Running</span>{% elif state.lte_output.fresh and state.lte_ready %}<span class="badge bg-success">Output ready</span>{% elif state.lte_ready %}<span class="badge bg-warning text-dark">Ready to run</span>{% elif state.prepared %}<span class="badge bg-warning text-dark">Needs configuration</span>{% else %}<span class="badge bg-secondary">Blocked</span>{% endif %}
+        {% if state.lte_runtime.active %}<span class="badge bg-success">Running</span>{% elif state.lte_diagnostics.status == 'failed' %}<span class="badge bg-danger">Run failed</span>{% elif state.lte_output.fresh and state.lte_ready %}<span class="badge bg-success">Output ready</span>{% elif state.lte_ready %}<span class="badge bg-warning text-dark">Ready to run</span>{% elif state.prepared %}<span class="badge bg-warning text-dark">Needs configuration</span>{% else %}<span class="badge bg-secondary">Blocked</span>{% endif %}
       </div>
       <div class="card-body">
         {% set runtime = state.lte_runtime %}
         {% set runtime_url = url_for('viewer.model_workflow_runtime', kind='lte', source_path=source_path) %}
         {% set runtime_source_path = source_path ~ '/lte' %}
         {% include '_model_runtime_status.html' %}
+        {% set diagnostics = state.lte_diagnostics %}
+        {% set diagnostics_title = 'LTE run diagnostics' %}
+        {% set diagnostics_source_path = source_path ~ '/lte' %}
+        {% include '_lte_hydro_diagnostics.html' %}
         {% if state.prepared %}
           <div class="mb-2 d-flex flex-wrap gap-2">
             {% for name in ['VADAT', 'MODEL_SPEC', 'GRID_PARAMS'] %}<a class="btn btn-sm btn-outline-primary" href="{{ url_for('viewer.model_parameters', source_path=source_path ~ '/lte', file=name) }}">Edit {{ name }}</a>{% endfor %}
@@ -134,17 +138,22 @@
     <div class="card mb-3">
       <div class="card-header d-flex justify-content-between align-items-center">
         <strong>3. Configure and run hydro externally</strong>
-        {% if state.hydro_runtime.active %}<span class="badge bg-success">Running</span>{% elif state.hydro_output_ready %}<span class="badge bg-success">Output ready</span>{% elif state.hydro_ready %}<span class="badge bg-warning text-dark">Ready to run</span>{% else %}<span class="badge bg-secondary">Blocked</span>{% endif %}
+        {% if state.hydro_runtime.active %}<span class="badge bg-success">Running</span>{% elif state.hydro_diagnostics.status == 'failed' %}<span class="badge bg-danger">Run failed</span>{% elif state.hydro_output_ready %}<span class="badge bg-success">Output ready</span>{% elif state.hydro_ready %}<span class="badge bg-warning text-dark">Ready to run</span>{% else %}<span class="badge bg-secondary">Blocked</span>{% endif %}
       </div>
       <div class="card-body">
         {% set runtime = state.hydro_runtime %}
         {% set runtime_url = url_for('viewer.model_workflow_runtime', kind='hydro', source_path=source_path) %}
         {% set runtime_source_path = source_path ~ '/lte' %}
         {% include '_model_runtime_status.html' %}
+        {% set diagnostics = state.hydro_diagnostics %}
+        {% set diagnostics_title = 'Captured wind_hyd diagnostics' %}
+        {% set diagnostics_source_path = source_path ~ '/lte' %}
+        {% include '_lte_hydro_diagnostics.html' %}
         {% if state.hydro_ready %}
           <a class="btn btn-sm btn-outline-primary mb-2" href="{{ url_for('viewer.model_parameters', source_path=source_path ~ '/lte', file='HYDRO_PARAMS') }}">Edit HYDRO_PARAMS</a>
           <p class="small mb-1">Verify LOGG, TEFF, luminosity and related values, then run:</p>
           <pre class="bg-light border rounded p-2"><code>{{ state.commands.hydro }}</code></pre>
+          <p class="small text-muted">The pipeline preserves interactive input, writes stdout and stderr to <code>WIND_HYD</code>, and retains the executable exit status through <code>pipefail</code>.</p>
           <p class="small mb-1">Interactive answers from the supplied instructions:</p>
           <ol class="small">{% for answer in state.hydro_answers %}<li><code>{{ answer }}</code></li>{% endfor %}</ol>
           {% if state.hydro_output.stale %}<div class="alert alert-warning py-2 mb-0"><code>RVSIG_COL_NEW</code> is older than its inputs; rerun wind_hyd.</div>{% elif not state.hydro_output.exists %}<p class="text-muted mb-0">Waiting for <code>lte/RVSIG_COL_NEW</code>.</p>{% endif %}

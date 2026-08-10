@@ -493,10 +493,6 @@ def parse_out_flux(path: Path) -> dict[str, object]:
     return parse_log_diagnostic(path, parser_name="OUT_FLUX", title="OUT_FLUX run log")
 
 
-def parse_outlte(path: Path) -> dict[str, object]:
-    return parse_log_diagnostic(path, parser_name="OUTLTE", title="OUTLTE LTE run log")
-
-
 def parse_rosseland_lte_tab(path: Path) -> dict[str, object]:
     return parse_numeric_diagnostic(
         path,

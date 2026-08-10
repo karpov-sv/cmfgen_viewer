@@ -65,7 +65,10 @@ def test_prepare_workspace_and_guard_successive_steps(tmp_path: Path) -> None:
     assert (model / "RVSIG_COL_OLD").read_text(encoding="utf-8") == "original RVSIG_COL\n"
     for name in ("VADAT", "MODEL_SPEC", "clean.sh", "GRID_PARAMS", "ltebat.sh", "HYDRO_PARAMS"):
         assert (model / "lte" / name).is_file()
-    assert "$cmfdist/exe/wind_hyd.exe" in str(prepared["commands"]["hydro"])
+    hydro_command = str(prepared["commands"]["hydro"])
+    assert "$cmfdist/exe/wind_hyd.exe" in hydro_command
+    assert "set -o pipefail" in hydro_command
+    assert "2>&1 | tee WIND_HYD" in hydro_command
 
 
 def test_partial_workspace_is_not_merged_or_overwritten(tmp_path: Path) -> None:
@@ -261,6 +264,43 @@ def test_result_summary_parses_generated_and_configured_quantities(tmp_path: Pat
     assert b"Generated quantities and configured values" in page.data
     assert b"Additional generated diagnostics" in page.data
     assert b"11501.21" in page.data
+
+
+def test_lte_and_captured_hydro_diagnostics_render_and_guard_failures(tmp_path: Path) -> None:
+    model = _write_model(tmp_path)
+    _write_templates(tmp_path)
+    prepare_lte_hydro_workspace(str(tmp_path), model_relpath="model_a")
+    lte = model / "lte"
+    _make_outputs_fresh(model)
+    (lte / "OUTLTE").write_text(
+        "Number of frequencies is 1000\nDELTA_ED= 0.5\nDELTA_T= 0.1\n",
+        encoding="utf-8",
+    )
+    (lte / "ML_COUNTER").write_text("1000\n", encoding="utf-8")
+    (lte / "WIND_HYD").write_text(
+        "Transition radius is 12.5\nTransition velocity is 20.0\n"
+        "Old reference radius is 40.01\nDesired reference radius is 40.0\n",
+        encoding="utf-8",
+    )
+
+    state = inspect_lte_hydro_workflow(str(tmp_path), model_relpath="model_a")
+    assert state["lte_diagnostics"]["frequency_percent"] == 100.0
+    assert state["hydro_diagnostics"]["status"] == "ready"
+    page = create_app(
+        basepath=str(tmp_path), read_write_enabled=True, secret_key="test"
+    ).test_client().get("/model-actions/lte-hydro/model_a")
+    assert b"LTE run diagnostics" in page.data
+    assert b"Captured wind_hyd diagnostics" in page.data
+    assert b"Final reference-radius difference" in page.data
+    assert b"tee WIND_HYD" in page.data
+
+    (lte / "OUTLTE").write_text(
+        "Fortran runtime error: invalid input\nBacktrace for this error:\n",
+        encoding="utf-8",
+    )
+    state = inspect_lte_hydro_workflow(str(tmp_path), model_relpath="model_a")
+    assert state["lte_diagnostics"]["fatal"] is True
+    assert state["hydro_ready"] is False
 
 
 def test_stale_outputs_are_blocked_and_fresh_results_are_promoted_with_backups(tmp_path: Path) -> None:

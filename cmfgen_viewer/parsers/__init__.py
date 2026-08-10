@@ -20,7 +20,6 @@ from .diagnostic_text import (
     parse_meanopac,
     parse_obs_freq,
     parse_obsframe,
-    parse_outlte,
     parse_out_flux,
     parse_out_params,
     parse_pop_family,
@@ -35,6 +34,7 @@ from .correction_sum import parse_correction_sum
 from .mod_sum import parse_mod_sum
 from .obsflux import parse_obsflux
 from .outgen import parse_outgen
+from .lte_hydro_logs import parse_outlte, parse_wind_hyd
 from .rvtj import parse_rvtj
 from .direct_access import parse_direct_access_file, parse_direct_info
 from .extended_text import (
@@ -125,7 +125,7 @@ PARSERS = {
     "MU_VALUE_CHK": parse_named_log,
     "STEQ_VALS": parse_steq_vals,
     "GAMMA_MODEL": parse_keyword_control,
-    "WIND_HYD": parse_named_log,
+    "WIND_HYD": parse_wind_hyd,
     "JEW": parse_named_log,
     "KEVIN_TESTING": parse_named_log,
     "NON_THERM_SPEC_INFO": parse_named_log,
@@ -174,7 +174,21 @@ GAMMA_VERBOSE_NAMES = {
 }
 
 MAX_PARSE_FILE_BYTES = 256 * 1024 * 1024
-OUTGEN_CACHE_DEPENDENCIES = ("IN_ITS", "CORRECTION_SUM", "WARNINGS", "TIMING")
+PARSER_CACHE_DEPENDENCIES = {
+    "OUTGEN": ("IN_ITS", "CORRECTION_SUM", "WARNINGS", "TIMING"),
+    "OUTLTE": (
+        "ML_COUNTER",
+        "ltebat.log",
+        "ROSSELAND_LTE_TAB",
+        "TIMING",
+        "VADAT",
+        "MODEL_SPEC",
+        "GRID_PARAMS",
+        "ltebat.sh",
+    ),
+    "WIND_HYD": ("RVSIG_COL_NEW", "HYDRO_PARAMS", "ROSSELAND_LTE_TAB"),
+}
+BOUNDED_PARSERS = {parse_outgen, parse_outlte, parse_wind_hyd}
 
 
 def _file_digest(path: Path) -> str:
@@ -255,7 +269,7 @@ def _parse_cached(
     parser = _resolve_parser(path)
     if parser is None:
         return None
-    if size > MAX_PARSE_FILE_BYTES and parser is not parse_outgen:
+    if size > MAX_PARSE_FILE_BYTES and parser not in BOUNDED_PARSERS:
         return {
             "parser": path.name.upper(),
             "title": f"{path.name} parsed view",
@@ -274,9 +288,10 @@ def _parse_cached(
 def parse_known_file(path: Path) -> dict[str, object] | None:
     stat = path.stat()
     dependency_token: tuple[tuple[str, int, int, str], ...] = ()
-    if path.name.upper() == "OUTGEN":
+    dependency_names = PARSER_CACHE_DEPENDENCIES.get(path.name.upper(), ())
+    if dependency_names:
         dependencies: list[tuple[str, int, int, str]] = []
-        for name in OUTGEN_CACHE_DEPENDENCIES:
+        for name in dependency_names:
             dependency = path.parent / name
             try:
                 dependency_stat = dependency.stat()

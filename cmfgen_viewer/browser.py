@@ -64,6 +64,7 @@ OPTIONAL_FILES = {
     "TIMING",
     "KEVIN_TESTING",
     "OUTLTE",
+    "WIND_HYD",
     "ROSSELAND_LTE_TAB",
     "ML_COUNTER",
     "DIAGNOSTIC_EST_1",
