@@ -102,10 +102,69 @@ def test_parse_uploaded_photometry_token4_boolean_not_misread_as_flux_err(tmp_pa
 
 
 def test_parse_uploaded_spectrum_rejects_unsupported_suffix(tmp_path: Path) -> None:
-    path = tmp_path / "upload.txt"
+    path = tmp_path / "upload.abc"
     path.write_text("text", encoding="utf-8")
     with pytest.raises(ValueError, match="Unsupported uploaded spectrum format"):
         obs.parse_uploaded_spectrum(path)
+
+
+def test_parse_uploaded_spectrum_csv_named_columns_and_filters(tmp_path: Path) -> None:
+    path = tmp_path / "upload.csv"
+    path.write_text(
+        "wavelength,flux,flux_error\n"
+        "7000,1.2e-11,1.2e-13\n"
+        "bad,9.9e-12,1.1e-13\n"
+        "6000,1.1e-11,1.1e-13\n"
+        "5000,1.0e-11,1.0e-13\n",
+        encoding="utf-8",
+    )
+
+    parsed = obs.parse_uploaded_spectrum(path, flux_mode="absolute", lambda_min=4500, lambda_max=6500)
+
+    assert parsed["format"] == "csv-table"
+    assert parsed["wavelength"] == [5000.0, 6000.0]
+    assert parsed["flux"] == [1.0e-11, 1.1e-11]
+    assert parsed["flux_err"] == [1.0e-13, 1.1e-13]
+    assert parsed["raw_points"] == 4
+    assert parsed["skipped_points"] == 1
+    assert parsed["range_skipped_points"] == 1
+    assert any("line(s): 3" in warning for warning in parsed["warnings"])
+
+
+def test_parse_uploaded_spectrum_text_positional_columns(tmp_path: Path) -> None:
+    path = tmp_path / "upload.txt"
+    path.write_text(
+        "# wavelength flux uncertainty\n"
+        "6000 1.10D+00 0.03\n"
+        "5000 0.95 0.02 # inline comment\n",
+        encoding="utf-8",
+    )
+
+    parsed = obs.parse_uploaded_spectrum(path, flux_mode="normalized")
+
+    assert parsed["format"] == "text-table"
+    assert parsed["wavelength"] == [5000.0, 6000.0]
+    assert parsed["flux"] == [0.95, 1.1]
+    assert parsed["flux_err"] == [0.02, 0.03]
+    assert parsed["flux_mode"] == "normalized"
+
+
+def test_parse_uploaded_spectrum_votable_named_columns_and_units(tmp_path: Path) -> None:
+    table_module = pytest.importorskip("astropy.table")
+    units = pytest.importorskip("astropy.units")
+    path = tmp_path / "upload.vot"
+    table = table_module.Table()
+    table["wavelength"] = [500.0, 600.0] * units.nm
+    table["flux"] = [1.0e-11, 1.2e-11]
+    table["flux_error"] = [1.0e-13, 1.2e-13]
+    table.write(path, format="votable")
+
+    parsed = obs.parse_uploaded_spectrum(path, flux_mode="absolute")
+
+    assert parsed["format"] == "votable"
+    assert parsed["wavelength"] == pytest.approx([5000.0, 6000.0])
+    assert parsed["flux"] == pytest.approx([1.0e-11, 1.2e-11])
+    assert parsed["flux_err"] == pytest.approx([1.0e-13, 1.2e-13])
 
 
 def test_extract_2d_fits_rows_uses_long_dimension_as_samples() -> None:

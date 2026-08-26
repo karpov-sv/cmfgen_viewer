@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 from functools import lru_cache
 import json
 import math
@@ -8,6 +9,7 @@ import re
 import secrets
 import shutil
 import time
+import warnings as python_warnings
 from typing import Any
 
 from .parsers.common import parse_float_token
@@ -19,11 +21,15 @@ except ModuleNotFoundError:  # pragma: no cover - runtime dependency
 
 try:
     from astropy.io import fits
+    from astropy.table import Table
 except ModuleNotFoundError:  # pragma: no cover - runtime dependency
     fits = None  # type: ignore[assignment]
+    Table = None  # type: ignore[assignment,misc]
 
 
 SUPPORTED_FITS_SUFFIXES = {".fits", ".fit", ".fts"}
+SUPPORTED_VOTABLE_SUFFIXES = {".vot", ".votable"}
+SUPPORTED_TEXT_SUFFIXES = {".csv", ".txt", ".dat"}
 UPLOAD_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{8,128}$")
 DEFAULT_UPLOAD_TTL_SECONDS = 2 * 24 * 60 * 60
 PHOTOMETRY_SUFFIXES = {".phot"}
@@ -177,6 +183,10 @@ def _parse_uploaded_spectrum_cached(
         return _parse_uploaded_photometry(path, flux_mode=flux_mode, lambda_min=lambda_min, lambda_max=lambda_max)
     if suffix in SUPPORTED_FITS_SUFFIXES:
         return _parse_uploaded_fits(path, flux_mode=flux_mode, lambda_min=lambda_min, lambda_max=lambda_max)
+    if suffix in SUPPORTED_VOTABLE_SUFFIXES:
+        return _parse_uploaded_votable(path, flux_mode=flux_mode, lambda_min=lambda_min, lambda_max=lambda_max)
+    if suffix in SUPPORTED_TEXT_SUFFIXES:
+        return _parse_uploaded_text(path, flux_mode=flux_mode, lambda_min=lambda_min, lambda_max=lambda_max)
 
     raise ValueError(f"Unsupported uploaded spectrum format: {path.suffix or path.name}")
 
@@ -205,31 +215,204 @@ def _parse_uploaded_fits(
         wavelength, flux, format_name, parser_warnings = _extract_wave_flux_from_fits_data(data, header)
         warnings.extend(parser_warnings)
 
+    return _finalize_uploaded_spectrum(
+        path,
+        wavelength,
+        flux,
+        format_name=format_name,
+        flux_mode=flux_mode,
+        lambda_min=lambda_min,
+        lambda_max=lambda_max,
+        warnings=warnings,
+    )
+
+
+def _parse_uploaded_votable(
+    path: Path,
+    *,
+    flux_mode: str,
+    lambda_min: float | None,
+    lambda_max: float | None,
+) -> dict[str, Any]:
+    if Table is None or np is None:
+        raise ValueError("VOTable parsing requires astropy and numpy.")
+
+    try:
+        with python_warnings.catch_warnings():
+            python_warnings.filterwarnings(
+                "ignore",
+                message=".*has been deprecated in the VOUnit standard.*",
+            )
+            table = Table.read(path, format="votable")
+    except Exception as exc:
+        raise ValueError(f"Could not read VOTable: {exc}") from exc
+
+    warnings: list[str] = []
+    wavelength, flux, flux_err, table_warnings = _extract_from_astropy_table(table)
+    warnings.extend(table_warnings)
+    return _finalize_uploaded_spectrum(
+        path,
+        wavelength,
+        flux,
+        flux_err=flux_err,
+        format_name="votable",
+        flux_mode=flux_mode,
+        lambda_min=lambda_min,
+        lambda_max=lambda_max,
+        warnings=warnings,
+    )
+
+
+def _parse_uploaded_text(
+    path: Path,
+    *,
+    flux_mode: str,
+    lambda_min: float | None,
+    lambda_max: float | None,
+) -> dict[str, Any]:
+    try:
+        content = path.read_text(encoding="utf-8-sig", errors="replace")
+    except OSError as exc:
+        raise ValueError(f"Could not read text spectrum upload: {exc}") from exc
+
+    rows: list[tuple[int, list[str]]] = []
+    for line_no, raw_line in enumerate(content.splitlines(), start=1):
+        line = raw_line.split("#", 1)[0].strip()
+        if not line or line.startswith("!"):
+            continue
+        if "," in line:
+            try:
+                tokens = [token.strip() for token in next(csv.reader([line]))]
+            except csv.Error:
+                tokens = []
+        else:
+            tokens = [token for token in re.split(r"[;\s]+", line) if token]
+        rows.append((line_no, tokens))
+
+    if not rows:
+        raise ValueError("Text spectrum is empty. Expected wavelength and flux columns.")
+
+    first_tokens = rows[0][1]
+    has_header = len(first_tokens) < 2 or any(parse_float_token(token) is None for token in first_tokens[:2])
+    warnings: list[str] = []
+    if has_header:
+        header = first_tokens
+        data_rows = rows[1:]
+        lowered = {_normalize_column_name(name): name for name in header}
+        wave_name = _pick_column(lowered, ("wavelength", "lambda", "lam", "wave", "wl", "angstrom", "ang"))
+        flux_name = _pick_column(
+            lowered,
+            ("flux", "flx", "f_lambda", "flambda", "spec", "spectrum", "norm", "normalized"),
+        )
+        if wave_name is not None and flux_name is not None and wave_name != flux_name:
+            wave_index = header.index(wave_name)
+            flux_index = header.index(flux_name)
+        elif len(header) >= 2:
+            wave_index, flux_index = 0, 1
+            warnings.append("No explicit wavelength/flux column names found; using first two columns.")
+        else:
+            raise ValueError("Text spectrum header must contain wavelength and flux columns.")
+
+        error_name = _pick_column(
+            lowered,
+            ("flux_error", "flux_err", "fluxerror", "eflux", "e_flux", "sigma", "uncertainty", "error", "err"),
+        )
+        error_index = header.index(error_name) if error_name is not None else None
+    else:
+        data_rows = rows
+        wave_index, flux_index = 0, 1
+        error_index = 2 if len(first_tokens) >= 3 else None
+
+    if not data_rows:
+        raise ValueError("Text spectrum contains a header but no data rows.")
+
+    wavelength: list[float] = []
+    flux: list[float] = []
+    flux_err: list[float] | None = [] if error_index is not None else None
+    invalid_lines: list[int] = []
+    required_index = max(wave_index, flux_index)
+    for line_no, tokens in data_rows:
+        wave_value = parse_float_token(tokens[wave_index]) if len(tokens) > required_index else None
+        flux_value = parse_float_token(tokens[flux_index]) if len(tokens) > required_index else None
+        wavelength.append(float(wave_value) if wave_value is not None else math.nan)
+        flux.append(float(flux_value) if flux_value is not None else math.nan)
+        if wave_value is None or flux_value is None:
+            if len(invalid_lines) < 5:
+                invalid_lines.append(line_no)
+        if flux_err is not None:
+            err_value = (
+                parse_float_token(tokens[error_index])
+                if error_index is not None and len(tokens) > error_index
+                else None
+            )
+            flux_err.append(float(err_value) if err_value is not None else math.nan)
+
+    if invalid_lines:
+        warnings.append(f"Invalid wavelength/flux values were found on line(s): {', '.join(map(str, invalid_lines))}.")
+
+    return _finalize_uploaded_spectrum(
+        path,
+        wavelength,
+        flux,
+        flux_err=flux_err,
+        format_name="csv-table" if path.suffix.lower() == ".csv" else "text-table",
+        flux_mode=flux_mode,
+        lambda_min=lambda_min,
+        lambda_max=lambda_max,
+        warnings=warnings,
+    )
+
+
+def _finalize_uploaded_spectrum(
+    path: Path,
+    wavelength: Any,
+    flux: Any,
+    *,
+    format_name: str,
+    flux_mode: str,
+    lambda_min: float | None,
+    lambda_max: float | None,
+    warnings: list[str] | None = None,
+    flux_err: Any | None = None,
+) -> dict[str, Any]:
     if np is None:
         raise ValueError("numpy is not available.")
 
-    wavelength_arr = np.asarray(wavelength, dtype=np.float64).reshape(-1)
-    flux_arr = np.asarray(flux, dtype=np.float64).reshape(-1)
+    result_warnings = list(warnings or [])
+    wavelength_arr = np.ma.asarray(wavelength, dtype=np.float64).filled(np.nan).reshape(-1)
+    flux_arr = np.ma.asarray(flux, dtype=np.float64).filled(np.nan).reshape(-1)
     if wavelength_arr.size != flux_arr.size or wavelength_arr.size < 2:
         raise ValueError("Uploaded spectrum does not contain matching wavelength/flux vectors.")
+
+    flux_err_arr = None
+    if flux_err is not None:
+        candidate = np.ma.asarray(flux_err, dtype=np.float64).filled(np.nan).reshape(-1)
+        if candidate.size == wavelength_arr.size:
+            flux_err_arr = candidate
+        else:
+            result_warnings.append("Ignored flux-error column because its length does not match the spectrum.")
 
     raw_points = int(min(wavelength_arr.size, flux_arr.size))
     valid_mask = np.isfinite(wavelength_arr) & np.isfinite(flux_arr) & (wavelength_arr > 0)
     skipped_points = int(raw_points - int(valid_mask.sum()))
     wavelength_arr = wavelength_arr[valid_mask]
     flux_arr = flux_arr[valid_mask]
+    if flux_err_arr is not None:
+        flux_err_arr = flux_err_arr[valid_mask]
     if wavelength_arr.size < 2:
         raise ValueError("Uploaded spectrum has too few finite samples after filtering.")
 
-    if wavelength_arr[0] > wavelength_arr[-1]:
+    if np.any(np.diff(wavelength_arr) < 0):
         order = np.argsort(wavelength_arr)
         wavelength_arr = wavelength_arr[order]
         flux_arr = flux_arr[order]
+        if flux_err_arr is not None:
+            flux_err_arr = flux_err_arr[order]
 
     detected_mode = _detect_flux_mode(flux_arr.tolist())
     resolved_mode = detected_mode if flux_mode == "auto" else flux_mode
     if flux_mode != "auto" and flux_mode != detected_mode:
-        warnings.append(f"Requested flux mode '{flux_mode}' overrides detected mode '{detected_mode}'.")
+        result_warnings.append(f"Requested flux mode '{flux_mode}' overrides detected mode '{detected_mode}'.")
 
     negative_flux_skipped = 0
     if resolved_mode == "normalized":
@@ -238,8 +421,10 @@ def _parse_uploaded_fits(
         if negative_flux_skipped > 0:
             wavelength_arr = wavelength_arr[non_negative_mask]
             flux_arr = flux_arr[non_negative_mask]
+            if flux_err_arr is not None:
+                flux_err_arr = flux_err_arr[non_negative_mask]
             skipped_points += negative_flux_skipped
-            warnings.append(f"Filtered {negative_flux_skipped} normalized point(s) with negative flux.")
+            result_warnings.append(f"Filtered {negative_flux_skipped} normalized point(s) with negative flux.")
             if wavelength_arr.size < 2:
                 raise ValueError("Uploaded normalized spectrum has too few non-negative samples after filtering.")
 
@@ -253,16 +438,18 @@ def _parse_uploaded_fits(
         range_skipped_points = int(wavelength_arr.size - int(range_mask.sum()))
         wavelength_arr = wavelength_arr[range_mask]
         flux_arr = flux_arr[range_mask]
+        if flux_err_arr is not None:
+            flux_err_arr = flux_err_arr[range_mask]
         if range_skipped_points > 0:
             min_label = f"{lambda_min:g}" if lambda_min is not None else "-inf"
             max_label = f"{lambda_max:g}" if lambda_max is not None else "inf"
-            warnings.append(
+            result_warnings.append(
                 f"Filtered {range_skipped_points} point(s) outside wavelength window {min_label}..{max_label} Å."
             )
         if wavelength_arr.size < 2:
             raise ValueError("Uploaded spectrum has too few samples within configured wavelength range.")
 
-    return {
+    result = {
         "name": path.name,
         "format": format_name,
         "observation_type": "spectrum",
@@ -275,8 +462,14 @@ def _parse_uploaded_fits(
         "raw_points": raw_points,
         "skipped_points": skipped_points,
         "range_skipped_points": range_skipped_points,
-        "warnings": warnings,
+        "warnings": result_warnings,
     }
+    if flux_err_arr is not None:
+        result["flux_err"] = [
+            float(value) if math.isfinite(float(value)) and float(value) >= 0.0 else None
+            for value in flux_err_arr
+        ]
+    return result
 
 
 def _parse_enabled_token(token: str) -> bool | None:
@@ -601,6 +794,59 @@ def _extract_from_structured_table(array, header: Any) -> tuple[Any, Any, list[s
         return wavelength, flux, warnings
 
     raise ValueError("FITS table has no usable numeric columns.")
+
+
+def _extract_from_astropy_table(table: Any) -> tuple[Any, Any, Any | None, list[str]]:
+    if np is None:
+        raise ValueError("numpy is not available.")
+
+    warnings: list[str] = []
+    names = list(getattr(table, "colnames", []))
+    lowered = {_normalize_column_name(name): name for name in names}
+    wave_col = _pick_column(lowered, ("wavelength", "lambda", "lam", "wave", "wl", "angstrom", "ang"))
+    flux_col = _pick_column(
+        lowered,
+        ("flux", "flx", "f_lambda", "flambda", "spec", "spectrum", "norm", "normalized"),
+    )
+
+    numeric_names: list[str] = []
+    for name in names:
+        try:
+            values = np.asarray(table[name])
+        except (TypeError, ValueError):
+            continue
+        if values.ndim == 1 and np.issubdtype(values.dtype, np.number):
+            numeric_names.append(name)
+
+    if wave_col is None or flux_col is None or wave_col == flux_col:
+        if len(numeric_names) < 2:
+            raise ValueError("VOTable has no usable wavelength and flux columns.")
+        wave_col, flux_col = numeric_names[:2]
+        warnings.append("No explicit wavelength/flux column names found; using first two numeric columns.")
+
+    error_col = _pick_column(
+        lowered,
+        ("flux_error", "flux_err", "fluxerror", "eflux", "e_flux", "sigma", "uncertainty", "error", "err"),
+    )
+    if error_col in {wave_col, flux_col}:
+        error_col = None
+
+    wave_column = table[wave_col]
+    wavelength: Any = wave_column
+    wave_unit = getattr(wave_column, "unit", None)
+    if wave_unit is not None:
+        try:
+            wavelength = wave_column.quantity.to_value("Angstrom")
+        except Exception:
+            warnings.append(f"Could not convert wavelength unit '{wave_unit}' to Å; using values unchanged.")
+
+    flux_error = table[error_col] if error_col is not None else None
+    return wavelength, table[flux_col], flux_error, warnings
+
+
+def _normalize_column_name(name: object) -> str:
+    normalized = re.sub(r"[^a-z0-9]+", "_", str(name).strip().lower()).strip("_")
+    return normalized
 
 
 def _pick_column(lowered: dict[str, str], candidates: tuple[str, ...]) -> str | None:

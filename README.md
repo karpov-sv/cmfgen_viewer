@@ -177,6 +177,7 @@ Flux handling:
   - upload detail page (`/uploads/view/<token>`) with file/format summary, parsed point counts, skipped-point diagnostics, and configured wavelength window display,
   - interactive uploaded-spectrum viewer with redshift/velocity sync, broadening, reddening, distance scaling, axis controls, and a resizable plot area,
   - FITS parsing for common 1D/2D and table-based formats,
+  - VOTable, CSV, and plain-text spectrum parsing with named or positional wavelength/flux columns,
   - normalized-spectrum safety filter: uploaded points with negative flux are treated as invalid.
 - Upload model-grid fitting:
   - async server-side fit job API (`/uploads/fit-grid/...`) with progress polling and result payloads,

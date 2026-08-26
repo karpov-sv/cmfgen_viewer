@@ -17,7 +17,7 @@
 
     <div class="upload-inline-wrap mb-3">
       <form method="post" action="{{ url_for('viewer.uploads_upload') }}" enctype="multipart/form-data" class="upload-inline-form">
-        <input id="uploads-file" name="observed_file" type="file" class="form-control form-control-sm upload-file-input" accept=".fits,.fit,.fts,.txt,.dat,.csv" title="Spectrum file" aria-label="Spectrum file" required>
+        <input id="uploads-file" name="observed_file" type="file" class="form-control form-control-sm upload-file-input" accept=".fits,.fit,.fts,.vot,.votable,.txt,.dat,.csv" title="Spectrum file" aria-label="Spectrum file" required>
         <select id="uploads-flux-mode" name="flux_mode" class="form-select form-select-sm upload-mode-select" title="Flux mode" aria-label="Flux mode">
           <option value="auto">Auto</option>
           <option value="normalized">Normalized</option>
@@ -25,6 +25,9 @@
         </select>
         <button type="submit" class="btn btn-sm btn-primary">Upload</button>
       </form>
+      <p class="small text-muted mb-0">
+        Supported spectra: FITS, VOTable, CSV, and whitespace- or comma-delimited text with wavelength, flux, and optional flux-error columns.
+      </p>
     </div>
 
     <details class="card mb-3">
