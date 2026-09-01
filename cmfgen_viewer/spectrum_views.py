@@ -361,6 +361,13 @@ def spectrum_fit(path: str):
             fit_notice += f" RMSE={format_number(float(rmse))}."
         if isinstance(nfev, int):
             fit_notice += f" Iter={nfev}."
+        if metrics.get("chi2_weighting") == "spectrum_flux_err_weighted":
+            provided = metrics.get("spectrum_flux_err_provided_points")
+            fallback = metrics.get("spectrum_flux_err_fallback_points")
+            fit_notice += " Weighted by uploaded flux errors"
+            if isinstance(provided, int) and isinstance(fallback, int):
+                fit_notice += f" ({provided} provided, {fallback} fallback)"
+            fit_notice += "."
 
     if async_requested:
         payload: dict[str, object] = {
@@ -589,4 +596,3 @@ def spectrum(path: str):
         transform_params=transform_params,
         **context,
     )
-

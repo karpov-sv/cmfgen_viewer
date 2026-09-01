@@ -160,6 +160,24 @@ def _fit_single_cmfgen_candidate(
         if isinstance(photometry_flux_err_fallback_raw, int | float) and int(photometry_flux_err_fallback_raw) >= 0
         else None
     )
+    flux_error_weighting_raw = metrics.get("flux_error_weighting")
+    flux_error_weighting = (
+        str(flux_error_weighting_raw).strip()
+        if isinstance(flux_error_weighting_raw, str)
+        else ""
+    )
+    spectrum_flux_err_provided_raw = metrics.get("spectrum_flux_err_provided_points")
+    spectrum_flux_err_provided = (
+        int(spectrum_flux_err_provided_raw)
+        if isinstance(spectrum_flux_err_provided_raw, int | float) and int(spectrum_flux_err_provided_raw) >= 0
+        else None
+    )
+    spectrum_flux_err_fallback_raw = metrics.get("spectrum_flux_err_fallback_points")
+    spectrum_flux_err_fallback = (
+        int(spectrum_flux_err_fallback_raw)
+        if isinstance(spectrum_flux_err_fallback_raw, int | float) and int(spectrum_flux_err_fallback_raw) >= 0
+        else None
+    )
     cmfgen_params_raw = candidate.get("cmfgen_params")
     if isinstance(cmfgen_params_raw, dict):
         cmfgen_params = _cmfgen_fit_params_payload(cmfgen_params_raw)
@@ -182,6 +200,9 @@ def _fit_single_cmfgen_candidate(
             "photometry_error_weighting": photometry_error_weighting,
             "photometry_flux_err_provided_points": photometry_flux_err_provided,
             "photometry_flux_err_fallback_points": photometry_flux_err_fallback,
+            "flux_error_weighting": flux_error_weighting,
+            "spectrum_flux_err_provided_points": spectrum_flux_err_provided,
+            "spectrum_flux_err_fallback_points": spectrum_flux_err_fallback,
             "cmfgen_params": cmfgen_params,
             "fit_params": {
                 "redshift": float(best_params.get("redshift", 0.0)),
@@ -434,6 +455,24 @@ def _fit_single_tlusty_candidate(
         if isinstance(photometry_flux_err_fallback_raw, int | float) and int(photometry_flux_err_fallback_raw) >= 0
         else None
     )
+    flux_error_weighting_raw = metrics.get("flux_error_weighting")
+    flux_error_weighting = (
+        str(flux_error_weighting_raw).strip()
+        if isinstance(flux_error_weighting_raw, str)
+        else ""
+    )
+    spectrum_flux_err_provided_raw = metrics.get("spectrum_flux_err_provided_points")
+    spectrum_flux_err_provided = (
+        int(spectrum_flux_err_provided_raw)
+        if isinstance(spectrum_flux_err_provided_raw, int | float) and int(spectrum_flux_err_provided_raw) >= 0
+        else None
+    )
+    spectrum_flux_err_fallback_raw = metrics.get("spectrum_flux_err_fallback_points")
+    spectrum_flux_err_fallback = (
+        int(spectrum_flux_err_fallback_raw)
+        if isinstance(spectrum_flux_err_fallback_raw, int | float) and int(spectrum_flux_err_fallback_raw) >= 0
+        else None
+    )
 
     return {
         "status": "success",
@@ -452,6 +491,9 @@ def _fit_single_tlusty_candidate(
             "photometry_error_weighting": photometry_error_weighting,
             "photometry_flux_err_provided_points": photometry_flux_err_provided,
             "photometry_flux_err_fallback_points": photometry_flux_err_fallback,
+            "flux_error_weighting": flux_error_weighting,
+            "spectrum_flux_err_provided_points": spectrum_flux_err_provided,
+            "spectrum_flux_err_fallback_points": spectrum_flux_err_fallback,
             "fit_params": {
                 "redshift": float(best_params.get("redshift", 0.0)),
                 "broadening_km_s": float(best_params.get("broadening_km_s", 0.0)),
@@ -545,5 +587,4 @@ def _grid_fit_worker_task(model_candidate: dict[str, object]) -> dict[str, objec
         lambda_max=float(lambda_max),
         should_cancel=None,
     )
-
 

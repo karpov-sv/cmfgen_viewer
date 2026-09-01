@@ -1575,6 +1575,27 @@
         }
       }
 
+      function addFitWeightingSummaryLines(container, model) {
+        if (!container || !model || typeof model !== "object") {
+          return;
+        }
+        var weighting = String(model.chi2_weighting || "").trim();
+        if (weighting) {
+          addSummaryLine(container, "Fit weighting", weighting);
+        }
+        if (weighting !== "spectrum_flux_err_weighted") {
+          return;
+        }
+        var provided = Number(model.spectrum_flux_err_provided_points);
+        var fallback = Number(model.spectrum_flux_err_fallback_points);
+        if (Number.isFinite(provided)) {
+          addSummaryLine(container, "Spectrum error points", String(Math.round(provided)));
+        }
+        if (Number.isFinite(fallback) && fallback > 0) {
+          addSummaryLine(container, "Spectrum error fallbacks", String(Math.round(fallback)));
+        }
+      }
+
       function formatConfidenceValue(value, isInteger) {
         var numeric = Number(value);
         if (!Number.isFinite(numeric)) {
@@ -2013,6 +2034,7 @@
         addSummaryLine(bestBody, "Model", String(best.model_path || best.model_name || ""));
         addSummaryLine(bestBody, "RMSE", formatRmse(best.rmse));
         addSummaryLine(bestBody, "Fit points", String(best.points || ""));
+        addFitWeightingSummaryLines(bestBody, best);
         addTlustySummaryLines(bestBody, best);
         addCmfgenSummaryLines(bestBody, best);
 
@@ -2065,6 +2087,7 @@
         addSummaryLine(resultBody, "Best model", String(best.model_path || best.model_name || ""));
         addSummaryLine(resultBody, "Best RMSE", formatRmse(best.rmse));
         addSummaryLine(resultBody, "Fit points", String(best.points || ""));
+        addFitWeightingSummaryLines(resultBody, best);
         addTlustySummaryLines(resultBody, best);
         addCmfgenSummaryLines(resultBody, best);
 

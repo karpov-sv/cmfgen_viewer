@@ -131,6 +131,109 @@ def test_overlay_and_uploaded_plot_photometry_paths() -> None:
     assert len(plot_data["data"]) == 1
 
 
+def test_overlay_and_uploaded_plot_spectrum_include_flux_errors() -> None:
+    observed = {
+        "name": "gaia-xp",
+        "observation_type": "spectrum",
+        "wavelength": [4000.0, 5000.0, 6000.0],
+        "flux": [1.0e-11, 1.2e-11, 1.1e-11],
+        "flux_err": [2.0e-12, 2.0e-13, 1.0e-13],
+        "flux_mode": "absolute",
+    }
+
+    trace, error = fs.build_observed_overlay_trace(observed, mode="both")
+    assert error is None
+    assert isinstance(trace, dict)
+    assert trace["error_y"]["array"] == observed["flux_err"]
+
+    plot_data, warning = fs.build_uploaded_spectrum_plot(observed)
+    assert warning is None
+    assert isinstance(plot_data, dict)
+    assert plot_data["data"][0]["error_y"]["array"] == observed["flux_err"]
+
+
+def test_fit_model_to_observed_spectrum_respects_flux_err_weights() -> None:
+    size = 80
+    wavelength = [4200.0 + (4200.0 * idx / (size - 1)) for idx in range(size)]
+    continuum_flux = [1.0] * size
+    final_flux = [1.0 + 0.04 * math.sin(idx / 5.0) for idx in range(size)]
+    observed_flux = [
+        final_flux[idx] * fs.JY_TO_FLAMBDA_ANGSTROM_FACTOR / (wavelength[idx] * wavelength[idx])
+        for idx in range(size)
+    ]
+    pivot = size // 2
+    observed_flux[pivot] *= 1.5
+    continuum = {"wavelength": wavelength, "flux": continuum_flux}
+    final = {"wavelength": wavelength, "flux": final_flux}
+
+    loose_errors = [0.02 * abs(value) for value in observed_flux]
+    loose_errors[pivot] = abs(observed_flux[pivot])
+    tight_errors = list(loose_errors)
+    tight_errors[pivot] = 0.001 * abs(observed_flux[pivot])
+
+    observed_base = {
+        "wavelength": wavelength,
+        "flux": observed_flux,
+        "flux_mode": "absolute",
+        "observation_type": "spectrum",
+    }
+    observed_loose = {**observed_base, "flux_err": loose_errors}
+    observed_tight = {**observed_base, "flux_err": tight_errors}
+
+    _, metrics_loose, error_loose = fs.fit_model_to_observed(
+        continuum,
+        final,
+        observed_loose,
+        mode="both",
+        absolute_scale_mode="free",
+    )
+    _, metrics_tight, error_tight = fs.fit_model_to_observed(
+        continuum,
+        final,
+        observed_tight,
+        mode="both",
+        absolute_scale_mode="free",
+    )
+
+    assert error_loose is None
+    assert error_tight is None
+    assert isinstance(metrics_loose, dict)
+    assert isinstance(metrics_tight, dict)
+    assert metrics_tight["chi2"] > metrics_loose["chi2"] * 100.0
+    assert metrics_tight["chi2_weighting"] == "spectrum_flux_err_weighted"
+    assert metrics_tight["flux_error_weighting"] == "flux_err"
+    assert metrics_tight["spectrum_flux_err_provided_points"] == size
+    assert metrics_tight["spectrum_flux_err_fallback_points"] == 0
+
+
+def test_fit_normalized_spectrum_uses_errors_and_fills_sparse_gaps() -> None:
+    wavelength, continuum_flux, final_flux = _build_model_vectors()
+    normalized_flux = [final_flux[idx] / continuum_flux[idx] for idx in range(len(wavelength))]
+    flux_err: list[float | None] = [0.02] * len(wavelength)
+    flux_err[0] = None
+    observed = {
+        "wavelength": wavelength,
+        "flux": normalized_flux,
+        "flux_err": flux_err,
+        "flux_mode": "normalized",
+        "observation_type": "spectrum",
+    }
+
+    _, metrics, error = fs.fit_model_to_observed(
+        {"wavelength": wavelength, "flux": continuum_flux},
+        {"wavelength": wavelength, "flux": final_flux},
+        observed,
+        mode="normalized",
+    )
+
+    assert error is None
+    assert isinstance(metrics, dict)
+    assert metrics["chi2_weighting"] == "spectrum_flux_err_weighted"
+    assert metrics["flux_error_weighting"] == "flux_err_or_median_relative_fallback"
+    assert metrics["spectrum_flux_err_provided_points"] == len(wavelength) - 1
+    assert metrics["spectrum_flux_err_fallback_points"] == 1
+
+
 def test_fit_model_to_observed_photometry_uses_flux_err_fallback() -> None:
     continuum, final, observed = _build_absolute_photometry_case(size=8)
     observed["flux_err"] = [None] * len(observed["wavelength"])

@@ -178,6 +178,7 @@ Flux handling:
   - interactive uploaded-spectrum viewer with redshift/velocity sync, broadening, reddening, distance scaling, axis controls, and a resizable plot area,
   - FITS parsing for common 1D/2D and table-based formats,
   - VOTable, CSV, and plain-text spectrum parsing with named or positional wavelength/flux columns,
+  - spectral flux-error bars and per-point uncertainty weighting during single-model and grid fitting,
   - normalized-spectrum safety filter: uploaded points with negative flux are treated as invalid.
 - Upload model-grid fitting:
   - async server-side fit job API (`/uploads/fit-grid/...`) with progress polling and result payloads,

@@ -37,9 +37,9 @@ LIGHT_SPEED_KM_PER_S = 299792.458
 MAX_MODEL_TIME_LINES = 4
 MAX_SPECIES_ROWS = 12
 MAX_SERIES_POINTS = 5000
-PHOTOMETRY_ERROR_BAR_COLOR = "rgba(33, 37, 41, 0.45)"
-PHOTOMETRY_ERROR_BAR_THICKNESS = 1.2
-PHOTOMETRY_ERROR_BAR_CAP_WIDTH = 0
+OBSERVED_ERROR_BAR_COLOR = "rgba(33, 37, 41, 0.45)"
+OBSERVED_ERROR_BAR_THICKNESS = 1.2
+OBSERVED_ERROR_BAR_CAP_WIDTH = 0
 PHOTOMETRY_FIT_FLUX_ERR_FALLBACK_FRACTION = 0.02
 FIT_DIFF_STEPS = {
     "redshift": 1e-4,
@@ -687,6 +687,84 @@ def _clean_xy_with_band_width(
     return x, y, width, flux_err
 
 
+def _downsample_spectrum_with_flux_err(
+    wavelength: list[float],
+    flux: list[float],
+    flux_err: object,
+    *,
+    max_points: int,
+) -> tuple[list[float], list[float], list[float | None] | None]:
+    """Downsample spectral values and their uncertainties at identical indices."""
+    size = min(len(wavelength), len(flux))
+    if size <= 0:
+        return [], [], None
+
+    errors = flux_err if isinstance(flux_err, list) and len(flux_err) >= size else None
+    if size <= max_points:
+        indices = list(range(size))
+    else:
+        step = size / max_points
+        indices = [min(size - 1, int(round(index * step))) for index in range(max_points)]
+        indices[-1] = size - 1
+
+    sampled_x = [wavelength[index] for index in indices]
+    sampled_y = [flux[index] for index in indices]
+    if errors is None:
+        return sampled_x, sampled_y, None
+
+    sampled_errors: list[float | None] = []
+    for index in indices:
+        value = errors[index]
+        if isinstance(value, int | float) and math.isfinite(float(value)) and float(value) > 0.0:
+            sampled_errors.append(float(value))
+        else:
+            sampled_errors.append(None)
+    return sampled_x, sampled_y, sampled_errors
+
+
+def _spectrum_sigma_with_fallback(
+    observed_y: Any,
+    observed_flux_err: Any,
+) -> tuple[Any | None, int, int, float | None]:
+    """Build spectral fit sigmas, filling sparse gaps from the measured error scale."""
+    if np is None or observed_flux_err is None:
+        return None, 0, 0, None
+
+    sigma = np.asarray(observed_flux_err, dtype=np.float64).reshape(-1)
+    values = np.asarray(observed_y, dtype=np.float64).reshape(-1)
+    if sigma.shape != values.shape:
+        return None, 0, 0, None
+
+    provided_valid = np.isfinite(sigma) & (sigma > 0.0)
+    provided_points = int(np.count_nonzero(provided_valid))
+    if provided_points <= 0:
+        return None, 0, 0, None
+
+    abs_values = np.abs(values)
+    relative_valid = provided_valid & np.isfinite(abs_values) & (abs_values > 0.0)
+    fallback_fraction: float | None = None
+    if np.any(relative_valid):
+        relative_errors = sigma[relative_valid] / abs_values[relative_valid]
+        relative_errors = relative_errors[np.isfinite(relative_errors) & (relative_errors > 0.0)]
+        if relative_errors.size:
+            candidate = float(np.median(relative_errors))
+            if math.isfinite(candidate) and candidate > 0.0:
+                fallback_fraction = candidate
+
+    fallback_absolute = float(np.median(sigma[provided_valid]))
+    if not math.isfinite(fallback_absolute) or fallback_absolute <= 0.0:
+        return None, 0, 0, None
+
+    if fallback_fraction is not None:
+        fallback_sigma = fallback_fraction * abs_values
+    else:
+        fallback_sigma = np.full(values.shape, fallback_absolute, dtype=np.float64)
+    fallback_valid = np.isfinite(fallback_sigma) & (fallback_sigma > 0.0)
+    fallback_sigma = np.where(fallback_valid, fallback_sigma, fallback_absolute)
+    completed_sigma = np.where(provided_valid, sigma, fallback_sigma)
+    return completed_sigma, provided_points, int(values.size - provided_points), fallback_fraction
+
+
 def _build_model_series_for_fit(
     continuum: dict[str, object],
     final: dict[str, object],
@@ -735,7 +813,7 @@ def _build_observed_series_for_fit(
     flux = observed.get("flux")
     observation_type = str(observed.get("observation_type", "")).strip().lower()
     band_width = observed.get("band_width") if observation_type == "photometry" else None
-    flux_err = observed.get("flux_err") if observation_type == "photometry" else None
+    flux_err = observed.get("flux_err")
     flux_mode = str(observed.get("flux_mode", "")).strip().lower()
     if not isinstance(wavelength, list) or not isinstance(flux, list):
         return None, "Observed upload is missing wavelength/flux vectors."
@@ -1142,6 +1220,19 @@ def fit_model_to_observed(
         photometry_sigma_provided_points = int(np.count_nonzero(provided_valid))
         photometry_sigma_fallback_points = int(observed_y.size - photometry_sigma_provided_points)
 
+    spectrum_sigma: Any | None = None
+    spectrum_sigma_provided_points = 0
+    spectrum_sigma_fallback_points = 0
+    spectrum_sigma_fallback_fraction: float | None = None
+    if not is_photometry:
+        (
+            spectrum_sigma,
+            spectrum_sigma_provided_points,
+            spectrum_sigma_fallback_points,
+            spectrum_sigma_fallback_fraction,
+        ) = _spectrum_sigma_with_fallback(observed_y, observed_flux_err)
+    residual_sigma = photometry_sigma if photometry_sigma is not None else spectrum_sigma
+
     bounds = _resolve_fit_bounds(normalized_mode, bounds_override)
     if use_free_normalization:
         bounds.pop("distance_kpc", None)
@@ -1285,8 +1376,8 @@ def fit_model_to_observed(
         valid = np.isfinite(model_on_obs) & np.isfinite(observed_y)
         if normalized_mode == "both":
             valid &= (model_on_obs > 0) & (observed_y > 0)
-        if photometry_sigma is not None:
-            valid &= np.isfinite(photometry_sigma) & (photometry_sigma > 0)
+        if residual_sigma is not None:
+            valid &= np.isfinite(residual_sigma) & (residual_sigma > 0)
 
         residual = np.full(observed_x.shape, 4.0, dtype=np.float64)
         valid_count = int(np.count_nonzero(valid))
@@ -1300,17 +1391,20 @@ def fit_model_to_observed(
                 normalization_value = solve_free_normalization(
                     model_on_obs[valid],
                     observed_y[valid],
-                    photometry_sigma[valid] if photometry_sigma is not None else None,
+                    residual_sigma[valid] if residual_sigma is not None else None,
                 ) or 0.0
                 if normalization_value <= 0.0:
                     return package_output(residual, valid_count, 1.0)
                 effective_model = model_on_obs * normalization_value
-            if photometry_sigma is not None:
-                residual[valid] = (effective_model[valid] - observed_y[valid]) / photometry_sigma[valid]
+            if residual_sigma is not None:
+                residual[valid] = (effective_model[valid] - observed_y[valid]) / residual_sigma[valid]
             else:
                 residual[valid] = np.log10(effective_model[valid]) - np.log10(observed_y[valid])
         else:
-            residual[valid] = ((model_on_obs[valid] - observed_y[valid]) / obs_scale) * norm_weights[valid]
+            if residual_sigma is not None:
+                residual[valid] = (model_on_obs[valid] - observed_y[valid]) / residual_sigma[valid]
+            else:
+                residual[valid] = ((model_on_obs[valid] - observed_y[valid]) / obs_scale) * norm_weights[valid]
         residual[~valid] = 2.0
         return package_output(residual, valid_count, normalization_value)
 
@@ -1495,6 +1589,17 @@ def fit_model_to_observed(
         metrics["photometry_flux_err_fallback_fraction"] = float(PHOTOMETRY_FIT_FLUX_ERR_FALLBACK_FRACTION)
         metrics["photometry_flux_err_provided_points"] = int(photometry_sigma_provided_points)
         metrics["photometry_flux_err_fallback_points"] = int(photometry_sigma_fallback_points)
+    elif spectrum_sigma is not None:
+        metrics["chi2_weighting"] = "spectrum_flux_err_weighted"
+        metrics["flux_error_weighting"] = (
+            "flux_err_or_median_relative_fallback"
+            if spectrum_sigma_fallback_points > 0
+            else "flux_err"
+        )
+        metrics["spectrum_flux_err_provided_points"] = int(spectrum_sigma_provided_points)
+        metrics["spectrum_flux_err_fallback_points"] = int(spectrum_sigma_fallback_points)
+        if spectrum_sigma_fallback_fraction is not None:
+            metrics["spectrum_flux_err_fallback_fraction"] = float(spectrum_sigma_fallback_fraction)
     elif normalized_mode == "both":
         metrics["chi2_weighting"] = "log_flux_residual_unweighted"
     else:
@@ -1510,7 +1615,7 @@ def build_observed_overlay_trace(observed: dict[str, object], *, mode: str) -> t
     flux = observed.get("flux")
     observation_type = str(observed.get("observation_type", "")).strip().lower()
     band_width = observed.get("band_width") if observation_type == "photometry" else None
-    flux_err = observed.get("flux_err") if observation_type == "photometry" else None
+    flux_err = observed.get("flux_err")
     point_comment = observed.get("point_comment") if observation_type == "photometry" else None
     flux_mode = str(observed.get("flux_mode", "")).strip().lower()
     if not isinstance(wavelength, list) or not isinstance(flux, list):
@@ -1581,22 +1686,27 @@ def build_observed_overlay_trace(observed: dict[str, object], *, mode: str) -> t
                 "type": "data",
                 "array": [0.5 * value for value in widths],
                 "visible": True,
-                "color": PHOTOMETRY_ERROR_BAR_COLOR,
-                "thickness": PHOTOMETRY_ERROR_BAR_THICKNESS,
-                "width": PHOTOMETRY_ERROR_BAR_CAP_WIDTH,
+                "color": OBSERVED_ERROR_BAR_COLOR,
+                "thickness": OBSERVED_ERROR_BAR_THICKNESS,
+                "width": OBSERVED_ERROR_BAR_CAP_WIDTH,
             }
         if any(isinstance(value, float) and value > 0.0 for value in errors):
             trace["error_y"] = {
                 "type": "data",
                 "array": [value if isinstance(value, float) and value > 0.0 else 0.0 for value in errors],
                 "visible": True,
-                "color": PHOTOMETRY_ERROR_BAR_COLOR,
-                "thickness": PHOTOMETRY_ERROR_BAR_THICKNESS,
-                "width": PHOTOMETRY_ERROR_BAR_CAP_WIDTH,
+                "color": OBSERVED_ERROR_BAR_COLOR,
+                "thickness": OBSERVED_ERROR_BAR_THICKNESS,
+                "width": OBSERVED_ERROR_BAR_CAP_WIDTH,
             }
         return trace, None
 
-    x, y = downsample_xy(wavelength, flux, max_points=MAX_SERIES_POINTS)
+    x, y, errors = _downsample_spectrum_with_flux_err(
+        wavelength,
+        flux,
+        flux_err,
+        max_points=MAX_SERIES_POINTS,
+    )
     if len(x) < 2:
         return None, "Uploaded spectrum has too few valid points for plotting."
 
@@ -1608,19 +1718,26 @@ def build_observed_overlay_trace(observed: dict[str, object], *, mode: str) -> t
         hover = "Wavelength=%{x:.6g} Å<br>Observed Flux=%{y:.6e}<extra></extra>"
         y_axis_name = "Flux"
 
-    return (
-        {
-            "type": "scatter",
-            "mode": "lines",
-            "name": f"Observed ({label})",
-            "x": x,
-            "y": y,
-            "line": {"color": "#212529", "width": 1.2, "dash": "solid"},
-            "hovertemplate": hover,
-            "meta": {"transform_target": "observed", "y_axis_name": y_axis_name},
-        },
-        None,
-    )
+    trace = {
+        "type": "scatter",
+        "mode": "lines",
+        "name": f"Observed ({label})",
+        "x": x,
+        "y": y,
+        "line": {"color": "#212529", "width": 1.2, "dash": "solid"},
+        "hovertemplate": hover,
+        "meta": {"transform_target": "observed", "y_axis_name": y_axis_name},
+    }
+    if errors is not None and any(isinstance(value, float) and value > 0.0 for value in errors):
+        trace["error_y"] = {
+            "type": "data",
+            "array": [value if isinstance(value, float) and value > 0.0 else 0.0 for value in errors],
+            "visible": True,
+            "color": OBSERVED_ERROR_BAR_COLOR,
+            "thickness": OBSERVED_ERROR_BAR_THICKNESS,
+            "width": OBSERVED_ERROR_BAR_CAP_WIDTH,
+        }
+    return trace, None
 
 
 def build_uploaded_spectrum_plot(observed: dict[str, object]) -> tuple[dict[str, object] | None, str | None]:
@@ -1628,7 +1745,7 @@ def build_uploaded_spectrum_plot(observed: dict[str, object]) -> tuple[dict[str,
     flux = observed.get("flux")
     observation_type = str(observed.get("observation_type", "")).strip().lower()
     band_width = observed.get("band_width") if observation_type == "photometry" else None
-    flux_err = observed.get("flux_err") if observation_type == "photometry" else None
+    flux_err = observed.get("flux_err")
     point_comment = observed.get("point_comment") if observation_type == "photometry" else None
     flux_mode = str(observed.get("flux_mode", "")).strip().lower()
     if not isinstance(wavelength, list) or not isinstance(flux, list):
@@ -1701,18 +1818,18 @@ def build_uploaded_spectrum_plot(observed: dict[str, object]) -> tuple[dict[str,
                 "type": "data",
                 "array": [0.5 * value for value in widths],
                 "visible": True,
-                "color": PHOTOMETRY_ERROR_BAR_COLOR,
-                "thickness": PHOTOMETRY_ERROR_BAR_THICKNESS,
-                "width": PHOTOMETRY_ERROR_BAR_CAP_WIDTH,
+                "color": OBSERVED_ERROR_BAR_COLOR,
+                "thickness": OBSERVED_ERROR_BAR_THICKNESS,
+                "width": OBSERVED_ERROR_BAR_CAP_WIDTH,
             }
         if any(isinstance(value, float) and value > 0.0 for value in errors):
             trace["error_y"] = {
                 "type": "data",
                 "array": [value if isinstance(value, float) and value > 0.0 else 0.0 for value in errors],
                 "visible": True,
-                "color": PHOTOMETRY_ERROR_BAR_COLOR,
-                "thickness": PHOTOMETRY_ERROR_BAR_THICKNESS,
-                "width": PHOTOMETRY_ERROR_BAR_CAP_WIDTH,
+                "color": OBSERVED_ERROR_BAR_COLOR,
+                "thickness": OBSERVED_ERROR_BAR_THICKNESS,
+                "width": OBSERVED_ERROR_BAR_CAP_WIDTH,
             }
         return (
             {
@@ -1725,7 +1842,12 @@ def build_uploaded_spectrum_plot(observed: dict[str, object]) -> tuple[dict[str,
             warning,
         )
 
-    x, y = downsample_xy(wavelength, flux, max_points=MAX_SERIES_POINTS)
+    x, y, errors = _downsample_spectrum_with_flux_err(
+        wavelength,
+        flux,
+        flux_err,
+        max_points=MAX_SERIES_POINTS,
+    )
     if len(x) < 2:
         return None, "Uploaded spectrum has too few valid points for plotting."
 
@@ -1755,6 +1877,15 @@ def build_uploaded_spectrum_plot(observed: dict[str, object]) -> tuple[dict[str,
         "hovertemplate": hover,
         "meta": {"transform_target": "model", "plot_role": "final", "y_axis_name": y_axis_name},
     }
+    if errors is not None and any(isinstance(value, float) and value > 0.0 for value in errors):
+        trace["error_y"] = {
+            "type": "data",
+            "array": [value if isinstance(value, float) and value > 0.0 else 0.0 for value in errors],
+            "visible": True,
+            "color": OBSERVED_ERROR_BAR_COLOR,
+            "thickness": OBSERVED_ERROR_BAR_THICKNESS,
+            "width": OBSERVED_ERROR_BAR_CAP_WIDTH,
+        }
     return (
         {
             "data": [trace],
