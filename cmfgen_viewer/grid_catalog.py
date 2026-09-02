@@ -673,6 +673,66 @@ def _tlusty_row_wavelength_bounds(row: dict[str, object]) -> tuple[float, float]
     return lo, hi
 
 
+def _tlusty_row_covers_observed_photometry(
+    row: dict[str, object],
+    observed: dict[str, object] | None,
+    *,
+    redshift_bounds: tuple[float, float] | None = None,
+) -> bool:
+    """Return whether a TLUSTY segment can cover every uploaded photometric band."""
+    if not isinstance(observed, dict):
+        return True
+    observation_type = str(observed.get("observation_type", "")).strip().lower()
+    if observation_type != "photometry":
+        return True
+
+    wavelength = observed.get("wavelength")
+    if not isinstance(wavelength, list) or not wavelength:
+        return True
+    band_width = observed.get("band_width")
+    widths = band_width if isinstance(band_width, list) and len(band_width) == len(wavelength) else None
+
+    model_bounds = _tlusty_row_wavelength_bounds(row)
+    if model_bounds is None:
+        return False
+    model_min, model_max = model_bounds
+
+    z_min = 0.0
+    z_max = 0.0
+    if isinstance(redshift_bounds, tuple) and len(redshift_bounds) == 2:
+        lo_raw, hi_raw = redshift_bounds
+        if isinstance(lo_raw, int | float) and isinstance(hi_raw, int | float):
+            lo = float(lo_raw)
+            hi = float(hi_raw)
+            if math.isfinite(lo) and math.isfinite(hi) and min(lo, hi) > -1.0:
+                z_min, z_max = min(lo, hi), max(lo, hi)
+
+    # Intersect the redshift intervals in which the model covers each complete
+    # band. This ensures one permitted redshift can cover all bands at once.
+    coverage_z_min = z_min
+    coverage_z_max = z_max
+    usable_points = 0
+    for index, raw_center in enumerate(wavelength):
+        if not isinstance(raw_center, int | float):
+            continue
+        center = float(raw_center)
+        if not math.isfinite(center) or center <= 0.0:
+            continue
+        half_width = 0.0
+        if widths is not None:
+            raw_width = widths[index]
+            if isinstance(raw_width, int | float):
+                width = float(raw_width)
+                if math.isfinite(width) and width > 0.0:
+                    half_width = 0.5 * width
+        usable_points += 1
+        coverage_z_min = max(coverage_z_min, ((center + half_width) / model_max) - 1.0)
+        coverage_z_max = min(coverage_z_max, ((center - half_width) / model_min) - 1.0)
+        if coverage_z_min > coverage_z_max:
+            return False
+    return usable_points > 0
+
+
 def _tlusty_select_continuum_row(
     spectrum_row: dict[str, object],
     continuum_rows: list[dict[str, object]],
@@ -750,6 +810,8 @@ def _discover_tlusty_grid_models(
     *,
     mode: str,
     model_name_pattern: str,
+    observed: dict[str, object] | None = None,
+    fit_bounds: dict[str, tuple[float, float]] | None = None,
 ) -> tuple[list[dict[str, object]], str | None]:
     tlusty_root = _tlusty_root(config)
     rows, load_error = _load_tlusty_model_rows(tlusty_root)
@@ -803,12 +865,21 @@ def _discover_tlusty_grid_models(
 
     candidates: list[dict[str, object]] = []
     missing_continuum = 0
+    incomplete_photometry_coverage = 0
     for row in spectrum_rows:
         model_name = str(row["model_name"])
         grid = str(row["grid"])
         spectrum_relpath = str(row["spectrum_relpath"])
         spectrum_path = tlusty_root / spectrum_relpath
         products = _tlusty_row_products(row)
+        redshift_bounds = fit_bounds.get("redshift") if isinstance(fit_bounds, dict) else None
+        if not _tlusty_row_covers_observed_photometry(
+            row,
+            observed,
+            redshift_bounds=redshift_bounds,
+        ):
+            incomplete_photometry_coverage += 1
+            continue
         available_arrays = {str(item).strip() for item in row.get("available_arrays", [])}
         continuum_row: dict[str, object] | None = None
         continuum_relpath = ""
@@ -874,6 +945,11 @@ def _discover_tlusty_grid_models(
             "No TLUSTY candidates had usable continuum counterparts for normalized fitting "
             f"({missing_continuum} spectrum entries lacked matching continuum files)."
         )
+    if incomplete_photometry_coverage > 0:
+        return [], (
+            "No TLUSTY spectrum covered every enabled photometric band "
+            f"({incomplete_photometry_coverage} incomplete segment(s) excluded)."
+        )
     if missing_files > 0:
         return [], f"No TLUSTY spectra with accessible files were found ({missing_files} entries missing on disk)."
     return [], "No TLUSTY models are available for grid search."
@@ -887,6 +963,8 @@ def _discover_grid_fit_candidates(
     basepath: str,
     summary_cache_db: str,
     model_name_pattern: str,
+    observed: dict[str, object] | None = None,
+    fit_bounds: dict[str, tuple[float, float]] | None = None,
 ) -> tuple[list[dict[str, object]], str | None]:
     normalized_source = _normalize_grid_fit_source(fit_source)
     if normalized_source == GRID_FIT_SOURCE_TLUSTY:
@@ -894,6 +972,8 @@ def _discover_grid_fit_candidates(
             config,
             mode=mode,
             model_name_pattern=model_name_pattern,
+            observed=observed,
+            fit_bounds=fit_bounds,
         )
 
     model_dirs, discover_error = _discover_model_grid_from_cache(
@@ -916,5 +996,3 @@ def _discover_grid_fit_candidates(
         for model_name, relpath, path, cmfgen_params in model_dirs
     ]
     return candidates, None
-
-

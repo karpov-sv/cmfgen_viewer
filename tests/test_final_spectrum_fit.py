@@ -252,6 +252,26 @@ def test_fit_model_to_observed_photometry_uses_flux_err_fallback() -> None:
     assert metrics.get("photometry_flux_err_fallback_points") == metrics.get("points")
 
 
+def test_fit_model_to_observed_photometry_requires_complete_coverage() -> None:
+    continuum, final, observed = _build_absolute_photometry_case(size=8)
+    continuum["wavelength"] = continuum["wavelength"][:5]
+    continuum["flux"] = continuum["flux"][:5]
+    final["wavelength"] = final["wavelength"][:5]
+    final["flux"] = final["flux"][:5]
+
+    params, metrics, error = fs.fit_model_to_observed(
+        continuum,
+        final,
+        observed,
+        mode="both",
+        absolute_scale_mode="free",
+    )
+
+    assert params is None
+    assert metrics is None
+    assert error == "Model does not cover every enabled photometry point."
+
+
 def test_fit_model_to_observed_photometry_chi2_respects_flux_err_weights() -> None:
     continuum, final, observed_base = _build_absolute_photometry_case(size=9)
     observed_flux = [float(value) for value in observed_base["flux"]]

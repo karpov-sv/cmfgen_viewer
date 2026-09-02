@@ -146,6 +146,7 @@ After uploading an observed spectrum (`/uploads/view/<token>`):
 Flux handling:
 
 - absolute observed spectra are fitted against TLUSTY UV/optical/SED spectra with a free multiplicative normalization (distance is ignored);
+- absolute photometry requires every enabled band to be covered, preventing partial UV/optical segments from competing with full-range TLUSTY SEDs;
 - normalized observed spectra are fitted against TLUSTY spectra normalized by matched continuum counterparts.
 
 ## Current Implementation Status

@@ -1298,7 +1298,7 @@
               id="grid-fit-tlusty-scale-note"
               class="small text-muted{% if fit_source != 'tlusty' %} d-none{% endif %}"
             >
-              TLUSTY absolute fits ignore distance and solve a free normalization per model.
+              TLUSTY absolute fits ignore distance and solve a free normalization per model. Photometry requires coverage of every enabled band.
             </span>
           {% endif %}
           <button
@@ -2234,10 +2234,12 @@
         }
         var patternValue = String(patternInput.value || "").trim();
         var fitSource = getSelectedFitSource();
-        var url = matchCountUrl
-          + "?model_name_pattern=" + encodeURIComponent(patternValue)
-          + "&fit_source=" + encodeURIComponent(fitSource)
-          + "&mode=" + encodeURIComponent(spectrumMode);
+        var query = new URLSearchParams(new FormData(form));
+        query.set("model_name_pattern", patternValue);
+        query.set("fit_source", fitSource);
+        query.set("mode", spectrumMode);
+        query.delete("async");
+        var url = matchCountUrl + "?" + query.toString();
         fetch(url, {
           method: "GET",
           headers: {
@@ -2537,6 +2539,10 @@
       if (lambdaMaxInput) {
         lambdaMaxInput.addEventListener("input", syncFitRangeMarkers);
         lambdaMaxInput.addEventListener("change", syncFitRangeMarkers);
+      }
+      var fitControlInputs = Array.prototype.slice.call(form.querySelectorAll(".grid-fit-range-input"));
+      for (var fitControlIndex = 0; fitControlIndex < fitControlInputs.length; fitControlIndex += 1) {
+        fitControlInputs[fitControlIndex].addEventListener("change", schedulePatternMatchCount);
       }
       if (usePlotRangeButton) {
         usePlotRangeButton.addEventListener("click", applyPlotRangeToFitInputs);

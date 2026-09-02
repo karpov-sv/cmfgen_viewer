@@ -1278,7 +1278,10 @@ def fit_model_to_observed(
     name_to_index = {name: index for index, name in enumerate(names)}
 
     if is_photometry:
-        min_valid_points = max(fit_param_count + 1, int(math.ceil(0.6 * observed_x.size)))
+        # Comparing grid candidates on different subsets of sparse photometry
+        # biases the ranking toward short spectral segments. A valid
+        # photometric SED fit must cover every enabled point.
+        min_valid_points = max(fit_param_count + 1, int(observed_x.size))
     else:
         min_valid_points = max(30, int(0.12 * observed_x.size))
     initial_ebv = float(initial.get("ebv", 0.0)) if isinstance(initial.get("ebv"), int | float) else 0.0
@@ -1523,6 +1526,8 @@ def fit_model_to_observed(
         with_normalization=True,
     )
     if final_valid_count < min_valid_points:
+        if is_photometry and final_valid_count < int(observed_x.size):
+            return None, None, "Model does not cover every enabled photometry point."
         return None, None, "Optimization did not find a usable overlap between model and observed spectra."
 
     redshift_value = parameter_from_theta(best, "redshift", 0.0)

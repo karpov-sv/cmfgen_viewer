@@ -355,6 +355,8 @@ def upload_fit_grid(token: str):
         basepath=basepath,
         summary_cache_db=summary_cache_db,
         model_name_pattern=model_name_pattern,
+        observed=observed,
+        fit_bounds=fit_bounds,
     )
     if discover_error:
         return jsonify({"ok": False, "error": discover_error}), 400
@@ -862,12 +864,44 @@ def upload_fit_grid_match_count(token: str):
     upload_root = _upload_root(config)
 
     entries = {str(item.get("token", "")): item for item in list_upload_manifests(upload_root)}
-    if token not in entries:
+    entry = entries.get(token)
+    if entry is None:
         return jsonify({"ok": False, "error": "Uploaded spectrum token is not available.", "total_models": 0}), 404
 
     fit_source = _normalize_grid_fit_source(request.args.get("fit_source"))
     mode = _normalize_spectrum_mode(request.args.get("mode"))
     model_name_pattern = str(request.args.get("model_name_pattern", "")).strip()
+    observed: dict[str, object] | None = None
+    fit_bounds = _normalize_fit_bounds(
+        request.args.to_dict(flat=True),
+        mode=mode,
+        fit_source=fit_source,
+    )
+    if fit_source == GRID_FIT_SOURCE_TLUSTY:
+        stored_name = str(entry.get("stored_name", ""))
+        source_path = upload_root / token / stored_name if stored_name else None
+        if source_path is None or not source_path.is_file():
+            return jsonify({"ok": False, "error": "Uploaded spectrum file is missing.", "total_models": 0}), 404
+        lambda_min, lambda_max = _spectrum_lambda_bounds(config)
+        fit_wavelength_range, fit_wavelength_error = _normalize_fit_wavelength_range(
+            request.args.to_dict(flat=True),
+            configured_min=lambda_min,
+            configured_max=lambda_max,
+        )
+        if fit_wavelength_error:
+            return jsonify({"ok": False, "error": fit_wavelength_error, "total_models": 0}), 400
+        effective_lambda_min = fit_wavelength_range[0] if fit_wavelength_range is not None else lambda_min
+        effective_lambda_max = fit_wavelength_range[1] if fit_wavelength_range is not None else lambda_max
+        upload_flux_mode = str(entry.get("requested_flux_mode", "auto")).strip().lower() or "auto"
+        try:
+            observed = parse_uploaded_spectrum(
+                source_path,
+                flux_mode=upload_flux_mode,
+                lambda_min=effective_lambda_min,
+                lambda_max=effective_lambda_max,
+            )
+        except Exception as exc:
+            return jsonify({"ok": False, "error": f"Could not parse uploaded spectrum: {exc}", "total_models": 0}), 400
     model_candidates, discover_error = _discover_grid_fit_candidates(
         config,
         fit_source=fit_source,
@@ -875,6 +909,8 @@ def upload_fit_grid_match_count(token: str):
         basepath=basepath,
         summary_cache_db=summary_cache_db,
         model_name_pattern=model_name_pattern,
+        observed=observed,
+        fit_bounds=fit_bounds,
     )
     if discover_error:
         return (
@@ -900,4 +936,3 @@ def upload_fit_grid_match_count(token: str):
             "total_models": len(model_candidates),
         }
     )
-

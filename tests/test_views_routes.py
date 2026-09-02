@@ -875,3 +875,49 @@ def test_upload_grid_endpoints_return_not_found_for_missing_jobs_and_tokens(tmp_
 
     upload_view_invalid = client.get("/uploads/view/bad")
     assert upload_view_invalid.status_code == 404
+
+
+def test_tlusty_match_count_uses_filtered_upload_for_coverage(tmp_path: Path, monkeypatch) -> None:
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    upload_response = client.post(
+        "/uploads/upload",
+        data={
+            "observed_file": (
+                io.BytesIO(b"5000 100 1e-12\n12500 1000 2e-13\n"),
+                "coverage.phot",
+            ),
+            "flux_mode": "absolute",
+        },
+        content_type="multipart/form-data",
+        follow_redirects=False,
+    )
+    assert upload_response.status_code == 302
+    upload_root = Path(app.config["CMFGEN_VIEWER"]["upload_root"])
+    token = str(list_upload_manifests(upload_root)[0]["token"])
+
+    captured: dict[str, object] = {}
+
+    def _fake_discover(_config, **kwargs):
+        captured.update(kwargs)
+        return [], None
+
+    monkeypatch.setattr("cmfgen_viewer.grid_views._discover_grid_fit_candidates", _fake_discover)
+    response = client.get(
+        f"/uploads/fit-grid/match-count/{token}",
+        query_string={
+            "fit_source": "tlusty",
+            "mode": "both",
+            "fit_lambda_max": "9000",
+        },
+    )
+
+    assert response.status_code == 200
+    observed = captured["observed"]
+    assert isinstance(observed, dict)
+    assert observed["wavelength"] == [5000.0]
+    assert captured["fit_bounds"] == {
+        "redshift": (-0.02, 0.02),
+        "broadening_km_s": (0.0, 800.0),
+        "ebv": (0.0, 3.0),
+    }
