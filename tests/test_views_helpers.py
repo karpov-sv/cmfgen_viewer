@@ -61,6 +61,18 @@ def test_transform_fit_and_wavelength_helpers() -> None:
     assert bounds["redshift"] == (-0.01, 0.01)
     assert bounds["distance_kpc"][0] > 0.0
 
+    frozen_bounds = views._normalize_fit_bounds(
+        {
+            "fit_redshift_min": "0",
+            "fit_redshift_max": "0",
+            "fit_broadening_km_s_min": "0",
+            "fit_broadening_km_s_max": "0",
+        },
+        mode="both",
+    )
+    assert frozen_bounds["redshift"] == (0.0, 0.0)
+    assert frozen_bounds["broadening_km_s"] == (0.0, 0.0)
+
     tlusty_bounds = views._normalize_fit_bounds(
         {
             "fit_redshift_min": "0.01",
@@ -232,3 +244,33 @@ def test_tlusty_confidence_uses_profile_jitter_for_misspecified_weighted_photome
     teff_ranges = summary["parameters"]["teff_k"]["intervals"]
     assert teff_ranges["68%"]["min_value"] == 23000
     assert teff_ranges["68%"]["max_value"] == 25000
+
+
+def test_tlusty_confidence_uses_reported_free_parameter_count() -> None:
+    best_model = {
+        "chi2": 12.0,
+        "points": 8,
+        "dof": 6,
+        "dof_eff": 6,
+        "dof_eff_method": "nominal_photometry",
+        "fit_param_count": 2,
+        "chi2_weighting": "photometry_flux_err_weighted",
+        "photometry_error_weighting": "flux_err_or_2pct_fallback",
+        "tlusty_params": {
+            "teff_k": 24000,
+            "log_g": 2.5,
+            "z_over_zsun": 0.0,
+            "vturb_km_s": 2,
+        },
+    }
+    profiles = views._empty_tlusty_confidence_profiles()
+    profiles["teff_k"][24000] = {"chi2": 12.0, "points": 8}
+
+    summary = views._summarize_tlusty_confidence_profiles(
+        best_model=best_model,
+        profiles=profiles,
+        mode="both",
+    )
+
+    assert summary["chi2"]["fit_param_count"] == 2
+    assert summary["chi2"]["best_dof"] == 6

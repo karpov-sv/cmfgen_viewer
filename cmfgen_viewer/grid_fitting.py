@@ -140,6 +140,14 @@ def _fit_single_cmfgen_candidate(
     dof_eff_value = int(dof_eff_raw) if isinstance(dof_eff_raw, int | float) and int(dof_eff_raw) > 0 else None
     dof_eff_method_raw = metrics.get("dof_eff_method")
     dof_eff_method = str(dof_eff_method_raw).strip() if isinstance(dof_eff_method_raw, str) else ""
+    fit_param_count_raw = metrics.get("fit_param_count")
+    fit_param_count = (
+        int(fit_param_count_raw)
+        if isinstance(fit_param_count_raw, int | float) and int(fit_param_count_raw) >= 0
+        else None
+    )
+    fixed_fit_params_raw = metrics.get("fixed_fit_params")
+    fixed_fit_params = dict(fixed_fit_params_raw) if isinstance(fixed_fit_params_raw, dict) else {}
     chi2_weighting_raw = metrics.get("chi2_weighting")
     chi2_weighting = str(chi2_weighting_raw).strip() if isinstance(chi2_weighting_raw, str) else ""
     photometry_error_weighting_raw = metrics.get("photometry_error_weighting")
@@ -196,6 +204,8 @@ def _fit_single_cmfgen_candidate(
             "dof": dof_value,
             "dof_eff": dof_eff_value,
             "dof_eff_method": dof_eff_method,
+            "fit_param_count": fit_param_count,
+            "fixed_fit_params": fixed_fit_params,
             "chi2_weighting": chi2_weighting,
             "photometry_error_weighting": photometry_error_weighting,
             "photometry_flux_err_provided_points": photometry_flux_err_provided,
@@ -435,6 +445,14 @@ def _fit_single_tlusty_candidate(
     dof_eff_value = int(dof_eff_raw) if isinstance(dof_eff_raw, int | float) and int(dof_eff_raw) > 0 else None
     dof_eff_method_raw = metrics.get("dof_eff_method")
     dof_eff_method = str(dof_eff_method_raw).strip() if isinstance(dof_eff_method_raw, str) else ""
+    fit_param_count_raw = metrics.get("fit_param_count")
+    fit_param_count = (
+        int(fit_param_count_raw)
+        if isinstance(fit_param_count_raw, int | float) and int(fit_param_count_raw) >= 0
+        else None
+    )
+    fixed_fit_params_raw = metrics.get("fixed_fit_params")
+    fixed_fit_params = dict(fixed_fit_params_raw) if isinstance(fixed_fit_params_raw, dict) else {}
     chi2_weighting_raw = metrics.get("chi2_weighting")
     chi2_weighting = str(chi2_weighting_raw).strip() if isinstance(chi2_weighting_raw, str) else ""
     photometry_error_weighting_raw = metrics.get("photometry_error_weighting")
@@ -487,6 +505,8 @@ def _fit_single_tlusty_candidate(
             "dof": dof_value,
             "dof_eff": dof_eff_value,
             "dof_eff_method": dof_eff_method,
+            "fit_param_count": fit_param_count,
+            "fixed_fit_params": fixed_fit_params,
             "chi2_weighting": chi2_weighting,
             "photometry_error_weighting": photometry_error_weighting,
             "photometry_flux_err_provided_points": photometry_flux_err_provided,
@@ -587,4 +607,3 @@ def _grid_fit_worker_task(model_candidate: dict[str, object]) -> dict[str, objec
         lambda_max=float(lambda_max),
         should_cancel=None,
     )
-

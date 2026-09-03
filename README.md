@@ -186,7 +186,7 @@ Flux handling:
   - model discovery is DB-backed only via `model_summary_cache.sqlite` (no direct filesystem crawl during fit),
   - optional `model_name_pattern` filtering (shell-style pattern matching via `fnmatch.fnmatch`),
   - live indication of currently matched model count while editing the pattern,
-  - configurable fit bounds (`z`, `sigma`, and in absolute mode also `E(B-V)` plus distance for CMFGEN; TLUSTY absolute fits use free normalization instead of distance),
+  - configurable fit bounds (`z`, `sigma`, and in absolute mode also `E(B-V)` plus distance for CMFGEN; equal lower/upper values freeze a parameter and exclude it from the fitted degrees of freedom; TLUSTY absolute fits use free normalization instead of distance),
   - optional fit wavelength limits (`fit_lambda_min`/`fit_lambda_max`), plus a `Use Plot Range` shortcut,
   - fit range visualization on the upload plot via vertical marker lines when range limits are set,
   - live "current best candidate" updates while the search runs,

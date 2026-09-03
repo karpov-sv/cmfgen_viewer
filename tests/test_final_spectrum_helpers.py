@@ -70,6 +70,7 @@ def test_numeric_helpers_interpolation_conversion_and_bounds() -> None:
         },
     )
     assert resolved["redshift"] == (-0.01, 0.01)
+    assert resolved["broadening_km_s"] == (100.0, 100.0)
     assert resolved["distance_kpc"] == (0.5, 5.0)
 
 

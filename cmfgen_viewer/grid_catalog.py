@@ -341,7 +341,13 @@ def _summarize_tlusty_confidence_profiles(
         return {}
     best_points_raw = best_model.get("points")
     best_points = int(best_points_raw) if isinstance(best_points_raw, int | float) and int(best_points_raw) > 0 else 0
-    fit_param_count = _fit_param_count_for_mode(mode)
+    fit_param_count_raw = best_model.get("fit_param_count")
+    fit_param_count = (
+        int(fit_param_count_raw)
+        if isinstance(fit_param_count_raw, int | float)
+        and 0 <= int(fit_param_count_raw) < max(1, best_points)
+        else _fit_param_count_for_mode(mode)
+    )
     best_dof = max(1, best_points - fit_param_count)
     best_dof_eff_method_raw = best_model.get("dof_eff_method")
     best_dof_eff_method = str(best_dof_eff_method_raw).strip().lower()

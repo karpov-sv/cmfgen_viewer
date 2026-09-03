@@ -478,13 +478,10 @@ def _normalize_fit_bounds(
 
         if name == "broadening_km_s":
             min_value = max(0.0, min_value)
-            max_value = max(min_value + 1e-9, max_value)
+            max_value = max(0.0, max_value)
         elif name == "distance_kpc":
             min_value = max(1e-6, min_value)
-            max_value = max(min_value + 1e-9, max_value)
-        elif abs(max_value - min_value) < 1e-12:
-            min_value = float(default_min)
-            max_value = float(default_max)
+            max_value = max(1e-6, max_value)
 
         normalized[name] = (min_value, max_value)
     return normalized

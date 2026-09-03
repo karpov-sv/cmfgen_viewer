@@ -583,8 +583,6 @@ def _resolve_fit_bounds(
             continue
         if lo > hi:
             lo, hi = hi, lo
-        if abs(hi - lo) < 1e-12:
-            continue
         resolved[name] = (lo, hi)
     return resolved
 
@@ -1236,7 +1234,12 @@ def fit_model_to_observed(
     bounds = _resolve_fit_bounds(normalized_mode, bounds_override)
     if use_free_normalization:
         bounds.pop("distance_kpc", None)
-    names = list(bounds.keys())
+    fixed_params = {
+        name: float(lo)
+        for name, (lo, hi) in bounds.items()
+        if lo == hi
+    }
+    names = [name for name, (lo, hi) in bounds.items() if lo != hi]
     lower = np.array([bounds[name][0] for name in names], dtype=np.float64)
     upper = np.array([bounds[name][1] for name in names], dtype=np.float64)
     fit_param_count = len(names) + (1 if use_free_normalization else 0)
@@ -1412,6 +1415,9 @@ def fit_model_to_observed(
         return package_output(residual, valid_count, normalization_value)
 
     def parameter_from_theta(theta: Any, name: str, fallback: float) -> float:
+        fixed_value = fixed_params.get(name)
+        if fixed_value is not None:
+            return fixed_value
         idx = name_to_index.get(name)
         if idx is None or idx >= len(theta):
             return fallback
@@ -1447,8 +1453,16 @@ def fit_model_to_observed(
         stage1_diff_step: Any | None = None
 
         def stage1_residual(stage_theta: Any) -> Any:
-            stage_ebv = float(stage_theta[0]) if ebv_index is not None else 0.0
-            stage_distance = 1.0 if use_free_normalization else float(stage_theta[1])
+            stage_ebv = (
+                float(stage_theta[0])
+                if ebv_index is not None
+                else parameter_from_theta(stage_theta, "ebv", initial_ebv)
+            )
+            stage_distance = (
+                1.0
+                if use_free_normalization
+                else float(stage_theta[1])
+            )
             return residual_for_params(
                 redshift=0.0,
                 broadening_km_s=0.0,
@@ -1497,26 +1511,29 @@ def fit_model_to_observed(
             except Exception:
                 stage1_result = None
 
-    try:
-        result = least_squares(
-            residual_vector,
-            x0,
-            bounds=(lower, upper),
-            method="trf",
-            loss="soft_l1",
-            f_scale=0.35 if normalized_mode == "both" else 1.0,
-            diff_step=diff_step,
-            max_nfev=120,
-        )
-    except _FitCanceledError:
-        return None, None, FIT_CANCELED_MESSAGE
-    except Exception as exc:
-        return None, None, f"Optimization failed: {exc}"
+    result: Any | None = None
+    if names:
+        try:
+            result = least_squares(
+                residual_vector,
+                x0,
+                bounds=(lower, upper),
+                method="trf",
+                loss="soft_l1",
+                f_scale=0.35 if normalized_mode == "both" else 1.0,
+                diff_step=diff_step,
+                max_nfev=120,
+            )
+        except _FitCanceledError:
+            return None, None, FIT_CANCELED_MESSAGE
+        except Exception as exc:
+            return None, None, f"Optimization failed: {exc}"
 
-    if not np.all(np.isfinite(result.x)):
-        return None, None, "Optimization returned non-finite parameters."
-
-    best = result.x
+        if not np.all(np.isfinite(result.x)):
+            return None, None, "Optimization returned non-finite parameters."
+        best = result.x
+    else:
+        best = np.array([], dtype=np.float64)
     final_residual, final_valid_count, final_normalization = residual_for_params(
         redshift=parameter_from_theta(best, "redshift", 0.0),
         broadening_km_s=parameter_from_theta(best, "broadening_km_s", 0.0),
@@ -1554,10 +1571,14 @@ def fit_model_to_observed(
         "normalization": normalization_value,
     }
     metrics = {
-        "success": bool(result.success),
-        "message": str(result.message),
-        "nfev": int(getattr(result, "nfev", 0)),
-        "cost": float(getattr(result, "cost", math.nan)),
+        "success": bool(result.success) if result is not None else True,
+        "message": str(result.message) if result is not None else "All numerical fit parameters were fixed.",
+        "nfev": int(getattr(result, "nfev", 0)) if result is not None else 0,
+        "cost": (
+            float(getattr(result, "cost", math.nan))
+            if result is not None
+            else float(0.5 * np.sum(final_residual * final_residual))
+        ),
         "rmse": float(np.sqrt(np.mean(final_residual * final_residual))),
         "points": int(final_valid_count),
         "mode": normalized_mode,
@@ -1587,6 +1608,7 @@ def fit_model_to_observed(
     metrics["autocorr_positive_sum"] = float(autocorr_positive_sum)
     metrics["autocorr_positive_lags"] = int(autocorr_lags)
     metrics["fit_param_count"] = int(fit_param_count)
+    metrics["fixed_fit_params"] = dict(fixed_params)
     metrics["absolute_scale_mode"] = "free_normalization" if use_free_normalization else "distance_kpc"
     if photometry_sigma is not None:
         metrics["chi2_weighting"] = "photometry_flux_err_weighted"

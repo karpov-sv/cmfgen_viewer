@@ -331,3 +331,63 @@ def test_fit_model_to_observed_can_profile_free_absolute_normalization() -> None
     assert abs(float(params["normalization"]) - 0.2) < 5e-3
     assert metrics.get("absolute_scale_mode") == "free_normalization"
     assert metrics.get("fit_param_count") == 4
+
+
+def test_fit_model_to_observed_excludes_fixed_bounds_from_dof() -> None:
+    continuum, final, observed = _build_absolute_photometry_case(size=9)
+
+    params, metrics, error = fs.fit_model_to_observed(
+        continuum,
+        final,
+        observed,
+        mode="both",
+        bounds_override={
+            "redshift": (0.0, 0.0),
+            "broadening_km_s": (0.0, 0.0),
+        },
+        absolute_scale_mode="free",
+    )
+
+    assert error is None
+    assert isinstance(params, dict)
+    assert isinstance(metrics, dict)
+    assert params["redshift"] == 0.0
+    assert params["broadening_km_s"] == 0.0
+    assert metrics["fixed_fit_params"] == {
+        "redshift": 0.0,
+        "broadening_km_s": 0.0,
+    }
+    assert metrics["fit_param_count"] == 2
+    assert metrics["dof"] == 7
+
+
+def test_fit_model_to_observed_supports_all_transform_parameters_fixed() -> None:
+    wavelength, continuum_flux, final_flux = _build_model_vectors()
+    continuum = {"wavelength": wavelength, "flux": continuum_flux}
+    final = {"wavelength": wavelength, "flux": final_flux}
+    observed = {
+        "wavelength": wavelength,
+        "flux": [final_flux[idx] / continuum_flux[idx] for idx in range(len(wavelength))],
+        "flux_mode": "normalized",
+        "observation_type": "spectrum",
+    }
+
+    params, metrics, error = fs.fit_model_to_observed(
+        continuum,
+        final,
+        observed,
+        mode="normalized",
+        bounds_override={
+            "redshift": (0.0, 0.0),
+            "broadening_km_s": (0.0, 0.0),
+        },
+    )
+
+    assert error is None
+    assert isinstance(params, dict)
+    assert isinstance(metrics, dict)
+    assert params["redshift"] == 0.0
+    assert params["broadening_km_s"] == 0.0
+    assert metrics["fit_param_count"] == 0
+    assert metrics["dof"] == metrics["points"]
+    assert metrics["nfev"] == 0
