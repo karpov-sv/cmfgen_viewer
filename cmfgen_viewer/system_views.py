@@ -2,29 +2,35 @@
 
 from __future__ import annotations
 
+import platform
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
-import platform
 from threading import Thread
 
-from flask import abort, current_app, jsonify, redirect, render_template, request, url_for
+from flask import (
+    abort,
+    current_app,
+    jsonify,
+    redirect,
+    render_template,
+    request,
+    url_for,
+)
 
 from .cache_jobs import (
     CACHE_MAINTENANCE_ACTIONS,
     cache_maintenance_job_create,
-    cache_maintenance_job_snapshot,
-    cache_maintenance_latest_job,
-    cache_maintenance_running_job_snapshots,
     run_cache_maintenance_job,
 )
-from .grid_jobs import _grid_search_running_job_snapshots
+from .grid_config import _tlusty_root
 from .observed_spectrum import list_upload_manifests
+from .spectrum_options import _spectrum_lambda_bounds
 from .summary_cache import (
     delete_model_summary_namespace,
     delete_model_summary_namespaces_except,
     list_model_summary_namespaces,
 )
-from .view_common import _spectrum_lambda_bounds, _tlusty_root, _upload_root, _viewer_config, bp
+from .view_common import _cache_jobs, _grid_jobs, _upload_root, _viewer_config, bp
 
 
 def _package_version(name: str) -> str:
@@ -75,12 +81,16 @@ def system_status():
     summary_cache_db = str(config.get("summary_cache_db", "model_summary_cache.sqlite"))
     upload_root = _upload_root(config)
     namespaces = _cache_namespaces(summary_cache_db, current_basepath=basepath)
-    current_namespace = next((item for item in namespaces if item.get("is_current")), None)
+    current_namespace = next(
+        (item for item in namespaces if item.get("is_current")), None
+    )
 
     requested_job_id = str(request.args.get("job", "")).strip()
-    maintenance_job = cache_maintenance_job_snapshot(requested_job_id) if requested_job_id else None
+    maintenance_job = (
+        _cache_jobs().snapshot(requested_job_id) if requested_job_id else None
+    )
     if maintenance_job is None:
-        maintenance_job = cache_maintenance_latest_job(basepath=basepath)
+        maintenance_job = _cache_jobs().latest(basepath=basepath)
     maintenance_job_payload = _maintenance_job_payload(maintenance_job)
 
     uploads = list_upload_manifests(upload_root)
@@ -88,8 +98,8 @@ def system_status():
     lambda_min, lambda_max = _spectrum_lambda_bounds(config)
     cache_path = Path(summary_cache_db).expanduser()
     cache_size = cache_path.stat().st_size if cache_path.is_file() else 0
-    active_grid_jobs = len(_grid_search_running_job_snapshots())
-    active_cache_jobs = len(cache_maintenance_running_job_snapshots())
+    active_grid_jobs = len(_grid_jobs().snapshots(status="running"))
+    active_cache_jobs = len(_cache_jobs().snapshots(status="running"))
     fit_pool_size = int(config.get("fit_pool_size_max", 0) or 0)
     read_write_enabled = bool(config.get("read_write_enabled", False))
     runtime_rows = [
@@ -103,7 +113,10 @@ def system_status():
         ["Spectrum wavelength range", f"{lambda_min:g} .. {lambda_max:g} Å"],
         ["Fit worker limit", str(fit_pool_size) if fit_pool_size > 0 else "Automatic"],
         ["Show hidden files", "Yes" if bool(config.get("show_all", False)) else "No"],
-        ["HTTP authentication", "Enabled" if bool(config.get("auth_enabled", False)) else "Disabled"],
+        [
+            "HTTP authentication",
+            "Enabled" if bool(config.get("auth_enabled", False)) else "Disabled",
+        ],
         ["Debug mode", "Enabled" if current_app.debug else "Disabled"],
         ["Python", platform.python_version()],
         ["Flask", _package_version("flask")],
@@ -114,7 +127,9 @@ def system_status():
         runtime_rows=runtime_rows,
         namespaces=namespaces,
         current_basepath=basepath,
-        current_entry_count=int(current_namespace.get("entry_count", 0) or 0) if current_namespace else 0,
+        current_entry_count=int(current_namespace.get("entry_count", 0) or 0)
+        if current_namespace
+        else 0,
         summary_cache_db=summary_cache_db,
         maintenance_job=maintenance_job_payload,
         upload_root=upload_root,
@@ -137,11 +152,18 @@ def system_cache_maintain():
     config = _viewer_config()
     basepath = str(config.get("basepath", "."))
     summary_cache_db = str(config.get("summary_cache_db", "model_summary_cache.sqlite"))
-    job_id, existing = cache_maintenance_job_create(action=action, basepath=basepath)
+    job_id, existing = cache_maintenance_job_create(
+        _cache_jobs(), action=action, basepath=basepath
+    )
     if not existing:
         worker = Thread(
             target=run_cache_maintenance_job,
-            kwargs={"job_id": job_id, "summary_cache_db": summary_cache_db, "basepath": basepath},
+            kwargs={
+                "store": _cache_jobs(),
+                "job_id": job_id,
+                "summary_cache_db": summary_cache_db,
+                "basepath": basepath,
+            },
             daemon=True,
         )
         worker.start()
@@ -155,15 +177,22 @@ def system_cache_maintain():
             )
         )
     return redirect(
-        url_for("viewer.system_status", job=job_id, message="Cache maintenance started.", _anchor="model-cache")
+        url_for(
+            "viewer.system_status",
+            job=job_id,
+            message="Cache maintenance started.",
+            _anchor="model-cache",
+        )
     )
 
 
 @bp.route("/system/cache/job/<job_id>")
 def system_cache_job_status(job_id: str):
-    snapshot = cache_maintenance_job_snapshot(job_id)
+    snapshot = _cache_jobs().snapshot(job_id)
     if snapshot is None:
-        return jsonify({"ok": False, "error": "Cache maintenance job is not available."}), 404
+        return jsonify(
+            {"ok": False, "error": "Cache maintenance job is not available."}
+        ), 404
     response = jsonify({"ok": True, "job": _maintenance_job_payload(snapshot)})
     response.headers["Cache-Control"] = "no-store"
     return response
@@ -174,7 +203,7 @@ def _known_cache_namespaces(summary_cache_db: str) -> set[str]:
 
 
 def _reject_cleanup_while_maintenance_runs():
-    if not cache_maintenance_running_job_snapshots():
+    if not _cache_jobs().snapshots(status="running"):
         return None
     return redirect(
         url_for(

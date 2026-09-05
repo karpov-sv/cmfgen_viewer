@@ -2,17 +2,19 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import hashlib
 import os
-from pathlib import Path
 import re
 import shlex
 import shutil
 import stat
 import tempfile
+from datetime import datetime, timezone
+from pathlib import Path
 
 from .browser import is_model_directory, resolve_path
+from .control_files import control_occurrences as _control_occurrences
+from .lte_hydro_diagnostics import inspect_lte_diagnostics, inspect_wind_hyd_diagnostics
 from .model_editor import (
     MODEL_EDITOR_BACKUP_DIR,
     ModelEditorError,
@@ -20,11 +22,9 @@ from .model_editor import (
     mark_model_inputs_modified,
     save_model_parameter_edit,
 )
-from .model_staging import MODEL_WRITE_LOCK, is_sn_model_directory
 from .model_runtime import inspect_workflow_runtime
-from .lte_hydro_diagnostics import inspect_lte_diagnostics, inspect_wind_hyd_diagnostics
+from .model_staging import MODEL_WRITE_LOCK, is_sn_model_directory
 from .parsers.common import parse_float_token
-from .parsers.extended_text import KEYWORD_ROW_RE
 
 
 class ModelWorkflowError(ValueError):
@@ -59,8 +59,18 @@ LTE_QUICK_CONTROLS: dict[str, tuple[dict[str, str], ...]] = {
         },
     ),
     "MODEL_SPEC": (
-        {"key": "ND", "label": "Depth points", "kind": "positive_integer", "comment": "Number of depth points"},
-        {"key": "NC", "label": "Core rays", "kind": "nonnegative_integer", "comment": "Number of core rays"},
+        {
+            "key": "ND",
+            "label": "Depth points",
+            "kind": "positive_integer",
+            "comment": "Number of depth points",
+        },
+        {
+            "key": "NC",
+            "label": "Core rays",
+            "kind": "nonnegative_integer",
+            "comment": "Number of core rays",
+        },
         {
             "key": "NP",
             "label": "Impact parameters",
@@ -90,17 +100,37 @@ RESULT_QUICK_CONTROLS: dict[str, tuple[dict[str, str], ...]] = {
     ),
 }
 RVSIG_SUMMARY_PATTERNS: tuple[tuple[str, str, str, str], ...] = (
-    ("teff", "Effective temperature", r"Effective temperature \(10\^4 K\) is:\s*(\S+)", "10⁴ K"),
+    (
+        "teff",
+        "Effective temperature",
+        r"Effective temperature \(10\^4 K\) is:\s*(\S+)",
+        "10⁴ K",
+    ),
     ("logg", "Surface gravity", r"Log surface gravity \(cgs\) is:\s*(\S+)", "dex"),
     ("core_radius", "Core radius", r"Core radius \(10\^10 cm\) is:\s*(\S+)", "10¹⁰ cm"),
-    ("reference_radius", "Reference radius", r"Reference radius \(10\^10 cm\) is:\s*(\S+)", "10¹⁰ cm"),
+    (
+        "reference_radius",
+        "Reference radius",
+        r"Reference radius \(10\^10 cm\) is:\s*(\S+)",
+        "10¹⁰ cm",
+    ),
     ("luminosity", "Luminosity", r"Luminosity \(Lsun\) is:\s*(\S+)", "L☉"),
     ("mass", "Mass", r"Mass \(Msun\) of star is:\s*(\S+)", "M☉"),
     ("mass_loss", "Mass-loss rate", r"Mass loss rate \(Msun/yr\) is:\s*(\S+)", "M☉/yr"),
-    ("mean_atomic_mass", "Mean atomic mass", r"Mean atomic mass \(amu\) is:\s*(\S+)", "amu"),
+    (
+        "mean_atomic_mass",
+        "Mean atomic mass",
+        r"Mean atomic mass \(amu\) is:\s*(\S+)",
+        "amu",
+    ),
     ("eddington", "Eddington parameter", r"Eddington parameter is:\s*(\S+)", ""),
     ("atom_density", "Atom density", r"Atom density is:\s*(\S+)", "cm⁻³"),
-    ("radius_ratio", "Radius ratio (RMAX)", r"Ratio of inner to outer radius is:\s*(\S+)", ""),
+    (
+        "radius_ratio",
+        "Radius ratio (RMAX)",
+        r"Ratio of inner to outer radius is:\s*(\S+)",
+        "",
+    ),
 )
 
 
@@ -184,36 +214,8 @@ def _missing_control_keys(path: Path, keys: tuple[str, ...]) -> list[str]:
         contents = path.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return list(keys)
-    present: set[str] = set()
-    for line in contents.splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith(("!", "#")):
-            continue
-        match = KEYWORD_ROW_RE.match(line)
-        if match is not None:
-            present.add(match.group(2).upper())
+    present = set(_control_occurrences(contents))
     return [key for key in keys if key.upper() not in present]
-
-
-def _control_occurrences(contents: str) -> dict[str, list[dict[str, object]]]:
-    occurrences: dict[str, list[dict[str, object]]] = {}
-    for line_index, line in enumerate(contents.splitlines(keepends=True)):
-        stripped = line.strip()
-        if not stripped or stripped.startswith(("!", "#")):
-            continue
-        match = KEYWORD_ROW_RE.match(line)
-        if match is None:
-            continue
-        value_raw, key, _comment = match.groups()
-        occurrences.setdefault(key.upper(), []).append(
-            {
-                "line_index": line_index,
-                "value_start": match.start(1),
-                "value_end": match.end(1),
-                "value": value_raw.strip(),
-            }
-        )
-    return occurrences
 
 
 def _control_numeric_values(path: Path) -> dict[str, float]:

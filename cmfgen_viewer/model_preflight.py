@@ -5,13 +5,12 @@ from __future__ import annotations
 import filecmp
 import math
 import os
-from pathlib import Path
 import re
+from pathlib import Path
 
+from .control_files import control_occurrences
 from .model_editor import EDITABLE_MODEL_FILES
 from .parsers.common import parse_float_token
-from .parsers.extended_text import KEYWORD_ROW_RE
-
 
 SEVERITIES = ("error", "warning", "info")
 REQUIRED_FILES = ("batch.sh", "VADAT", "MODEL_SPEC", "IN_ITS")
@@ -100,18 +99,7 @@ def _read_control(
                 file=relative_name,
             )
         )
-    occurrences: dict[str, list[dict[str, object]]] = {}
-    for line_number, line in enumerate(contents.splitlines(), start=1):
-        stripped = line.strip()
-        if not stripped or stripped.startswith(("!", "#")):
-            continue
-        match = KEYWORD_ROW_RE.match(line)
-        if match is None:
-            continue
-        value, key, _comment = match.groups()
-        occurrences.setdefault(key.upper(), []).append(
-            {"value": value.strip(), "line": line_number}
-        )
+    occurrences = control_occurrences(contents)
     if not occurrences:
         issues.append(
             _issue(

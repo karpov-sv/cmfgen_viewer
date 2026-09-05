@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import hmac
 import secrets
-from pathlib import Path
 import tempfile
+from pathlib import Path
 
 from flask import Flask, Response, request
 
@@ -24,8 +24,18 @@ def create_app(
 ) -> Flask:
     """Create Flask app for browsing CMFGEN model outputs."""
     app = Flask(__name__)
-    default_summary_cache_db = (Path(__file__).resolve().parent.parent / "model_summary_cache.sqlite").resolve()
-    default_upload_root = (Path(tempfile.gettempdir()) / "cmfgen_viewer_uploads").resolve()
+    from .job_store import JobStore
+
+    app.extensions["cmfgen_jobs"] = {
+        "grid": JobStore(max_jobs=32),
+        "cache": JobStore(max_jobs=16),
+    }
+    default_summary_cache_db = (
+        Path(__file__).resolve().parent.parent / "model_summary_cache.sqlite"
+    ).resolve()
+    default_upload_root = (
+        Path(tempfile.gettempdir()) / "cmfgen_viewer_uploads"
+    ).resolve()
     configured_upload_root = (
         Path(upload_root).expanduser().resolve()
         if isinstance(upload_root, str) and upload_root.strip()

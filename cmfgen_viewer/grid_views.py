@@ -6,63 +6,58 @@ import copy
 import math
 from pathlib import Path
 from threading import Thread
-import time
 
 from flask import abort, jsonify, redirect, render_template, request, url_for
 
 from .browser import resolve_path
-from .final_spectrum import (
-    apply_spectrum_transform,
-    build_final_model_series,
-    build_uploaded_spectrum_plot,
-    discover_final_spectrum_files,
-    load_obs_spectrum,
-)
 from .grid_catalog import _discover_grid_fit_candidates
+from .grid_config import (
+    GRID_FIT_SOURCE_CMFGEN,
+    GRID_FIT_SOURCE_TLUSTY,
+    _grid_fit_source_label,
+    _normalize_grid_fit_source,
+    _tlusty_root,
+)
 from .grid_fitting import (
     _build_tlusty_model_series,
     _fit_bounds_payload,
     _fit_wavelength_range_from_payload,
     _fit_wavelength_range_payload,
 )
-from .grid_jobs import (
-    _grid_search_active_job_for_upload,
-    _grid_search_job_create,
-    _grid_search_job_snapshot,
-    _run_upload_grid_search_job,
-)
+from .grid_jobs import _grid_search_job_create, _run_upload_grid_search_job
 from .observed_spectrum import (
     is_valid_upload_token,
     list_upload_manifests,
     parse_uploaded_spectrum,
 )
 from .parsers.common import downsample_xy
+from .spectrum_io import discover_final_spectrum_files, load_obs_spectrum
+from .spectrum_options import (
+    _normalize_fit_bounds,
+    _normalize_fit_wavelength_range,
+    _normalize_spectrum_mode,
+    _normalize_transform_params,
+    _spectrum_lambda_bounds,
+)
+from .spectrum_plots import build_final_model_series, build_uploaded_spectrum_plot
+from .spectrum_transforms import apply_spectrum_transform
 from .upload_views import (
     _checkbox_enabled,
     _upload_entry_for_display,
     _upload_spectrum_summary_rows,
 )
 from .view_common import (
-    GRID_FIT_SOURCE_CMFGEN,
-    GRID_FIT_SOURCE_TLUSTY,
-    GRID_SEARCH_JOBS,
-    GRID_SEARCH_JOBS_LOCK,
     _format_query_float,
-    _grid_fit_source_label,
-    _normalize_fit_bounds,
-    _normalize_fit_wavelength_range,
-    _normalize_grid_fit_source,
-    _normalize_spectrum_mode,
-    _normalize_transform_params,
-    _spectrum_lambda_bounds,
+    _grid_jobs,
     _spectrum_url,
-    _tlusty_root,
     _upload_root,
     _viewer_config,
     bp,
 )
 from .vizier_photometry import (
     DEFAULT_CATALOG_KEYS as DEFAULT_VIZIER_CATALOG_KEYS,
+)
+from .vizier_photometry import (
     DEFAULT_VIZIER_RADIUS_ARCSEC,
     normalize_catalog_keys,
     vizier_catalog_options_payload,
@@ -85,6 +80,7 @@ def _vizier_form_context() -> dict[str, object]:
         "vizier_all_catalogs": _checkbox_enabled(request.args.get("vizier_all_catalogs")),
         "vizier_state": has_preserved_state,
     }
+
 
 @bp.route("/uploads/")
 def uploads():
@@ -117,17 +113,29 @@ def upload_view(token: str):
     upload_root = _upload_root(config)
     lambda_min, lambda_max = _spectrum_lambda_bounds(config)
 
-    entries = {str(item.get("token", "")): item for item in list_upload_manifests(upload_root)}
+    entries = {
+        str(item.get("token", "")): item for item in list_upload_manifests(upload_root)
+    }
     entry = entries.get(token)
     if entry is None:
-        return redirect(url_for("viewer.uploads", error=f"Uploaded spectrum token '{token}' is not available."))
+        return redirect(
+            url_for(
+                "viewer.uploads",
+                error=f"Uploaded spectrum token '{token}' is not available.",
+            )
+        )
 
     display_entry = _upload_entry_for_display(entry)
     filename = str(display_entry.get("filename", token))
     stored_name = str(entry.get("stored_name", ""))
     source_path = upload_root / token / stored_name if stored_name else None
     if source_path is None or not source_path.is_file():
-        return redirect(url_for("viewer.uploads", error=f"Uploaded spectrum '{filename}' file is missing."))
+        return redirect(
+            url_for(
+                "viewer.uploads",
+                error=f"Uploaded spectrum '{filename}' file is missing.",
+            )
+        )
 
     source_text = ""
     try:
@@ -135,7 +143,9 @@ def upload_view(token: str):
     except OSError:
         source_text = ""
 
-    upload_flux_mode = str(entry.get("requested_flux_mode", "auto")).strip().lower() or "auto"
+    upload_flux_mode = (
+        str(entry.get("requested_flux_mode", "auto")).strip().lower() or "auto"
+    )
     try:
         parsed = parse_uploaded_spectrum(
             source_path,
@@ -163,10 +173,17 @@ def upload_view(token: str):
                 "skipped_points": 0,
                 "range_skipped_points": 0,
                 "disabled_points": 0,
-                "warnings": ["No photometry points yet. Add rows manually or append from VizieR."],
+                "warnings": [
+                    "No photometry points yet. Add rows manually or append from VizieR."
+                ],
             }
         else:
-            return redirect(url_for("viewer.uploads", error=f"Uploaded spectrum '{filename}' failed to load: {exc}"))
+            return redirect(
+                url_for(
+                    "viewer.uploads",
+                    error=f"Uploaded spectrum '{filename}' failed to load: {exc}",
+                )
+            )
     parsed["name"] = filename
     parsed["token"] = token
 
@@ -185,7 +202,11 @@ def upload_view(token: str):
     if plot_warning:
         warnings.append(plot_warning)
 
-    spectrum_mode = "both" if str(parsed.get("flux_mode", "")).strip().lower() == "absolute" else "normalized"
+    spectrum_mode = (
+        "both"
+        if str(parsed.get("flux_mode", "")).strip().lower() == "absolute"
+        else "normalized"
+    )
     transform_params = _normalize_transform_params(request.args.to_dict(flat=True))
     fit_wavelength_inputs = {
         "min": str(request.args.get("fit_lambda_min", "")).strip(),
@@ -193,23 +214,31 @@ def upload_view(token: str):
     }
     model_name_pattern = str(request.args.get("model_name_pattern", "")).strip()
     fit_source = _normalize_grid_fit_source(request.args.get("fit_source"))
-    active_job = _grid_search_active_job_for_upload(token)
+    active_job = _grid_jobs().latest(upload_token=token, status="running")
     if not model_name_pattern and isinstance(active_job, dict):
         model_name_pattern = str(active_job.get("model_name_pattern", "")).strip()
     if isinstance(active_job, dict) and fit_source == GRID_FIT_SOURCE_CMFGEN:
-        fit_source = _normalize_grid_fit_source(active_job.get("fit_source", fit_source))
+        fit_source = _normalize_grid_fit_source(
+            active_job.get("fit_source", fit_source)
+        )
     fit_bounds = _normalize_fit_bounds(
         request.args.to_dict(flat=True),
         mode=spectrum_mode,
         fit_source=fit_source,
     )
     if isinstance(active_job, dict):
-        active_fit_wavelength_range = _fit_wavelength_range_from_payload(active_job.get("fit_wavelength_range"))
+        active_fit_wavelength_range = _fit_wavelength_range_from_payload(
+            active_job.get("fit_wavelength_range")
+        )
         if active_fit_wavelength_range is not None:
             if not fit_wavelength_inputs["min"]:
-                fit_wavelength_inputs["min"] = _format_query_float(active_fit_wavelength_range[0])
+                fit_wavelength_inputs["min"] = _format_query_float(
+                    active_fit_wavelength_range[0]
+                )
             if not fit_wavelength_inputs["max"]:
-                fit_wavelength_inputs["max"] = _format_query_float(active_fit_wavelength_range[1])
+                fit_wavelength_inputs["max"] = _format_query_float(
+                    active_fit_wavelength_range[1]
+                )
 
     active_grid_job: dict[str, object] | None = None
     if isinstance(active_job, dict):
@@ -226,7 +255,9 @@ def upload_view(token: str):
                 mode=spectrum_mode,
                 upload_token=token,
             )
-        active_fit_wavelength_range = _fit_wavelength_range_from_payload(active_job.get("fit_wavelength_range"))
+        active_fit_wavelength_range = _fit_wavelength_range_from_payload(
+            active_job.get("fit_wavelength_range")
+        )
         active_grid_job = {
             "job_id": str(active_job.get("job_id", "")),
             "status": str(active_job.get("status", "")),
@@ -238,9 +269,15 @@ def upload_view(token: str):
             "cancel_requested": bool(active_job.get("cancel_requested", False)),
             "progress_percent": progress_percent,
             "model_name_pattern": str(active_job.get("model_name_pattern", "")).strip(),
-            "fit_source": _normalize_grid_fit_source(active_job.get("fit_source", fit_source)),
-            "fit_source_label": str(active_job.get("fit_source_label", _grid_fit_source_label(fit_source))),
-            "fit_wavelength_range": _fit_wavelength_range_payload(active_fit_wavelength_range),
+            "fit_source": _normalize_grid_fit_source(
+                active_job.get("fit_source", fit_source)
+            ),
+            "fit_source_label": str(
+                active_job.get("fit_source_label", _grid_fit_source_label(fit_source))
+            ),
+            "fit_wavelength_range": _fit_wavelength_range_payload(
+                active_fit_wavelength_range
+            ),
             "best_so_far": best_so_far_payload,
         }
 
@@ -291,20 +328,32 @@ def upload_fit_grid(token: str):
     )
     if fit_wavelength_error:
         return jsonify({"ok": False, "error": fit_wavelength_error}), 400
-    effective_lambda_min = fit_wavelength_range[0] if fit_wavelength_range is not None else lambda_min
-    effective_lambda_max = fit_wavelength_range[1] if fit_wavelength_range is not None else lambda_max
+    effective_lambda_min = (
+        fit_wavelength_range[0] if fit_wavelength_range is not None else lambda_min
+    )
+    effective_lambda_max = (
+        fit_wavelength_range[1] if fit_wavelength_range is not None else lambda_max
+    )
 
-    entries = {str(item.get("token", "")): item for item in list_upload_manifests(upload_root)}
+    entries = {
+        str(item.get("token", "")): item for item in list_upload_manifests(upload_root)
+    }
     entry = entries.get(token)
     if entry is None:
-        return jsonify({"ok": False, "error": "Uploaded spectrum token is not available."}), 404
+        return jsonify(
+            {"ok": False, "error": "Uploaded spectrum token is not available."}
+        ), 404
 
     stored_name = str(entry.get("stored_name", ""))
     source_path = upload_root / token / stored_name if stored_name else None
     if source_path is None or not source_path.is_file():
-        return jsonify({"ok": False, "error": "Uploaded spectrum file is missing."}), 404
+        return jsonify(
+            {"ok": False, "error": "Uploaded spectrum file is missing."}
+        ), 404
 
-    upload_flux_mode = str(entry.get("requested_flux_mode", "auto")).strip().lower() or "auto"
+    upload_flux_mode = (
+        str(entry.get("requested_flux_mode", "auto")).strip().lower() or "auto"
+    )
     try:
         observed = parse_uploaded_spectrum(
             source_path,
@@ -313,10 +362,16 @@ def upload_fit_grid(token: str):
             lambda_max=effective_lambda_max,
         )
     except Exception as exc:
-        return jsonify({"ok": False, "error": f"Could not parse uploaded spectrum: {exc}"}), 400
+        return jsonify(
+            {"ok": False, "error": f"Could not parse uploaded spectrum: {exc}"}
+        ), 400
     observed["name"] = str(entry.get("filename", source_path.name))
 
-    mode = "both" if str(observed.get("flux_mode", "")).strip().lower() == "absolute" else "normalized"
+    mode = (
+        "both"
+        if str(observed.get("flux_mode", "")).strip().lower() == "absolute"
+        else "normalized"
+    )
     model_name_pattern = str(request.form.get("model_name_pattern", "")).strip()
     fit_source = _normalize_grid_fit_source(request.form.get("fit_source"))
     fit_bounds = _normalize_fit_bounds(
@@ -326,7 +381,7 @@ def upload_fit_grid(token: str):
     )
     fit_source_label = _grid_fit_source_label(fit_source)
 
-    active_job = _grid_search_active_job_for_upload(token)
+    active_job = _grid_jobs().latest(upload_token=token, status="running")
     if isinstance(active_job, dict):
         active_job_id = str(active_job.get("job_id", "")).strip()
         total_models = int(active_job.get("total", 0) or 0)
@@ -336,14 +391,22 @@ def upload_fit_grid(token: str):
                 "job_id": active_job_id,
                 "mode": str(active_job.get("mode", mode)),
                 "total_models": total_models,
-                "fit_source": _normalize_grid_fit_source(active_job.get("fit_source", fit_source)),
-                "fit_source_label": str(active_job.get("fit_source_label", fit_source_label)),
-                "fit_bounds": active_job.get("fit_bounds", _fit_bounds_payload(fit_bounds)),
+                "fit_source": _normalize_grid_fit_source(
+                    active_job.get("fit_source", fit_source)
+                ),
+                "fit_source_label": str(
+                    active_job.get("fit_source_label", fit_source_label)
+                ),
+                "fit_bounds": active_job.get(
+                    "fit_bounds", _fit_bounds_payload(fit_bounds)
+                ),
                 "fit_wavelength_range": active_job.get(
                     "fit_wavelength_range",
                     _fit_wavelength_range_payload(fit_wavelength_range),
                 ),
-                "model_name_pattern": str(active_job.get("model_name_pattern", model_name_pattern)),
+                "model_name_pattern": str(
+                    active_job.get("model_name_pattern", model_name_pattern)
+                ),
                 "existing_job": True,
             }
         )
@@ -361,9 +424,15 @@ def upload_fit_grid(token: str):
     if discover_error:
         return jsonify({"ok": False, "error": discover_error}), 400
     if not model_candidates:
-        return jsonify({"ok": False, "error": f"No {_grid_fit_source_label(fit_source)} candidates were available for grid search."}), 400
+        return jsonify(
+            {
+                "ok": False,
+                "error": f"No {_grid_fit_source_label(fit_source)} candidates were available for grid search.",
+            }
+        ), 400
 
     job_id = _grid_search_job_create(
+        _grid_jobs(),
         upload_token=token,
         fit_source=fit_source,
         mode=mode,
@@ -376,6 +445,7 @@ def upload_fit_grid(token: str):
     worker = Thread(
         target=_run_upload_grid_search_job,
         kwargs={
+            "store": _grid_jobs(),
             "job_id": job_id,
             "upload_token": token,
             "fit_source": fit_source,
@@ -735,12 +805,16 @@ def _build_upload_grid_overlay_trace(
 
 @bp.route("/uploads/fit-grid/status/<job_id>")
 def upload_fit_grid_status(job_id: str):
-    snapshot = _grid_search_job_snapshot(job_id)
+    snapshot = _grid_jobs().snapshot(job_id)
     if snapshot is None:
         return jsonify({"ok": False, "error": "Grid search job is not available."}), 404
 
-    fit_source = _normalize_grid_fit_source(snapshot.get("fit_source", GRID_FIT_SOURCE_CMFGEN))
-    fit_source_label = str(snapshot.get("fit_source_label", _grid_fit_source_label(fit_source)))
+    fit_source = _normalize_grid_fit_source(
+        snapshot.get("fit_source", GRID_FIT_SOURCE_CMFGEN)
+    )
+    fit_source_label = str(
+        snapshot.get("fit_source_label", _grid_fit_source_label(fit_source))
+    )
     status = str(snapshot.get("status", ""))
     processed = int(snapshot.get("processed", 0) or 0)
     total = int(snapshot.get("total", 0) or 0)
@@ -804,7 +878,7 @@ def upload_fit_grid_status(job_id: str):
 
 @bp.route("/uploads/fit-grid/overlay/<job_id>")
 def upload_fit_grid_overlay(job_id: str):
-    snapshot = _grid_search_job_snapshot(job_id)
+    snapshot = _grid_jobs().snapshot(job_id)
     if snapshot is None:
         return jsonify({"ok": False, "error": "Grid search job is not available."}), 404
 
@@ -825,7 +899,9 @@ def upload_fit_grid_overlay(job_id: str):
                 which = "best_so_far"
 
     if model_entry is None:
-        return jsonify({"ok": False, "error": "No best-fit model is available yet."}), 404
+        return jsonify(
+            {"ok": False, "error": "No best-fit model is available yet."}
+        ), 404
 
     trace_payload, overlay_error = _build_upload_grid_overlay_trace(
         config=_viewer_config(),
@@ -835,22 +911,25 @@ def upload_fit_grid_overlay(job_id: str):
     if overlay_error:
         return jsonify({"ok": False, "error": overlay_error}), 400
     if trace_payload is None:
-        return jsonify({"ok": False, "error": "Could not prepare best-fit overlay trace."}), 400
+        return jsonify(
+            {"ok": False, "error": "Could not prepare best-fit overlay trace."}
+        ), 400
     return jsonify({"ok": True, "which": which, "trace": trace_payload})
 
 
 @bp.route("/uploads/fit-grid/cancel/<job_id>", methods=["POST"])
 def upload_fit_grid_cancel(job_id: str):
-    with GRID_SEARCH_JOBS_LOCK:
-        job = GRID_SEARCH_JOBS.get(job_id)
-        if not isinstance(job, dict):
-            return jsonify({"ok": False, "error": "Grid search job is not available."}), 404
-        status = str(job.get("status", ""))
-        if status != "running":
-            return jsonify({"ok": True, "status": status, "cancel_requested": bool(job.get("cancel_requested", False))})
-        job["cancel_requested"] = True
-        job["cancel_requested_at"] = time.time()
-        return jsonify({"ok": True, "status": status, "cancel_requested": True})
+    store = _grid_jobs()
+    job = store.request_cancel(job_id)
+    if job is None:
+        return jsonify({"ok": False, "error": "Grid search job is not available."}), 404
+    return jsonify(
+        {
+            "ok": True,
+            "status": job["status"],
+            "cancel_requested": bool(job.get("cancel_requested", False)),
+        }
+    )
 
 
 @bp.route("/uploads/fit-grid/match-count/<token>")

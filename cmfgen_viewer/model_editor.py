@@ -2,19 +2,18 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import difflib
 import hashlib
 import json
 import os
-from pathlib import Path
 import stat
 import tempfile
+from datetime import datetime, timezone
+from pathlib import Path
 
 from .browser import is_model_directory, resolve_path
+from .control_files import tokenize_control
 from .model_staging import MODEL_WRITE_LOCK
-from .parsers.extended_text import KEYWORD_ROW_RE
-
 
 MODEL_PARAMETER_MAX_BYTES = 512 * 1024
 MODEL_INPUT_MODIFIED_MARKER = ".cmfgen-viewer-input-modified.json"
@@ -215,18 +214,18 @@ def _encode_submitted_text(contents: str, *, newline_style: str) -> bytes:
 
 def control_file_warnings(contents: str) -> list[str]:
     warnings: list[str] = []
+    rows = tokenize_control(contents)
     keys: dict[str, list[int]] = {}
-    malformed: list[int] = []
-    for line_number, line in enumerate(contents.splitlines(), start=1):
-        stripped = line.strip()
-        if not stripped or stripped.startswith(("!", "#")):
-            continue
-        match = KEYWORD_ROW_RE.match(line)
-        if match is None:
-            malformed.append(line_number)
-            continue
-        key = match.group(2)
-        keys.setdefault(key, []).append(line_number)
+    recognized = {row.line_index for row in rows}
+    for row in rows:
+        keys.setdefault(row.key, []).append(row.line_index + 1)
+    malformed = [
+        index + 1
+        for index, line in enumerate(contents.splitlines())
+        if line.strip()
+        and not line.lstrip().startswith(("!", "#"))
+        and index not in recognized
+    ]
 
     if malformed:
         shown = ", ".join(map(str, malformed[:12]))
@@ -234,7 +233,9 @@ def control_file_warnings(contents: str) -> list[str]:
         warnings.append(f"Unrecognized non-comment control lines: {shown}{suffix}.")
     duplicates = [(key, lines) for key, lines in keys.items() if len(lines) > 1]
     if duplicates:
-        shown = ", ".join(f"{key} ({'/'.join(map(str, lines))})" for key, lines in duplicates[:8])
+        shown = ", ".join(
+            f"{key} ({'/'.join(map(str, lines))})" for key, lines in duplicates[:8]
+        )
         suffix = "…" if len(duplicates) > 8 else ""
         warnings.append(f"Duplicate control keys: {shown}{suffix}.")
     if not keys and contents.strip():

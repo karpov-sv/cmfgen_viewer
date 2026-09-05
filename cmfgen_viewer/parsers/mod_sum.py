@@ -1,9 +1,16 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass, field
 from pathlib import Path
 
-from .common import DIMENSION_RE, format_number, maybe_number, parse_float_token, parse_key_value_pairs
+from .common import (
+    DIMENSION_RE,
+    format_number,
+    maybe_number,
+    parse_float_token,
+    parse_key_value_pairs,
+)
 
 DATE_PREFIXES = {
     "Model Started on": "model_started_on",
@@ -12,7 +19,7 @@ DATE_PREFIXES = {
 }
 
 SPECIES_ROW_RE = re.compile(
-    r"^\s*([A-Za-z0-9]+)\s+([+\-0-9.EeDd]+)\s+([+\-0-9.EeDd]+)\s+([+\-0-9.EeDd]+)\s+([+\-0-9.EeDd]+)\s*$"
+    r"^\s*([A-Za-z0-9]+)\s+([*+\-0-9.EeDd]+)\s+([*+\-0-9.EeDd]+)\s+([*+\-0-9.EeDd]+)\s+([*+\-0-9.EeDd]+)\s*$"
 )
 CLUMPING_MODEL_RE = re.compile(r"^\s*Running clumped model:\s*(.+?)\s*$")
 FILLING_FACTOR_RE = re.compile(r"^\s*Filling factor at boundary is:\s*([+\-0-9.EeDd]+)\s*$")
@@ -25,14 +32,31 @@ def _normalize_key(key: str) -> str:
     return normalized
 
 
-def parse_mod_sum(path: Path) -> dict[str, object]:
+@dataclass
+class ModSumData:
+    metadata: dict[str, str] = field(default_factory=dict)
+    dimensions: dict[str, int] = field(default_factory=dict)
+    scalars: dict[str, object] = field(default_factory=dict)
+    parameters: dict[str, object] = field(default_factory=dict)
+    tau_rows: list[dict[str, object]] = field(default_factory=list)
+    species: dict[str, dict[str, int | float | str]] = field(default_factory=dict)
+    ions: list[str] = field(default_factory=list)
+    time_lines: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    clumping_model: str | None = None
+    filling_factor_boundary: float | None = None
+    max_correction_pct: float | None = None
+
+
+def read_mod_sum(path: Path) -> ModSumData:
+    """Read scientific values once; presentation adapters handle formatting."""
+    data = ModSumData()
     metadata: dict[str, str] = {}
     dimensions: dict[str, int] = {}
     scalars: dict[str, object] = {}
     tau_rows: list[dict[str, object]] = []
     warnings: list[str] = []
 
-    species_rows: list[list[str]] = []
     in_species_table = False
 
     clumping_model: str | None = None
@@ -53,6 +77,7 @@ def parse_mod_sum(path: Path) -> dict[str, object]:
                 marker = f"{prefix}:"
                 if text.startswith(marker):
                     metadata[key] = text[len(marker) :].strip()
+                    data.time_lines.append(line)
                     matched_date = True
                     break
             if matched_date:
@@ -62,7 +87,18 @@ def parse_mod_sum(path: Path) -> dict[str, object]:
                 try:
                     dimensions[dimension_name] = int(value)
                 except ValueError:
-                    warnings.append(f"Failed to parse dimension: {dimension_name}[{value}]")
+                    warnings.append(
+                        f"Failed to parse dimension: {dimension_name}[{value}]"
+                    )
+
+            data.ions.extend(re.findall(r"\b([A-Za-z][A-Za-z0-9]*)\[\d+/\d+\]", text))
+            for key, raw in parse_key_value_pairs(text):
+                canonical_key = (
+                    _normalize_key(key)
+                    .replace("R/Rsun", "R_/Rsun")
+                    .replace("Log g", "Log_g")
+                )
+                data.parameters[canonical_key] = maybe_number(raw)
 
             if "SPECIES" in text and "Mass Fraction" in text:
                 in_species_table = True
@@ -72,17 +108,19 @@ def parse_mod_sum(path: Path) -> dict[str, object]:
                 species_match = SPECIES_ROW_RE.match(text)
                 if species_match:
                     species = species_match.group(1)
-                    parsed_values = [parse_float_token(species_match.group(i)) for i in range(2, 6)]
-                    if any(value is None for value in parsed_values):
-                        continue
-                    row = [
-                        species,
-                        format_number(parsed_values[0]),
-                        format_number(parsed_values[1]),
-                        format_number(parsed_values[2]),
-                        format_number(parsed_values[3]),
+                    parsed_values = [
+                        maybe_number(species_match.group(i)) for i in range(2, 6)
                     ]
-                    species_rows.append(row)
+                    if any(isinstance(value, str) for value in parsed_values):
+                        warnings.append(
+                            f"Non-numeric abundance value for {species}; original token preserved."
+                        )
+                    data.species[species] = dict(
+                        zip(
+                            ("rel_frac", "mass_frac", "z_z_sun", "z_sun"),
+                            parsed_values,
+                        )
+                    )
                     continue
                 in_species_table = False
 
@@ -118,8 +156,44 @@ def parse_mod_sum(path: Path) -> dict[str, object]:
                 for key, raw in parse_key_value_pairs(text):
                     scalars[_normalize_key(key)] = maybe_number(raw)
 
+    data.metadata = metadata
+    data.dimensions = dimensions
+    data.scalars = scalars
+    data.tau_rows = tau_rows
+    data.warnings = warnings
+    data.clumping_model = clumping_model
+    data.filling_factor_boundary = filling_factor_boundary
+    data.max_correction_pct = max_correction_pct
+    return data
+
+
+def parse_mod_sum(path: Path) -> dict[str, object]:
+    return present_mod_sum(read_mod_sum(path))
+
+
+def present_mod_sum(data: ModSumData) -> dict[str, object]:
+    metadata, dimensions, scalars = data.metadata, data.dimensions, data.scalars
+    tau_rows, warnings = data.tau_rows, data.warnings
+    clumping_model = data.clumping_model
+    filling_factor_boundary = data.filling_factor_boundary
+    max_correction_pct = data.max_correction_pct
+    species_rows = [
+        [
+            species,
+            *(
+                format_number(values[key])
+                for key in ("rel_frac", "mass_frac", "z_z_sun", "z_sun")
+            ),
+        ]
+        for species, values in data.species.items()
+    ]
+
     summary_rows: list[list[str]] = []
-    for key in ["model_started_on", "model_finalized_on", "main_program_last_changed_on"]:
+    for key in [
+        "model_started_on",
+        "model_finalized_on",
+        "main_program_last_changed_on",
+    ]:
         if key in metadata:
             summary_rows.append([key, metadata[key]])
 
@@ -138,15 +212,21 @@ def parse_mod_sum(path: Path) -> dict[str, object]:
                     seen_columns.append(key)
         tau_columns = seen_columns
         for row in tau_rows:
-            tau_table_rows.append([format_number(row.get(column, "")) for column in tau_columns])
+            tau_table_rows.append(
+                [format_number(row.get(column, "")) for column in tau_columns]
+            )
 
     clumping_rows: list[list[str]] = []
     if clumping_model is not None:
         clumping_rows.append(["model", clumping_model])
     if filling_factor_boundary is not None:
-        clumping_rows.append(["filling_factor_boundary", format_number(filling_factor_boundary)])
+        clumping_rows.append(
+            ["filling_factor_boundary", format_number(filling_factor_boundary)]
+        )
     if max_correction_pct is not None:
-        clumping_rows.append(["max_correction_percent_last_iteration", format_number(max_correction_pct)])
+        clumping_rows.append(
+            ["max_correction_percent_last_iteration", format_number(max_correction_pct)]
+        )
 
     tables: list[dict[str, object]] = [
         {
@@ -175,7 +255,13 @@ def parse_mod_sum(path: Path) -> dict[str, object]:
         tables.append(
             {
                 "title": "Abundance table",
-                "columns": ["Species", "Rel. # Fraction", "Mass Fraction", "Z/Z(sun)", "Z(sun)"],
+                "columns": [
+                    "Species",
+                    "Rel. # Fraction",
+                    "Mass Fraction",
+                    "Z/Z(sun)",
+                    "Z(sun)",
+                ],
                 "rows": species_rows,
             }
         )

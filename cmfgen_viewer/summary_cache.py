@@ -1,21 +1,30 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import json
 import math
-from pathlib import Path
 import sqlite3
+from contextlib import contextmanager
+from dataclasses import replace
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Callable
 
+from .model_summary import ModelSummary, summary_from_payload, summary_payload
 
-def _connect(db_path: str) -> sqlite3.Connection:
+
+@contextmanager
+def _connect(db_path: str):
     path = Path(db_path).expanduser()
     connection = sqlite3.connect(str(path))
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA journal_mode=WAL")
     connection.execute("PRAGMA synchronous=NORMAL")
-    _ensure_schema(connection)
-    return connection
+    try:
+        _ensure_schema(connection)
+        with connection:
+            yield connection
+    finally:
+        connection.close()
 
 
 def _ensure_schema(connection: sqlite3.Connection) -> None:
@@ -25,7 +34,9 @@ def _ensure_schema(connection: sqlite3.Connection) -> None:
     if table_exists is None:
         _create_summary_cache_table(connection)
     else:
-        table_info = connection.execute("PRAGMA table_info(model_summary_cache)").fetchall()
+        table_info = connection.execute(
+            "PRAGMA table_info(model_summary_cache)"
+        ).fetchall()
         primary_key_columns = [
             str(row[1])
             for row in sorted(table_info, key=lambda item: int(item[5] or 0))
@@ -41,6 +52,22 @@ def _ensure_schema(connection: sqlite3.Connection) -> None:
             ON model_summary_cache(model_key);
         """
     )
+
+    if connection.execute("PRAGMA user_version").fetchone()[0] < 1:
+        # Preserve historical values by decoding against the frozen old layout.
+        for row in connection.execute(
+            "SELECT rowid, summary_json FROM model_summary_cache"
+        ).fetchall():
+            try:
+                summary = summary_from_payload(json.loads(row["summary_json"]))
+            except (ValueError, TypeError):
+                continue
+            connection.execute(
+                "UPDATE model_summary_cache SET summary_json = ? WHERE rowid = ?",
+                (json.dumps(summary_payload(summary), allow_nan=False), row["rowid"]),
+            )
+        connection.execute("PRAGMA user_version=1")
+        connection.commit()
 
 
 def _create_summary_cache_table(connection: sqlite3.Connection, *, table_name: str = "model_summary_cache") -> None:
@@ -99,11 +126,13 @@ def upsert_model_summary(
     relpath: str,
     model_dir: Path,
     model_name: str,
-    values: list[str],
+    summary: ModelSummary,
     vadat_mtime: float,
     mod_sum_mtime: float,
 ) -> None:
-    payload = json.dumps([str(value) for value in values], separators=(",", ":"))
+    payload = json.dumps(
+        summary_payload(summary), separators=(",", ":"), allow_nan=False
+    )
     summarized_at = datetime.now(timezone.utc).isoformat()
     model_key = str(model_dir.expanduser().resolve())
 
@@ -144,7 +173,6 @@ def list_model_summaries(
     db_path: str,
     *,
     basepath: str,
-    expected_columns: int,
 ) -> list[dict[str, object]]:
     with _connect(db_path) as connection:
         rows = connection.execute(
@@ -164,28 +192,18 @@ def list_model_summaries(
             continue
 
         try:
-            values_raw = json.loads(str(row["summary_json"]))
-        except json.JSONDecodeError:
+            summary = summary_from_payload(json.loads(str(row["summary_json"])))
+        except (ValueError, TypeError):
             continue
-        if not isinstance(values_raw, list):
-            continue
-
-        values = [str(value) for value in values_raw]
-        if expected_columns > 0:
-            if len(values) < expected_columns:
-                values.extend([""] * (expected_columns - len(values)))
-            elif len(values) > expected_columns:
-                values = values[:expected_columns]
-            if len(values) == expected_columns:
-                values[-1] = _format_cache_timestamp(row["mod_sum_mtime"])
-
-        model_name = str(row["model_name"] or "")
-        if values and not values[0]:
-            values[0] = model_name or Path(relpath).name
+        if not summary.name:
+            summary = replace(
+                summary, name=str(row["model_name"] or Path(relpath).name)
+            )
 
         items.append(
             {
-                "values": values,
+                "summary": summary,
+                "mod_sum_mtime": float(row["mod_sum_mtime"]),
                 "path": relpath,
                 "model_key": str(row["model_key"] or ""),
                 "summarized_at": str(row["summarized_at"] or ""),
@@ -207,7 +225,7 @@ def inspect_model_summary_entry(
             """
             SELECT
                 model_key, relpath, model_name, vadat_mtime,
-                mod_sum_mtime, summarized_at
+                mod_sum_mtime, summarized_at, summary_json
             FROM model_summary_cache
             WHERE basepath = ? AND relpath = ?
             """,
@@ -260,7 +278,7 @@ def inspect_model_summary_cache(
             """
             SELECT
                 model_key, relpath, model_name, vadat_mtime,
-                mod_sum_mtime, summarized_at
+                mod_sum_mtime, summarized_at, summary_json
             FROM model_summary_cache
             WHERE basepath = ?
             ORDER BY lower(model_name), lower(relpath)
@@ -321,7 +339,10 @@ def _inspect_model_summary_entry(
         resolved_target = str(target.resolve())
         entry["resolved_model_key"] = resolved_target
         if resolved_target != str(row["model_key"] or ""):
-            entry.update(status="path_changed", reason="Relative path now resolves to a different model directory.")
+            entry.update(
+                status="path_changed",
+                reason="Relative path now resolves to a different model directory.",
+            )
             return entry
 
         vadat_mtime = float(vadat.stat().st_mtime)
@@ -333,13 +354,26 @@ def _inspect_model_summary_entry(
         if not _mtime_matches(vadat_mtime, stored_vadat_mtime) or not _mtime_matches(
             mod_sum_mtime, stored_mod_sum_mtime
         ):
-            entry.update(status="stale", reason="VADAT or MOD_SUM changed after this summary was cached.")
+            entry.update(
+                status="stale",
+                reason="VADAT or MOD_SUM changed after this summary was cached.",
+            )
             return entry
     except OSError as exc:
         entry.update(status="error", reason=f"Could not inspect model files: {exc}")
         return entry
 
-    entry.update(status="valid", reason="Cached summary matches the current model files.")
+    try:
+        summary_from_payload(json.loads(str(row["summary_json"])))
+    except (ValueError, TypeError):
+        entry.update(
+            status="stale",
+            reason="Cached summary schema is unsupported or invalid; refresh required.",
+        )
+        return entry
+    entry.update(
+        status="valid", reason="Cached summary matches the current model files."
+    )
     return entry
 
 
@@ -399,20 +433,14 @@ def relocate_model_summary_entry(
             return "absent"
 
         try:
-            values = json.loads(str(source["summary_json"]))
-        except json.JSONDecodeError:
-            values = None
-        if not isinstance(values, list):
+            summary = summary_from_payload(json.loads(str(source["summary_json"])))
+        except (ValueError, TypeError):
             connection.execute(
                 "DELETE FROM model_summary_cache WHERE basepath = ? AND relpath = ?",
                 (str(basepath), source_relpath),
             )
-            connection.commit()
             return "invalidated"
-        if values:
-            values[0] = str(model_name)
-        else:
-            values.append(str(model_name))
+        summary = replace(summary, name=str(model_name))
 
         connection.execute(
             """
@@ -428,7 +456,9 @@ def relocate_model_summary_entry(
                 str(model_dir.expanduser().resolve()),
                 destination_relpath,
                 str(model_name),
-                json.dumps([str(value) for value in values], separators=(",", ":")),
+                json.dumps(
+                    summary_payload(summary), separators=(",", ":"), allow_nan=False
+                ),
                 str(basepath),
                 source_relpath,
             ),

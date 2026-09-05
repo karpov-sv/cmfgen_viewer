@@ -7,10 +7,9 @@ from pathlib import Path
 
 from flask import jsonify, url_for
 
-from .cache_jobs import cache_maintenance_running_job_snapshots
-from .grid_jobs import _grid_search_running_job_snapshots
+from .grid_config import _grid_fit_source_label, _normalize_grid_fit_source
 from .observed_spectrum import is_valid_upload_token, list_upload_manifests
-from .view_common import _grid_fit_source_label, _normalize_grid_fit_source, _upload_root, _viewer_config, bp
+from .view_common import _cache_jobs, _grid_jobs, _upload_root, _viewer_config, bp
 
 
 def _grid_fit_background_task(
@@ -93,11 +92,11 @@ def background_tasks_status():
     }
     grid_tasks = [
         _grid_fit_background_task(snapshot, upload_names=upload_names)
-        for snapshot in _grid_search_running_job_snapshots()
+        for snapshot in _grid_jobs().snapshots(status="running")
     ]
     cache_tasks = [
         _cache_maintenance_background_task(snapshot)
-        for snapshot in cache_maintenance_running_job_snapshots()
+        for snapshot in _cache_jobs().snapshots(status="running")
     ]
     tasks = grid_tasks + cache_tasks
     response = jsonify({"ok": True, "running_count": len(tasks), "tasks": tasks})

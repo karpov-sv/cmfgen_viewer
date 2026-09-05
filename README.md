@@ -263,7 +263,18 @@ Flux handling:
     pre-run consistency guards, convergence summaries, external-run workflow state, process/progress monitoring,
     and result diagnostics.
   - `browser.py`: directory/file metadata and role classification.
-  - `final_spectrum.py`: CMFGEN final-spectrum parsing, conversion, and plot assembly helpers.
+  - `model_metadata.py`, `model_summary.py`: model metadata, named scientific summaries,
+    versioned cache payloads, and table presentation. Both model summaries and file previews
+    use the structured `MOD_SUM` reader in `parsers/mod_sum.py`.
+  - `spectrum_io.py`, `spectrum_transforms.py`, `spectrum_fitting.py`, `spectrum_plots.py`:
+    spectrum discovery/parsing, physical transformations, numerical fitting, and Plotly presentation.
+    `spectrum_constants.py` and `spectrum_options.py` hold shared units/defaults and option validation;
+    `final_spectrum.py` retains compatibility imports for existing callers.
+  - `control_files.py`: shared lossless control-row tokenization for editing, metadata, and validation.
+  - `upload_service.py`: upload bundle creation with failure rollback and atomic manifest persistence.
+  - `job_store.py`: shared thread-safe job lifecycle; each app owns separate grid and cache job stores
+    through `app.extensions["cmfgen_jobs"]`. Background workers receive their store explicitly.
+  - `grid_config.py`, `hr_diagram.py`: grid definitions and reference HR-diagram data without Flask dependencies.
   - `observed_spectrum.py`: uploaded observed-spectrum parsing and upload-manifest lifecycle.
   - `syntax.py`: syntax highlighting and CMFGEN input lexer.
   - `parsers/`: parsed-view implementations for core and diagnostic file families.
@@ -273,10 +284,17 @@ Flux handling:
 
 ## Notes
 
+Spectrum pages pass configuration through JSON to static JavaScript. Shared numerical code lives in
+`static/spectrum_transforms.js`, plot controls in `static/spectrum_controls.js`, and page-specific
+behavior in the single-model, bulk, upload, photometry-editor, and grid-search scripts.
+
 - The UI is optimized for local analysis workflows and iterative parser development.
 - Large-file parsing is guarded (`MAX_PARSE_FILE_BYTES`) to avoid heavy accidental loads.
 - Documentation pages are generated from repository markdown; update files in `doc/` to extend in-app docs.
 - Upload grid fitting requires a populated summary cache database (`model_summary_cache.sqlite`). Visiting a model folder that contains both `VADAT` and `MOD_SUM` automatically adds it to the cache, or refreshes its entry when either file has changed. The folder-level `Summarize` workflow remains available for adding multiple selected models at once; cache maintenance refreshes stale entries already known to the cache but does not discover new models.
+- The summary cache stores versioned, named numeric fields, independently of table column order.
+  Existing positional summaries are migrated automatically using their historical layout. Migration
+  preserves their already-rounded values; refreshing a model summary reads full precision from its source files.
 - Optional app-wide HTTP Basic Auth can be enabled from CLI using `--auth-user` and `--auth-password`.
 - Uploaded spectra can be removed individually or all at once from the Uploads page. “Delete All” only removes valid viewer-managed bundles and leaves unrelated files in the configured upload directory untouched.
 - The upload directory uses the viewer's token/manifest bundle layout; loose spectrum files placed directly in that directory are left untouched and are not automatically imported into the Uploads page.
@@ -289,3 +307,15 @@ Run the automated test suite and bytecode compilation checks from the repository
 python3 -m pytest -q
 python3 -m compileall cmfgen_viewer viewer.py
 ```
+
+When Node.js is available, pytest also compares the shared browser reddening and broadening calculations
+against the Python fitting implementation. The optional browser smoke check requires Chromium, Node.js,
+and the Python `plotly` package:
+
+```bash
+CMFGEN_BROWSER_TESTS=1 python3 -m pytest -q -s tests/test_browser_smoke.py
+```
+
+It starts an isolated local server and exercises parsed-file pages, documentation links, all three spectrum
+plots, redshift/reset, axes, resizing, and bulk visibility. It serves real Plotly locally and omits external
+Bootstrap/Font Awesome assets, so it checks application behavior without depending on CDN access.

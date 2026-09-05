@@ -1,12 +1,22 @@
 from __future__ import annotations
 
-from pathlib import Path
 import re
+from pathlib import Path
 
-from .common import build_plotly_line_plot, format_number, normalize_space, parse_float_token, parse_numeric_tokens
-from .diagnostic_text import MAX_TABLE_ROWS, parse_log_diagnostic, parse_numeric_diagnostic
+from ..control_files import KEYWORD_ROW_RE
+from .common import (
+    build_plotly_line_plot,
+    format_number,
+    normalize_space,
+    parse_float_token,
+    parse_numeric_tokens,
+)
+from .diagnostic_text import (
+    MAX_TABLE_ROWS,
+    parse_log_diagnostic,
+    parse_numeric_diagnostic,
+)
 
-KEYWORD_ROW_RE = re.compile(r"^\s*(.*?)\s+\[([A-Za-z0-9_./+=-]+)\](?:\s*!\s*(.*))?\s*$")
 SIMPLE_CONTROL_RE = re.compile(r"^\s*(\S+)\s+([A-Z][A-Z0-9_]+)\s*(?:!\s*(.*))?$")
 AUTO_CHECK_ROW_RE = re.compile(r"^\s*(\d+)\s+(\S+)\s+([+\-0-9.EeDd]+)\s*$")
 STEQ_CHUNK_RE = re.compile(r"^\s*(\d+)(?:\(\s*(\d+)\))?\s*([&%*]+)?\s+(.*)$")

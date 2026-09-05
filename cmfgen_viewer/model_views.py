@@ -3,46 +3,41 @@
 from __future__ import annotations
 
 from pathlib import Path
-import time
 
 from flask import abort, redirect, render_template, request, url_for
-from werkzeug.utils import secure_filename
 
 from .browser import is_model_context_path, make_breadcrumb, resolve_path
-from .final_spectrum import (
+from .hr_diagram import _load_mamajek_hr_overlay
+from .model_metadata import read_model
+from .model_summary import SUMMARY_COLUMNS, summary_from_model, summary_table_row
+from .model_summary import build_summary_row as _build_summary_row
+from .observed_spectrum import (
+    list_upload_manifests,
+    parse_uploaded_spectrum,
+)
+from .spectrum_io import discover_final_spectrum_files, load_obs_spectrum
+from .spectrum_options import _normalize_spectrum_mode, _spectrum_lambda_bounds
+from .spectrum_plots import (
     build_both_plot,
     build_normalized_plot,
     build_observed_overlay_trace,
-    discover_final_spectrum_files,
-    load_obs_spectrum,
-    read_model,
-)
-from .observed_spectrum import (
-    generate_upload_token,
-    list_upload_manifests,
-    parse_uploaded_spectrum,
-    remove_upload_bundle,
-    write_upload_manifest,
 )
 from .summary_cache import list_model_summaries, upsert_model_summary
+from .upload_service import create_upload_bundle
 from .upload_views import _upload_entry_for_display
 from .view_common import (
-    SUMMARY_COLUMNS,
-    _build_summary_row,
     _bulk_spectra_redirect,
     _bulk_spectra_url,
     _collect_obs_tokens,
     _collect_quick_links,
     _collect_rel_paths,
-    _load_mamajek_hr_overlay,
-    _normalize_spectrum_mode,
     _resolve_selected_model_dirs,
-    _spectrum_lambda_bounds,
     _spectrum_link_context,
     _upload_root,
     _viewer_config,
     bp,
 )
+
 
 @bp.route("/bulk/summarize/", defaults={"path": ""}, methods=["POST"])
 @bp.route("/bulk/summarize/<path:path>", methods=["POST"])
@@ -105,7 +100,7 @@ def bulk_summarize(path: str):
                 relpath=rel,
                 model_dir=target,
                 model_name=str(model.get("name", target.name)),
-                values=row_values,
+                summary=summary_from_model(model),
                 vadat_mtime=vadat_file.stat().st_mtime,
                 mod_sum_mtime=mod_sum_mtime,
             )
@@ -127,7 +122,9 @@ def bulk_summarize(path: str):
     }
     cache_notice = ""
     if cache_update_errors:
-        cache_notice = f"Summary cache update failed for {cache_update_errors} model(s)."
+        cache_notice = (
+            f"Summary cache update failed for {cache_update_errors} model(s)."
+        )
     return render_template(
         "models_summary.html",
         columns=SUMMARY_COLUMNS,
@@ -153,8 +150,16 @@ def global_models_summary():
         rows = list_model_summaries(
             summary_cache_db,
             basepath=basepath,
-            expected_columns=len(SUMMARY_COLUMNS),
         )
+        rows = [
+            {
+                **row,
+                "values": summary_table_row(
+                    row["summary"], mod_sum_mtime=row["mod_sum_mtime"]
+                ),
+            }
+            for row in rows
+        ]
     except Exception:
         cache_notice = "Failed to read summary cache."
 
@@ -463,25 +468,16 @@ def bulk_spectrum_upload(path: str):
 
     requested_flux_mode = str(request.form.get("flux_mode", "auto")).strip().lower()
     upload_root = _upload_root(config)
-    token = generate_upload_token()
-    token_dir = upload_root / token
-    token_dir.mkdir(parents=True, exist_ok=False)
-
-    safe_name = secure_filename(uploaded.filename) or "observed-spectrum"
-    suffix = Path(safe_name).suffix.lower()
-    stored_name = f"source{suffix}" if suffix else "source.dat"
-    stored_path = token_dir / stored_name
-
     try:
-        uploaded.save(stored_path)
-        parsed = parse_uploaded_spectrum(
-            stored_path,
+        manifest = create_upload_bundle(
+            upload_root,
+            filename=uploaded.filename,
+            stream=uploaded.stream,
             flux_mode=requested_flux_mode,
             lambda_min=lambda_min,
             lambda_max=lambda_max,
         )
     except Exception as exc:
-        remove_upload_bundle(upload_root, token)
         return _bulk_spectra_redirect(
             path,
             selected_models=selected_paths,
@@ -490,21 +486,9 @@ def bulk_spectrum_upload(path: str):
             upload_error=f"Uploaded spectrum could not be parsed: {exc}",
         )
 
-    manifest = {
-        "token": token,
-        "filename": safe_name,
-        "stored_name": stored_name,
-        "requested_flux_mode": requested_flux_mode,
-        "detected_flux_mode": str(parsed.get("detected_flux_mode", "")),
-        "resolved_flux_mode": str(parsed.get("flux_mode", "")),
-        "format": str(parsed.get("format", "")),
-        "observation_type": str(parsed.get("observation_type", "spectrum")),
-        "points": len(parsed.get("wavelength", [])),
-        "created_at": time.time(),
-    }
-    write_upload_manifest(upload_root, token, manifest)
+    token = str(manifest["token"])
 
     selected_tokens = _collect_obs_tokens(current_obs_tokens + [token])
-    return _bulk_spectra_redirect(path, selected_models=selected_paths, mode=view_mode, obs_tokens=selected_tokens)
-
-
+    return _bulk_spectra_redirect(
+        path, selected_models=selected_paths, mode=view_mode, obs_tokens=selected_tokens
+    )

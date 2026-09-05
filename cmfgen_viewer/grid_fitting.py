@@ -6,27 +6,27 @@ import math
 import os
 from pathlib import Path
 
-from .final_spectrum import (
-    FIT_CANCELED_MESSAGE,
-    JY_TO_FLAMBDA_ANGSTROM_FACTOR,
-    discover_final_spectrum_files,
-    fit_model_to_observed,
-    load_obs_spectrum,
-)
 from .grid_catalog import _cmfgen_fit_params_payload, _tlusty_fit_params_payload
-from .parsers.common import downsample_xy
-from .view_common import (
+from .grid_config import (
     GRID_FIT_SOURCE_CMFGEN,
     GRID_FIT_SOURCE_TLUSTY,
-    SPECTRUM_TRANSFORM_DEFAULTS,
     TLUSTY_FIT_MAX_MODEL_POINTS,
     _normalize_grid_fit_source,
 )
+from .parsers.common import downsample_xy
+from .spectrum_constants import (
+    FIT_CANCELED_MESSAGE,
+    JY_TO_FLAMBDA_ANGSTROM_FACTOR,
+    SPECTRUM_TRANSFORM_DEFAULTS,
+)
+from .spectrum_fitting import fit_model_to_observed
+from .spectrum_io import discover_final_spectrum_files, load_obs_spectrum
 
 try:
     import numpy as np
 except ModuleNotFoundError:  # pragma: no cover - runtime dependency
     np = None  # type: ignore[assignment]
+
 
 def _fit_bounds_payload(bounds: dict[str, tuple[float, float]]) -> dict[str, list[float]]:
     return {

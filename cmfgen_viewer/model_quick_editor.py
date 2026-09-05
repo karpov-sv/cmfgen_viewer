@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 import re
 
+from .control_files import control_occurrences as _keyword_occurrences
 from .model_editor import (
     ConcurrentModelEditError,
     ModelEditorError,
@@ -14,8 +15,6 @@ from .model_editor import (
     save_model_parameter_edit,
 )
 from .parsers.common import parse_float_token
-from .parsers.extended_text import KEYWORD_ROW_RE
-
 
 QUICK_PARAMETER_FILES = ("VADAT", "IN_ITS")
 
@@ -131,26 +130,6 @@ COMMON_ABUNDANCE_LABELS = {
 CLUMPING_PARAMETER_RE = re.compile(r"^CL_PAR_(\d+)$")
 INTEGER_TOKEN_RE = re.compile(r"^[+-]?\d+$")
 QUICK_TOKEN_RE = re.compile(r"^[A-Za-z0-9_./,+=-]+$")
-
-
-def _keyword_occurrences(contents: str) -> dict[str, list[dict[str, object]]]:
-    occurrences: dict[str, list[dict[str, object]]] = {}
-    for line_index, line in enumerate(contents.splitlines(keepends=True)):
-        match = KEYWORD_ROW_RE.match(line)
-        if match is None:
-            continue
-        value_raw, key, comment = match.groups()
-        value_start, value_end = match.span(1)
-        occurrences.setdefault(key, []).append(
-            {
-                "line_index": line_index,
-                "value_start": value_start,
-                "value_end": value_end,
-                "value": value_raw.strip(),
-                "comment": (comment or "").strip(),
-            }
-        )
-    return occurrences
 
 
 def _clumping_parameter_number(key: str) -> int:

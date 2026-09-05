@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import csv
-from functools import lru_cache
 import json
 import math
-from pathlib import Path
+import os
 import re
 import secrets
 import shutil
+import tempfile
 import time
 import warnings as python_warnings
+from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
 from .parsers.common import parse_float_token
@@ -63,13 +65,28 @@ def cleanup_upload_root(upload_root: Path, *, ttl_seconds: int = DEFAULT_UPLOAD_
             shutil.rmtree(entry, ignore_errors=True)
 
 
-def write_upload_manifest(upload_root: Path, token: str, payload: dict[str, Any]) -> None:
+def write_upload_manifest(
+    upload_root: Path, token: str, payload: dict[str, Any]
+) -> None:
     if not is_valid_upload_token(token):
         raise ValueError("Invalid upload token.")
     target_dir = upload_root / token
     target_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = target_dir / "meta.json"
-    manifest_path.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
+    serialized = json.dumps(payload, sort_keys=True)
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=target_dir, delete=False
+        ) as stream:
+            temporary_path = Path(stream.name)
+            stream.write(serialized)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary_path, manifest_path)
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
 
 
 def read_upload_manifest(upload_root: Path, token: str) -> dict[str, Any] | None:

@@ -4,44 +4,41 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
-import time
 
 from flask import abort, jsonify, render_template, request
-from werkzeug.utils import secure_filename
 
 from .browser import make_breadcrumb, resolve_path
-from .final_spectrum import (
-    build_both_plot,
-    build_model_summary_sections,
-    build_normalized_plot,
-    build_observed_overlay_trace,
-    discover_final_spectrum_files,
-    fin_file_label,
-    fit_model_to_observed,
-    load_obs_spectrum,
-    read_model,
-    spectrum_data_rows,
-)
+from .model_metadata import build_model_summary_sections, read_model
 from .observed_spectrum import (
-    generate_upload_token,
     is_valid_upload_token,
     list_upload_manifests,
     parse_uploaded_spectrum,
     read_upload_manifest,
     remove_upload_bundle,
-    write_upload_manifest,
 )
 from .parsers.common import format_number
-from .upload_views import _upload_entry_for_display
-from .view_common import (
-    _collect_obs_tokens,
-    _collect_quick_links,
-    _model_root_relpath,
+from .spectrum_fitting import fit_model_to_observed
+from .spectrum_io import discover_final_spectrum_files, load_obs_spectrum
+from .spectrum_options import (
     _normalize_fit_bounds,
     _normalize_fit_wavelength_range,
     _normalize_spectrum_mode,
     _normalize_transform_params,
     _spectrum_lambda_bounds,
+)
+from .spectrum_plots import (
+    build_both_plot,
+    build_normalized_plot,
+    build_observed_overlay_trace,
+    fin_file_label,
+    spectrum_data_rows,
+)
+from .upload_service import create_upload_bundle
+from .upload_views import _upload_entry_for_display
+from .view_common import (
+    _collect_obs_tokens,
+    _collect_quick_links,
+    _model_root_relpath,
     _spectrum_link_context,
     _spectrum_redirect,
     _spectrum_url,
@@ -49,6 +46,7 @@ from .view_common import (
     _viewer_config,
     bp,
 )
+
 
 @bp.route("/spectrum-upload/<path:path>", methods=["POST"])
 def spectrum_upload(path: str):
@@ -100,25 +98,16 @@ def spectrum_upload(path: str):
 
     requested_flux_mode = str(request.form.get("flux_mode", "auto")).strip().lower()
     upload_root = _upload_root(config)
-    token = generate_upload_token()
-    token_dir = upload_root / token
-    token_dir.mkdir(parents=True, exist_ok=False)
-
-    safe_name = secure_filename(uploaded.filename) or "observed-spectrum"
-    suffix = Path(safe_name).suffix.lower()
-    stored_name = f"source{suffix}" if suffix else "source.dat"
-    stored_path = token_dir / stored_name
-
     try:
-        uploaded.save(stored_path)
-        parsed = parse_uploaded_spectrum(
-            stored_path,
+        manifest = create_upload_bundle(
+            upload_root,
+            filename=uploaded.filename,
+            stream=uploaded.stream,
             flux_mode=requested_flux_mode,
             lambda_min=lambda_min,
             lambda_max=lambda_max,
         )
     except Exception as exc:
-        remove_upload_bundle(upload_root, token)
         return _spectrum_redirect(
             model_root,
             fin=selected_fin,
@@ -129,19 +118,7 @@ def spectrum_upload(path: str):
             fit_wavelength_inputs=fit_wavelength_inputs,
         )
 
-    manifest = {
-        "token": token,
-        "filename": safe_name,
-        "stored_name": stored_name,
-        "requested_flux_mode": requested_flux_mode,
-        "detected_flux_mode": str(parsed.get("detected_flux_mode", "")),
-        "resolved_flux_mode": str(parsed.get("flux_mode", "")),
-        "format": str(parsed.get("format", "")),
-        "observation_type": str(parsed.get("observation_type", "spectrum")),
-        "points": len(parsed.get("wavelength", [])),
-        "created_at": time.time(),
-    }
-    write_upload_manifest(upload_root, token, manifest)
+    token = str(manifest["token"])
 
     selected_tokens = _collect_obs_tokens(current_obs_tokens + [token])
     return _spectrum_redirect(

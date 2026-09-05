@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 import math
-from pathlib import Path
 import time
 
 from flask import abort, redirect, request, url_for
 from werkzeug.utils import secure_filename
 
 from .observed_spectrum import (
-    generate_upload_token,
     is_valid_upload_token,
     list_upload_manifests,
     parse_uploaded_spectrum,
@@ -20,7 +18,10 @@ from .observed_spectrum import (
     write_upload_manifest,
 )
 from .parsers.common import format_number, parse_float_token
-from .view_common import _spectrum_lambda_bounds, _upload_root, _viewer_config, bp
+from .spectrum_options import _spectrum_lambda_bounds
+from .upload_service import create_photometry_bundle as _create_photometry_bundle
+from .upload_service import create_upload_bundle
+from .view_common import _upload_root, _viewer_config, bp
 from .vizier_photometry import (
     DEFAULT_VIZIER_RADIUS_ARCSEC,
     format_photometry_table_rows,
@@ -29,6 +30,7 @@ from .vizier_photometry import (
     parse_source_ids_text,
     query_vizier_photometry_points,
 )
+
 
 def _format_upload_time(timestamp: object) -> str:
     try:
@@ -313,57 +315,6 @@ def _query_vizier_photometry_rows_from_form() -> str:
     return rows_text
 
 
-def _create_photometry_bundle(
-    *,
-    upload_root: Path,
-    filename: str,
-    photometry_table: str,
-    lambda_min: float,
-    lambda_max: float,
-) -> str:
-    token = generate_upload_token()
-    token_dir = upload_root / token
-    token_dir.mkdir(parents=True, exist_ok=False)
-    stored_name = "source.phot"
-    stored_path = token_dir / stored_name
-    requested_flux_mode = "absolute"
-
-    try:
-        stored_path.write_text(photometry_table, encoding="utf-8")
-        if photometry_table.strip():
-            parsed = parse_uploaded_spectrum(
-                stored_path,
-                flux_mode=requested_flux_mode,
-                lambda_min=lambda_min,
-                lambda_max=lambda_max,
-            )
-        else:
-            parsed = {
-                "detected_flux_mode": "absolute",
-                "flux_mode": "absolute",
-                "format": "photometry-text",
-                "observation_type": "photometry",
-                "wavelength": [],
-            }
-        manifest: dict[str, object] = {
-            "token": token,
-            "filename": filename,
-            "stored_name": stored_name,
-            "requested_flux_mode": requested_flux_mode,
-            "detected_flux_mode": str(parsed.get("detected_flux_mode", "")),
-            "resolved_flux_mode": str(parsed.get("flux_mode", "")),
-            "format": str(parsed.get("format", "")),
-            "observation_type": str(parsed.get("observation_type", "photometry")),
-            "points": len(parsed.get("wavelength", [])),
-            "created_at": time.time(),
-        }
-        write_upload_manifest(upload_root, token, manifest)
-    except Exception:
-        remove_upload_bundle(upload_root, token)
-        raise
-    return token
-
-
 def _uploads_redirect_with_vizier_state(*, error: str):
     query = _vizier_state_query_from_form()
     photometry_name = str(request.form.get("photometry_name", "")).strip()
@@ -398,41 +349,21 @@ def uploads_upload():
         return redirect(url_for("viewer.uploads", error="No file selected for upload."))
 
     requested_flux_mode = str(request.form.get("flux_mode", "auto")).strip().lower()
-    token = generate_upload_token()
-    token_dir = upload_root / token
-    token_dir.mkdir(parents=True, exist_ok=False)
-
-    safe_name = secure_filename(uploaded.filename) or "observed-spectrum"
-    suffix = Path(safe_name).suffix.lower()
-    stored_name = f"source{suffix}" if suffix else "source.dat"
-    stored_path = token_dir / stored_name
-
     try:
-        uploaded.save(stored_path)
-        parsed = parse_uploaded_spectrum(
-            stored_path,
+        manifest = create_upload_bundle(
+            upload_root,
+            filename=uploaded.filename,
+            stream=uploaded.stream,
             flux_mode=requested_flux_mode,
             lambda_min=lambda_min,
             lambda_max=lambda_max,
         )
     except Exception as exc:
-        remove_upload_bundle(upload_root, token)
         return redirect(url_for("viewer.uploads", error=f"Upload failed: {exc}"))
 
-    manifest = {
-        "token": token,
-        "filename": safe_name,
-        "stored_name": stored_name,
-        "requested_flux_mode": requested_flux_mode,
-        "detected_flux_mode": str(parsed.get("detected_flux_mode", "")),
-        "resolved_flux_mode": str(parsed.get("flux_mode", "")),
-        "format": str(parsed.get("format", "")),
-        "observation_type": str(parsed.get("observation_type", "spectrum")),
-        "points": len(parsed.get("wavelength", [])),
-        "created_at": time.time(),
-    }
-    write_upload_manifest(upload_root, token, manifest)
-    return redirect(url_for("viewer.uploads", message=f"Uploaded {safe_name}."))
+    return redirect(
+        url_for("viewer.uploads", message=f"Uploaded {manifest['filename']}.")
+    )
 
 
 @bp.route("/uploads/upload-photometry", methods=["POST"])

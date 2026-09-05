@@ -43,7 +43,7 @@ def parse_numeric_tokens(line: str) -> list[float]:
 
 def parse_key_value_pairs(line: str) -> list[tuple[str, str]]:
     pairs: list[tuple[str, str]] = []
-    pattern = r"([A-Za-z0-9*()./%+-][A-Za-z0-9*()./%+\- ]*?)\s*=\s*([^\s]+)"
+    pattern = r"([A-Za-z0-9_*()./%+-][A-Za-z0-9_*()./%+\- ]*?)\s*=\s*([^\s]+)"
     for match in re.finditer(pattern, line):
         key = normalize_space(match.group(1))
         pairs.append((key, match.group(2)))

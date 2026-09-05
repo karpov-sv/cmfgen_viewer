@@ -4,7 +4,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from flask import abort, current_app, redirect, render_template, request, send_file, url_for
+from flask import (
+    abort,
+    current_app,
+    redirect,
+    render_template,
+    request,
+    send_file,
+    url_for,
+)
 
 from .browser import (
     describe_file,
@@ -14,13 +22,18 @@ from .browser import (
     make_breadcrumb,
     resolve_path,
 )
-from .documentation import discover_docs as _discover_docs, render_document
-from .final_spectrum import read_model
+from .documentation import discover_docs as _discover_docs
+from .documentation import render_document
 from .model_editor import find_editable_model_file, model_inputs_modified_since_solution
+from .model_metadata import read_model
 from .model_staging import is_sn_model_directory
-from .summary_cache import delete_model_summary_entries, inspect_model_summary_entry, upsert_model_summary
+from .model_summary import summary_from_model
+from .summary_cache import (
+    delete_model_summary_entries,
+    inspect_model_summary_entry,
+    upsert_model_summary,
+)
 from .view_common import (
-    _build_summary_row,
     _collect_quick_links,
     _spectrum_link_context,
     _viewer_config,
@@ -61,14 +74,13 @@ def _cache_model_summary_on_visit(
 
     model = read_model(model_dir)
     mod_sum_mtime = mod_sum.stat().st_mtime
-    values = _build_summary_row(model, mod_sum_mtime=mod_sum_mtime)
     upsert_model_summary(
         summary_cache_db,
         basepath=basepath,
         relpath=normalized_relpath,
         model_dir=model_dir,
         model_name=str(model.get("name", model_dir.name)),
-        values=values,
+        summary=summary_from_model(model),
         vadat_mtime=vadat.stat().st_mtime,
         mod_sum_mtime=mod_sum_mtime,
     )

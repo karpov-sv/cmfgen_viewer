@@ -4,19 +4,16 @@ from __future__ import annotations
 
 import csv
 import fnmatch
-from functools import lru_cache
 import json
 import math
-from pathlib import Path
 import re
+from functools import lru_cache
+from pathlib import Path
 
 from .browser import resolve_path
-from .summary_cache import list_model_summaries
-from .view_common import (
+from .grid_config import (
     GRID_FIT_SOURCE_CMFGEN,
     GRID_FIT_SOURCE_TLUSTY,
-    SUMMARY_COLUMNS,
-    SUMMARY_COLUMN_INDEX,
     TLUSTY_BSTAR_METALLICITY_MAP,
     TLUSTY_CHI2_CONFIDENCE_LEVELS,
     TLUSTY_CONFIDENCE_PARAM_SPECS,
@@ -25,9 +22,11 @@ from .view_common import (
     TLUSTY_MODEL_SUFFIXES,
     TLUSTY_OSTAR_METALLICITY_MAP,
     _normalize_grid_fit_source,
-    _parse_summary_float,
     _tlusty_root,
 )
+from .model_summary import ModelSummary, _parse_summary_float
+from .summary_cache import list_model_summaries
+
 
 def _tlusty_segment_label(products: set[str]) -> str:
     if "optical" in products:
@@ -53,7 +52,6 @@ def _discover_model_grid_from_cache(
         cache_rows = list_model_summaries(
             summary_cache_db,
             basepath=basepath,
-            expected_columns=len(SUMMARY_COLUMNS),
         )
     except Exception as exc:
         return [], f"Failed to read model summary cache: {exc}"
@@ -71,8 +69,8 @@ def _discover_model_grid_from_cache(
             continue
         seen_relpaths.add(relpath)
 
-        values = row.get("values")
-        model_name = str(values[0]).strip() if isinstance(values, list) and values else ""
+        summary = row["summary"]
+        model_name = summary.name.strip()
         if not model_name:
             model_name = Path(relpath).name
 
@@ -88,7 +86,7 @@ def _discover_model_grid_from_cache(
             missing_entries += 1
             continue
 
-        cmfgen_params = _cmfgen_fit_params_from_summary(values)
+        cmfgen_params = _cmfgen_fit_params_from_summary(summary)
         candidates.append((model_name, relpath, model_dir, cmfgen_params))
 
     candidates.sort(key=lambda item: (item[0].lower(), item[1].lower()))
@@ -152,15 +150,6 @@ def _parse_int_or_none(value: object) -> int | None:
         return None
 
 
-def _summary_column_value(values: object, column: str) -> object | None:
-    if not isinstance(values, list):
-        return None
-    index = SUMMARY_COLUMN_INDEX.get(column)
-    if index is None or index < 0 or index >= len(values):
-        return None
-    return values[index]
-
-
 def _cmfgen_fit_params_payload(values: dict[str, object]) -> dict[str, object]:
     return {
         "teff_k": _parse_float_or_none(values.get("teff_k")),
@@ -169,14 +158,12 @@ def _cmfgen_fit_params_payload(values: dict[str, object]) -> dict[str, object]:
     }
 
 
-def _cmfgen_fit_params_from_summary(values: object) -> dict[str, object]:
-    return _cmfgen_fit_params_payload(
-        {
-            "teff_k": _summary_column_value(values, "T_2/3"),
-            "log_g": _summary_column_value(values, "logg"),
-            "luminosity": _summary_column_value(values, "LSTAR"),
-        }
-    )
+def _cmfgen_fit_params_from_summary(summary: ModelSummary) -> dict[str, object]:
+    return {
+        "teff_k": summary.effective_temperature,
+        "log_g": summary.log_g,
+        "luminosity": summary.luminosity,
+    }
 
 
 def _strip_tlusty_model_suffixes(model_name: object) -> str:

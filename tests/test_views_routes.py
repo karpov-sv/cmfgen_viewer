@@ -6,9 +6,16 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from cmfgen_viewer.app import create_app
-from cmfgen_viewer.observed_spectrum import list_upload_manifests, read_upload_manifest, write_upload_manifest
-from cmfgen_viewer.summary_cache import inspect_model_summary_entry, list_model_summaries
-from cmfgen_viewer.view_common import SUMMARY_COLUMNS
+from cmfgen_viewer.model_summary import SUMMARY_COLUMNS, summary_from_payload
+from cmfgen_viewer.observed_spectrum import (
+    list_upload_manifests,
+    read_upload_manifest,
+    write_upload_manifest,
+)
+from cmfgen_viewer.summary_cache import (
+    inspect_model_summary_entry,
+    list_model_summaries,
+)
 from cmfgen_viewer.vizier_photometry import VizierPhotometryPoint
 
 
@@ -115,13 +122,13 @@ def test_visiting_model_folder_adds_and_refreshes_summary_cache(tmp_path: Path) 
 
     first_response = client.get("/view/model_cached")
     assert first_response.status_code == 200
-    first_rows = list_model_summaries(db_path, basepath=basepath, expected_columns=len(SUMMARY_COLUMNS))
+    first_rows = list_model_summaries(db_path, basepath=basepath)
     assert [row["path"] for row in first_rows] == ["model_cached"]
     first_summarized_at = first_rows[0]["summarized_at"]
 
     second_response = client.get("/view/model_cached")
     assert second_response.status_code == 200
-    unchanged_rows = list_model_summaries(db_path, basepath=basepath, expected_columns=len(SUMMARY_COLUMNS))
+    unchanged_rows = list_model_summaries(db_path, basepath=basepath)
     assert unchanged_rows[0]["summarized_at"] == first_summarized_at
 
     vadat = model_dir / "VADAT"
@@ -131,17 +138,24 @@ def test_visiting_model_folder_adds_and_refreshes_summary_cache(tmp_path: Path) 
     if vadat.stat().st_mtime == original_mtime:
         vadat_stat = vadat.stat()
         vadat.touch()
-        os.utime(vadat, ns=(vadat_stat.st_atime_ns, vadat_stat.st_mtime_ns + 1_000_000_000))
+        os.utime(
+            vadat, ns=(vadat_stat.st_atime_ns, vadat_stat.st_mtime_ns + 1_000_000_000)
+        )
 
-    stale = inspect_model_summary_entry(db_path, basepath=basepath, relpath="model_cached")
+    stale = inspect_model_summary_entry(
+        db_path, basepath=basepath, relpath="model_cached"
+    )
     assert stale["status"] == "stale"
     refreshed_response = client.get("/view/model_cached")
     assert refreshed_response.status_code == 200
-    assert inspect_model_summary_entry(
-        db_path,
-        basepath=basepath,
-        relpath="model_cached",
-    )["status"] == "valid"
+    assert (
+        inspect_model_summary_entry(
+            db_path,
+            basepath=basepath,
+            relpath="model_cached",
+        )["status"]
+        == "valid"
+    )
 
 
 def test_extended_text_and_binary_file_routes_default_to_parsed_view(tmp_path: Path) -> None:
@@ -163,14 +177,22 @@ def test_extended_text_and_binary_file_routes_default_to_parsed_view(tmp_path: P
     assert b"DIRECT_ACCESS_INFO" in binary.data
 
 
-def test_models_summary_exposes_plot_open_and_selection_filter_controls(tmp_path: Path, monkeypatch) -> None:
+def test_models_summary_exposes_plot_open_and_selection_filter_controls(
+    tmp_path: Path, monkeypatch
+) -> None:
     values = [""] * len(SUMMARY_COLUMNS)
     values[0] = "model_a"
     values[SUMMARY_COLUMNS.index("LSTAR")] = "100000"
     values[SUMMARY_COLUMNS.index("T_*")] = "45000"
     monkeypatch.setattr(
         "cmfgen_viewer.model_views.list_model_summaries",
-        lambda *_args, **_kwargs: [{"path": "grid/model_a", "values": values}],
+        lambda *_args, **_kwargs: [
+            {
+                "path": "grid/model_a",
+                "summary": summary_from_payload(values),
+                "mod_sum_mtime": 0.0,
+            }
+        ],
     )
 
     app = _make_app(tmp_path)
@@ -179,13 +201,15 @@ def test_models_summary_exposes_plot_open_and_selection_filter_controls(tmp_path
     assert response.status_code == 200
     assert b'id="summary-scatter-plot-selection-clear"' in response.data
     assert b'data-model-url="/view/grid/model_a"' in response.data
-    assert b'summary_table.js' in response.data
+    assert b"summary_table.js" in response.data
 
-    summary_script = (Path(app.static_folder) / "summary_table.js").read_text(encoding="utf-8")
-    assert 'Plotly.update(scatterPlot, {}, { selections: [] })' in summary_script
-    assert 'Plotly.restyle(scatterPlot, { selectedpoints: [null] }' in summary_script
+    summary_script = (Path(app.static_folder) / "summary_table.js").read_text(
+        encoding="utf-8"
+    )
+    assert "Plotly.update(scatterPlot, {}, { selections: [] })" in summary_script
+    assert "Plotly.restyle(scatterPlot, { selectedpoints: [null] }" in summary_script
     assert 'scatterPlot.on("plotly_doubleclick"' in summary_script
-    assert 'modeBarButtonsToAdd' in summary_script
+    assert "modeBarButtonsToAdd" in summary_script
     assert 'name: "togglemodelopen"' in summary_script
     assert 'attr: "meta.modelclick"' in summary_script
     assert 'val: "on"' in summary_script

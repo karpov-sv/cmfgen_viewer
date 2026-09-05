@@ -5,7 +5,11 @@ import os
 from pathlib import Path
 
 from cmfgen_viewer.app import create_app
-from cmfgen_viewer.summary_cache import inspect_model_summary_entry, upsert_model_summary
+from cmfgen_viewer.model_summary import summary_from_payload
+from cmfgen_viewer.summary_cache import (
+    inspect_model_summary_entry,
+    upsert_model_summary,
+)
 
 
 def _make_app(tmp_path: Path, *, read_write: bool):
@@ -122,7 +126,9 @@ def test_create_from_solution_disables_and_rejects_sn_models(tmp_path: Path) -> 
     assert b"Creating a model from an SN solution is not supported yet" in create_page.data
 
 
-def test_created_model_replaces_stale_destination_cache_and_is_cached_after_run(tmp_path: Path) -> None:
+def test_created_model_replaces_stale_destination_cache_and_is_cached_after_run(
+    tmp_path: Path,
+) -> None:
     source = tmp_path / "grid" / "model_a"
     _write_solution(source)
     old_destination = tmp_path / "grid" / "model_b"
@@ -140,7 +146,7 @@ def test_created_model_replaces_stale_destination_cache_and_is_cached_after_run(
         relpath="grid/model_b",
         model_dir=old_destination,
         model_name="old-model-b",
-        values=["old-model-b"],
+        summary=summary_from_payload(["old-model-b"]),
         vadat_mtime=(old_destination / "VADAT").stat().st_mtime,
         mod_sum_mtime=(old_destination / "MOD_SUM").stat().st_mtime,
     )
@@ -157,11 +163,14 @@ def test_created_model_replaces_stale_destination_cache_and_is_cached_after_run(
     assert created.status_code == 200
     new_destination = tmp_path / "grid" / "model_b"
     assert not (new_destination / "MOD_SUM").exists()
-    assert inspect_model_summary_entry(
-        db_path,
-        basepath=basepath,
-        relpath="grid/model_b",
-    )["status"] == "absent"
+    assert (
+        inspect_model_summary_entry(
+            db_path,
+            basepath=basepath,
+            relpath="grid/model_b",
+        )["status"]
+        == "absent"
+    )
 
     (new_destination / "MOD_SUM").write_text("new summary\n", encoding="utf-8")
     visited = client.get("/view/grid/model_b")
