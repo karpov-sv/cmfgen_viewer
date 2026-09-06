@@ -3,20 +3,22 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from .spectrum_constants import (
     FIT_CANCELED_MESSAGE,
     FIT_DIFF_STEPS,
+    LIGHT_SPEED_KM_PER_S,
     MAX_SERIES_POINTS,
     PHOTOMETRY_FIT_FLUX_ERR_FALLBACK_FRACTION,
 )
 from .spectrum_options import spectrum_fit_bounds
 from .spectrum_transforms import (
-    _apply_transform_arrays,
     _build_model_series_for_fit,
     _clean_xy_with_band_width,
+    _crop_model_for_fit,
+    PreparedSpectrumTransform,
 )
 
 try:
@@ -314,6 +316,10 @@ class FitResiduals:
     obs_scale: float
     norm_weights: Any
     should_cancel: Callable[[], bool] | None = None
+    transform: Any = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.transform = PreparedSpectrumTransform(self.model_x, self.model_y, self.normalized_mode)
 
     def check_cancel(self) -> None:
         if self.should_cancel and self.should_cancel():
@@ -341,27 +347,22 @@ class FitResiduals:
             return residual
 
         self.check_cancel()
-        transformed = _apply_transform_arrays(
-            self.model_x,
-            self.model_y,
-            mode=self.normalized_mode,
-            redshift=redshift,
-            broadening_km_s=broadening_km_s,
-            ebv=ebv,
-            distance_kpc=distance_kpc,
-            normalization=1.0,
-        )
-        if transformed is None:
+        if self.observed_band_width is None and self.transform.is_unbroadened(broadening_km_s):
+            model_on_obs = self.transform.sample_unbroadened(
+                self.observed_x, redshift=redshift, ebv=ebv, distance_kpc=distance_kpc,
+            )
+        else:
+            transformed = self.transform(
+                redshift=redshift, broadening_km_s=broadening_km_s,
+                ebv=ebv, distance_kpc=distance_kpc, normalization=1.0,
+            )
+            model_on_obs = (
+                _sample_model_on_observed_grid(*transformed, self.observed_x, self.observed_band_width)
+                if transformed is not None else None
+            )
+        if model_on_obs is None:
             residual = np.full(self.observed_x.shape, 20.0, dtype=np.float64)
             return package_output(residual, 0, 1.0)
-
-        model_transformed_x, model_transformed_y = transformed
-        model_on_obs = _sample_model_on_observed_grid(
-            model_transformed_x,
-            model_transformed_y,
-            self.observed_x,
-            self.observed_band_width,
-        )
         valid = np.isfinite(model_on_obs) & np.isfinite(self.observed_y)
         if self.normalized_mode == "both":
             valid &= (model_on_obs > 0) & (self.observed_y > 0)
@@ -421,6 +422,7 @@ def fit_model_to_observed(
     bounds_override: dict[str, tuple[float, float]] | None = None,
     should_cancel: Callable[[], bool] | None = None,
     absolute_scale_mode: str = "distance",
+    prepared_model: tuple[Any, Any] | None = None,
 ) -> tuple[dict[str, float] | None, dict[str, object] | None, str | None]:
     if np is None or least_squares is None:
         return None, None, "Server-side fitting requires numpy and scipy."
@@ -429,7 +431,11 @@ def fit_model_to_observed(
     use_free_normalization = (
         normalized_mode == "both" and str(absolute_scale_mode).strip().lower() == "free"
     )
-    model_series = _build_model_series_for_fit(continuum, final, mode=normalized_mode)
+    # Internal NPZ callers already supply clean arrays in F-lambda (absolute)
+    # or normalized flux, avoiding the legacy list/Jy preparation round-trip.
+    model_series = prepared_model if prepared_model is not None else _build_model_series_for_fit(
+        continuum, final, mode=normalized_mode,
+    )
     if model_series is None:
         return None, None, "Model spectrum data could not be prepared for fitting."
     model_x, model_y = model_series
@@ -520,6 +526,7 @@ def fit_model_to_observed(
     bounds = _resolve_fit_bounds(normalized_mode, bounds_override)
     if use_free_normalization:
         bounds.pop("distance_kpc", None)
+    model_x, model_y = _crop_model_for_fit(model_x, model_y, observed_x, observed_band_width, bounds)
     fixed_params = {name: float(lo) for name, (lo, hi) in bounds.items() if lo == hi}
     names = [name for name, (lo, hi) in bounds.items() if lo != hi]
     lower = np.array([bounds[name][0] for name in names], dtype=np.float64)
@@ -564,8 +571,9 @@ def fit_model_to_observed(
         value = min(max(value, float(lower[index])), float(upper[index]))
         if normalized_mode != "both" and name == "redshift" and abs(value) < 1e-10:
             value = min(max(5e-4, float(lower[index])), float(upper[index]))
-        elif normalized_mode != "both" and name == "broadening_km_s" and value < 1e-9:
-            value = min(max(20.0, float(lower[index])), float(upper[index]))
+        elif name == "broadening_km_s" and value < 1e-9:
+            pixel_velocity = LIGHT_SPEED_KM_PER_S * math.log(model_x[-1] / model_x[0]) / (len(model_x) - 1)
+            value = min(max(20.0, pixel_velocity, float(lower[index])), float(upper[index]))
         elif name == "ebv" and normalized_mode == "both" and value < 1e-9:
             value = min(max(0.05, float(lower[index])), float(upper[index]))
         x0_values.append(value)
@@ -636,7 +644,6 @@ def fit_model_to_observed(
     stage1_result: Any | None = None
     if normalized_mode == "both":
         redshift_index = name_to_index.get("redshift")
-        broadening_index = name_to_index.get("broadening_km_s")
         ebv_index = name_to_index.get("ebv")
         distance_index = name_to_index.get("distance_kpc")
 
@@ -644,10 +651,8 @@ def fit_model_to_observed(
             x0[redshift_index] = min(
                 max(0.0, float(lower[redshift_index])), float(upper[redshift_index])
             )
-        if broadening_index is not None:
-            x0[broadening_index] = min(
-                max(0.0, float(lower[broadening_index])), float(upper[broadening_index])
-            )
+        # Keep the positive broadening seed: zero is a flat, no-smoothing
+        # region where finite-difference derivatives cannot start the fit.
 
         stage1_x0: Any | None = None
         stage1_lower: Any | None = None
@@ -754,6 +759,28 @@ def fit_model_to_observed(
             with_valid_count=True,
             with_normalization=True,
         )
+        # Seeding above zero must not rule out an unbroadened optimum. Compare
+        # that boundary explicitly, retaining the same robust objective.
+        broadening_index = name_to_index.get("broadening_km_s")
+        if broadening_index is not None and bounds["broadening_km_s"][0] == 0:
+            zero_residual, zero_count, zero_normalization = residual_for_params(
+                redshift=parameter_from_theta(best, "redshift", 0.0),
+                broadening_km_s=0.0,
+                ebv=parameter_from_theta(best, "ebv", initial_ebv),
+                distance_kpc=parameter_from_theta(best, "distance_kpc", initial_distance),
+                with_valid_count=True, with_normalization=True,
+            )
+            scale = 0.35 if normalized_mode == "both" else 1.0
+
+            def robust_cost(residual: Any) -> float:
+                return float(np.sum(residual ** 2 / (np.sqrt(1 + (residual / scale) ** 2) + 1)))
+
+            if zero_count == final_valid_count and robust_cost(zero_residual) < robust_cost(final_residual):
+                best = best.copy()
+                best[broadening_index] = 0.0
+                final_residual, final_normalization = zero_residual, zero_normalization
+                if result is not None:
+                    result.cost = robust_cost(final_residual)
     except _FitCanceledError:
         return None, None, FIT_CANCELED_MESSAGE
     if final_valid_count < min_valid_points:

@@ -45,7 +45,8 @@ PHOTOMETRY_FIT_FLUX_ERR_FALLBACK_FRACTION = 0.02
 
 FIT_DIFF_STEPS = {
     "redshift": 1e-4,
-    "broadening_km_s": 1.0,
+    # scipy least_squares interprets diff_step as relative, not km/s.
+    "broadening_km_s": 0.01,
     "ebv": 0.01,
     "distance_kpc": 0.05,
 }

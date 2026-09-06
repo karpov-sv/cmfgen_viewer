@@ -252,6 +252,29 @@ Full-grid fits use more CPU and storage than BOSZ; the installed NPZ grid is
 about 20.5 GB. Embedders can override
 `app.config["CMFGEN_VIEWER"]["phoenix_root"]`.
 
+### Fitting performance
+
+NPZ grid fits keep NumPy arrays in their existing F-lambda/normalized convention,
+without converting through Jy or Python lists. Uniform logarithmic grids are
+cropped to the enabled observations with margins for the full redshift bounds,
+Gaussian kernel, and photometric band edges. Native sampling is retained;
+nonuniform grids keep their original convolution lattice.
+
+Fits cache reddening-law values by redshift. Unbroadened point-spectrum trials
+transform only the model samples needed for interpolation (reddening still
+precedes interpolation); photometry continues to integrate full bands. Wide
+Gaussian kernels use FFT convolution with the same discrete four-sigma kernel
+and nearest-edge extension as the direct implementation. Small kernels use
+direct convolution. These optimizations do not modify imported spectra or
+introduce additional downsampling; the legacy TLUSTY point cap is unchanged.
+
+The default free-broadening seed starts above the no-smoothing threshold, uses a 1% relative
+finite-difference step, and explicitly checks the zero-width boundary. Unlike
+the former zero seed, this lets absolute fits explore nonzero widths. Results
+and iteration counts can therefore change; not every free-parameter fit gets
+the same speedup. A narrow model-name pattern remains useful for exploratory
+searches before evaluating thousands of atmospheres.
+
 ## Current Implementation Status
 
 ### Implemented

@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 import os
 from pathlib import Path
+from typing import Any
 
 from .grid_catalog import _cmfgen_fit_params_payload, _tlusty_fit_params_payload
 from .grid_config import (
@@ -18,7 +19,6 @@ from .grid_config import (
 from .parsers.common import downsample_xy
 from .spectrum_constants import (
     FIT_CANCELED_MESSAGE,
-    JY_TO_FLAMBDA_ANGSTROM_FACTOR,
     SPECTRUM_TRANSFORM_DEFAULTS,
 )
 from .spectrum_fitting import fit_model_to_observed
@@ -259,7 +259,8 @@ def _build_tlusty_model_series(
     spectrum_path: Path,
     continuum_path: Path | None,
     max_points: int = 0,
-) -> tuple[list[float] | None, list[float] | None, str | None]:
+    as_arrays: bool = False,
+) -> tuple[Any, Any, str | None]:
     if np is None:
         return None, None, "numpy is required for TLUSTY fitting."
 
@@ -352,12 +353,16 @@ def _build_tlusty_model_series(
     if wavelength.size < 2:
         return None, None, f"TLUSTY spectrum file '{spectrum_path.name}' has duplicate wavelengths only."
 
+    if as_arrays and (max_points <= 0 or len(wavelength) <= max_points):
+        return wavelength, y_array, None
     x_values = wavelength.tolist()
     y_values_out = y_array.tolist()
     if max_points > 0 and len(x_values) > max_points:
         x_values, y_values_out = downsample_xy(x_values, y_values_out, max_points=max_points)
     if len(x_values) < 2:
         return None, None, f"TLUSTY spectrum file '{spectrum_path.name}' has too few usable points."
+    if as_arrays:
+        return np.asarray(x_values), np.asarray(y_values_out), None
     return x_values, y_values_out, None
 
 
@@ -390,10 +395,12 @@ def _fit_single_tlusty_candidate(
         spectrum_path=spectrum_path,
         continuum_path=continuum_path,
         max_points=TLUSTY_FIT_MAX_MODEL_POINTS if fit_source == GRID_FIT_SOURCE_TLUSTY else 0,
+        as_arrays=True,
     )
-    if build_error or not isinstance(model_x, list) or not isinstance(model_y, list):
+    if build_error or model_x is None or model_y is None:
         return {"status": "failed"}
-    if fit_source == GRID_FIT_SOURCE_PHOENIX and any(value < 0 for value in model_y):
+    model_x, model_y = np.asarray(model_x), np.asarray(model_y)
+    if fit_source == GRID_FIT_SOURCE_PHOENIX and np.any(model_y < 0):
         return {"status": "failed"}
 
     tlusty_params_raw = candidate.get("grid_params", candidate.get("tlusty_params"))
@@ -402,38 +409,16 @@ def _fit_single_tlusty_candidate(
     else:
         tlusty_params = _tlusty_fit_params_payload(candidate)
 
-    if mode == "both":
-        jy_flux: list[float] = []
-        wavelength_out: list[float] = []
-        for wavelength, flux in zip(model_x, model_y):
-            if not isinstance(wavelength, int | float) or not isinstance(flux, int | float):
-                continue
-            wave = float(wavelength)
-            value = float(flux)
-            if not math.isfinite(wave) or not math.isfinite(value) or wave <= 0:
-                continue
-            jy = value * wave * wave / JY_TO_FLAMBDA_ANGSTROM_FACTOR
-            if not math.isfinite(jy):
-                continue
-            wavelength_out.append(wave)
-            jy_flux.append(jy)
-        if len(wavelength_out) < 2 or len(jy_flux) < 2:
-            return {"status": "failed"}
-        continuum = {"wavelength": wavelength_out, "flux": jy_flux}
-        final = {"wavelength": wavelength_out, "flux": jy_flux}
-    else:
-        continuum = {"wavelength": model_x, "flux": [1.0] * len(model_x)}
-        final = {"wavelength": model_x, "flux": model_y}
-
     best_params, metrics, fit_error = fit_model_to_observed(
-        continuum,
-        final,
+        {},
+        {},
         observed,
         mode=mode,
         initial_params=SPECTRUM_TRANSFORM_DEFAULTS,
         bounds_override=fit_bounds,
         should_cancel=should_cancel,
         absolute_scale_mode="free",
+        prepared_model=(model_x, model_y),
     )
     if fit_error == FIT_CANCELED_MESSAGE:
         return {"status": "canceled"}

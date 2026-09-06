@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from collections import OrderedDict
 from bisect import bisect_right
 from functools import lru_cache
 from typing import Any
@@ -16,8 +17,10 @@ except ModuleNotFoundError:  # pragma: no cover
 
 try:
     from scipy.ndimage import gaussian_filter1d
+    from scipy.signal import fftconvolve
 except ModuleNotFoundError:  # pragma: no cover
     gaussian_filter1d = None
+    fftconvolve = None
 
 try:
     import numpy as np
@@ -220,14 +223,13 @@ def _fm_curve_spline(r_v: float) -> Any | None:
     return CubicSpline(xs_spline, ys_spline, bc_type="natural")
 
 
-def _reddening_scale(wavelength_angstrom: Any, ebv: float, *, r_v: float = 3.1) -> Any:
+def _reddening_exponent(wavelength_angstrom: Any, *, r_v: float = 3.1) -> Any:
+    """Base-10 attenuation exponent per unit E(B-V), independent of E(B-V)."""
     if np is None:
         return None
-    if not math.isfinite(ebv) or ebv == 0:
-        return np.ones_like(wavelength_angstrom, dtype=np.float64)
 
     wavelength = np.asarray(wavelength_angstrom, dtype=np.float64)
-    out = np.ones_like(wavelength, dtype=np.float64)
+    out = np.zeros_like(wavelength, dtype=np.float64)
     valid = np.isfinite(wavelength) & (wavelength > 0)
     if not np.any(valid):
         return out
@@ -260,11 +262,24 @@ def _reddening_scale(wavelength_angstrom: Any, ebv: float, *, r_v: float = 3.1) 
         else:
             curve[~uv_mask] = spline(x[~uv_mask])
 
-    factor = np.power(10.0, -0.4 * ebv * curve)
+    out[valid] = -0.4 * curve
+    return out
+
+
+def _attenuation_from_exponent(exponent: Any, ebv: float) -> Any:
+    with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+        factor = np.power(10.0, ebv * exponent)
     factor[~np.isfinite(factor)] = 1.0
     factor[factor <= 0] = 1.0
-    out[valid] = factor
-    return out
+    return factor
+
+
+def _reddening_scale(wavelength_angstrom: Any, ebv: float, *, r_v: float = 3.1) -> Any:
+    if np is None:
+        return None
+    if not math.isfinite(ebv) or ebv == 0:
+        return np.ones_like(wavelength_angstrom, dtype=np.float64)
+    return _attenuation_from_exponent(_reddening_exponent(wavelength_angstrom, r_v=r_v), ebv)
 
 
 def _gaussian_broaden_ascending(wavelength: Any, flux: Any, sigma_km_s: float) -> Any:
@@ -299,11 +314,132 @@ def _gaussian_broaden_ascending(wavelength: Any, flux: Any, sigma_km_s: float) -
     log_grid = np.linspace(log_min, log_max, wavelength.size, dtype=np.float64)
     sample_x = np.exp(log_grid)
     sampled = np.interp(sample_x, wavelength, flux)
-    smoothed = gaussian_filter1d(
-        sampled, sigma=sigma_pixels, mode="nearest", truncate=4.0
-    )
+    smoothed = _smooth_gaussian(sampled, sigma_pixels)
     position = (np.log(wavelength) - log_min) / d_log
     return np.interp(position, np.arange(wavelength.size, dtype=np.float64), smoothed)
+
+
+def _smooth_gaussian(flux: Any, sigma_pixels: float) -> Any:
+    """Same discrete 4-sigma kernel and nearest edges, using FFT for wide kernels."""
+    if sigma_pixels <= 16 or fftconvolve is None:
+        return gaussian_filter1d(flux, sigma=sigma_pixels, mode="nearest", truncate=4.0)
+    radius = int(4.0 * sigma_pixels + 0.5)
+    offsets = np.arange(-radius, radius + 1, dtype=np.float64)
+    kernel = np.exp(-0.5 * (offsets / sigma_pixels) ** 2)
+    kernel /= kernel.sum()
+    padded = np.pad(flux, (radius, radius), mode="edge")
+    result = fftconvolve(padded, kernel, mode="valid")
+    if np.all(flux >= 0):
+        # FFT roundoff must not turn a nonnegative spectrum into negative flux.
+        np.maximum(result, 0, out=result)
+    return result
+
+
+def _uniform_log_step(wavelength: Any) -> float | None:
+    if wavelength.size < 3:
+        return None
+    log_wave = np.log(wavelength)
+    step = float((log_wave[-1] - log_wave[0]) / (wavelength.size - 1))
+    if step > 0 and np.allclose(np.diff(log_wave), step, rtol=1e-7, atol=1e-14):
+        return step
+    return None
+
+
+class PreparedSpectrumTransform:
+    """Per-fit, bounded caches; retain transform order and the native model axis."""
+
+    def __init__(self, wavelength: Any, flux: Any, mode: str):
+        self.wavelength, self.flux, self.mode = wavelength, flux, mode
+        self.log_step = _uniform_log_step(wavelength)
+        self.shift_cache = OrderedDict()
+
+    def is_unbroadened(self, sigma_km_s: float) -> bool:
+        if not math.isfinite(sigma_km_s) or sigma_km_s < 0:
+            return False
+        if gaussian_filter1d is None or sigma_km_s == 0 or self.wavelength.size < 3:
+            return True
+        step = math.log(self.wavelength[-1] / self.wavelength[0]) / (self.wavelength.size - 1)
+        return sigma_km_s / LIGHT_SPEED_KM_PER_S / step < 0.15
+
+    def sample_unbroadened(self, observed_x: Any, *, redshift: float, ebv: float,
+                          distance_kpc: float, normalization: float = 1.0) -> Any:
+        """Exact point-sampling shortcut; redden the interpolation neighbors only.
+
+        This does not commute reddening and interpolation. Each retained model
+        sample is transformed first, just as in the full-vector calculation.
+        Not applicable to band-integrated photometry or nonzero smoothing.
+        """
+        if not math.isfinite(redshift) or redshift <= -1:
+            return None
+        positions = np.searchsorted(self.wavelength, observed_x / (1 + redshift))
+        indices = np.unique(np.clip(np.concatenate((positions - 1, positions, positions + 1)),
+                                    0, self.wavelength.size - 1))
+        transformed = _apply_transform_arrays(
+            self.wavelength[indices], self.flux[indices], mode=self.mode,
+            redshift=redshift, broadening_km_s=0, ebv=ebv, distance_kpc=distance_kpc,
+            normalization=normalization,
+        )
+        if transformed is None:
+            return None
+        return np.interp(observed_x, *transformed, left=np.nan, right=np.nan)
+
+    def __call__(self, *, redshift: float, broadening_km_s: float,
+                 ebv: float, distance_kpc: float, normalization: float = 1.0) -> Any:
+        if (not all(math.isfinite(v) for v in (redshift, broadening_km_s, ebv, distance_kpc, normalization))
+                or redshift <= -1 or broadening_km_s < 0 or distance_kpc <= 0):
+            return None
+        if redshift not in self.shift_cache:
+            shifted = self.wavelength * (1 + redshift)
+            self.shift_cache[redshift] = shifted, None
+            if len(self.shift_cache) > 4:
+                self.shift_cache.popitem(last=False)
+        self.shift_cache.move_to_end(redshift)
+        shifted, exponent = self.shift_cache[redshift]
+        values = self.flux
+        if self.mode == "both":
+            values = values * (normalization / distance_kpc ** 2)
+            if ebv != 0:
+                if exponent is None:
+                    exponent = _reddening_exponent(shifted)
+                    self.shift_cache[redshift] = shifted, exponent
+                values = values * _attenuation_from_exponent(exponent, ebv)
+        if broadening_km_s > 0:
+            if self.log_step is not None and gaussian_filter1d is not None:
+                sigma_pixels = broadening_km_s / LIGHT_SPEED_KM_PER_S / self.log_step
+                if sigma_pixels >= 0.15:
+                    values = _smooth_gaussian(values, sigma_pixels)
+            else:
+                values = _gaussian_broaden_by_velocity(shifted, values, broadening_km_s)
+        return shifted, values
+
+
+def _crop_model_for_fit(wavelength: Any, flux: Any, observed_x: Any,
+                        band_width: Any, bounds: dict) -> tuple[Any, Any]:
+    """Crop only uniform log grids: preserve sampling and all convolution support.
+
+    Nonuniform grids retain their full axis because changing their endpoints
+    would change the temporary convolution resampling lattice.
+    """
+    step = _uniform_log_step(wavelength)
+    if step is None:
+        return wavelength, flux
+    zlo, zhi = bounds.get("redshift", (0, 0))
+    sigma_max = max(bounds.get("broadening_km_s", (0, 0)))
+    # Stage-one absolute fits also evaluate zero redshift.
+    zlo, zhi = min(zlo, 0), max(zhi, 0)
+    if zlo <= -1 or not np.isfinite([zlo, zhi, sigma_max]).all():
+        return wavelength, flux
+    half_width = band_width / 2 if band_width is not None else 0
+    support = 4 * max(0, sigma_max) / LIGHT_SPEED_KM_PER_S + 3 * step
+    if support > 100:
+        return wavelength, flux
+    lo = float(np.min(observed_x - half_width)) / (1 + zhi) * math.exp(-support)
+    hi = float(np.max(observed_x + half_width)) / (1 + zlo) * math.exp(support)
+    left = max(0, int(np.searchsorted(wavelength, lo)) - 1)
+    right = min(wavelength.size, int(np.searchsorted(wavelength, hi, side="right")) + 1)
+    if right - left < 3:
+        return wavelength, flux
+    return wavelength[left:right], flux[left:right]
 
 
 def _gaussian_broaden_by_velocity(wavelength: Any, flux: Any, sigma_km_s: float) -> Any:
