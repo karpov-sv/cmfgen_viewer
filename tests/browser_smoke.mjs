@@ -78,6 +78,18 @@ try {
   await open(docHref);
   assert(await evaluate('document.querySelector("main").textContent.length > 100'));
 
+  for (const [page, scope] of [["main-computation", "main"], ["lte-hydro", "lte-hydro"]]) {
+    await open(`/model-actions/${page}/model_a`);
+    const previewHref = await evaluate(`document.querySelector('a[href="/model-actions/plan/${scope}/model_a"]').getAttribute('href')`);
+    await open(previewHref);
+    assert(await evaluate('document.body.textContent.includes("Preview only")'));
+    const plan = await evaluate(`fetch(location.pathname + '?format=json').then(r => r.json())`);
+    assert.equal(plan.execution_available, false);
+    assert(plan.steps.length >= 2);
+  }
+  await open("/model-actions/plan/flux/model_a");
+  assert(await evaluate('document.body.textContent.includes("Legacy shell stage")'));
+
   await open("/spectrum/model_a", "final-spectrum-plot");
   await evaluate('window.originalX = document.getElementById("final-spectrum-plot").data[0].x[0]');
   await evaluate('var input = document.getElementById("final-spectrum-plot-redshift"); input.value = "0.01"; input.dispatchEvent(new Event("input", {bubbles:true}))');
@@ -122,7 +134,7 @@ try {
   assert(await evaluate('document.getElementById("grid-fit-result-body").textContent.includes("not a fit axis")'));
   await waitFor('document.getElementById("upload-spectrum-plot").data.some(t=>t.meta?.plot_role==="grid_fit_best" && t.name.includes("lte06000"))');
   assert.deepEqual(errors, []);
-  console.log("Browser smoke passed: listing, parsed files, docs, spectrum controls, BOSZ/PHOENIX submission, result metadata, and overlays.");
+  console.log("Browser smoke passed: listing, parsed files, docs, workflow previews/JSON, spectrum controls, BOSZ/PHOENIX submission, result metadata, and overlays.");
 } finally {
   if (socket) socket.close();
   browser.kill("SIGTERM");

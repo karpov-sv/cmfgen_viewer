@@ -13,6 +13,7 @@ from . import model_runtime_views as _model_runtime_views  # noqa: E402,F401
 from . import model_views as _model_views  # noqa: E402,F401
 from . import model_workflow_views as _model_workflow_views  # noqa: E402,F401
 from . import model_write_views as _model_write_views  # noqa: E402,F401
+from . import workflow_plan_views as _workflow_plan_views  # noqa: E402,F401
 from . import spectrum_views as _spectrum_views  # noqa: E402,F401
 from . import system_views as _system_views  # noqa: E402,F401
 from . import task_views as _task_views  # noqa: E402,F401

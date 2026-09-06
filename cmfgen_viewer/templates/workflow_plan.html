@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Workflow dry-run — {{ source_path }}{% endblock %}
+{% block body %}
+<h1 class="h4">Workflow dry-run: {{ plan.scope }}</h1>
+<p><code>{{ plan.model_path }}</code></p>
+<div class="alert alert-info">Preview only. Nothing is executed or written. Readiness is a snapshot, not permission to launch.</div>
+<p><a href="{{ url_for('viewer.model_workflow_plan', scope=plan.scope, source_path=source_path, format='json') }}">View JSON plan</a>
+ · <a href="{{ url_for('viewer.view', path=source_path) }}">Back to model</a></p>
+{% for step in plan.steps %}
+<section class="card mb-3">
+  <div class="card-header"><strong>{{ step.id }}</strong> — {{ step.kind }}
+    <span class="badge {{ 'text-bg-success' if step.ready else 'text-bg-secondary' }}">{{ 'No known blocker / satisfied' if step.ready else 'Blocked / awaiting prerequisites' }}</span>
+    {% if step.approval_required %}<span class="badge text-bg-warning">Manual review required</span>{% endif %}
+  </div>
+  <div class="card-body">
+    {% if step.depends_on %}<p>Depends on: {{ step.depends_on|join(', ') }}</p>{% endif %}
+    {% if step.cwd %}<p>Working directory: <code>{{ step.cwd }}</code></p>{% endif %}
+    {% if step.command %}<pre class="border p-2"><code>{{ step.command }}</code></pre>{% endif %}
+    {% if step.note %}<p class="text-warning">{{ step.note }}</p>{% endif %}
+    {% if step.missing_prerequisites %}<p class="text-danger">Missing prerequisites: {{ step.missing_prerequisites|join(', ') }}</p>{% endif %}
+    {% if step.opaque_shell_effects %}<p class="text-warning">Legacy shell stage: additional dynamic side effects are not fully enumerated. Review the scripts before running.</p>{% endif %}
+    {% for issue in step.issues %}<div class="small mb-1"><strong>{{ issue.severity }}:</strong> {{ issue.message }}</div>{% endfor %}
+    {% if step.validation %}<h2 class="h6 mt-3">Completion and acceptance checks</h2><ul>{% for check in step.validation %}<li>{{ check }}</li>{% endfor %}</ul>{% endif %}
+    {% if step.stdin %}<h2 class="h6">Interactive input</h2><pre>{{ step.stdin|tojson(indent=2) }}</pre>{% endif %}
+    <details><summary>Planned filesystem effects and outputs ({{ step.changes|length }})</summary><pre>{{ step.changes|tojson(indent=2) }}</pre></details>
+    {% if step.input_snapshot %}<details><summary>Input snapshot</summary><pre>{{ step.input_snapshot|tojson(indent=2) }}</pre></details>{% endif %}
+    {% if step.script_dependencies %}<details><summary>Script dependencies and literal commands (includes cleanup, moves, and control edits)</summary><pre>{{ step.script_dependencies|tojson(indent=2) }}</pre></details>{% endif %}
+    {% if step.environment %}<details><summary>Environment and resources checked by the viewer (not applied to the external shell)</summary><pre>{{ step.environment|tojson(indent=2) }}
+{{ step.resources|tojson(indent=2) }}</pre></details>{% endif %}
+  </div>
+</section>
+{% endfor %}
+<h2 class="h6">Scope and limitations</h2><ul>{% for note in plan.limitations %}<li>{{ note }}</li>{% endfor %}</ul>
+{% endblock %}

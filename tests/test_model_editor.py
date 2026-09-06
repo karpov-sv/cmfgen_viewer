@@ -5,6 +5,8 @@ from pathlib import Path
 
 import pytest
 
+from cmfgen_viewer import model_activity
+
 from cmfgen_viewer.model_editor import (
     ConcurrentModelEditError,
     MODEL_EDITOR_BACKUP_DIR,
@@ -33,6 +35,19 @@ def _write_model(model: Path, *, newline: str = "\n") -> None:
     )
     (model / "IN_ITS").write_bytes(f"10 [NUM_ITS]{newline}".encode("utf-8"))
     (model / "batch.sh").write_text("#!/bin/sh\n", encoding="utf-8")
+
+
+@pytest.mark.parametrize("state", ["active", "unknown"])
+def test_editor_refuses_non_idle_models(tmp_path, monkeypatch, state):
+    model = tmp_path / "model_a"
+    _write_model(model)
+    record = load_model_parameter_file(str(tmp_path), model_relpath="model_a", file_relpath="VADAT")
+    monkeypatch.setattr(model_activity, "inspect_model_activity", lambda _: {"safe_to_modify": False, "reason": state})
+    with pytest.raises(ModelEditorError, match=state):
+        save_model_parameter_edit(str(tmp_path), model_relpath="model_a", file_relpath="VADAT",
+                                  expected_digest=record["digest"], contents="2 [LSTAR]\n")
+    assert (model / "VADAT").read_text() == record["contents"]
+    assert not (model / MODEL_EDITOR_BACKUP_DIR).exists()
 
 
 def test_model_parameter_policy_lists_only_allowlisted_controls(tmp_path: Path) -> None:

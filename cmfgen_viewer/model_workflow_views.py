@@ -132,13 +132,13 @@ def model_lte_hydro(source_path: str):
                     )
                 )
             abort(400)
-        state = inspect_lte_hydro_workflow(basepath, model_relpath=source_path)
+        state = inspect_lte_hydro_workflow(basepath, model_relpath=source_path, config=config)
     except ModelWorkflowError as exc:
         if request.method == "GET":
             abort(404)
         error = str(exc)
         try:
-            state = inspect_lte_hydro_workflow(basepath, model_relpath=source_path)
+            state = inspect_lte_hydro_workflow(basepath, model_relpath=source_path, config=config)
         except ModelWorkflowError:
             abort(404)
         for card in state.get(submitted_card_key, []):

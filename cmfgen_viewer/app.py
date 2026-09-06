@@ -21,6 +21,8 @@ def create_app(
     auth_username: str | None = None,
     auth_password: str | None = None,
     auth_realm: str = "CMFGEN Viewer",
+    cmfgen_root: str | None = None,
+    atomic_root: str | None = None,
 ) -> Flask:
     """Create Flask app for browsing CMFGEN model outputs."""
     app = Flask(__name__)
@@ -57,6 +59,8 @@ def create_app(
         "summary_cache_db": str(default_summary_cache_db),
         "auth_enabled": auth_enabled,
         "auth_realm": auth_realm_text,
+        "cmfgen_root": cmfgen_root,
+        "atomic_root": atomic_root,
     }
     app.secret_key = secret_key or secrets.token_hex(24)
 

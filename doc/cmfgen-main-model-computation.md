@@ -1,5 +1,7 @@
 # Main Model Computation
 
+Use **Preview main workflow** or **Preview spectra only** for read-only HTML/JSON stage plans. The workflow now adds executable, dependency, workspace, disk, and activity checks to structural preflight. See [Workflow Safety and Dry-Run Plans](/documentation/cmfgen-workflow-plans) for configuration, mutation guards, and the limits of legacy-script inspection.
+
 Main CMFGEN computation is intentionally separate from LTE/hydro structure preparation. Open **Main Computation** from a model's workflow actions, or continue there from the final LTE/hydro handoff guard.
 
 The viewer never starts, stops, or supervises CMFGEN. It checks the model inputs and displays the exact terminal command:

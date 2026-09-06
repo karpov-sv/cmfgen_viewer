@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from pathlib import Path
-import shlex
 
 from .browser import is_model_directory, resolve_path
 from .model_convergence import inspect_model_convergence
 from .model_editor import model_inputs_modified_since_solution
 from .model_preflight import inspect_model_preflight
 from .model_runtime import inspect_workflow_runtime
+from .workflow_preflight import inspect_stage_preflight
+from .workflow_plan import external_stage_command
 
 
 class ModelRunWorkflowError(ValueError):
@@ -59,7 +60,7 @@ def _file_record(path: Path) -> dict[str, object]:
     }
 
 
-def inspect_main_model_workflow(basepath: str, *, model_relpath: str) -> dict[str, object]:
+def inspect_main_model_workflow(basepath: str, *, model_relpath: str, config: dict | None = None) -> dict[str, object]:
     normalized, model_dir = _resolve_model(basepath, model_relpath)
     prerequisites = [_file_record(model_dir / name) for name in MAIN_REQUIRED_FILES]
     gamma_candidates = (model_dir / "GAMMAS_IN", model_dir / "GAMMAS")
@@ -82,6 +83,12 @@ def inspect_main_model_workflow(basepath: str, *, model_relpath: str) -> dict[st
     missing = [str(item["name"]) for item in prerequisites if not item["exists"]]
     files_ready = not missing
     preflight = inspect_model_preflight(model_dir)
+    stage_preflight = inspect_stage_preflight(model_dir, "main", config=config)
+    preflight["issues"].extend(stage_preflight["issues"])
+    preflight["counts"] = {level: sum(i["severity"] == level for i in preflight["issues"])
+                           for level in ("error", "warning", "info")}
+    preflight["blocking"] = bool(preflight["counts"]["error"])
+    preflight["passed"] = not preflight["blocking"]
     ready = bool(files_ready and not preflight["blocking"])
 
     dependency_paths = [model_dir / name for name in MAIN_REQUIRED_FILES]
@@ -131,8 +138,9 @@ def inspect_main_model_workflow(basepath: str, *, model_relpath: str) -> dict[st
         "missing": missing,
         "files_ready": files_ready,
         "preflight": preflight,
+        "activity": stage_preflight["activity"],
         "ready": ready,
-        "command": f"cd {shlex.quote(str(model_dir))} && ./batch.sh",
+        "command": external_stage_command(model_dir, "main"),
         "results": results,
         "mod_sum_fresh": mod_sum_fresh,
         "result_status": result_status,

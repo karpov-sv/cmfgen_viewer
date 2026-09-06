@@ -5,6 +5,8 @@ from pathlib import Path
 
 import pytest
 
+from cmfgen_viewer import model_activity, model_workflow
+
 from cmfgen_viewer.app import create_app
 from cmfgen_viewer.model_editor import MODEL_INPUT_MODIFIED_MARKER
 from cmfgen_viewer.model_workflow import (
@@ -34,6 +36,7 @@ def _write_templates(root: Path) -> None:
     (examples / "lte2").mkdir(parents=True)
     (examples / "lte2" / "GRID_PARAMS").write_text("grid\n", encoding="utf-8")
     (examples / "lte2" / "ltebat.sh").write_text("#!/bin/sh\n", encoding="utf-8")
+    (examples / "lte2" / "ltebat.sh").chmod(0o755)
     (examples / "HYDRO_PARAMS").write_text("hydro\n", encoding="utf-8")
 
 
@@ -47,6 +50,57 @@ def _make_outputs_fresh(model: Path) -> None:
     os.utime(lte / "ROSSELAND_LTE_TAB", ns=(latest_input + 1_000_000, latest_input + 1_000_000))
     (lte / "RVSIG_COL_NEW").write_text("structure new\n", encoding="utf-8")
     os.utime(lte / "RVSIG_COL_NEW", ns=(latest_input + 2_000_000, latest_input + 2_000_000))
+
+
+@pytest.mark.parametrize("state", ["active", "unknown"])
+def test_preparation_and_promotion_refuse_non_idle_models(tmp_path, monkeypatch, state):
+    model = _write_model(tmp_path)
+    _write_templates(tmp_path)
+    refused = lambda _: {"safe_to_modify": False, "reason": state}
+    with monkeypatch.context() as patch:
+        patch.setattr(model_activity, "inspect_model_activity", refused)
+        with pytest.raises(ModelWorkflowError, match=state):
+            prepare_lte_hydro_workspace(str(tmp_path), model_relpath="model_a")
+    assert not (model / "lte").exists()
+    prepare_lte_hydro_workspace(str(tmp_path), model_relpath="model_a")
+    _make_outputs_fresh(model)
+    original = (model / "VADAT").read_bytes()
+    monkeypatch.setattr(model_activity, "inspect_model_activity", refused)
+    monkeypatch.setattr(model_workflow, "inspect_model_activity", refused)
+    result = inspect_lte_hydro_workflow(str(tmp_path), model_relpath="model_a")
+    assert not any(result[key] for key in ("lte_ready", "hydro_ready", "promotion_ready", "main_ready"))
+    with pytest.raises(ModelWorkflowError, match=state):
+        promote_lte_hydro_results(str(tmp_path), model_relpath="model_a")
+    assert (model / "VADAT").read_bytes() == original
+
+
+@pytest.mark.parametrize("running_stage", ["lte", "hydro"])
+def test_running_stage_blocks_fresh_output_handoff(tmp_path, monkeypatch, running_stage):
+    model = _write_model(tmp_path)
+    _write_templates(tmp_path)
+    prepare_lte_hydro_workspace(str(tmp_path), model_relpath="model_a")
+    _make_outputs_fresh(model)
+    inspect_runtime = model_workflow.inspect_workflow_runtime
+    def runtime(path, kind):
+        result = inspect_runtime(path, kind)
+        result["active"] = kind == running_stage
+        return result
+    monkeypatch.setattr(model_workflow, "inspect_workflow_runtime", runtime)
+    result = inspect_lte_hydro_workflow(str(tmp_path), model_relpath="model_a")
+    assert not result["promotion_ready"]
+    if running_stage == "lte":
+        assert not result["hydro_ready"]
+
+
+def test_nonexecutable_lte_script_blocks_run_but_not_finished_output_promotion(tmp_path):
+    model = _write_model(tmp_path)
+    _write_templates(tmp_path)
+    prepare_lte_hydro_workspace(str(tmp_path), model_relpath="model_a")
+    _make_outputs_fresh(model)
+    (model / "lte/ltebat.sh").chmod(0o644)
+    state = inspect_lte_hydro_workflow(str(tmp_path), model_relpath="model_a")
+    assert not state["lte_ready"]
+    assert state["promotion_ready"]
 
 
 def test_prepare_workspace_and_guard_successive_steps(tmp_path: Path) -> None:

@@ -1,5 +1,7 @@
 # LTE / Hydro Workflow
 
+Use **Preview LTE / hydro workflow** for a read-only stage plan covering preparation through manual promotion. Stage preflight now checks scripts, executable configuration, dependencies, controls, workspace resources, and activity. Mutations and handoffs are blocked during visible active calculations or uncertain activity; see [Workflow Safety and Dry-Run Plans](/documentation/cmfgen-workflow-plans) for details and limitations.
+
 The viewer supports preparation and state tracking for the LTE/hydro sequence used when changing parameters such as `LOGG`. It deliberately does **not** start, stop, or supervise CMFGEN programs. Run every displayed command in a terminal you control; the open workflow page polls read-only run status every five seconds.
 
 Open a concrete, non-SN model and choose **LTE / Hydro** under **Model actions**. Read-write mode must have been enabled at startup.

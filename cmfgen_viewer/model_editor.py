@@ -14,6 +14,7 @@ from pathlib import Path
 from .browser import is_model_directory, resolve_path
 from .control_files import tokenize_control
 from .model_staging import MODEL_WRITE_LOCK
+from .model_activity import model_mutation_guard
 
 MODEL_PARAMETER_MAX_BYTES = 512 * 1024
 MODEL_INPUT_MODIFIED_MARKER = ".cmfgen-viewer-input-modified.json"
@@ -553,7 +554,7 @@ def save_model_parameter_edit(
     contents: str,
     preserve_modified_time: bool = False,
 ) -> dict[str, object]:
-    with MODEL_WRITE_LOCK:
+    with MODEL_WRITE_LOCK, model_mutation_guard(_resolve_model(basepath, model_relpath)[1], ModelEditorError):
         record, proposed = _verified_edit_payload(
             basepath,
             model_relpath=model_relpath,

@@ -11,6 +11,7 @@ import tempfile
 from threading import Lock
 
 from .browser import is_model_directory, resolve_path
+from .model_activity import model_mutation_guard
 
 
 MODEL_CREATE_REQUIRED_FILES = ("batch.sh", "IN_ITS", "VADAT", "MODEL_SPEC", "GAMMAS")
@@ -309,7 +310,7 @@ def create_model_from_solution(
     source_relpath: str,
     destination_relpath: str,
 ) -> dict[str, object]:
-    with MODEL_WRITE_LOCK:
+    with MODEL_WRITE_LOCK, model_mutation_guard(_model_source(basepath, source_relpath)[1], ModelStagingError):
         plan = plan_model_from_solution(
             basepath,
             source_relpath=source_relpath,
@@ -366,7 +367,7 @@ def rename_model_directory(
     """Atomically rename or move a model directory within the configured root."""
     normalized_source = _normalize_relpath(source_relpath, label="Source model path")
 
-    with MODEL_WRITE_LOCK:
+    with MODEL_WRITE_LOCK, model_mutation_guard(_cleanup_model_source(basepath, normalized_source)[1], ModelStagingError):
         try:
             source = resolve_path(basepath, normalized_source)
         except FileNotFoundError as exc:
@@ -483,7 +484,7 @@ def cleanup_model_directory(
     if not requested:
         raise ModelStagingError("Select at least one cleanup candidate.")
 
-    with MODEL_WRITE_LOCK:
+    with MODEL_WRITE_LOCK, model_mutation_guard(_cleanup_model_source(basepath, model_relpath)[1], ModelStagingError):
         normalized, model_dir = _cleanup_model_source(basepath, model_relpath)
         plan = _build_cleanup_plan(normalized, model_dir)
         candidates = {str(item["name"]): item for item in plan["entries"] if isinstance(item, dict)}

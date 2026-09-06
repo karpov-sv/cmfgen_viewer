@@ -1,0 +1,6 @@
+<div class="border rounded p-2 my-2">
+  <strong>{{ preflight.stage|capitalize }} preflight</strong>
+  {% for issue in preflight.issues %}
+    <div class="small mt-1"><span class="badge {% if issue.severity == 'error' %}text-bg-danger{% else %}text-bg-warning{% endif %}">{{ issue.severity }}</span> {{ issue.message }}</div>
+  {% else %}<div class="small text-success">Stage checks passed.</div>{% endfor %}
+</div>

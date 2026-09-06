@@ -6,6 +6,8 @@ import shutil
 
 import pytest
 
+from cmfgen_viewer import model_activity
+
 from cmfgen_viewer.model_staging import (
     ModelStagingError,
     cleanup_model_directory,
@@ -57,6 +59,25 @@ def _write_solution(source: Path) -> None:
         (observer / name).write_text(content, encoding="utf-8")
     (observer / "batobs.sh").chmod(0o740)
     (observer / "clean.sh").chmod(0o750)
+
+
+@pytest.mark.parametrize("state", ["active", "unknown"])
+@pytest.mark.parametrize("action", ["clone", "move", "cleanup"])
+def test_mutations_refuse_non_idle_models(tmp_path, monkeypatch, state, action):
+    source = tmp_path / "model_a"
+    _write_solution(source)
+    (source / "BAMAT").write_text("keep")
+    before = {str(p.relative_to(source)): p.read_bytes() for p in source.rglob("*") if p.is_file()}
+    monkeypatch.setattr(model_activity, "inspect_model_activity", lambda _: {"safe_to_modify": False, "reason": state})
+    with pytest.raises(ModelStagingError, match=state):
+        if action == "clone":
+            create_model_from_solution(str(tmp_path), source_relpath="model_a", destination_relpath="model_b")
+        elif action == "move":
+            rename_model_directory(str(tmp_path), source_relpath="model_a", destination_relpath="model_b")
+        else:
+            cleanup_model_directory(str(tmp_path), model_relpath="model_a", selected_names=["BAMAT"])
+    assert not (tmp_path / "model_b").exists()
+    assert before == {str(p.relative_to(source)): p.read_bytes() for p in source.rglob("*") if p.is_file()}
 
 
 def test_plan_and_create_model_from_solution(tmp_path: Path) -> None:

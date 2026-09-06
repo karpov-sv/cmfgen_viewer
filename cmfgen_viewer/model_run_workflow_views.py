@@ -26,6 +26,7 @@ def model_main_computation(source_path: str):
         state = inspect_main_model_workflow(
             str(config.get("basepath", ".")),
             model_relpath=source_path,
+            config=config,
         )
     except ModelRunWorkflowError:
         abort(404)

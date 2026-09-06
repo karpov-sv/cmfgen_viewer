@@ -97,7 +97,7 @@ def test_main_computation_page_is_external_only_and_read_write_gated(tmp_path: P
     assert b"Waiting for" in page.data
     assert b"Process and progress" in page.data
     assert b"Preflight validation" in page.data
-    assert b"No structural or cross-file problems were detected" in page.data
+    assert b"Preview main workflow" in page.data
     assert b"Latest run diagnostics" in page.data
     assert b"CMFGEN \xc2\xb7 Unknown" in page.data
     assert b"CMF_FLUX \xc2\xb7 Unknown" in page.data

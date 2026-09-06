@@ -31,6 +31,9 @@ def test_spectrum_pages_in_chromium(tmp_path):
         obs = model / "obs"
         obs.mkdir(parents=True)
         (model / "VADAT").write_text("1.0 [LSTAR]\n", encoding="utf-8")
+        (model / "MODEL_SPEC").write_text("2 [ND]\n1 [NC]\n3 [NP]\n")
+        (model / "batch.sh").write_text("#!/bin/sh\ncd obs\n./batobs.sh\n")
+        (model / "batch.sh").chmod(0o755)
         (model / "MOD_SUM").write_text(
             "Model Started on: example\nND[2]\nTeff(K)=35000\n", encoding="utf-8"
         )
@@ -57,7 +60,8 @@ def test_spectrum_pages_in_chromium(tmp_path):
         flux_mode="absolute",
     )
     app = create_app(
-        basepath=str(tmp_path), upload_root=str(upload_root), fit_pool_size_max=1
+        basepath=str(tmp_path), upload_root=str(upload_root), fit_pool_size_max=1,
+        read_write_enabled=True,
     )
     app.config["CMFGEN_VIEWER"]["summary_cache_db"] = str(tmp_path / "summary.sqlite")
     bosz_root = tmp_path / "bosz"

@@ -52,6 +52,8 @@ def test_load_config_defaults_from_json(tmp_path: Path) -> None:
                     "auth_user": "u",
                     "auth_password": "p",
                     "auth_realm": "Realm",
+                    "cmfgen_root": "/tmp/cmf",
+                    "atomic_root": "/tmp/atomic",
                 }
             }
         ),
@@ -69,6 +71,8 @@ def test_load_config_defaults_from_json(tmp_path: Path) -> None:
     assert defaults["auth_user"] == "u"
     assert defaults["auth_password"] == "p"
     assert defaults["auth_realm"] == "Realm"
+    assert defaults["cmfgen_root"] == "/tmp/cmf"
+    assert defaults["atomic_root"] == "/tmp/atomic"
 
 
 def test_load_config_defaults_from_toml(tmp_path: Path) -> None:
@@ -144,6 +148,10 @@ def test_main_invokes_create_app_and_run(monkeypatch: pytest.MonkeyPatch, tmp_pa
             "9000",
             "--fit-pool-size",
             "2",
+            "--cmfgen-root",
+            "/tmp/cmf",
+            "--atomic-root",
+            "/tmp/atomic",
             "--read-write",
             "--upload-dir",
             str(upload_root),
@@ -161,6 +169,8 @@ def test_main_invokes_create_app_and_run(monkeypatch: pytest.MonkeyPatch, tmp_pa
 
     create_kwargs = captured["create_app"]
     assert isinstance(create_kwargs, dict)
+    assert create_kwargs["cmfgen_root"] == "/tmp/cmf"
+    assert create_kwargs["atomic_root"] == "/tmp/atomic"
     assert create_kwargs["basepath"] == str(tmp_path.resolve())
     assert create_kwargs["lambda_min_angstrom"] == 1000.0
     assert create_kwargs["lambda_max_angstrom"] == 9000.0

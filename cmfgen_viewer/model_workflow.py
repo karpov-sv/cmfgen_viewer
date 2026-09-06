@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import os
 import re
-import shlex
 import shutil
 import stat
 import tempfile
@@ -23,6 +22,9 @@ from .model_editor import (
     save_model_parameter_edit,
 )
 from .model_runtime import inspect_workflow_runtime
+from .model_activity import inspect_model_activity, model_mutation_guard
+from .workflow_preflight import inspect_stage_preflight
+from .workflow_plan import external_stage_command
 from .model_staging import MODEL_WRITE_LOCK, is_sn_model_directory
 from .parsers.common import parse_float_token
 
@@ -564,8 +566,9 @@ def _save_workflow_quick_controls(
         raise ModelWorkflowError(str(exc)) from exc
 
 
-def inspect_lte_hydro_workflow(basepath: str, *, model_relpath: str) -> dict[str, object]:
+def inspect_lte_hydro_workflow(basepath: str, *, model_relpath: str, config: dict | None = None) -> dict[str, object]:
     normalized, model_dir = _resolve_model(basepath, model_relpath)
+    activity = inspect_model_activity(model_dir)
     lte_dir = model_dir / "lte"
     templates = _template_paths(basepath)
     root_files = [
@@ -590,7 +593,7 @@ def inspect_lte_hydro_workflow(basepath: str, *, model_relpath: str) -> dict[str
     ]
     missing_templates = [str(item["name"]) for item in template_files if not item["exists"]]
     missing_lte = [str(item["name"]) for item in lte_files if not item["exists"]]
-    prepare_allowed = not lte_exists and not missing_root and not missing_templates
+    prepare_allowed = not lte_exists and not missing_root and not missing_templates and activity["safe_to_modify"]
     if lte_exists and not prepared:
         prepare_reason = "The existing lte path is incomplete; repair or remove it manually before preparing again."
     elif missing_root:
@@ -601,6 +604,8 @@ def inspect_lte_hydro_workflow(basepath: str, *, model_relpath: str) -> dict[str
         prepare_reason = "The LTE workspace is prepared."
     else:
         prepare_reason = ""
+    if not activity["safe_to_modify"]:
+        prepare_reason = activity["reason"]
 
     lte_dependencies = tuple(lte_dir / name for name in ("VADAT", "MODEL_SPEC", "GRID_PARAMS", "ltebat.sh"))
     lte_output = _file_state(lte_dir / LTE_OUTPUT, dependencies=lte_dependencies)
@@ -615,18 +620,23 @@ def inspect_lte_hydro_workflow(basepath: str, *, model_relpath: str) -> dict[str
         for filename, keys in missing_lte_controls.items()
         for key in keys
     ]
-    lte_ready = bool(prepared and not missing_lte_control_keys)
+    lte_preflight = inspect_stage_preflight(model_dir, "lte", config=config, activity=activity)
+    hydro_preflight = inspect_stage_preflight(model_dir, "hydro", config=config, activity=activity)
+    lte_configured = bool(prepared and not missing_lte_control_keys)
+    lte_ready = bool(lte_configured and not lte_preflight["blocking"])
     lte_runtime = inspect_workflow_runtime(lte_dir, "lte")
     hydro_runtime = inspect_workflow_runtime(lte_dir, "hydro")
+    lte_ready = lte_ready and not lte_runtime["active"] and not hydro_runtime["active"]
     lte_diagnostics = inspect_lte_diagnostics(lte_dir, active=bool(lte_runtime["active"]))
     hydro_diagnostics = inspect_wind_hyd_diagnostics(
         lte_dir,
         active=bool(hydro_runtime["active"]),
     )
-    lte_result_usable = bool(lte_output["fresh"] and not lte_diagnostics.get("fatal"))
-    hydro_ready = bool(lte_ready and lte_result_usable)
+    lte_result_usable = bool(lte_output["fresh"] and not lte_diagnostics.get("fatal") and not lte_runtime["active"])
+    hydro_ready = bool(lte_configured and lte_result_usable and not hydro_preflight["blocking"] and not hydro_runtime["active"])
     hydro_output_ready = bool(
-        hydro_ready and hydro_output["fresh"] and not hydro_diagnostics.get("fatal")
+        lte_configured and activity["safe_to_modify"] and lte_result_usable
+        and hydro_output["fresh"] and not hydro_diagnostics.get("fatal") and not hydro_runtime["active"]
     )
     promotion_ready = hydro_output_ready
     promoted = bool(
@@ -637,16 +647,16 @@ def inspect_lte_hydro_workflow(basepath: str, *, model_relpath: str) -> dict[str
         and _same_contents(lte_dir / "VADAT", model_dir / "VADAT")
     )
     main_dependencies = tuple(model_dir / name for name in ("VADAT", "RVSIG_COL", LTE_OUTPUT))
-    main_ready = all(_regular_file(path) for path in main_dependencies) and _regular_file(
+    main_ready = activity["safe_to_modify"] and all(_regular_file(path) for path in main_dependencies) and _regular_file(
         model_dir / "batch.sh"
     )
-    lte_command = f"cd {shlex.quote(str(lte_dir))} && ./ltebat.sh"
-    hydro_command = (
-        f"cd {shlex.quote(str(lte_dir))} && set -o pipefail && "
-        "$cmfdist/exe/wind_hyd.exe 2>&1 | tee WIND_HYD"
-    )
+    lte_command = external_stage_command(model_dir, "lte")
+    hydro_command = external_stage_command(model_dir, "hydro")
     return {
         "model_relpath": normalized,
+        "activity": activity,
+        "lte_preflight": lte_preflight,
+        "hydro_preflight": hydro_preflight,
         "model_path": str(model_dir),
         "lte_path": str(lte_dir),
         "template_root": str(Path(basepath).expanduser().resolve() / "examples"),
@@ -689,7 +699,7 @@ def _copy_regular(source: Path, destination: Path) -> None:
 
 
 def prepare_lte_hydro_workspace(basepath: str, *, model_relpath: str) -> dict[str, object]:
-    with MODEL_WRITE_LOCK:
+    with MODEL_WRITE_LOCK, model_mutation_guard(_resolve_model(basepath, model_relpath)[1], ModelWorkflowError):
         state = inspect_lte_hydro_workflow(basepath, model_relpath=model_relpath)
         if not state["prepare_allowed"]:
             raise ModelWorkflowError(str(state["prepare_reason"] or "LTE workspace cannot be prepared."))
@@ -744,7 +754,7 @@ def _atomic_copy(source: Path, destination: Path) -> None:
 
 
 def promote_lte_hydro_results(basepath: str, *, model_relpath: str) -> dict[str, object]:
-    with MODEL_WRITE_LOCK:
+    with MODEL_WRITE_LOCK, model_mutation_guard(_resolve_model(basepath, model_relpath)[1], ModelWorkflowError):
         state = inspect_lte_hydro_workflow(basepath, model_relpath=model_relpath)
         if not state["promotion_ready"]:
             raise ModelWorkflowError(
