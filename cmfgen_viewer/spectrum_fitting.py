@@ -745,14 +745,17 @@ def fit_model_to_observed(
         best = result.x
     else:
         best = np.array([], dtype=np.float64)
-    final_residual, final_valid_count, final_normalization = residual_for_params(
-        redshift=parameter_from_theta(best, "redshift", 0.0),
-        broadening_km_s=parameter_from_theta(best, "broadening_km_s", 0.0),
-        ebv=parameter_from_theta(best, "ebv", initial_ebv),
-        distance_kpc=parameter_from_theta(best, "distance_kpc", initial_distance),
-        with_valid_count=True,
-        with_normalization=True,
-    )
+    try:
+        final_residual, final_valid_count, final_normalization = residual_for_params(
+            redshift=parameter_from_theta(best, "redshift", 0.0),
+            broadening_km_s=parameter_from_theta(best, "broadening_km_s", 0.0),
+            ebv=parameter_from_theta(best, "ebv", initial_ebv),
+            distance_kpc=parameter_from_theta(best, "distance_kpc", initial_distance),
+            with_valid_count=True,
+            with_normalization=True,
+        )
+    except _FitCanceledError:
+        return None, None, FIT_CANCELED_MESSAGE
     if final_valid_count < min_valid_points:
         if is_photometry and final_valid_count < int(observed_x.size):
             return None, None, "Model does not cover every enabled photometry point."

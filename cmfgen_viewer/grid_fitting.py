@@ -10,7 +10,7 @@ from .grid_catalog import _cmfgen_fit_params_payload, _tlusty_fit_params_payload
 from .grid_config import (
     GRID_FIT_SOURCE_CMFGEN,
     GRID_FIT_SOURCE_TLUSTY,
-    GRID_FIT_SOURCE_BOSZ,
+    GRID_FIT_SOURCE_PHOENIX,
     NPZ_GRID_FIT_SOURCES,
     TLUSTY_FIT_MAX_MODEL_POINTS,
     _normalize_grid_fit_source,
@@ -370,7 +370,9 @@ def _fit_single_tlusty_candidate(
     should_cancel: object | None = None,
     fit_source: str = GRID_FIT_SOURCE_TLUSTY,
 ) -> dict[str, object]:
-    """Fit either NPZ grid; retain the historical helper name for compatibility."""
+    """Fit a shared NPZ grid; retain the historical helper name for compatibility."""
+    if fit_source == GRID_FIT_SOURCE_PHOENIX and mode != "both":
+        return {"status": "failed"}
     model_name = str(candidate.get("model_name", "")).strip()
     model_path = str(candidate.get("model_path", "")).strip()
     spectrum_relpath = str(candidate.get("spectrum_relpath", "")).strip()
@@ -387,9 +389,11 @@ def _fit_single_tlusty_candidate(
         mode=mode,
         spectrum_path=spectrum_path,
         continuum_path=continuum_path,
-        max_points=0 if fit_source == GRID_FIT_SOURCE_BOSZ else TLUSTY_FIT_MAX_MODEL_POINTS,
+        max_points=TLUSTY_FIT_MAX_MODEL_POINTS if fit_source == GRID_FIT_SOURCE_TLUSTY else 0,
     )
     if build_error or not isinstance(model_x, list) or not isinstance(model_y, list):
+        return {"status": "failed"}
+    if fit_source == GRID_FIT_SOURCE_PHOENIX and any(value < 0 for value in model_y):
         return {"status": "failed"}
 
     tlusty_params_raw = candidate.get("grid_params", candidate.get("tlusty_params"))

@@ -13,6 +13,7 @@ from pathlib import Path
 from .browser import resolve_path
 from .grid_config import (
     GRID_FIT_SOURCE_BOSZ,
+    GRID_FIT_SOURCE_PHOENIX,
     _npz_grid_root,
     GRID_FIT_SOURCE_CMFGEN,
     GRID_FIT_SOURCE_TLUSTY,
@@ -587,6 +588,12 @@ def _load_tlusty_models_csv_cached(path_str: str, mtime_ns: int, size: int) -> l
                     "metallicity_dex": _parse_float_or_none(raw.get("metallicity_dex")),
                     "alpha_dex": _parse_float_or_none(raw.get("alpha_dex")),
                     "carbon_dex": _parse_float_or_none(raw.get("carbon_dex")),
+                    "derived_vturb_km_s": _parse_float_or_none(raw.get("derived_vturb_km_s")),
+                    "interpolated": str(raw.get("interpolated", "")).lower() == "true",
+                    "source_unit_inferred": str(raw.get("source_unit_inferred", "")).lower() == "true",
+                    "wavelength_convention": str(raw.get("wavelength_convention", "")),
+                    "fit_eligible": str(raw.get("fit_eligible", "true")).lower() == "true",
+                    "negative_flux_points": _parse_int_or_none(raw.get("negative_flux_points")),
                     "spectrum_relpath": spectrum_relpath,
                     "archive_name": str(raw.get("archive_name", "")).strip(),
                     "archive_member": str(raw.get("archive_member", "")).strip(),
@@ -961,20 +968,35 @@ def _discover_bosz_grid_models(
     observed: dict[str, object] | None = None,
     fit_bounds: dict[str, tuple[float, float]] | None = None,
 ) -> tuple[list[dict[str, object]], str | None]:
-    root = _npz_grid_root(config, GRID_FIT_SOURCE_BOSZ)
+    return _discover_imported_grid_models(
+        config, source=GRID_FIT_SOURCE_BOSZ, mode=mode, model_name_pattern=model_name_pattern,
+        observed=observed, fit_bounds=fit_bounds,
+    )
+
+
+def _discover_imported_grid_models(
+    config: dict[str, object], *, source: str, mode: str, model_name_pattern: str,
+    observed: dict[str, object] | None = None,
+    fit_bounds: dict[str, tuple[float, float]] | None = None,
+) -> tuple[list[dict[str, object]], str | None]:
+    """Discover self-contained imported NPZ spectra with shared coverage checks."""
+    title = source.upper()
+    if source == GRID_FIT_SOURCE_PHOENIX and mode != "both":
+        return [], "PHOENIX R10000 has no continua; use absolute-flux spectra or photometry, not normalized spectra."
+    root = _npz_grid_root(config, source)
     index = root / "models.csv"
     if not index.is_file():
-        return [], f"BOSZ index is missing: {index}. Run scripts/import_bosz_spectra.py first."
+        return [], f"{title} index is missing: {index}. Run scripts/import_{source}_spectra.py first."
     try:
         rows = _load_tlusty_models_csv_cached(str(index), *_file_signature(index))
     except (OSError, ValueError, csv.Error) as exc:
-        return [], f"Could not read BOSZ index: {exc}"
+        return [], f"Could not read {title} index: {exc}"
     candidates = []
     for row in rows:
-        if row["grid"] != "bosz":
+        if row["grid"] != source or not row["fit_eligible"] or (row["negative_flux_points"] or 0) > 0:
             continue
         name = str(row["model_name"])
-        label = f"bosz/{name}"
+        label = f"{source}/{name}"
         if model_name_pattern and not (
             fnmatch.fnmatch(name, model_name_pattern) or fnmatch.fnmatch(label, model_name_pattern)
         ):
@@ -991,17 +1013,18 @@ def _discover_bosz_grid_models(
             continue
         metadata = {key: row.get(key) for key in (
             "atmosphere_family", "resolving_power", "metallicity_dex", "alpha_dex", "carbon_dex",
+            "derived_vturb_km_s", "interpolated", "source_unit_inferred", "wavelength_convention",
         )}
         candidates.append({
-            "fit_source": GRID_FIT_SOURCE_BOSZ, "grid": "bosz",
+            "fit_source": source, "grid": source,
             "model_name": name, "model_path": label, "model_relpath": label,
             "model_path_str": str(path), "spectrum_path_str": str(path),
             "spectrum_relpath": str(row["spectrum_relpath"]),
-            "spectrum_label": "BOSZ spectrum", "continuum_relpath": "", "continuum_path_str": "",
+            "spectrum_label": f"{title} spectrum", "continuum_relpath": "", "continuum_path_str": "",
             "grid_params": _tlusty_fit_params_payload(row), "grid_metadata": metadata,
         })
     if not candidates:
-        return [], "No BOSZ models matched the pattern, fitting mode, and required wavelength coverage."
+        return [], f"No {title} models matched the pattern, fitting mode, quality checks, and required wavelength coverage."
     return candidates, None
 
 
@@ -1017,6 +1040,11 @@ def _discover_grid_fit_candidates(
     fit_bounds: dict[str, tuple[float, float]] | None = None,
 ) -> tuple[list[dict[str, object]], str | None]:
     normalized_source = _normalize_grid_fit_source(fit_source)
+    if normalized_source == GRID_FIT_SOURCE_PHOENIX:
+        return _discover_imported_grid_models(
+            config, source=normalized_source, mode=mode, model_name_pattern=model_name_pattern,
+            observed=observed, fit_bounds=fit_bounds,
+        )
     if normalized_source == GRID_FIT_SOURCE_BOSZ:
         return _discover_bosz_grid_models(
             config, mode=mode, model_name_pattern=model_name_pattern,

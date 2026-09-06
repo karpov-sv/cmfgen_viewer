@@ -43,9 +43,9 @@ def test_spectrum_pages_in_chromium(tmp_path):
         for path in (obs / "obs_fin", obs / "obs_cont", model / "OBSFLUX"):
             path.write_text(contents, encoding="utf-8")
     upload_root = tmp_path / "uploads"
-    wave = np.linspace(1500, 3000, 201)
+    wave = np.linspace(4000, 7000, 201)
     continuum = np.full(wave.size, 1e8)
-    normalized = 1 - 0.4 * np.exp(-0.5 * ((wave - 2100) / 50) ** 2)
+    normalized = 1 - 0.4 * np.exp(-0.5 * ((wave - 5000) / 50) ** 2)
     model_flux = continuum * normalized
     observed_stream = BytesIO()
     np.savetxt(observed_stream, np.column_stack((wave, model_flux * 1e-20)))
@@ -71,10 +71,23 @@ def test_spectrum_pages_in_chromium(tmp_path):
         "grid": "bosz", "model_name": "bosz2024_ap_test", "spectrum_relpath": "test.npz",
         "teff_k": 8000, "log_g": 4, "z_over_zsun": 1, "vturb_km_s": 2,
         "atmosphere_family": "ap", "resolving_power": 2000,
-        "wavelength_min_angstrom": 1500, "wavelength_max_angstrom": 3000,
+        "wavelength_min_angstrom": 4000, "wavelength_max_angstrom": 7000,
         "available_arrays": json.dumps(["flux_lambda_cgs", "normalized_flux_candidate"]),
     }
     with (bosz_root / "models.csv").open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(row))
+        writer.writeheader()
+        writer.writerow(row)
+
+    phoenix_root = tmp_path / "phoenix"
+    phoenix_root.mkdir()
+    app.config["CMFGEN_VIEWER"]["phoenix_root"] = str(phoenix_root)
+    np.savez_compressed(phoenix_root / "test.npz", wavelength_angstrom=wave, flux_lambda_cgs=model_flux)
+    row.update(grid="phoenix", model_name="lte06000_test", atmosphere_family="phoenix_aces",
+               resolving_power=10000, vturb_km_s="", derived_vturb_km_s=1.73, interpolated="true",
+               fit_eligible="true", wavelength_convention="vacuum",
+               available_arrays=json.dumps(["flux_lambda_cgs"]))
+    with (phoenix_root / "models.csv").open("w", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=list(row))
         writer.writeheader()
         writer.writerow(row)

@@ -202,6 +202,56 @@ excluded from normalization. Per-model mask counts are recorded, and catalogue
 wavelength coverage excludes unusable edge samples. Non-finite source values
 or malformed arrays stop the import rather than silently dropping a model.
 
+## Local PHOENIX R10000 Import
+
+```bash
+python3 scripts/import_phoenix_spectra.py ~/tmp/grids/R10000FITS
+```
+
+Reads local `PHOENIX-ACES-AGSS-COND-2011_R10000FITS_Z*.zip` archives without
+extracting or modifying them. Output is `data/phoenix/` by default; use
+`--output-dir PATH` or `--workers N` (default four) as needed. Existing output
+is never overwritten; publication is atomic, with failed staging data removed.
+Generated CSV, manifest, and NPZ data are gitignored.
+
+The installed subset has 7,559 spectra: Teff 2300–12000 K, log g 0–6,
+[M/H] −4 to +1, and [alpha/M] = 0 (not every parameter combination exists).
+Each spectrum retains all 212,027 samples, spanning approximately 3000–25000 Å.
+The logarithmic sampling is ten points per resolution element, **not R=100000**:
+the actual product is broadened to R=10000, about 30 km/s FWHM.
+
+This product needs explicit convention handling, following
+[Husser et al. (2013)](https://arxiv.org/abs/1303.5632):
+
+- Wavelengths are `exp(CRVAL1 + (pixel - CRPIX1)*CDELT1)` in Å, using
+  one-based pixels and CRPIX1 = 1 when absent. The published **vacuum** convention
+  overrides these archives' misleading `AWAV-LOG` header; no air-to-vacuum shift
+  is applied. The source header and override are recorded in provenance.
+- Surface F-lambda per cm is multiplied by `1e-8 / (4*pi)` to store Eddington
+  H-lambda per Å, matching the existing TLUSTY/BOSZ convention.
+- The 51 `INTERPOL` spectra remain available and are labelled in fit results.
+  Missing BUNIT on these files uses the published product convention and is
+  flagged. Fractional microturbulence is retained as a **derived property**,
+  not treated as an independent fit axis or rounded to integer km/s.
+- Six spectra contain 144 negative samples in interior wavelength intervals.
+  Their data are retained unchanged apart from unit conversion, but those six
+  whole models are excluded from fitting; corrupt intervals are not bridged.
+  This leaves **7,553 eligible fitting models**. Source/member SHA-256 checksums
+  and per-model quality flags are recorded in `manifest.json` and `models.csv`.
+
+Use **Find Best PHOENIX Model** on an absolute-flux spectrum or photometry upload.
+There are no supplied continua, so normalized-spectrum fitting is disabled in
+the UI and rejected by the server. Absolute fits solve a free normalization;
+distance is not fitted. Photometry requires every enabled band to be covered,
+including any allowed redshift range (optical and JHKs can fit, UV/WISE cannot).
+The Gaussian broadening parameter adds to native broadening; use observed
+spectra at comparable or lower resolution and on a compatible vacuum axis.
+Progress, cancellation, confidence summaries, and best-fit overlays use the
+shared grid workflow. Model-name patterns such as `lte06000*` restrict searches.
+Full-grid fits use more CPU and storage than BOSZ; the installed NPZ grid is
+about 20.5 GB. Embedders can override
+`app.config["CMFGEN_VIEWER"]["phoenix_root"]`.
+
 ## Current Implementation Status
 
 ### Implemented

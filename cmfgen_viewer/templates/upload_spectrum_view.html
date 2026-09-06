@@ -195,7 +195,7 @@
     <section id="grid-fit" class="mb-4">
       <h3 class="h5 mb-2">Grid Fit</h3>
       <p class="small text-muted mb-2">
-        Run server-side fitting across cached CMFGEN models, TLUSTY grids, or BOSZ and select the model with the smallest residual.
+        Run server-side fitting across cached CMFGEN models, TLUSTY, BOSZ, or PHOENIX grids and select the model with the smallest residual.
       </p>
       <form
         id="grid-fit-form"
@@ -303,7 +303,7 @@
             >
             <span
               id="grid-fit-distance-fields"
-              class="d-inline-flex flex-wrap align-items-center gap-2{% if fit_source in ['tlusty', 'bosz'] %} d-none{% endif %}"
+              class="d-inline-flex flex-wrap align-items-center gap-2{% if fit_source in ['tlusty', 'bosz', 'phoenix'] %} d-none{% endif %}"
             >
               <label for="grid-fit-distance-min" class="small text-muted mb-0">distance (kpc)</label>
               <input
@@ -327,9 +327,9 @@
             </span>
             <span
               id="grid-fit-tlusty-scale-note"
-              class="small text-muted{% if fit_source not in ['tlusty', 'bosz'] %} d-none{% endif %}"
+              class="small text-muted{% if fit_source not in ['tlusty', 'bosz', 'phoenix'] %} d-none{% endif %}"
             >
-              TLUSTY/BOSZ absolute fits ignore distance and solve a free normalization per model. Photometry requires coverage of every enabled band.
+              TLUSTY/BOSZ/PHOENIX absolute fits ignore distance and solve a free normalization per model. Photometry requires coverage of every enabled band.
             </span>
           {% endif %}
           <button
@@ -353,12 +353,26 @@
           >
             Find Best BOSZ Model
           </button>
+          <button
+            type="submit"
+            class="btn btn-sm btn-outline-primary"
+            data-fit-source="phoenix"
+            {% if mode != 'both' %}disabled title="PHOENIX has no continua; absolute flux or photometry required"{% endif %}
+          >
+            Find Best PHOENIX Model
+          </button>
           <button id="grid-fit-cancel" type="button" class="btn btn-sm btn-outline-danger d-none">Stop Search</button>
         </div>
         <p id="grid-fit-bosz-resolution-note" class="small text-muted{% if fit_source != 'bosz' %} d-none{% endif %}">
           The installed BOSZ subset is already broadened to R=2000 (about 150 km/s FWHM).
           The fitted Gaussian broadening σ is additional to the native broadening; it cannot sharpen the grid.
           Use spectra at comparable or lower resolution. Full BOSZ filenames distinguish atmosphere families.
+        </p>
+        <p id="grid-fit-phoenix-resolution-note" class="small text-muted{% if fit_source != 'phoenix' and mode == 'both' %} d-none{% endif %}">
+          PHOENIX ACES: R=10000 (about 30 km/s FWHM), vacuum wavelengths 3000–25000 Å.
+          Gaussian broadening σ is additional to the native broadening; use spectra at comparable or lower resolution.
+          Absolute-flux spectra and photometry only: no continua are supplied for normalized fitting.
+          Models with negative flux are excluded. Grid-author interpolated spectra are retained and labelled in results.
         </p>
       </form>
 

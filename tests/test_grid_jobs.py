@@ -5,7 +5,7 @@ from cmfgen_viewer.job_store import JobStore
 
 
 @pytest.mark.parametrize("cancel", [False, True])
-@pytest.mark.parametrize("fit_source", ["cmfgen", "bosz"])
+@pytest.mark.parametrize("fit_source", ["cmfgen", "bosz", "phoenix"])
 def test_grid_worker_uses_injected_store_without_flask_context(monkeypatch, cancel, fit_source):
     store = JobStore(max_jobs=32)
     other_store = JobStore(max_jobs=32)

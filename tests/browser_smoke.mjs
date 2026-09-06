@@ -113,8 +113,16 @@ try {
   await waitFor('!document.getElementById("grid-fit-result").classList.contains("d-none")');
   assert(await evaluate('document.getElementById("grid-fit-result-body").textContent.includes("ATLAS9 plane-parallel")'));
   await waitFor('document.getElementById("upload-spectrum-plot").data.some(t=>t.meta?.plot_role==="grid_fit_best")');
+  await waitFor('!document.querySelector(\'[data-fit-source="phoenix"]\').disabled');
+  await evaluate('document.querySelector(\'[data-fit-source="phoenix"]\').click()');
+  await waitFor('document.getElementById("grid-fit-source").value === "phoenix"');
+  assert(await evaluate('!document.getElementById("grid-fit-phoenix-resolution-note").classList.contains("d-none")'));
+  await waitFor('!document.getElementById("grid-fit-result").classList.contains("d-none") && document.getElementById("grid-fit-result-body").textContent.includes("PHOENIX ACES")');
+  assert(await evaluate('document.getElementById("grid-fit-result-body").textContent.includes("Interpolated by PHOENIX authors")'));
+  assert(await evaluate('document.getElementById("grid-fit-result-body").textContent.includes("not a fit axis")'));
+  await waitFor('document.getElementById("upload-spectrum-plot").data.some(t=>t.meta?.plot_role==="grid_fit_best" && t.name.includes("lte06000"))');
   assert.deepEqual(errors, []);
-  console.log("Browser smoke passed: listing, parsed files, docs, spectrum controls, BOSZ submission, result metadata, and overlay.");
+  console.log("Browser smoke passed: listing, parsed files, docs, spectrum controls, BOSZ/PHOENIX submission, result metadata, and overlays.");
 } finally {
   if (socket) socket.close();
   browser.kill("SIGTERM");

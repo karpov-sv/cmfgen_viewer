@@ -89,7 +89,7 @@
   }
 
   function isNpzGrid(source) {
-    return source === "tlusty" || source === "bosz";
+    return source === "tlusty" || source === "bosz" || source === "phoenix";
   }
 
   function updateFitSourceUi(source) {
@@ -102,6 +102,10 @@
       tlustyScaleNote.classList.toggle("d-none", !hideDistance);
     }
     var boszNote = document.getElementById("grid-fit-bosz-resolution-note");
+    var phoenixNote = document.getElementById("grid-fit-phoenix-resolution-note");
+    if (phoenixNote) {
+      phoenixNote.classList.toggle("d-none", normalized !== "phoenix" && spectrumMode === "both");
+    }
     if (boszNote) {
       boszNote.classList.toggle("d-none", normalized !== "bosz");
     }
@@ -146,9 +150,9 @@
     if (vturb) {
       addSummaryLine(container, "vturb (km/s)", vturb);
     }
-    if (fitSourceFromModel(model) === "bosz" && model.grid_metadata) {
+    if (["bosz", "phoenix"].indexOf(fitSourceFromModel(model)) >= 0 && model.grid_metadata) {
       var metadata = model.grid_metadata;
-      var families = {ap: "ATLAS9 plane-parallel", mp: "MARCS plane-parallel", ms: "MARCS spherical"};
+      var families = {ap: "ATLAS9 plane-parallel", mp: "MARCS plane-parallel", ms: "MARCS spherical", phoenix_aces: "PHOENIX ACES"};
       addSummaryLine(container, "Atmosphere", families[metadata.atmosphere_family] || metadata.atmosphere_family || "unknown");
       if (metadata.resolving_power) {
         addSummaryLine(container, "Native resolving power", "R = " + metadata.resolving_power);
@@ -158,6 +162,13 @@
       }
       if (metadata.carbon_dex != null) {
         addSummaryLine(container, "[C/M]", formatParam(metadata.carbon_dex));
+      }
+      if (fitSourceFromModel(model) === "phoenix") {
+        addSummaryLine(container, "Wavelengths", "Vacuum");
+        addSummaryLine(container, "Grid spectrum", metadata.interpolated ? "Interpolated by PHOENIX authors" : "Computed atmosphere");
+        if (metadata.derived_vturb_km_s != null) {
+          addSummaryLine(container, "Derived vturb (km/s; not a fit axis)", formatParam(metadata.derived_vturb_km_s));
+        }
       }
     }
   }
@@ -386,6 +397,7 @@
   }
 
   function getFitSourceLabel(source) {
+    if (source === "phoenix") { return "PHOENIX grid"; }
     if (source === "bosz") { return "BOSZ grid"; }
     return source === "tlusty" ? "TLUSTY grid" : "CMFGEN grid";
   }
@@ -408,7 +420,8 @@
 
   function setSubmitButtonsDisabled(disabled) {
     for (var i = 0; i < submitButtons.length; i += 1) {
-      submitButtons[i].disabled = !!disabled;
+      submitButtons[i].disabled = !!disabled ||
+        (spectrumMode !== "both" && submitButtons[i].getAttribute("data-fit-source") === "phoenix");
     }
   }
 
