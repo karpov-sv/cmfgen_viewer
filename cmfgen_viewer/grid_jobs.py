@@ -15,6 +15,7 @@ from .grid_catalog import (
 )
 from .grid_config import (
     GRID_FIT_SOURCE_TLUSTY,
+    NPZ_GRID_FIT_SOURCES,
     _grid_fit_source_label,
     _normalize_grid_fit_source,
 )
@@ -137,7 +138,9 @@ def _run_upload_grid_search_job(
                 "top_models": top_models,
             }
             if tlusty_confidence:
-                result_payload["tlusty_confidence"] = tlusty_confidence
+                result_payload["grid_confidence"] = tlusty_confidence
+                if normalized_source == GRID_FIT_SOURCE_TLUSTY:
+                    result_payload["tlusty_confidence"] = tlusty_confidence
             store.update(
                 job_id,
                 status="canceled",
@@ -159,7 +162,7 @@ def _run_upload_grid_search_job(
         tlusty_confidence_profiles: dict[
             str, dict[int | float, dict[str, object]]
         ] | None = None
-        if normalized_source == GRID_FIT_SOURCE_TLUSTY:
+        if normalized_source in NPZ_GRID_FIT_SOURCES:
             tlusty_confidence_profiles = _empty_tlusty_confidence_profiles()
         started_at = time.time()
         worker_count = _resolve_grid_fit_pool_size(max_pool_size, total)
@@ -341,7 +344,9 @@ def _run_upload_grid_search_job(
             mode=mode,
         )
         if tlusty_confidence:
-            result_payload["tlusty_confidence"] = tlusty_confidence
+            result_payload["grid_confidence"] = tlusty_confidence
+            if normalized_source == GRID_FIT_SOURCE_TLUSTY:
+                result_payload["tlusty_confidence"] = tlusty_confidence
 
         store.update(
             job_id,

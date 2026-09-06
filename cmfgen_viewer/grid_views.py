@@ -14,9 +14,10 @@ from .grid_catalog import _discover_grid_fit_candidates
 from .grid_config import (
     GRID_FIT_SOURCE_CMFGEN,
     GRID_FIT_SOURCE_TLUSTY,
+    NPZ_GRID_FIT_SOURCES,
     _grid_fit_source_label,
     _normalize_grid_fit_source,
-    _tlusty_root,
+    _npz_grid_root,
 )
 from .grid_fitting import (
     _build_tlusty_model_series,
@@ -580,13 +581,17 @@ def _build_tlusty_overlay_trace(
     observed_min: float,
     observed_max: float,
 ) -> tuple[dict[str, object] | None, str | None]:
-    tlusty_root = _tlusty_root(config)
-    spectrum_relpath = str(model_entry.get("tlusty_spectrum_relpath", "")).strip().strip("/")
+    fit_source = _normalize_grid_fit_source(model_entry.get("fit_source", GRID_FIT_SOURCE_TLUSTY))
+    source_label = _grid_fit_source_label(fit_source)
+    tlusty_root = _npz_grid_root(config, fit_source)
+    spectrum_relpath = str(model_entry.get("spectrum_relpath", model_entry.get("tlusty_spectrum_relpath", ""))).strip().strip("/")
     if not spectrum_relpath:
-        return None, "Best-fit TLUSTY model is missing spectrum path metadata."
-    spectrum_path = tlusty_root / spectrum_relpath
-    continuum_relpath = str(model_entry.get("tlusty_continuum_relpath", "")).strip().strip("/")
-    continuum_path = (tlusty_root / continuum_relpath) if continuum_relpath else None
+        return None, f"Best-fit {source_label} model is missing spectrum path metadata."
+    spectrum_path = (tlusty_root / spectrum_relpath).resolve()
+    continuum_relpath = str(model_entry.get("continuum_relpath", model_entry.get("tlusty_continuum_relpath", ""))).strip().strip("/")
+    continuum_path = (tlusty_root / continuum_relpath).resolve() if continuum_relpath else None
+    if not spectrum_path.is_relative_to(tlusty_root) or (continuum_path and not continuum_path.is_relative_to(tlusty_root)):
+        return None, "Grid spectrum path is outside its configured root."
 
     model_x, model_y, series_error = _build_tlusty_model_series(
         mode=mode,
@@ -595,9 +600,9 @@ def _build_tlusty_overlay_trace(
         max_points=0,
     )
     if series_error:
-        return None, series_error
+        return None, series_error.replace("TLUSTY", source_label)
     if not isinstance(model_x, list) or not isinstance(model_y, list):
-        return None, "Could not prepare TLUSTY model series for overlay."
+        return None, f"Could not prepare {source_label} model series for overlay."
 
     transformed = apply_spectrum_transform(
         model_x,
@@ -610,7 +615,7 @@ def _build_tlusty_overlay_trace(
         normalization=fit_params.get("normalization", 1.0),
     )
     if transformed is None:
-        return None, "Could not transform TLUSTY model spectrum for overlay."
+        return None, f"Could not transform {source_label} model spectrum for overlay."
     transformed_x, transformed_y = transformed
 
     clipped_x: list[float] = []
@@ -629,7 +634,7 @@ def _build_tlusty_overlay_trace(
 
     clipped_x, clipped_y = downsample_xy(clipped_x, clipped_y, max_points=5000)
     if len(clipped_x) < 2 or len(clipped_y) < 2:
-        return None, "No transformed TLUSTY points overlap the observed wavelength range."
+        return None, f"No transformed {source_label} points overlap the observed wavelength range."
 
     rmse_raw = model_entry.get("rmse")
     rmse = float(rmse_raw) if isinstance(rmse_raw, int | float) and math.isfinite(float(rmse_raw)) else None
@@ -637,7 +642,7 @@ def _build_tlusty_overlay_trace(
     fin_name = str(model_entry.get("fin", ""))
     return (
         {
-            "fit_source": GRID_FIT_SOURCE_TLUSTY,
+            "fit_source": fit_source,
             "mode": mode,
             "model_name": str(model_entry.get("model_name", "")),
             "model_path": model_path,
@@ -697,7 +702,7 @@ def _build_upload_grid_overlay_trace(
     fit_params = _normalize_transform_params(fit_params_raw)
 
     fit_source = _normalize_grid_fit_source(model_entry.get("fit_source", GRID_FIT_SOURCE_CMFGEN))
-    if fit_source == GRID_FIT_SOURCE_TLUSTY:
+    if fit_source in NPZ_GRID_FIT_SOURCES:
         return _build_tlusty_overlay_trace(
             config=config,
             model_entry=model_entry,
@@ -956,7 +961,7 @@ def upload_fit_grid_match_count(token: str):
         mode=mode,
         fit_source=fit_source,
     )
-    if fit_source == GRID_FIT_SOURCE_TLUSTY:
+    if fit_source in NPZ_GRID_FIT_SOURCES:
         stored_name = str(entry.get("stored_name", ""))
         source_path = upload_root / token / stored_name if stored_name else None
         if source_path is None or not source_path.is_file():

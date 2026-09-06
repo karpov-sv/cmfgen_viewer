@@ -9,9 +9,12 @@ GRID_FIT_SOURCE_CMFGEN = "cmfgen"
 
 
 GRID_FIT_SOURCE_TLUSTY = "tlusty"
+GRID_FIT_SOURCE_BOSZ = "bosz"
+NPZ_GRID_FIT_SOURCES = {GRID_FIT_SOURCE_TLUSTY, GRID_FIT_SOURCE_BOSZ}
 
 
-GRID_FIT_SOURCE_VALUES = {GRID_FIT_SOURCE_CMFGEN, GRID_FIT_SOURCE_TLUSTY}
+GRID_FIT_SOURCE_VALUES = {GRID_FIT_SOURCE_CMFGEN, *NPZ_GRID_FIT_SOURCES}
+BOSZ_DEFAULT_ROOT = Path(__file__).resolve().parent.parent / "data" / "bosz"
 
 
 TLUSTY_DEFAULT_ROOT = (
@@ -100,9 +103,17 @@ def _grid_fit_source_label(source: str) -> str:
     normalized = _normalize_grid_fit_source(source)
     if normalized == GRID_FIT_SOURCE_TLUSTY:
         return "TLUSTY Grid"
+    if normalized == GRID_FIT_SOURCE_BOSZ:
+        return "BOSZ Grid"
     return "Cached CMFGEN Models"
 
 
 def _tlusty_root(config: dict[str, object]) -> Path:
     raw = str(config.get("tlusty_root", str(TLUSTY_DEFAULT_ROOT)))
     return Path(raw).expanduser().resolve()
+
+
+def _npz_grid_root(config: dict[str, object], source: str) -> Path:
+    if source == GRID_FIT_SOURCE_BOSZ:
+        return Path(str(config.get("bosz_root", BOSZ_DEFAULT_ROOT))).expanduser().resolve()
+    return _tlusty_root(config)

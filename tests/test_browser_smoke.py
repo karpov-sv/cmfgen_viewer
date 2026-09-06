@@ -1,6 +1,8 @@
 """Opt-in Chromium checks: CMFGEN_BROWSER_TESTS=1 python3 -m pytest -q -s tests/test_browser_smoke.py."""
 
 import os
+import csv
+import json
 import re
 import shutil
 import subprocess
@@ -9,6 +11,7 @@ from pathlib import Path
 from threading import Thread
 
 import pytest
+import numpy as np
 from werkzeug.serving import make_server
 
 from cmfgen_viewer.app import create_app
@@ -40,15 +43,41 @@ def test_spectrum_pages_in_chromium(tmp_path):
         for path in (obs / "obs_fin", obs / "obs_cont", model / "OBSFLUX"):
             path.write_text(contents, encoding="utf-8")
     upload_root = tmp_path / "uploads"
+    wave = np.linspace(1500, 3000, 201)
+    continuum = np.full(wave.size, 1e8)
+    normalized = 1 - 0.4 * np.exp(-0.5 * ((wave - 2100) / 50) ** 2)
+    model_flux = continuum * normalized
+    observed_stream = BytesIO()
+    np.savetxt(observed_stream, np.column_stack((wave, model_flux * 1e-20)))
+    observed_stream.seek(0)
     manifest = create_upload_bundle(
         upload_root,
         filename="observed.dat",
-        stream=BytesIO(b"1500 1e-12\n2000 2e-12\n2500 3e-12\n3000 2e-12\n"),
+        stream=observed_stream,
+        flux_mode="absolute",
     )
     app = create_app(
         basepath=str(tmp_path), upload_root=str(upload_root), fit_pool_size_max=1
     )
     app.config["CMFGEN_VIEWER"]["summary_cache_db"] = str(tmp_path / "summary.sqlite")
+    bosz_root = tmp_path / "bosz"
+    bosz_root.mkdir()
+    app.config["CMFGEN_VIEWER"]["bosz_root"] = str(bosz_root)
+    np.savez_compressed(
+        bosz_root / "test.npz", wavelength_angstrom=wave, flux_lambda_cgs=model_flux,
+        continuum_lambda_cgs=continuum, normalized_flux_candidate=normalized,
+    )
+    row = {
+        "grid": "bosz", "model_name": "bosz2024_ap_test", "spectrum_relpath": "test.npz",
+        "teff_k": 8000, "log_g": 4, "z_over_zsun": 1, "vturb_km_s": 2,
+        "atmosphere_family": "ap", "resolving_power": 2000,
+        "wavelength_min_angstrom": 1500, "wavelength_max_angstrom": 3000,
+        "available_arrays": json.dumps(["flux_lambda_cgs", "normalized_flux_candidate"]),
+    }
+    with (bosz_root / "models.csv").open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(row))
+        writer.writeheader()
+        writer.writerow(row)
 
     @app.route("/test-plotly.js")
     def local_plotly():

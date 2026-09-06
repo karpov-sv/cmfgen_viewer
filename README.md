@@ -149,6 +149,59 @@ Flux handling:
 - absolute photometry requires every enabled band to be covered, preventing partial UV/optical segments from competing with full-range TLUSTY SEDs;
 - normalized observed spectra are fitted against TLUSTY spectra normalized by matched continuum counterparts.
 
+## Local BOSZ Import
+
+Convert a downloaded BOSZ 2024 resampled subset into the same CSV/NPZ storage
+format, without downloading or resampling anything:
+
+```bash
+python3 scripts/import_bosz_spectra.py ~/tmp/grids/bosz
+```
+
+The source must contain `bosz2024_wave_r2000.txt` and matching
+`bosz2024_*_r2000_resam.txt.gz` files (subdirectories are supported). Use
+`--resolution N` for another downloaded resolution and `--output-dir PATH`
+to change the default `data/bosz/` destination.
+Conversion uses four workers by default (`--workers N` to change this).
+
+The importer writes `models.csv`, `manifest.json`, and one compressed NPZ per
+model. It preserves both the flux and continuum columns, adds their ratio for
+normalized fitting, and retains the published wavelength samples. Flux and
+continuum remain Eddington H-lambda in erg/s/cm²/Å, matching the TLUSTY storage
+convention; multiply by 4π when a physical surface flux is required.
+Atmosphere family (`ap`, `mp`, `ms`), metallicity, alpha/carbon abundance,
+microturbulence, and the existing instrumental resolving power are recorded
+in the catalogue. Full model names distinguish overlapping atmosphere families.
+Source checksums are retained, but filenames alone do not identify whether a
+download contains the publisher's corrected revision.
+
+An R=2000 import remains an R=2000 product, even though its sampling is finer
+than one resolution element. It is not a replacement for detailed TLUSTY line
+spectra. The imported catalogue remains separate from TLUSTY.
+
+In the upload viewer, click **Find Best BOSZ Model** to search the imported grid.
+Normalized spectra use the stored flux/continuum ratio; absolute spectra and
+photometry use a free normalization per model, with no distance parameter.
+Photometry candidates must cover every enabled band. Model-name patterns can
+select a subset, for example `*_ap_*` for ATLAS9 or `*_t8000_*` for 8000 K.
+The fit uses all native BOSZ samples. Its Gaussian broadening parameter is
+**additional** broadening, not the total instrumental width: an R=2000 input
+grid cannot fit narrower instrumental profiles by sharpening itself.
+Progress, cancellation, best-fit overlays, and parameter confidence summaries
+work as for the other grids. Results retain the atmosphere family and native
+resolving power. The default catalogue is `data/bosz/`; an application embedding
+the viewer can override `app.config["CMFGEN_VIEWER"]["bosz_root"]`.
+
+Existing output directories are never overwritten. The importer publishes the
+new directory only after all files validate and convert successfully; failed
+imports clean up their temporary output. Original downloads are never changed.
+Generated data are gitignored.
+Negative source fluxes are masked with NaN in fitting arrays, with their
+original values retained in `raw_flux_lambda_cgs`. Non-positive continua are
+excluded from normalization. Per-model mask counts are recorded, and catalogue
+wavelength coverage excludes unusable edge samples. Non-finite source values
+or malformed arrays stop the import rather than silently dropping a model.
+
 ## Current Implementation Status
 
 ### Implemented

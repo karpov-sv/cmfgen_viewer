@@ -10,6 +10,8 @@ from .grid_catalog import _cmfgen_fit_params_payload, _tlusty_fit_params_payload
 from .grid_config import (
     GRID_FIT_SOURCE_CMFGEN,
     GRID_FIT_SOURCE_TLUSTY,
+    GRID_FIT_SOURCE_BOSZ,
+    NPZ_GRID_FIT_SOURCES,
     TLUSTY_FIT_MAX_MODEL_POINTS,
     _normalize_grid_fit_source,
 )
@@ -366,7 +368,9 @@ def _fit_single_tlusty_candidate(
     mode: str,
     fit_bounds: dict[str, tuple[float, float]],
     should_cancel: object | None = None,
+    fit_source: str = GRID_FIT_SOURCE_TLUSTY,
 ) -> dict[str, object]:
+    """Fit either NPZ grid; retain the historical helper name for compatibility."""
     model_name = str(candidate.get("model_name", "")).strip()
     model_path = str(candidate.get("model_path", "")).strip()
     spectrum_relpath = str(candidate.get("spectrum_relpath", "")).strip()
@@ -383,12 +387,12 @@ def _fit_single_tlusty_candidate(
         mode=mode,
         spectrum_path=spectrum_path,
         continuum_path=continuum_path,
-        max_points=TLUSTY_FIT_MAX_MODEL_POINTS,
+        max_points=0 if fit_source == GRID_FIT_SOURCE_BOSZ else TLUSTY_FIT_MAX_MODEL_POINTS,
     )
     if build_error or not isinstance(model_x, list) or not isinstance(model_y, list):
         return {"status": "failed"}
 
-    tlusty_params_raw = candidate.get("tlusty_params")
+    tlusty_params_raw = candidate.get("grid_params", candidate.get("tlusty_params"))
     if isinstance(tlusty_params_raw, dict):
         tlusty_params = _tlusty_fit_params_payload(tlusty_params_raw)
     else:
@@ -495,7 +499,7 @@ def _fit_single_tlusty_candidate(
     return {
         "status": "success",
         "item": {
-            "fit_source": GRID_FIT_SOURCE_TLUSTY,
+            "fit_source": fit_source,
             "model_name": model_name,
             "model_path": model_path,
             "fin": fin_label,
@@ -521,10 +525,16 @@ def _fit_single_tlusty_candidate(
                 "distance_kpc": 1.0,
                 "normalization": float(best_params.get("normalization", 1.0)),
             },
-            "tlusty_spectrum_relpath": spectrum_relpath,
-            "tlusty_continuum_relpath": continuum_relpath,
-            "tlusty_grid": str(candidate.get("grid", "")),
-            "tlusty_params": tlusty_params,
+            "spectrum_relpath": spectrum_relpath,
+            "continuum_relpath": continuum_relpath,
+            "grid_params": tlusty_params,
+            "grid_metadata": dict(candidate.get("grid_metadata") or {}),
+            **({
+                "tlusty_spectrum_relpath": spectrum_relpath,
+                "tlusty_continuum_relpath": continuum_relpath,
+                "tlusty_grid": str(candidate.get("grid", "")),
+                "tlusty_params": tlusty_params,
+            } if fit_source == GRID_FIT_SOURCE_TLUSTY else {}),
         },
     }
 
@@ -540,13 +550,14 @@ def _fit_single_grid_candidate(
     lambda_max: float,
     should_cancel: object | None = None,
 ) -> dict[str, object]:
-    if _normalize_grid_fit_source(fit_source) == GRID_FIT_SOURCE_TLUSTY:
+    if _normalize_grid_fit_source(fit_source) in NPZ_GRID_FIT_SOURCES:
         return _fit_single_tlusty_candidate(
             candidate=candidate,
             observed=observed,
             mode=mode,
             fit_bounds=fit_bounds,
             should_cancel=should_cancel,
+            fit_source=_normalize_grid_fit_source(fit_source),
         )
     return _fit_single_cmfgen_candidate(
         candidate=candidate,

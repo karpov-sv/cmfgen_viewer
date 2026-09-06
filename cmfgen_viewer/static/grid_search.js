@@ -85,17 +85,25 @@
 
   function fitSourceFromModel(model) {
     var source = String(model && model.fit_source || "").trim().toLowerCase();
-    return source === "tlusty" ? "tlusty" : "cmfgen";
+    return isNpzGrid(source) ? source : "cmfgen";
+  }
+
+  function isNpzGrid(source) {
+    return source === "tlusty" || source === "bosz";
   }
 
   function updateFitSourceUi(source) {
-    var normalized = source === "tlusty" ? "tlusty" : "cmfgen";
-    var hideDistance = spectrumMode === "both" && normalized === "tlusty";
+    var normalized = isNpzGrid(source) ? source : "cmfgen";
+    var hideDistance = spectrumMode === "both" && isNpzGrid(normalized);
     if (distanceFields) {
       distanceFields.classList.toggle("d-none", hideDistance);
     }
     if (tlustyScaleNote) {
       tlustyScaleNote.classList.toggle("d-none", !hideDistance);
+    }
+    var boszNote = document.getElementById("grid-fit-bosz-resolution-note");
+    if (boszNote) {
+      boszNote.classList.toggle("d-none", normalized !== "bosz");
     }
   }
 
@@ -103,7 +111,7 @@
     if (!model || typeof model !== "object") {
       return null;
     }
-    var params = model.tlusty_params;
+    var params = model.grid_params || model.tlusty_params;
     if (!params || typeof params !== "object") {
       return null;
     }
@@ -119,7 +127,7 @@
   }
 
   function addTlustySummaryLines(container, model) {
-    if (!container || fitSourceFromModel(model) !== "tlusty") {
+    if (!container || !isNpzGrid(fitSourceFromModel(model))) {
       return;
     }
     var teff = formatTlustyParam(model, "teff_k");
@@ -137,6 +145,20 @@
     }
     if (vturb) {
       addSummaryLine(container, "vturb (km/s)", vturb);
+    }
+    if (fitSourceFromModel(model) === "bosz" && model.grid_metadata) {
+      var metadata = model.grid_metadata;
+      var families = {ap: "ATLAS9 plane-parallel", mp: "MARCS plane-parallel", ms: "MARCS spherical"};
+      addSummaryLine(container, "Atmosphere", families[metadata.atmosphere_family] || metadata.atmosphere_family || "unknown");
+      if (metadata.resolving_power) {
+        addSummaryLine(container, "Native resolving power", "R = " + metadata.resolving_power);
+      }
+      if (metadata.alpha_dex != null) {
+        addSummaryLine(container, "[alpha/M]", formatParam(metadata.alpha_dex));
+      }
+      if (metadata.carbon_dex != null) {
+        addSummaryLine(container, "[C/M]", formatParam(metadata.carbon_dex));
+      }
     }
   }
 
@@ -185,7 +207,7 @@
     if (ebvText) {
       addSummaryLine(container, "E(B-V)", ebvText);
     }
-    if (fitSourceFromModel(model) === "tlusty") {
+    if (isNpzGrid(fitSourceFromModel(model))) {
       var normalizationText = formatNormalization(params && params.normalization);
       if (normalizationText) {
         addSummaryLine(container, "normalization", normalizationText);
@@ -259,12 +281,10 @@
   }
 
   function renderTlustyConfidenceSummary(container, result, best) {
-    if (!container || fitSourceFromModel(best) !== "tlusty") {
+    if (!container || !isNpzGrid(fitSourceFromModel(best))) {
       return;
     }
-    var confidence = result && result.tlusty_confidence && typeof result.tlusty_confidence === "object"
-      ? result.tlusty_confidence
-      : null;
+    var confidence = result && (result.grid_confidence || result.tlusty_confidence);
     if (!confidence) {
       return;
     }
@@ -359,19 +379,20 @@
       return "cmfgen";
     }
     var source = String(fitSourceInput.value || "").trim().toLowerCase();
-    if (source !== "tlusty") {
+    if (!isNpzGrid(source)) {
       source = "cmfgen";
     }
     return source;
   }
 
   function getFitSourceLabel(source) {
+    if (source === "bosz") { return "BOSZ grid"; }
     return source === "tlusty" ? "TLUSTY grid" : "CMFGEN grid";
   }
 
   function setSelectedFitSource(source) {
     var normalized = String(source || "").trim().toLowerCase();
-    if (normalized !== "tlusty") {
+    if (!isNpzGrid(normalized)) {
       normalized = "cmfgen";
     }
     if (fitSourceInput) {
@@ -756,7 +777,7 @@
     var table = document.createElement("table");
     table.className = "table table-sm table-striped mb-0";
     var thead = document.createElement("thead");
-    var includeTlustyColumns = fitSourceFromModel(best) === "tlusty";
+    var includeTlustyColumns = isNpzGrid(fitSourceFromModel(best));
     var includeCmfgenColumns = fitSourceFromModel(best) === "cmfgen";
     if (includeTlustyColumns) {
       thead.innerHTML = "<tr><th>Model</th><th>RMSE</th><th>Points</th><th>Spectrum</th><th>Teff (K)</th><th>log g</th><th>Z/Zsun</th><th>vturb (km/s)</th></tr>";
@@ -952,7 +973,7 @@
         var failed = asFiniteNumber(payload.failed, 0);
         var status = String(payload.status || "");
         var fitSource = String(payload.fit_source || "").trim().toLowerCase();
-        if (fitSource !== "tlusty") {
+        if (!isNpzGrid(fitSource)) {
           fitSource = "cmfgen";
         }
         var fitSourceLabel = String(payload.fit_source_label || getFitSourceLabel(fitSource));
@@ -1185,7 +1206,7 @@
     var initialJobId = String(initialActiveJob.job_id || "");
     if (initialJobId) {
       var initialSource = String(initialActiveJob.fit_source || "").trim().toLowerCase();
-      if (initialSource !== "tlusty") {
+      if (!isNpzGrid(initialSource)) {
         initialSource = "cmfgen";
       }
       var initialSourceLabel = String(initialActiveJob.fit_source_label || getFitSourceLabel(initialSource));

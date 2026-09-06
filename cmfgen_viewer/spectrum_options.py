@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 
-from .grid_config import GRID_FIT_SOURCE_TLUSTY, _normalize_grid_fit_source
+from .grid_config import NPZ_GRID_FIT_SOURCES, _normalize_grid_fit_source
 from .model_summary import _parse_summary_float
 from .parsers.common import format_number
 from .spectrum_constants import (
@@ -105,7 +105,7 @@ def _normalize_fit_bounds(
     defaults = spectrum_fit_bounds(mode)
     if (
         mode == "both"
-        and _normalize_grid_fit_source(fit_source) == GRID_FIT_SOURCE_TLUSTY
+        and _normalize_grid_fit_source(fit_source) in NPZ_GRID_FIT_SOURCES
     ):
         defaults.pop("distance_kpc", None)
     values = params or {}

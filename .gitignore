@@ -14,4 +14,6 @@ model_summary_cache.sqlite-shm
 model_summary_cache.sqlite-wal
 data/tlusty/
 data/tlusly/
+data/bosz/
+data/.bosz-import-*/
 models/

@@ -100,8 +100,21 @@ try {
   await evaluate('var input = document.getElementById("upload-spectrum-plot-xscale"); input.value = "linear"; input.dispatchEvent(new Event("change"))');
   await waitFor('document.getElementById("upload-spectrum-plot").layout.xaxis.type === "linear"');
   assert(await evaluate('!!document.querySelector("#grid-fit-form")'));
+  await evaluate(`for (const param of ["redshift", "broadening_km_s", "ebv"]) {
+    for (const side of ["min", "max"]) {
+      const input = document.querySelector('[name="fit_' + param + '_' + side + '"]');
+      if (input) input.value = "0";
+    }
+  }
+  document.querySelector('[data-fit-source="bosz"]').click();`);
+  await waitFor('document.getElementById("grid-fit-source").value === "bosz"');
+  assert(await evaluate('!document.getElementById("grid-fit-bosz-resolution-note").classList.contains("d-none")'));
+  assert(await evaluate('document.getElementById("grid-fit-tlusty-scale-note").classList.contains("d-none") === false'));
+  await waitFor('!document.getElementById("grid-fit-result").classList.contains("d-none")');
+  assert(await evaluate('document.getElementById("grid-fit-result-body").textContent.includes("ATLAS9 plane-parallel")'));
+  await waitFor('document.getElementById("upload-spectrum-plot").data.some(t=>t.meta?.plot_role==="grid_fit_best")');
   assert.deepEqual(errors, []);
-  console.log("Browser smoke passed: listing, parsed files, docs, single/bulk/upload plots, transforms, axes, resize, reset, visibility.");
+  console.log("Browser smoke passed: listing, parsed files, docs, spectrum controls, BOSZ submission, result metadata, and overlay.");
 } finally {
   if (socket) socket.close();
   browser.kill("SIGTERM");
