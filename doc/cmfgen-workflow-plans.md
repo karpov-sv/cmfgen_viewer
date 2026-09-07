@@ -1,6 +1,6 @@
 # Workflow Safety and Dry-Run Plans
 
-The viewer supports stage-specific preflight and read-only workflow plans as groundwork for a future Python runner. It does **not** launch, stop, supervise, or automatically advance calculations. Existing terminal commands and shell scripts remain responsible for execution.
+The viewer supports stage-specific preflight and read-only workflow plans. It does **not** launch, stop, supervise, or automatically advance calculations. Execution remains external to the app, using existing terminal commands or the separate [standalone Python runner](cmfgen-standalone-runner.md).
 
 ## Active-run guards
 
@@ -51,4 +51,4 @@ Refresh after external work: preflight and plans are snapshots. Existing live ru
 
 ## Python runner boundary
 
-`workflow_plan.py` defines stage contracts independently of Flask routes; `workflow_preflight.py` supplies read-only checks; `model_activity.py` owns cooperative mutation guards. A future runner can use the contracts as a starting point, but must first replace opaque shell stages with explicit operations and add fail-fast execution, process-group ownership, exit-status validation, per-pass artifacts, immutable run records, and recovery. No plan-execution endpoint exists yet.
+`workflow_plan.py` defines stage contracts independently of Flask routes; `workflow_preflight.py` supplies read-only checks; `model_activity.py` owns cooperative mutation guards. The separate `runner_recipe.py` and `runner.py` implement explicit, reviewed ostar operations, bounded child execution, validation, and per-pass journals. The runner does not execute the viewer's opaque workflow plans. See [Standalone CMFGEN Runner](cmfgen-standalone-runner.md) for its supported subset and limitations. No plan-execution endpoint exists yet.

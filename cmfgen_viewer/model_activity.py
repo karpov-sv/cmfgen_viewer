@@ -39,7 +39,7 @@ def inspect_model_activity(model_dir: Path, *, proc_root: Path = Path("/proc")) 
         entries = []
         uncertainties.append("Process visibility is unavailable; cannot establish that the model is idle.")
     for entry in entries:
-        if not entry.name.isdigit():
+        if not entry.name.isdigit() or int(entry.name) == os.getpid():
             continue
         try:
             arguments = entry.joinpath("cmdline").read_bytes().decode(errors="replace").split("\0")
@@ -88,7 +88,7 @@ def model_mutation_guard(model_dir: Path, error_type=ValueError):
         activity = inspect_model_activity(root)
         if not activity["safe_to_modify"]:
             raise error_type(activity["reason"])
-        yield
+        yield descriptor
     except OSError as exc:
         raise error_type(f"Could not safely lock or update the model: {exc}") from exc
     finally:
