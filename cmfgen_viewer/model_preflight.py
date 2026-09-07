@@ -332,6 +332,8 @@ def _validate_rvsig(
     model_dir: Path,
     *,
     nd: int | None,
+    rmax: float | None,
+    vinf: float | None,
     required: bool,
     issues: list[dict[str, object]],
 ) -> None:
@@ -353,6 +355,8 @@ def _validate_rvsig(
     declared: int | None = None
     declared_line: int | None = None
     row_indices: list[int] = []
+    row_radii: list[float] = []
+    row_velocities: list[float] = []
     try:
         with path.open("r", encoding="utf-8", errors="replace") as handle:
             for line_number, line in enumerate(handle, start=1):
@@ -368,8 +372,11 @@ def _validate_rvsig(
                 tokens = stripped.split()
                 if len(tokens) not in {4, 5} or not INTEGER_RE.fullmatch(tokens[-1]):
                     continue
-                if all(parse_float_token(token) is not None for token in tokens[:-1]):
+                numeric_values = [parse_float_token(token) for token in tokens[:-1]]
+                if all(value is not None for value in numeric_values):
                     row_indices.append(int(tokens[-1]))
+                    row_radii.append(float(numeric_values[0]))
+                    row_velocities.append(float(numeric_values[1]))
     except OSError as exc:
         issues.append(
             _issue(
@@ -429,6 +436,31 @@ def _validate_rvsig(
                 file=relative_name,
             )
         )
+    if rmax is not None and len(row_radii) >= 2 and row_radii[-1] > 0:
+        generated_rmax = row_radii[0] / row_radii[-1]
+        tolerance = 0.1 * abs(row_radii[0] - row_radii[1]) / row_radii[-1]
+        if not math.isfinite(generated_rmax) or abs(generated_rmax - rmax) > tolerance:
+            issues.append(
+                _issue(
+                    "error",
+                    "structure-radius-ratio-mismatch",
+                    f"RVSIG_COL has an inner-to-outer radius ratio of {generated_rmax:.10g}, "
+                    f"while VADAT [RMAX] is {rmax:.10g}.",
+                    file=relative_name,
+                )
+            )
+    if vinf is not None and row_velocities and row_velocities[0] != 0:
+        outer_velocity = row_velocities[0]
+        if vinf > 0.1 and abs(outer_velocity - vinf) / abs(outer_velocity) > 0.1:
+            issues.append(
+                _issue(
+                    "error",
+                    "structure-terminal-velocity-mismatch",
+                    f"RVSIG_COL has an outer-grid velocity of {outer_velocity:.10g} km/s, "
+                    f"while VADAT [VINF] is {vinf:.10g} km/s; CMFGEN allows at most a 10% difference.",
+                    file=relative_name,
+                )
+            )
 
 
 def _validate_spectrum_controls(
@@ -648,16 +680,22 @@ def inspect_model_preflight(model_dir: Path) -> dict[str, object]:
         _validate_booleans(in_its, file="IN_ITS", issues=issues)
 
     vadat = controls.get("VADAT", {})
+    rmax = None
+    vinf = None
     if "VADAT" in controls:
         _validate_booleans(vadat, file="VADAT", issues=issues)
         for key in POSITIVE_VADAT_CONTROLS:
-            _numeric_control(
+            value = _numeric_control(
                 vadat,
                 key,
                 file="VADAT",
                 issues=issues,
                 positive=True,
             )
+            if key == "RMAX":
+                rmax = value
+            elif key == "VINF":
+                vinf = value
         do_cl_matches = vadat.get("DO_CL", [])
         if len(do_cl_matches) == 1 and str(do_cl_matches[0]["value"]).upper() == "T":
             clumping_count = _integer_control(
@@ -693,6 +731,8 @@ def inspect_model_preflight(model_dir: Path) -> dict[str, object]:
     _validate_rvsig(
         model_dir,
         nd=nd,
+        rmax=rmax,
+        vinf=vinf,
         required=uses_rvsig or (model_dir / "lte").is_dir(),
         issues=issues,
     )

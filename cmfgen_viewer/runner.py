@@ -19,7 +19,7 @@ from .model_activity import model_mutation_guard
 from .parsers.common import parse_float_token
 from .runner_config import resolve_runner_config
 from .runner_recipe import RunnerError, build_run_plan, override_controls, snapshot
-from .runner_validation import validate_rvtj_core
+from .runner_validation import validate_rosseland_table, validate_rvsig_structure, validate_rvtj_core
 from .runner_restart import RESTART_FILES, observe_startup
 from .runner_output import TerminalOutput
 
@@ -90,69 +90,76 @@ def _stop(process):
 
 def _validate(stage, cwd, before):
     required = {"main": ("MOD_SUM", "RVTJ", "MODEL"), "init": ("RVTJ", "MODEL"),
-                "lte": ("ROSSELAND_LTE_TAB",), "flux": ("OBSFRAME",)}[stage]
+                "lte": ("ROSSELAND_LTE_TAB",), "hydro": ("RVSIG_COL_NEW",),
+                "flux": ("OBSFRAME",)}[stage]
     problems = []
+    fresh_outputs = {}
     for name in required:
         current = snapshot(cwd / name)
-        if not current["exists"] or not current.get("size") or current == before.get(name):
+        fresh_outputs[name] = bool(
+            current["exists"] and current.get("size") and current != before.get(name)
+        )
+        if not fresh_outputs[name]:
             problems.append(f"Missing, empty, or unchanged output: {name}")
     if stage in {"main", "init"}:
-        if stage == "main" and "Model Finalized on:" not in _tail(cwd / "MOD_SUM"):
+        if (
+            stage == "main"
+            and fresh_outputs["MOD_SUM"]
+            and "Model Finalized on:" not in _tail(cwd / "MOD_SUM")
+        ):
             problems.append("Missing CMFGEN finalization record")
-        try:
-            validate_rvtj_core(cwd / "RVTJ", cwd / "MODEL_SPEC", finite_all=stage == "main")
-            # NUM_ITS=0 does not compute opacity/radiation diagnostics or write
-            # MOD_SUM. Its acceptance covers only initialized core vectors.
-        except (OSError, ValueError, UnicodeError) as exc:
-            problems.append(f"Invalid RVTJ: {exc}")
+        if fresh_outputs["RVTJ"]:
+            try:
+                validate_rvtj_core(cwd / "RVTJ", cwd / "MODEL_SPEC", finite_all=stage == "main")
+                # NUM_ITS=0 does not compute opacity/radiation diagnostics or write
+                # MOD_SUM. Its acceptance covers only initialized core vectors.
+            except (OSError, ValueError, UnicodeError) as exc:
+                problems.append(f"Invalid RVTJ: {exc}")
     elif stage == "flux":
         if "CMF_FLUX has finished" not in _tail(cwd / "OUT_FLUX"):
             problems.append("Missing native CMF_FLUX completion marker")
-        try:
-            text = (cwd / "OBSFRAME").read_text()
-            arrays = []
-            for heading in ("Continuum Frequencies", "Observed intensity (Janskys)"):
-                matches = list(re.finditer(r"^[ \t]*" + re.escape(heading) + r"[ \t]*(?:\([ \t]*(\d+)[ \t]*\))?[ \t]*\n", text, re.I | re.M))
-                if len(matches) != 1:
-                    raise ValueError(f"Missing or duplicate {heading} vector")
-                match = matches[0]
-                if not arrays and match[1] is None:
-                    raise ValueError("Missing continuum frequency count")
-                expected_count = int(match[1]) if match[1] is not None else len(arrays[0])
-                numbers = []
-                for token in text[match.end():].split():
-                    number = parse_float_token(token)
-                    if number is None:
-                        break
-                    numbers.append(number)
-                if len(numbers) != expected_count or len(numbers) < 2 or not all(math.isfinite(x) for x in numbers):
-                    raise ValueError(f"Truncated/nonfinite {heading} vector")
-                arrays.append(numbers)
-            if len(arrays[0]) != len(arrays[1]) or any(x <= 0 for x in arrays[0]):
-                raise ValueError("Invalid spectrum dimensions/frequencies")
-        except Exception as exc:
-            problems.append(f"Spectrum could not be parsed: {exc}")
+        if fresh_outputs["OBSFRAME"]:
+            try:
+                text = (cwd / "OBSFRAME").read_text()
+                arrays = []
+                for heading in ("Continuum Frequencies", "Observed intensity (Janskys)"):
+                    matches = list(re.finditer(r"^[ \t]*" + re.escape(heading) + r"[ \t]*(?:\([ \t]*(\d+)[ \t]*\))?[ \t]*\n", text, re.I | re.M))
+                    if len(matches) != 1:
+                        raise ValueError(f"Missing or duplicate {heading} vector")
+                    match = matches[0]
+                    if not arrays and match[1] is None:
+                        raise ValueError("Missing continuum frequency count")
+                    expected_count = int(match[1]) if match[1] is not None else len(arrays[0])
+                    numbers = []
+                    for token in text[match.end():].split():
+                        number = parse_float_token(token)
+                        if number is None:
+                            break
+                        numbers.append(number)
+                    if len(numbers) != expected_count or len(numbers) < 2 or not all(math.isfinite(x) for x in numbers):
+                        raise ValueError(f"Truncated/nonfinite {heading} vector")
+                    arrays.append(numbers)
+                if len(arrays[0]) != len(arrays[1]) or any(x <= 0 for x in arrays[0]):
+                    raise ValueError("Invalid spectrum dimensions/frequencies")
+            except Exception as exc:
+                problems.append(f"Spectrum could not be parsed: {exc}")
+    elif stage == "lte":
+        if fresh_outputs["ROSSELAND_LTE_TAB"]:
+            try:
+                validate_rosseland_table(cwd / "ROSSELAND_LTE_TAB")
+            except (OSError, ValueError, UnicodeError) as exc:
+                problems.append(f"Invalid Rosseland table: {exc}")
     else:
-        text = _tail(cwd / "ROSSELAND_LTE_TAB", 16*1024*1024)
-        temperatures = re.search(r"(\d+)\s+!Number of temperatures", text)
-        densities = re.search(r"(\d+)\s+!Number of densities", text)
-        rows = []
-        for line in text.splitlines():
-            parts = line.split()
-            if len(parts) == 8:
-                try:
-                    rows.append([float(x.replace("D", "E")) for x in parts])
-                except ValueError:
-                    pass
-        if not temperatures or not densities or len(rows) != int(temperatures[1])*int(densities[1]):
-            problems.append("Rosseland table dimensions do not match complete rows")
-        if not rows or not all(math.isfinite(x) and x >= 0 for row in rows for x in row):
-            problems.append("Rosseland table contains invalid values")
+        if fresh_outputs["RVSIG_COL_NEW"]:
+            try:
+                validate_rvsig_structure(cwd / "RVSIG_COL_NEW", cwd / "MODEL_SPEC")
+            except (OSError, ValueError, UnicodeError) as exc:
+                problems.append(f"Invalid hydro structure: {exc}")
     return problems
 
 
 def _progress(stage, cwd):
-    filename = "OUTGEN" if stage in {"main", "init"} else "OUTLTE" if stage == "lte" else "OUT_FLUX"
+    filename = "OUTGEN" if stage in {"main", "init"} else "OUTLTE" if stage == "lte" else "WIND_HYD" if stage == "hydro" else "OUT_FLUX"
     text = _tail(cwd / filename, 128*1024)
     if stage == "lte":
         total = re.findall(r"Number of frequencies is\s+(\d+)", text)
@@ -163,6 +170,12 @@ def _progress(stage, cwd):
         counters = re.findall(r"Current great iteration count is\s+(\d+)", text)
         if counters:
             return {"phase": "iteration", "current": int(counters[-1])}
+    elif stage == "hydro":
+        text = _tail(cwd / "RVSIG_COL_NEW", 512*1024)
+        expected = re.search(r"^\s*(\d+)\s*!\s*Number of depth points", text, re.M | re.I)
+        indices = re.findall(r"^\s*\S+\s+\S+\s+\S+\s+\S+\s+(\d+)\s*$", text, re.M)
+        if expected and indices:
+            return {"phase": "output depth", "current": int(indices[-1]), "total": int(expected[1])}
     elif stage == "flux":
         counters = re.findall(r"LS loop\s*(\d+)\s+is finished", text)
         if counters:
@@ -255,8 +268,12 @@ def run_plan(plan: dict, emit=None) -> dict:
                 pass_dir.mkdir()
                 previous = pass_dir / "before"
                 previous.mkdir()
-                logs = ("OUTGEN", "WARNINGS") if stage in {"main", "init"} else ("OUTLTE", "ML_COUNTER") if stage == "lte" else ("OUT_FLUX",)
-                products = ("MOD_SUM", "RVTJ", "MODEL") if stage in {"main", "init"} else ("ROSSELAND_LTE_TAB",) if stage == "lte" else ("OBSFRAME",)
+                logs = (("OUTGEN", "WARNINGS") if stage in {"main", "init"} else
+                        ("OUTLTE", "ML_COUNTER") if stage == "lte" else
+                        ("WIND_HYD",) if stage == "hydro" else ("OUT_FLUX",))
+                products = (("MOD_SUM", "RVTJ", "MODEL") if stage in {"main", "init"} else
+                            ("ROSSELAND_LTE_TAB",) if stage == "lte" else
+                            ("RVSIG_COL_NEW",) if stage == "hydro" else ("OBSFRAME",))
                 retired = (*logs, *plan.get("cache_files", []))
                 native_names = tuple(dict.fromkeys((*retired, *products, "TIMING", "OUT_PARAMS")))
                 for name in native_names:
@@ -284,7 +301,14 @@ def run_plan(plan: dict, emit=None) -> dict:
                     record["problems"] = ["Execution budget exhausted before launch"]
                     event("stage_finished", stage=step["id"], status="timeout", problems=record["problems"])
                     break
-                input_handle = (cwd / "IN_FILE").open("rb") if stage == "flux" else subprocess.DEVNULL
+                if stage == "flux":
+                    input_handle = (cwd / "IN_FILE").open("rb")
+                elif stage == "hydro":
+                    input_path = pass_dir / "stdin.txt"
+                    input_path.write_text(step["stdin"]["text"])
+                    input_handle = input_path.open("rb")
+                else:
+                    input_handle = subprocess.DEVNULL
                 try:
                     with (pass_dir / "process.log").open("wb") as output:
                         process = subprocess.Popen([sys.executable, str(Path(__file__).with_name("runner_child.py")), plan["executable"], str(plan["memory_mib"])],
@@ -307,6 +331,8 @@ def run_plan(plan: dict, emit=None) -> dict:
                 finally:
                     if input_handle != subprocess.DEVNULL:
                         input_handle.close()
+                if stage == "hydro":
+                    _publish(pass_dir / "process.log", cwd / "WIND_HYD")
                 problems = _validate(stage, cwd, before)
                 diagnostic = "\n".join(_tail(cwd / name, 64*1024) for name in logs) + "\n" + _tail(pass_dir / "process.log", 64*1024)
                 startup_warnings = []
@@ -381,7 +407,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description="Bounded CMFGEN runner (reviewed ostar recipes; no Flask or shell execution)")
     parser.add_argument("action", choices=("plan", "run"))
     parser.add_argument("model", type=Path)
-    parser.add_argument("--stage", choices=tuple(("init", "main", "lte", "flux")), default="init")
+    parser.add_argument("--stage", choices=tuple(("init", "main", "lte", "hydro", "flux")), default="init")
     parser.add_argument("--cmfgen-root", type=Path, help="Installation root (default: CMFDIST or .cmfgenrc)")
     parser.add_argument("--atomic-root", type=Path, help="Atomic data root (default: ATOMIC or .cmfgenrc)")
     parser.add_argument("--threads", "--nthreads", type=int, help="Thread count (default: OMP_NUM_THREADS, .cmfgenrc nthreads, or 1)")

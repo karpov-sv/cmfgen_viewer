@@ -13,8 +13,8 @@ def _write_valid_model(root: Path) -> Path:
     (model / "batch.sh").chmod(0o755)
     (model / "VADAT").write_text(
         "1.0 [RSTAR]\n"
-        "10.0 [RMAX]\n"
-        "1000.0 [VINF]\n"
+        "2.0 [RMAX]\n"
+        "3.0 [VINF]\n"
         "1.0E+05 [LSTAR]\n"
         "20.0 [MASS]\n"
         "3.0 [TEFF]\n"
@@ -97,6 +97,28 @@ def test_selected_rvsig_grid_must_match_model_spec_and_rows(tmp_path: Path) -> N
 
     assert report["blocking"] is True
     assert {"structure-grid-mismatch", "structure-row-count"}.issubset(_codes(report))
+
+
+def test_selected_rvsig_radius_ratio_must_match_vadat(tmp_path: Path) -> None:
+    model = _write_valid_model(tmp_path)
+    contents = (model / "VADAT").read_text(encoding="utf-8")
+    (model / "VADAT").write_text(contents.replace("2.0 [RMAX]", "10.0 [RMAX]"), encoding="utf-8")
+
+    report = inspect_model_preflight(model)
+
+    assert report["blocking"] is True
+    assert "structure-radius-ratio-mismatch" in _codes(report)
+
+
+def test_selected_rvsig_outer_velocity_must_match_vinf(tmp_path: Path) -> None:
+    model = _write_valid_model(tmp_path)
+    contents = (model / "VADAT").read_text(encoding="utf-8")
+    (model / "VADAT").write_text(contents.replace("3.0 [VINF]", "1000.0 [VINF]"), encoding="utf-8")
+
+    report = inspect_model_preflight(model)
+
+    assert report["blocking"] is True
+    assert "structure-terminal-velocity-mismatch" in _codes(report)
 
 
 def test_spectrum_control_ranges_are_checked_and_file_is_editable(tmp_path: Path) -> None:

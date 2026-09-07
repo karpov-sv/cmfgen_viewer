@@ -109,7 +109,7 @@ def model_lte_hydro(source_path: str):
             if action == "promote":
                 if request.form.get("results_checked") != "1":
                     raise ModelWorkflowError(
-                        "Confirm that RVSIG_COL_NEW has the intended luminosity and VADAT contains the final RMAX."
+                        "Confirm that RVSIG_COL_NEW has the intended luminosity and radius ratio."
                     )
                 result = promote_lte_hydro_results(basepath, model_relpath=source_path)
                 try:
@@ -128,7 +128,10 @@ def model_lte_hydro(source_path: str):
                     url_for(
                         "viewer.model_lte_hydro",
                         source_path=source_path,
-                        message=f"Results promoted; previous files are in {result['backup_relpath']}.",
+                        message=(
+                            f"Results promoted with RMAX={result['synchronized_rmax']:.10g}; "
+                            f"previous files and invalidated main state are in {result['backup_relpath']}."
+                        ),
                     )
                 )
             abort(400)

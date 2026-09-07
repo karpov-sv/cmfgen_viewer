@@ -18,6 +18,14 @@ from cmfgen_viewer.model_workflow import (
 )
 
 
+GENERATED_RVSIG = (
+    "! Ratio of inner to outer radius is: 2.0\n"
+    "2 ! Number of depth points\n"
+    "2.0 3.0 4.0 5.0 1\n"
+    "1.0 2.0 3.0 4.0 2\n"
+)
+
+
 def _write_model(root: Path, name: str = "model_a") -> Path:
     model = root / name
     model.mkdir(parents=True)
@@ -48,7 +56,7 @@ def _make_outputs_fresh(model: Path) -> None:
     )
     (lte / "ROSSELAND_LTE_TAB").write_text("rosseland new\n", encoding="utf-8")
     os.utime(lte / "ROSSELAND_LTE_TAB", ns=(latest_input + 1_000_000, latest_input + 1_000_000))
-    (lte / "RVSIG_COL_NEW").write_text("structure new\n", encoding="utf-8")
+    (lte / "RVSIG_COL_NEW").write_text(GENERATED_RVSIG, encoding="utf-8")
     os.utime(lte / "RVSIG_COL_NEW", ns=(latest_input + 2_000_000, latest_input + 2_000_000))
 
 
@@ -372,20 +380,49 @@ def test_stale_outputs_are_blocked_and_fresh_results_are_promoted_with_backups(t
 
     _make_outputs_fresh(model)
     (model / "ROSSELAND_LTE_TAB").write_text("old table\n", encoding="utf-8")
+    stale_state = {
+        "POINT1": "old pointer\n",
+        "SCRTEMP": "old scratch\n",
+        "MODEL": "old model\n",
+        "RVTJ": "old atmosphere\n",
+        "MOD_SUM": "old summary\n",
+        "EDDFACTOR_INFO": "old 70-point cache metadata\n",
+    }
+    for name, contents in stale_state.items():
+        (model / name).write_text(contents, encoding="utf-8")
     promoted = promote_lte_hydro_results(str(tmp_path), model_relpath="model_a")
     assert promoted["promoted"] is True
+    assert promoted["synchronized_rmax"] == 2.0
+    assert set(promoted["invalidated_files"]) == set(stale_state)
     assert (model / "ROSSELAND_LTE_TAB").read_text(encoding="utf-8") == "rosseland new\n"
-    assert (model / "RVSIG_COL").read_text(encoding="utf-8") == "structure new\n"
-    assert (model / "RVSIG_COL_NEW").read_text(encoding="utf-8") == "structure new\n"
+    assert (model / "RVSIG_COL").read_text(encoding="utf-8") == GENERATED_RVSIG
+    assert (model / "RVSIG_COL_NEW").read_text(encoding="utf-8") == GENERATED_RVSIG
+    assert "2" in (model / "VADAT").read_text(encoding="utf-8").split("[RMAX]")[0].splitlines()[-1]
+    assert (model / "VADAT").read_bytes() == (model / "lte" / "VADAT").read_bytes()
+    assert not any((model / name).exists() for name in stale_state)
     backup = model / str(promoted["backup_relpath"])
     assert (backup / "RVSIG_COL").read_text(encoding="utf-8") == "original RVSIG_COL\n"
     assert (backup / "ROSSELAND_LTE_TAB").read_text(encoding="utf-8") == "old table\n"
+    for name, contents in stale_state.items():
+        assert (backup / name).read_text(encoding="utf-8") == contents
+    assert "[RMAX]" not in (backup / "lte" / "VADAT").read_text(encoding="utf-8")
     assert (model / MODEL_INPUT_MODIFIED_MARKER).is_file()
     app = create_app(basepath=str(tmp_path), read_write_enabled=True, secret_key="test")
     app.testing = True
     handoff = app.test_client().get("/model-actions/lte-hydro/model_a")
     assert b"Continue to Main Computation" in handoff.data
     assert b'/model-actions/main-computation/model_a' in handoff.data
+
+
+def test_promotion_requires_generated_radius_ratio(tmp_path: Path) -> None:
+    model = _write_model(tmp_path)
+    _write_templates(tmp_path)
+    prepare_lte_hydro_workspace(str(tmp_path), model_relpath="model_a")
+    _make_outputs_fresh(model)
+    (model / "lte" / "RVSIG_COL_NEW").write_text("structure without header\n", encoding="utf-8")
+
+    with pytest.raises(ModelWorkflowError, match="radius ratio"):
+        promote_lte_hydro_results(str(tmp_path), model_relpath="model_a")
 
 
 def test_workflow_page_never_runs_processes_and_guards_read_only_mode(

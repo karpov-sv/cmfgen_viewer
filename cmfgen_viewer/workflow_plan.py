@@ -159,7 +159,7 @@ def build_workflow_plan(basepath: str, *, model_relpath: str, scope: str, config
     if scope == "lte-hydro":
         steps.append({"id": "review-promote", "kind": "filesystem", "depends_on": ["hydro"],
                       "ready": state["promotion_ready"], "approval_required": True,
-                      "validation": ["No active process in the model tree", "Fresh LTE/hydro outputs, no fatal diagnostics", "User reviewed luminosity and final RMAX"],
+                      "validation": ["No active process in the model tree", "Fresh LTE/hydro outputs, no fatal diagnostics", "User reviewed luminosity and generated radius ratio"],
                       "changes": [{"action": "backup_then_atomic_copy", "source": f"lte/{source}", "destination": target}
                                   for source, target in (("ROSSELAND_LTE_TAB", "ROSSELAND_LTE_TAB"),
                                                          ("RVSIG_COL_NEW", "RVSIG_COL_NEW"), ("RVSIG_COL_NEW", "RVSIG_COL"), ("VADAT", "VADAT"))]

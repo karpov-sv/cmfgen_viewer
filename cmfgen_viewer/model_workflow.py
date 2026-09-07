@@ -38,6 +38,24 @@ ROOT_OPTIONAL_INPUTS = ("RVSIG_COL",)
 LTE_INPUTS = ("VADAT", "MODEL_SPEC", "clean.sh", "GRID_PARAMS", "ltebat.sh", "HYDRO_PARAMS")
 LTE_OUTPUT = "ROSSELAND_LTE_TAB"
 HYDRO_OUTPUT = "RVSIG_COL_NEW"
+MAIN_STATE_FILES = (
+    "POINT1",
+    "POINT2",
+    "SCRTEMP",
+    "NEW_POINT1",
+    "NEW_POINT2",
+    "NEW_SCRTEMP",
+    "MODEL",
+    "RVTJ",
+    "MOD_SUM",
+    "EDDFACTOR",
+    "EDDFACTOR_INFO",
+    "ES_J_CONV",
+    "ES_J_CONV_INFO",
+    "J_COMP",
+    "MEANOPAC",
+    "TRANS_INFO",
+)
 LTE_QUICK_CONTROLS: dict[str, tuple[dict[str, str], ...]] = {
     "VADAT": (
         {
@@ -276,14 +294,11 @@ def _comparison_row(
     }
 
 
-def _rvsig_result_summary(lte_dir: Path) -> dict[str, object] | None:
-    rvsig = lte_dir / HYDRO_OUTPUT
-    if not _regular_file(rvsig):
-        return None
+def _rvsig_generated_values(rvsig: Path) -> tuple[dict[str, float], dict[str, tuple[str, str]]]:
     try:
         contents = rvsig.read_text(encoding="utf-8", errors="replace")
     except OSError:
-        return None
+        return {}, {}
     generated: dict[str, float] = {}
     metadata: dict[str, tuple[str, str]] = {}
     for key, label, pattern, unit in RVSIG_SUMMARY_PATTERNS:
@@ -299,6 +314,14 @@ def _rvsig_result_summary(lte_dir: Path) -> dict[str, object] | None:
     if depth_match is not None:
         generated["depth_points"] = float(depth_match.group(1))
         metadata["depth_points"] = ("Depth points", "")
+    return generated, metadata
+
+
+def _rvsig_result_summary(lte_dir: Path) -> dict[str, object] | None:
+    rvsig = lte_dir / HYDRO_OUTPUT
+    if not _regular_file(rvsig):
+        return None
+    generated, metadata = _rvsig_generated_values(rvsig)
 
     hydro = _control_numeric_values(lte_dir / "HYDRO_PARAMS")
     vadat = _control_numeric_values(lte_dir / "VADAT")
@@ -753,6 +776,26 @@ def _atomic_copy(source: Path, destination: Path) -> None:
                 pass
 
 
+def _atomic_write(destination: Path, contents: bytes, mode: int) -> None:
+    temporary: Path | None = None
+    try:
+        descriptor, name = tempfile.mkstemp(prefix=".cmfgen-promote-", dir=str(destination.parent))
+        temporary = Path(name)
+        with os.fdopen(descriptor, "wb") as target_handle:
+            target_handle.write(contents)
+            target_handle.flush()
+            os.fsync(target_handle.fileno())
+        temporary.chmod(mode)
+        os.replace(temporary, destination)
+        temporary = None
+    finally:
+        if temporary is not None:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
 def promote_lte_hydro_results(basepath: str, *, model_relpath: str) -> dict[str, object]:
     with MODEL_WRITE_LOCK, model_mutation_guard(_resolve_model(basepath, model_relpath)[1], ModelWorkflowError):
         state = inspect_lte_hydro_workflow(basepath, model_relpath=model_relpath)
@@ -762,36 +805,78 @@ def promote_lte_hydro_results(basepath: str, *, model_relpath: str) -> dict[str,
             )
         model_dir = Path(str(state["model_path"]))
         lte_dir = model_dir / "lte"
+        lte_vadat = lte_dir / "VADAT"
+        generated, _metadata = _rvsig_generated_values(lte_dir / HYDRO_OUTPUT)
+        generated_rmax = generated.get("radius_ratio")
+        if generated_rmax is None or generated_rmax <= 0:
+            raise ModelWorkflowError(
+                "RVSIG_COL_NEW does not report a valid inner-to-outer radius ratio."
+            )
+        try:
+            lte_vadat_contents = lte_vadat.read_text(encoding="utf-8", errors="strict")
+            lte_vadat_info = lte_vadat.stat()
+        except (OSError, UnicodeError) as exc:
+            raise ModelWorkflowError(f"Could not read lte/VADAT before promotion: {exc}") from exc
+        synchronized_vadat = _updated_control_contents(
+            lte_vadat_contents,
+            "VADAT",
+            {"RMAX": f"{generated_rmax:.12g}"},
+            definitions_by_file=RESULT_QUICK_CONTROLS,
+            marker_label="hydro result promotion",
+        ).encode("utf-8")
         sources = {
             "ROSSELAND_LTE_TAB": lte_dir / "ROSSELAND_LTE_TAB",
             "RVSIG_COL_NEW": lte_dir / "RVSIG_COL_NEW",
             "RVSIG_COL": lte_dir / "RVSIG_COL_NEW",
             "VADAT": lte_dir / "VADAT",
         }
-        for name in sources:
+        for name in (*sources, *MAIN_STATE_FILES):
             if (model_dir / name).is_symlink():
-                raise ModelWorkflowError(f"Refusing to replace symlinked model target: {name}")
+                raise ModelWorkflowError(f"Refusing to modify symlinked model target: {name}")
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
         backup_dir = model_dir / MODEL_EDITOR_BACKUP_DIR / "lte-hydro" / timestamp
         original_names: set[str] = set()
         replaced_names: list[str] = []
+        invalidated_names: list[str] = []
         try:
             backup_dir.mkdir(parents=True, exist_ok=False)
+            (backup_dir / "lte").mkdir()
+            shutil.copy2(lte_vadat, backup_dir / "lte" / "VADAT")
             for name in sources:
                 target = model_dir / name
                 if _regular_file(target):
                     original_names.add(name)
                     shutil.copy2(target, backup_dir / name)
+            for name in MAIN_STATE_FILES:
+                target = model_dir / name
+                if target.exists() and not _regular_file(target):
+                    raise ModelWorkflowError(f"Refusing to invalidate non-regular model target: {name}")
+                if _regular_file(target):
+                    shutil.copy2(target, backup_dir / name)
+            _atomic_write(
+                lte_vadat,
+                synchronized_vadat,
+                stat.S_IMODE(lte_vadat_info.st_mode),
+            )
+            os.utime(
+                lte_vadat,
+                ns=(lte_vadat_info.st_atime_ns, lte_vadat_info.st_mtime_ns),
+            )
             for name, source in sources.items():
                 _atomic_copy(source, model_dir / name)
                 replaced_names.append(name)
+            for name in MAIN_STATE_FILES:
+                target = model_dir / name
+                if _regular_file(target):
+                    target.unlink()
+                    invalidated_names.append(name)
             backup_relpath = backup_dir.relative_to(model_dir).as_posix()
             mark_model_inputs_modified(
                 model_dir,
                 file_relpath="LTE/hydro promoted outputs",
                 backup_relpath=backup_relpath,
             )
-        except (OSError, shutil.Error, ModelEditorError) as exc:
+        except (OSError, shutil.Error, ModelEditorError, ModelWorkflowError) as exc:
             for name in reversed(replaced_names):
                 target = model_dir / name
                 try:
@@ -801,7 +886,22 @@ def promote_lte_hydro_results(basepath: str, *, model_relpath: str) -> dict[str,
                         target.unlink(missing_ok=True)
                 except OSError:
                     pass
+            for name in invalidated_names:
+                try:
+                    _atomic_copy(backup_dir / name, model_dir / name)
+                except OSError:
+                    pass
+            try:
+                _atomic_copy(backup_dir / "lte" / "VADAT", lte_vadat)
+                os.utime(
+                    lte_vadat,
+                    ns=(lte_vadat_info.st_atime_ns, lte_vadat_info.st_mtime_ns),
+                )
+            except OSError:
+                pass
             raise ModelWorkflowError(f"Could not promote LTE/hydro results: {exc}") from exc
     result = inspect_lte_hydro_workflow(basepath, model_relpath=model_relpath)
     result["backup_relpath"] = backup_relpath
+    result["invalidated_files"] = invalidated_names
+    result["synchronized_rmax"] = generated_rmax
     return result

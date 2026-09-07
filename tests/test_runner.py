@@ -7,7 +7,7 @@ import pytest
 
 from cmfgen_viewer import runner_recipe
 from cmfgen_viewer.runner import run_plan, _validate
-from cmfgen_viewer.runner_recipe import RunnerError, build_run_plan, override_controls
+from cmfgen_viewer.runner_recipe import RunnerError, build_run_plan, override_controls, snapshot
 
 
 RVTJ_CORE = "ND: 2\nRadius\n2 1\nVelocity\n20 10\nTemperature\n1 2\nElectron density\n1e10 2e10\n"
@@ -38,10 +38,11 @@ def workspace(tmp_path, monkeypatch):
     (tmp_path / "atomic/test.dat").write_text("data")
     (tmp_path / "cmf/exe").mkdir(parents=True)
     def make_plan(code=SUCCESS, **options):
-        exe = tmp_path / "cmf/exe/cmfgen_dev.exe"
+        stage = options.pop("stage", "init")
+        exe = tmp_path / "cmf/exe" / runner_recipe.PROGRAMS[stage]
         exe.write_text(f"#!{sys.executable}\n" + code)
         exe.chmod(0o755)
-        return build_run_plan(model, stage=options.pop("stage", "init"), cmfgen_root=tmp_path / "cmf", atomic_root=tmp_path / "atomic", **options)
+        return build_run_plan(model, stage=stage, cmfgen_root=tmp_path / "cmf", atomic_root=tmp_path / "atomic", **options)
     return model, make_plan
 
 
@@ -265,6 +266,19 @@ def test_finalized_main_with_nan_is_rejected(workspace):
     assert any("RVTJ" in message for message in result["passes"][0]["problems"])
 
 
+def test_unchanged_rvtj_is_not_parsed_as_a_new_output(workspace):
+    model, _make_plan = workspace
+    (model / "MOD_SUM").write_text("Model Finalized on: old\n")
+    (model / "RVTJ").write_text("ND: 11\ninvalid old state\n")
+    (model / "MODEL").write_text("old model\n")
+    before = {name: snapshot(model / name) for name in ("MOD_SUM", "RVTJ", "MODEL")}
+
+    problems = _validate("main", model, before)
+
+    assert "Missing, empty, or unchanged output: RVTJ" in problems
+    assert not any(problem.startswith("Invalid RVTJ:") for problem in problems)
+
+
 def test_main_without_override_does_not_rewrite_control(workspace):
     model, make_plan = workspace
     plan = make_plan()
@@ -307,6 +321,99 @@ def test_lte_executes_in_its_workspace_and_checks_its_controls(workspace, monkey
     assert not (lte / "IN_ITS").exists()
     (lte / "MODEL_SPEC").write_text("2 [ND]\n1 [NC]\n4 [NP]\n")
     assert not build_run_plan(model, **options)["ready"]
+
+
+def test_hydro_runs_after_lte_with_generated_noninteractive_input(workspace):
+    model, make_plan = workspace
+    lte = model / "lte"
+    lte.mkdir()
+    (lte / "MODEL_SPEC").write_text("2 [ND]\n1 [NC]\n3 [NP]\n")
+    (lte / "HYDRO_PARAMS").write_text("F [OLD_MOD]\n")
+    (lte / "ROSSELAND_LTE_TAB").write_text(
+        "1 !Number of temperatures\n1 !Number of densities\n1 2 3 4 5 6 7 8\n"
+    )
+    (lte / "inherited_atomic").symlink_to(model.parent / "atomic/test.dat")
+    code = """
+from pathlib import Path
+import sys
+assert sys.stdin.read().splitlines() == ['/null', 'e', '2', '']
+Path('RVSIG_COL_NEW').write_text('''2 !Number of depth points
+2.0 20.0 -0.5 0.1 1
+1.0 10.0 0.5 100.0 2
+''')
+print('hydro completed')
+"""
+    plan = make_plan(code, stage="hydro")
+    assert plan["ready"], plan["errors"]
+    assert plan["passes"][0]["stdin"]["output_depth_points"] == 2
+    assert not plan["links"]
+    assert "inherited_atomic" in plan["permitted_links"]
+    result = run_plan(plan)
+    assert result["status"] == "succeeded", result
+    assert (lte / "WIND_HYD").read_text().strip() == "hydro completed"
+    archive = Path(result["journal"]) / "hydro"
+    assert (archive / "stdin.txt").read_text() == "/null\ne\n2\n\n"
+    assert (archive / "RVSIG_COL_NEW").is_file()
+    assert (archive / "WIND_HYD").is_file()
+
+
+def test_hydro_rejects_missing_or_invalid_lte_handoff(workspace):
+    model, make_plan = workspace
+    lte = model / "lte"
+    lte.mkdir()
+    (lte / "MODEL_SPEC").write_text("2 [ND]\n")
+    (lte / "HYDRO_PARAMS").write_text("F [OLD_MOD]\n")
+    missing = make_plan(stage="hydro")
+    assert not missing["ready"]
+    assert any("ROSSELAND_LTE_TAB" in error for error in missing["errors"])
+
+    (lte / "ROSSELAND_LTE_TAB").write_text("invalid\n")
+    invalid = make_plan(stage="hydro")
+    assert not invalid["ready"]
+    assert any("Invalid hydro input ROSSELAND_LTE_TAB" in error for error in invalid["errors"])
+
+
+def test_hydro_old_model_requires_and_selects_lte_rvtj(workspace):
+    model, make_plan = workspace
+    lte = model / "lte"
+    lte.mkdir()
+    (lte / "MODEL_SPEC").write_text("2 [ND]\n")
+    (lte / "HYDRO_PARAMS").write_text("T [OLD_MOD]\n")
+    (lte / "ROSSELAND_LTE_TAB").write_text(
+        "1 !Number of temperatures\n1 !Number of densities\n1 2 3 4 5 6 7 8\n"
+    )
+    missing = make_plan(stage="hydro")
+    assert not missing["ready"]
+    assert any("RVTJ" in error for error in missing["errors"])
+
+    (lte / "RVTJ").write_text(RVTJ_CORE)
+    plan = make_plan(stage="hydro")
+    assert plan["ready"], plan["errors"]
+    assert plan["passes"][0]["stdin"]["structure_file"] == "RVTJ"
+    assert plan["passes"][0]["stdin"]["text"].startswith("RVTJ\n/null\ne\n")
+
+
+def test_hydro_rejects_unrelated_or_output_symlinks(workspace, tmp_path):
+    model, make_plan = workspace
+    lte = model / "lte"
+    lte.mkdir()
+    (lte / "MODEL_SPEC").write_text("2 [ND]\n")
+    (lte / "HYDRO_PARAMS").write_text("F [OLD_MOD]\n")
+    (lte / "ROSSELAND_LTE_TAB").write_text(
+        "1 !Number of temperatures\n1 !Number of densities\n1 2 3 4 5 6 7 8\n"
+    )
+    external = tmp_path / "external"
+    external.write_text("keep")
+    (lte / "unexpected").symlink_to(external)
+    plan = make_plan(stage="hydro")
+    assert not plan["ready"]
+    assert any("unexpected" in error for error in plan["errors"])
+
+    (lte / "unexpected").unlink()
+    (lte / "RVSIG_COL_NEW").symlink_to(external)
+    output_plan = make_plan(stage="hydro")
+    assert not output_plan["ready"]
+    assert any("RVSIG_COL_NEW" in error for error in output_plan["errors"])
 
 
 @pytest.mark.parametrize("fail_first", [False, True])

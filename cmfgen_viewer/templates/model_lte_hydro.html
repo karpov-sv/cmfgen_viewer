@@ -241,10 +241,10 @@
           </div>
         {% endif %}
         {% if state.promotion_ready %}
-          <p class="small">Promotion copies <code>ROSSELAND_LTE_TAB</code>, <code>RVSIG_COL_NEW</code>, <code>RVSIG_COL</code>, and <code>VADAT</code> to the model root. Existing targets are checkpointed first.</p>
+          <p class="small">Promotion synchronizes <code>VADAT [RMAX]</code> from the generated radius ratio, copies <code>ROSSELAND_LTE_TAB</code>, <code>RVSIG_COL_NEW</code>, <code>RVSIG_COL</code>, and <code>VADAT</code> to the model root, and invalidates old main checkpoints and solution files. Everything replaced or invalidated is checkpointed first.</p>
           <form method="post">
             <input type="hidden" name="action" value="promote">
-            <div class="form-check mb-2"><input class="form-check-input" id="results-checked" type="checkbox" name="results_checked" value="1"><label class="form-check-label" for="results-checked">I checked the luminosity in RVSIG_COL_NEW and placed the final radius ratio in VADAT [RMAX].</label></div>
+            <div class="form-check mb-2"><input class="form-check-input" id="results-checked" type="checkbox" name="results_checked" value="1"><label class="form-check-label" for="results-checked">I checked the luminosity and radius ratio reported by RVSIG_COL_NEW.</label></div>
             <button class="btn btn-danger" type="submit">Promote Results</button>
           </form>
         {% else %}<p class="text-muted mb-0">Fresh LTE and hydro outputs are required. Files are considered stale when older than their relevant inputs.</p>{% endif %}

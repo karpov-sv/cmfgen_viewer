@@ -15,7 +15,7 @@ from .control_files import control_occurrences
 from .model_activity import inspect_model_activity
 from .model_preflight import inspect_model_preflight
 from .parsers.common import parse_float_token
-from .runner_validation import validate_rvtj_core
+from .runner_validation import validate_rosseland_table, validate_rvtj_core
 from .runner_restart import RESTART_FILES, inspect_restart
 
 
@@ -30,7 +30,8 @@ REVIEWED_SCRIPTS = {
     "obs/bat_ins.sh": {"95c167e47d7e3419b045832f0743237e4aae8bdf8121f3bfefc4dfa60fafb40f"},
     "lte/ltebat.sh": {"0591cd72fd414cc1835547e20c283f07287c41ed7a75bdef9e545cd63a4c9fad"},
 }
-PROGRAMS = {"main": "cmfgen_dev.exe", "init": "cmfgen_dev.exe", "lte": "main_lte.exe", "flux": "cmf_flux.exe"}
+PROGRAMS = {"main": "cmfgen_dev.exe", "init": "cmfgen_dev.exe", "lte": "main_lte.exe",
+            "hydro": "wind_hyd.exe", "flux": "cmf_flux.exe"}
 # Observer passes use different grids/profiles. The legacy script discards
 # these scratch caches between passes; archive them instead, including before
 # the first pass so reruns cannot consume caches from an earlier invocation.
@@ -100,7 +101,7 @@ def _links(script: Path, atomic: Path, *, links_only=False) -> list[dict]:
 def build_run_plan(model: Path, *, stage: str, cmfgen_root: Path, atomic_root: Path,
                    threads=1, timeout=120.0, memory_mib=4096, iterations=None, fresh_start=False) -> dict:
     if stage not in PROGRAMS:
-        raise RunnerError("Supported stages: init, main, lte, flux (hydro remains manual)")
+        raise RunnerError("Supported stages: init, main, lte, hydro, flux")
     if threads < 1 or memory_mib < 128 or not math.isfinite(timeout) or timeout <= 0:
         raise RunnerError("Require positive threads/timeout and at least 128 MiB memory")
     if iterations is not None and (iterations < 1 or stage != "main"):
@@ -110,7 +111,7 @@ def build_run_plan(model: Path, *, stage: str, cmfgen_root: Path, atomic_root: P
     model, cmfgen_root, atomic_root = (p.expanduser().resolve() for p in (model, cmfgen_root, atomic_root))
     if not model.is_dir() or not (model / "VADAT").is_file() or not (model / "MODEL_SPEC").is_file():
         raise RunnerError("Not a model workspace")
-    cwd = model / stage if stage == "lte" else model / "obs" if stage == "flux" else model
+    cwd = model / "lte" if stage in {"lte", "hydro"} else model / "obs" if stage == "flux" else model
     errors, warnings = [], []
     restart = inspect_restart(model, fresh_start=fresh_start) if stage in {"main", "init"} else None
     continuing = restart is not None and restart["mode"] == "continuation"
@@ -130,13 +131,25 @@ def build_run_plan(model: Path, *, stage: str, cmfgen_root: Path, atomic_root: P
         errors.append(f"Workspace is not writable: {cwd}")
     if shutil.disk_usage(model).free < 1024**3:
         errors.append("Runner requires at least 1 GiB free; actual scratch requirements may be larger")
-    scripts = ["batch.sh"] + (["obs/batobs.sh", "obs/bat_ins.sh"] if stage == "flux" else ["lte/ltebat.sh"] if stage == "lte" else [])
+    scripts = [] if stage == "hydro" else ["batch.sh"] + (
+        ["obs/batobs.sh", "obs/bat_ins.sh"] if stage == "flux" else ["lte/ltebat.sh"] if stage == "lte" else []
+    )
     for name in scripts:
         path = model / name
         if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() not in REVIEWED_SCRIPTS[name]:
             errors.append(f"Unreviewed script recipe: {name}; no automatic shell fallback")
+    hydro_controls = control_occurrences((cwd / "HYDRO_PARAMS").read_text()) if stage == "hydro" and (cwd / "HYDRO_PARAMS").is_file() else {}
+    old_model = False
+    if stage == "hydro":
+        rows = hydro_controls.get("OLD_MOD", [])
+        if len(rows) != 1 or rows[0]["value"].upper() not in {"T", "F"}:
+            errors.append("Hydro requires exactly one boolean [OLD_MOD] in HYDRO_PARAMS")
+        else:
+            old_model = rows[0]["value"].upper() == "T"
     required = (["VADAT", "MODEL_SPEC", "IN_ITS"] + ([] if continuing else ["GAMMAS_IN", "He2_IN"])) if stage in {"main", "init"} else (
-        ["VADAT", "MODEL_SPEC", "GRID_PARAMS"] if stage == "lte" else ["CMF_FLUX_PARAM_INIT", "IN_FILE", "../RVTJ", "../MODEL", "../MODEL_SPEC"])
+        ["VADAT", "MODEL_SPEC", "GRID_PARAMS"] if stage == "lte" else
+        ["HYDRO_PARAMS", "ROSSELAND_LTE_TAB", "MODEL_SPEC"] + (["RVTJ"] if old_model else []) if stage == "hydro" else
+        ["CMF_FLUX_PARAM_INIT", "IN_FILE", "../RVTJ", "../MODEL", "../MODEL_SPEC"])
     for name in required:
         path = cwd / name
         if not path.is_file() or not path.stat().st_size:
@@ -155,7 +168,7 @@ def build_run_plan(model: Path, *, stage: str, cmfgen_root: Path, atomic_root: P
                 continue
             (errors if issue["severity"] == "error" else warnings).append(issue["message"])
     links = []
-    if not any("Unreviewed" in error for error in errors):
+    if stage != "hydro" and not any("Unreviewed" in error for error in errors):
         try:
             links = _links(model / "batch.sh", atomic_root) + _links(model / "batch_ins.sh", atomic_root, links_only=True)
             if stage == "flux":
@@ -182,6 +195,24 @@ def build_run_plan(model: Path, *, stage: str, cmfgen_root: Path, atomic_root: P
                 valid = number is not None and math.isfinite(number) and (key != "TEFF" or number > 0)
             if not valid:
                 errors.append(f"Missing, duplicate, or invalid LTE [{key}]")
+    elif stage == "hydro":
+        try:
+            nd_rows = controls["ND"]
+            hydro_nd = int(nd_rows[0]["value"])
+            if len(nd_rows) != 1 or hydro_nd < 1:
+                raise ValueError()
+        except (KeyError, IndexError, ValueError):
+            hydro_nd = None
+            errors.append("Hydro requires exactly one positive integer [ND] in lte/MODEL_SPEC")
+        table = cwd / "ROSSELAND_LTE_TAB"
+        if table.is_file():
+            try:
+                validate_rosseland_table(table)
+            except (OSError, ValueError, UnicodeError) as exc:
+                errors.append(f"Invalid hydro input ROSSELAND_LTE_TAB: {exc}. Rerun the LTE stage.")
+            dependencies = [cwd / name for name in ("VADAT", "MODEL_SPEC", "GRID_PARAMS") if (cwd / name).is_file()]
+            if dependencies and table.stat().st_mtime_ns < max(path.stat().st_mtime_ns for path in dependencies):
+                errors.append("ROSSELAND_LTE_TAB predates an LTE input; rerun the LTE stage before hydro.")
     active = set()
     for key, rows in controls.items():
         if not key.endswith(("_ISF", "_NSF")):
@@ -217,6 +248,20 @@ def build_run_plan(model: Path, *, stage: str, cmfgen_root: Path, atomic_root: P
     if stage in {"main", "init"} and not continuing:
         kept.append({"name": "T_IN", "target": str(model / "He2_IN"), "source": "recipe"})
     permitted_links = seen | {"T_IN"} | {Path(name).name for name in required}
+    if stage == "hydro" and cwd.is_dir():
+        # The preceding LTE stage leaves its atomic links in this shared
+        # workspace. wind_hyd does not use them, but they are known read-only
+        # residue when they still resolve inside the configured atomic root.
+        for path in cwd.iterdir():
+            if not path.is_symlink() or path.name in {"WIND_HYD", "RVSIG_COL_NEW"}:
+                continue
+            try:
+                target = path.resolve(strict=True)
+                inherited = target.is_file() and target.is_relative_to(atomic_root)
+            except OSError:
+                inherited = False
+            if inherited:
+                permitted_links.add(path.name)
     if cwd.is_dir():
         for path in cwd.iterdir():
             if path.is_symlink() and path.name not in permitted_links:
@@ -238,6 +283,14 @@ def build_run_plan(model: Path, *, stage: str, cmfgen_root: Path, atomic_root: P
             else:
                 warnings.append(f"Optional [{key}] absent; leaving native default (continuum disables Sobolev EWs)")
         passes.append({"id": "continuum", "overrides": continuum, "output": "obs_cont"})
+    elif stage == "hydro":
+        prefix = "RVTJ\n" if old_model else ""
+        stdin = prefix + "/null\ne\n" + (f"{hydro_nd}\n" if hydro_nd is not None else "\n") + "\n"
+        passes = [{"id": "hydro", "overrides": {}, "stdin": {
+            "mode": "generated", "plot_device": "/null", "plot_command": "e",
+            "structure_file": "RVTJ" if old_model else None,
+            "output_depth_points": hydro_nd, "maximum_optical_depth": "native default", "text": stdin,
+        }}]
     else:
         passes = [{"id": stage, "overrides": {"NUM_ITS": "0" if stage == "init" else str(iterations)} if stage == "init" or iterations is not None else {}}]
     for step in passes:
@@ -251,7 +304,9 @@ def build_run_plan(model: Path, *, stage: str, cmfgen_root: Path, atomic_root: P
         path = cwd / filename
         if path.is_symlink() or (path.exists() and path.stat().st_nlink != 1):
             errors.append(f"Refusing symlinked writable control: {cwd / filename}")
-    paths = {cwd / name for name in required} | {model / name for name in scripts} | {model / "batch_ins.sh"}
+    paths = {cwd / name for name in required} | {model / name for name in scripts}
+    if stage != "hydro":
+        paths.add(model / "batch_ins.sh")
     paths.update(cwd.glob("*_IN"))
     if stage in {"main", "init"}:
         # Snapshot absent files too: a newly appeared checkpoint changes the
