@@ -6,7 +6,7 @@ import sys
 import pytest
 
 from cmfgen_viewer import runner_recipe
-from cmfgen_viewer.runner import run_plan, _validate
+from cmfgen_viewer.runner import run_plan, _progress, _validate
 from cmfgen_viewer.runner_recipe import RunnerError, build_run_plan, override_controls, snapshot
 
 
@@ -85,6 +85,20 @@ def test_timeout_is_bounded_and_restores_controls(workspace):
     assert result["status"] == "timeout"
     assert result["passes"][0]["returncode"] < 0
     assert (model / "IN_ITS").read_text() == "2 [NUM_ITS]\n"
+
+
+def test_main_progress_reports_current_run_count_and_requested_total(tmp_path):
+    (tmp_path / "IN_ITS").write_text("3 [NUM_ITS]\n")
+    (tmp_path / "OUTGEN").write_text(
+        "Current great iteration count is 18\n"
+        "Current great iteration count is 19\n"
+    )
+
+    assert _progress("main", tmp_path) == {
+        "phase": "iterations",
+        "current": 2,
+        "total": 3,
+    }
 
 
 @pytest.mark.parametrize("timeout", [0, -1, float("inf"), float("nan")])
@@ -472,10 +486,21 @@ Path('OBSFRAME').write_text('Continuum Frequencies (2)\\n1 2\\nObserved intensit
     assert ("SOB_EW_LAM_BEG" in plan["passes"][-1]["overrides"]) == (ew_controls == "present")
     if ew_controls == "absent":
         assert any("Optional [SOB_EW_LAM_BEG] absent" in warning for warning in plan["warnings"])
-    result = run_plan(plan)
+    events = []
+    result = run_plan(plan, events.append)
     assert result["status"] == ("failed" if fail_first else "succeeded"), result
     assert len(result["passes"]) == (1 if fail_first else 4)
     assert result["planned_passes"] == 4
+    flux_progress = [
+        item
+        for item in events
+        if item["event"] == "progress"
+        and item["stage"] == "flux"
+        and item["phase"] == "passes"
+    ]
+    assert flux_progress[0]["current"] == 0
+    assert flux_progress[-1]["current"] == (0 if fail_first else 4)
+    assert all(item["total"] == 4 for item in flux_progress)
     assert not (obs / "CMF_FLUX_PARAM").exists()
     assert (obs / "obs_cont").exists() != fail_first
     assert (Path(result["journal"]) / "flux-15/before/EDDFACTOR_INFO").read_text() == "incompatible old cache"

@@ -4,6 +4,8 @@ from datetime import datetime
 import os
 import time
 
+from tqdm import tqdm
+
 
 LABELS = {
     "succeeded": ("OK", "completed"),
@@ -27,6 +29,8 @@ class TerminalOutput:
             and "NO_COLOR" not in os.environ and os.environ.get("TERM") != "dumb"
         )
         self.last_progress = {}
+        self.progress_bars = {}
+        self.disabled_progress_bars = set()
 
     def line(self, label, message):
         tag = f"[{label}]"
@@ -34,7 +38,81 @@ class TerminalOutput:
             tag = f"\033[1;{COLORS.get(label, '36')}m{tag}\033[0m"
         # Native diagnostics and filenames must not inject terminal escapes.
         message = str(message).replace("\033", r"\x1b").replace("\r", r"\r")
-        print(f"{tag} {message}", file=self.stream, flush=True)
+        rendered = f"{tag} {message}"
+        if self.progress_bars:
+            tqdm.write(rendered, file=self.stream)
+        else:
+            print(rendered, file=self.stream, flush=True)
+
+    def _close_progress(self, stage=None):
+        keys = list(self.progress_bars) if stage is None else [stage]
+        for key in keys:
+            record = self.progress_bars.pop(key, None)
+            if record is not None:
+                record[1].close()
+
+    def _update_progress_bar(self, item):
+        stage = str(item.get("stage", "run"))
+        current = item.get("current")
+        total = item.get("total")
+        if current is None or total is None or stage in self.disabled_progress_bars:
+            return False
+        try:
+            current = max(0, int(current))
+            total = int(total)
+        except (TypeError, ValueError, OverflowError):
+            return False
+        if total <= 0:
+            return False
+        phase = str(item.get("phase", "progress"))
+        signature = (phase, total)
+        existing = self.progress_bars.get(stage)
+        if existing is not None and existing[0] != signature:
+            self._close_progress(stage)
+            existing = None
+        if existing is None:
+            units = {
+                "iterations": "iteration",
+                "frequencies": "frequency",
+                "output depth": "point",
+                "passes": "pass",
+                "stages": "stage",
+            }
+            remaining = item.get("remaining_seconds")
+            bar_options = dict(
+                total=total,
+                initial=min(current, total),
+                desc=f"{stage}: {phase}",
+                unit=units.get(phase, "step"),
+                file=self.stream,
+                disable=None,
+                dynamic_ncols=True,
+                leave=False,
+            )
+            if remaining is not None:
+                bar_options["postfix"] = f"{remaining:g}s remaining"
+            bar = tqdm(**bar_options)
+            if bar.disable:
+                bar.close()
+                self.disabled_progress_bars.add(stage)
+                return False
+            self.progress_bars[stage] = (signature, bar)
+        else:
+            bar = existing[1]
+            remaining = item.get("remaining_seconds")
+            if remaining is not None:
+                bar.set_postfix_str(f"{remaining:g}s remaining", refresh=False)
+            bounded = min(current, total)
+            if bounded >= bar.n:
+                difference = bounded - bar.n
+                if difference:
+                    bar.update(difference)
+                else:
+                    bar.refresh()
+            else:
+                bar.n = bounded
+                bar.refresh()
+        return True
 
     def details(self, label, messages, *, limit=6):
         messages = list(dict.fromkeys(str(message) for message in messages))
@@ -142,6 +220,12 @@ class TerminalOutput:
     def event(self, item):
         kind = item["event"]
         stage = item.get("stage", "")
+        if kind == "run_finished":
+            self._close_progress(stage or None)
+            return
+        if kind == "sequence_finished":
+            self._close_progress("sequence")
+            return
         if kind == "sequence_started":
             self.line("RUN", "multi-stage sequence: starting")
         elif kind == "sequence_stage_preflight":
@@ -159,18 +243,21 @@ class TerminalOutput:
                 f"{stage}: sequence stopped ({item['status']}); later stages will not run",
             )
             self.details("ERROR", item.get("problems", []))
-        elif kind in {"sequence_finished", "startup"}:
+        elif kind == "startup":
             return  # Already shown by the preflight summary.
         if kind == "startup_fallback":
             self.line("WARN", item["message"])
         elif kind == "stage_started":
             self.line("RUN", f"{stage}: starting")
         elif kind == "stage_finished":
+            self._close_progress(stage)
             label, message = LABELS.get(item["status"], ("INFO", item["status"]))
             if stage in {"promote", "cleanup"} and item["status"] == "failed":
                 message = "filesystem operation failed"
             self.line(label, f"{stage}: {message}")
         elif kind == "progress":
+            if self._update_progress_bar(item):
+                return
             phase, current, total = item.get("phase", "working"), item.get("current"), item.get("total")
             key = (phase, current, total)
             now = time.monotonic()

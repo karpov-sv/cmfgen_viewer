@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from cmfgen_viewer import runner
+from cmfgen_viewer import runner, runner_output
 from cmfgen_viewer.runner_output import TerminalOutput
 
 
@@ -256,6 +256,84 @@ def test_progress_is_throttled_without_losing_counter_updates():
     assert "iteration 9" in stream.getvalue()
     output.event({"event": "startup_fallback", "message": "fell back to fresh startup"})
     assert "[WARN] fell back" in stream.getvalue()
+
+
+def test_known_progress_falls_back_to_text_when_not_interactive():
+    stream = io.StringIO()
+    output = TerminalOutput(stream)
+
+    output.event(
+        {
+            "event": "progress",
+            "stage": "lte",
+            "phase": "frequencies",
+            "current": 25,
+            "total": 100,
+        }
+    )
+
+    assert "[RUN] lte: frequencies 25/100" in stream.getvalue()
+    assert output.progress_bars == {}
+
+
+def test_known_progress_uses_tqdm_with_terminal_autodetection(monkeypatch):
+    class TTY(io.StringIO):
+        def isatty(self):
+            return True
+
+    class FakeTqdm:
+        instances = []
+
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+            self.disable = False
+            self.n = kwargs["initial"]
+            self.closed = False
+            self.postfix = kwargs.get("postfix")
+            self.__class__.instances.append(self)
+
+        def update(self, amount):
+            self.n += amount
+
+        def set_postfix_str(self, value, refresh=False):
+            self.postfix = value
+
+        def refresh(self):
+            pass
+
+        def close(self):
+            self.closed = True
+
+        @staticmethod
+        def write(message, file):
+            print(message, file=file)
+
+    monkeypatch.setattr(runner_output, "tqdm", FakeTqdm)
+    stream = TTY()
+    output = TerminalOutput(stream)
+    event = {
+        "event": "progress",
+        "stage": "main",
+        "phase": "iterations",
+        "current": 2,
+        "total": 5,
+        "remaining_seconds": 30,
+    }
+
+    output.event(event)
+    output.event({**event, "current": 4})
+
+    bar = FakeTqdm.instances[0]
+    assert bar.kwargs["disable"] is None
+    assert bar.kwargs["desc"] == "main: iterations"
+    assert bar.kwargs["unit"] == "iteration"
+    assert bar.n == 4
+    assert bar.postfix == "30s remaining"
+    assert stream.getvalue() == ""
+
+    output.event({"event": "stage_finished", "stage": "main", "status": "succeeded"})
+    assert bar.closed is True
+    assert output.progress_bars == {}
 
 
 def setup_cli(monkeypatch, plan, result):

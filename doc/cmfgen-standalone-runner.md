@@ -108,7 +108,7 @@ Default output is human-readable: a preflight summary, stage updates, and a fina
 
 Repeated warnings across passes are grouped. Unavailable inactive-ion links are summarized rather than listed individually. Failed passes show key problems and the last 12 lines of their captured diagnostic tail. `--verbose` shows all reported warnings, captured diagnostic tails, and additional preflight detail; full native logs remain in the journal.
 
-`--progress text` (the default) reports stages and available native iteration/frequency counters on stderr, with repeated unchanged updates throttled. `--progress none` suppresses live updates, not preflight diagnostics or the final summary. Human `plan` output and final run summaries go to stdout; run preflight and live updates normally go to stderr.
+`--progress text` (the default) reports stages and native counters on stderr. In an interactive terminal, progress with a reliable current and total value is rendered through `tqdm` for main iterations, LTE frequencies, hydro depth points, CMF_FLUX passes, and multi-stage completion. The bars use terminal autodetection (`disable=None`), so redirected/noninteractive output retains throttled text updates instead of terminal control sequences. Phases without a reliable total continue to use text status lines. `--progress none` suppresses live updates, not preflight diagnostics or the final summary. Human plan output and final run summaries go to stdout; run preflight and live updates normally go to stderr.
 
 JSON output is opt-in for debugging and future workers:
 
@@ -124,7 +124,7 @@ The same modes apply to multi-stage runs. The final JSON object contains ordered
 
 `--json` by itself disables live progress by default. `--progress json` explicitly selects structured stderr events; with human final output, the preflight summary moves to stdout to keep that event stream clean. JSON journals (`plan.json`, `result.json`, and `events.jsonl`) are always retained independently of terminal output options. Exit codes are unchanged.
 
-No `tqdm` dependency is needed, and no percentage is invented when native output lacks a reliable total. The Python event callback remains available for a future UI/progress adapter.
+No percentage is invented when native output lacks a reliable total. The structured Python event callback remains available for a future UI/progress adapter independently of the terminal renderer.
 
 Exit codes: `0` initialized/succeeded, `1` execution or output-validation failure, `2` preflight/argument failure, `124` timeout, `130` cancellation.
 

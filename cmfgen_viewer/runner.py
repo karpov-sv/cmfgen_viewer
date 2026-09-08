@@ -180,6 +180,17 @@ def _progress(stage, cwd):
     elif stage == "main":
         counters = re.findall(r"Current great iteration count is\s+(\d+)", text)
         if counters:
+            requested = re.findall(
+                r"^\s*(\d+)\s+\[NUM_ITS\]",
+                _tail(cwd / "IN_ITS", 64 * 1024),
+                re.M,
+            )
+            if requested and int(requested[-1]) > 0:
+                return {
+                    "phase": "iterations",
+                    "current": len(counters),
+                    "total": int(requested[-1]),
+                }
             return {"phase": "iteration", "current": int(counters[-1])}
     elif stage == "hydro":
         text = _tail(cwd / "RVSIG_COL_NEW", 512*1024)
@@ -411,7 +422,15 @@ def run_plan(plan: dict, emit=None) -> dict:
                 env[key] = str(plan["threads"])
             timeout = plan.get("timeout")
             deadline = time.monotonic() + timeout if timeout is not None else None
-            for step in plan["passes"]:
+            if stage == "flux":
+                event(
+                    "progress",
+                    stage="flux",
+                    phase="passes",
+                    current=0,
+                    total=len(plan["passes"]),
+                )
+            for step_number, step in enumerate(plan["passes"], 1):
                 pass_dir = journal / step["id"]
                 pass_dir.mkdir()
                 previous = pass_dir / "before"
@@ -511,6 +530,10 @@ def run_plan(plan: dict, emit=None) -> dict:
                     path = cwd / name
                     if path.is_file() and not path.is_symlink():
                         shutil.copy2(path, pass_dir / name)
+                if record["status"] == "succeeded" and stage in {"main", "lte", "hydro"}:
+                    final_progress = _progress(stage, cwd)
+                    if final_progress.get("total") is not None:
+                        event("progress", stage=step["id"], **final_progress)
                 event("stage_finished", stage=step["id"], status=record["status"], returncode=record["returncode"], problems=problems)
                 if record["status"] != "succeeded":
                     result["status"] = record["status"]
@@ -523,6 +546,13 @@ def run_plan(plan: dict, emit=None) -> dict:
                         shutil.copy2(destination, previous / destination.name)
                     _publish(cwd / "OBSFRAME", destination)
                     record["output"] = str(destination)
+                    event(
+                        "progress",
+                        stage="flux",
+                        phase="passes",
+                        current=step_number,
+                        total=len(plan["passes"]),
+                    )
             else:
                 result["status"] = "initialized" if stage == "init" else "succeeded"
         except KeyboardInterrupt:
@@ -550,7 +580,7 @@ def run_plan(plan: dict, emit=None) -> dict:
                     record["status"] = result["status"]
             result["finished_at"] = datetime.now(timezone.utc).isoformat()
             _json(journal / "result.json", result)
-            event("run_finished", status=result["status"], journal=str(journal))
+            event("run_finished", stage=stage, status=result["status"], journal=str(journal))
         return result
 
 
@@ -626,7 +656,7 @@ def _run_promotion_plan(plan: dict, emit=None) -> dict:
         status=record["status"],
         problems=record["problems"],
     )
-    event("run_finished", status=result["status"], journal=str(journal))
+    event("run_finished", stage="promote", status=result["status"], journal=str(journal))
     return result
 
 
@@ -710,7 +740,7 @@ def _run_cleanup_plan(plan: dict, emit=None) -> dict:
         status=record["status"],
         problems=record["problems"],
     )
-    event("run_finished", status=result["status"], journal=str(journal))
+    event("run_finished", stage="cleanup", status=result["status"], journal=str(journal))
     return result
 
 
@@ -758,6 +788,13 @@ def _run_sequence_plan(plan: dict, emit=None) -> dict:
     remaining_timeout = float(configured_timeout) if configured_timeout is not None else None
     try:
         event("sequence_started", stages=stages)
+        event(
+            "progress",
+            stage="sequence",
+            phase="stages",
+            current=0,
+            total=len(stages),
+        )
         for index, stage in enumerate(stages, 1):
             event(
                 "sequence_stage_preflight",
@@ -872,6 +909,13 @@ def _run_sequence_plan(plan: dict, emit=None) -> dict:
                 break
             result["completed_stages"].append(stage)
             _json(journal / "result.json", result)
+            event(
+                "progress",
+                stage="sequence",
+                phase="stages",
+                current=index,
+                total=len(stages),
+            )
             event(
                 "sequence_stage_completed",
                 stage=stage,
