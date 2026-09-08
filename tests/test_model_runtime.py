@@ -274,16 +274,18 @@ def test_inactive_main_runtime_retains_main_and_flux_progress(tmp_path: Path) ->
         "$PROG_CMF_OBS < IN_FILE >>& batobs.log\n",
         encoding="utf-8",
     )
+    (obs / "CMF_FLUX_PARAM").write_text("15.0D0 [VTURB_FIX]\n", encoding="utf-8")
+    (obs / "OUT_FLUX").write_text(
+        "LS loop 84 is finished. Number of points along ray=19\nCMF_FLUX has finished\n",
+        encoding="utf-8",
+    )
+    # The launcher appends its completion record after the native executable
+    # finishes writing OUT_FLUX; preserve that ordering even on fine-grained filesystems.
     (obs / "batobs.log").write_text(
         "".join(
             f"PID of /opt/cmfgen/exe/cmf_flux.exe is: {pid}\nProgram finished on: now\n"
             for pid in range(1, 5)
         ),
-        encoding="utf-8",
-    )
-    (obs / "CMF_FLUX_PARAM").write_text("15.0D0 [VTURB_FIX]\n", encoding="utf-8")
-    (obs / "OUT_FLUX").write_text(
-        "LS loop 84 is finished. Number of points along ray=19\nCMF_FLUX has finished\n",
         encoding="utf-8",
     )
 

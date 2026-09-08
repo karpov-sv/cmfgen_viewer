@@ -51,6 +51,7 @@ def test_success_restores_controls_and_archives_old_logs(workspace):
     (model / "OUTGEN").write_text("old failure")
     plan = make_plan()
     assert plan["ready"], plan["errors"]
+    assert plan["timeout"] is None
     assert not (model / ".cmfgen-runs").exists()
     events = []
     original_mtime = (model / "IN_ITS").stat().st_mtime_ns
@@ -84,6 +85,13 @@ def test_timeout_is_bounded_and_restores_controls(workspace):
     assert result["status"] == "timeout"
     assert result["passes"][0]["returncode"] < 0
     assert (model / "IN_ITS").read_text() == "2 [NUM_ITS]\n"
+
+
+@pytest.mark.parametrize("timeout", [0, -1, float("inf"), float("nan")])
+def test_timeout_must_be_positive_and_finite_when_provided(workspace, timeout):
+    _model, make_plan = workspace
+    with pytest.raises(RunnerError, match="--timeout must be a positive finite"):
+        make_plan(timeout=timeout)
 
 
 def test_cancellation_is_recorded(workspace):

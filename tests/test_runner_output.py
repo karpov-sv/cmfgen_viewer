@@ -12,7 +12,7 @@ def plan():
     return {
         "ready": True, "stage": "main", "model": "/tmp/test-model",
         "cwd": "/tmp/test-model", "executable": "/opt/cmf/exe/cmfgen_dev.exe",
-        "threads": 2, "timeout": 60, "memory_mib": 2048,
+        "threads": 2, "timeout": None, "memory_mib": 2048,
         "restart": {"message": "Continuation from POINT1 (saved iteration 7, record 2)"},
         "passes": [{"id": "main", "overrides": {}}], "warnings": [], "errors": [],
     }
@@ -35,11 +35,69 @@ def test_readable_preflight_summary_and_grouped_warnings(plan):
     text = stream.getvalue()
     assert "[OK] Preflight passed" in text
     assert "2 thread(s)" in text
+    assert "no time limit" in text
     assert "Continuation from POINT1" in text
     assert "[WARN] 20 unavailable inactive-ion" in text
     assert "ion-19" not in text
     assert "\033" not in text
     assert not text.lstrip().startswith("{")
+
+
+def test_readable_preflight_shows_explicit_timeout(plan):
+    plan["timeout"] = 60
+    stream = io.StringIO()
+
+    TerminalOutput(stream).plan(plan)
+
+    assert "60s budget" in stream.getvalue()
+
+
+def test_sequence_plan_and_result_are_presented_in_order(plan, result):
+    sequence_plan = {
+        "kind": "sequence",
+        "stage": "sequence",
+        "model": "/tmp/test-model",
+        "stages": ["init", "main"],
+        "initial_plan": plan,
+        "warnings": ["Later stages use just-in-time preflight."],
+        "ready": True,
+    }
+    stream = io.StringIO()
+    TerminalOutput(stream).plan(sequence_plan)
+    text = stream.getvalue()
+    assert "Sequence: init → main" in text
+    assert "Initial stage preflight (init)" in text
+    assert "later stages remain guarded" in text
+
+    first = {**result, "stage": "init", "status": "initialized"}
+    first["passes"] = [{**result["passes"][0], "id": "init"}]
+    sequence_result = {
+        "stage": "sequence",
+        "status": "preflight_failed",
+        "stages": ["init", "main", "flux"],
+        "completed_stages": ["init"],
+        "remaining_stages": ["flux"],
+        "stage_results": [
+            first,
+            {
+                "stage": "main",
+                "status": "preflight_failed",
+                "passes": [],
+                "problems": ["checkpoint is unhealthy"],
+                "preflight_warnings": [],
+            },
+        ],
+        "journal": "/tmp/test-model/.cmfgen-runs/sequence",
+    }
+    stream = io.StringIO()
+    TerminalOutput(stream).result(sequence_result)
+    text = stream.getvalue()
+    assert "Multi-stage run: preflight failed" in text
+    assert "1/3 stages completed successfully: init" in text
+    assert "main: preflight failed" in text
+    assert "checkpoint is unhealthy" in text
+    assert "Not run: flux" in text
+    assert "Sequence report:" in text
 
 
 def test_success_and_warning_states_are_distinct(result):
@@ -53,6 +111,82 @@ def test_success_and_warning_states_are_distinct(result):
     TerminalOutput(stream).result(result)
     assert "[WARN] main: completed with warnings" in stream.getvalue()
     assert "[WARN] main: Possible error converging f" in stream.getvalue()
+
+
+def test_promotion_result_reports_backup_and_invalidated_state(result):
+    result["stage"] = "promote"
+    result["passes"][0]["id"] = "promote"
+    result["promotion"] = {
+        "synchronized_rmax": 12.5,
+        "backup_path": "/tmp/model/.cmfgen-viewer-backups/lte-hydro/test",
+        "invalidated_files": ["POINT1", "RVTJ"],
+    }
+    stream = io.StringIO()
+
+    TerminalOutput(stream).result(result)
+
+    text = stream.getvalue()
+    assert "Promoted LTE/hydro results with RMAX=12.5" in text
+    assert "Backup: /tmp/model/.cmfgen-viewer-backups/lte-hydro/test" in text
+    assert "Invalidated previous main state: POINT1, RVTJ" in text
+    assert "Filesystem checks passed" in text
+
+
+def test_cleanup_plan_summarizes_long_candidate_lists():
+    entries = [
+        {
+            "name": f"SCRATCH{i:02d}",
+            "kind": "File",
+            "reason": "Native scratch output",
+            "target": "",
+        }
+        for i in range(30)
+    ]
+    plan = {
+        "ready": True,
+        "stage": "cleanup",
+        "model": "/tmp/test-model",
+        "entry_count": len(entries),
+        "human_size": "1.0 MB",
+        "entries": entries,
+        "warnings": [],
+        "errors": [],
+    }
+    stream = io.StringIO()
+
+    TerminalOutput(stream).plan(plan)
+
+    text = stream.getvalue()
+    assert "30 candidate(s), 1.0 MB; 30 file(s), 0 symlink(s)" in text
+    assert "SCRATCH23" in text
+    assert "SCRATCH24" not in text
+    assert "6 more candidate(s); use --verbose or --json" in text
+
+
+def test_cleanup_result_reports_recovery_archive(result):
+    result["stage"] = "cleanup"
+    result["passes"][0]["id"] = "cleanup"
+    result["cleanup"] = {
+        "removed_count": 3,
+        "archive_path": "/tmp/test-model/.cmfgen-runs/test/removed",
+    }
+    stream = io.StringIO()
+
+    TerminalOutput(stream).result(result)
+
+    text = stream.getvalue()
+    assert "Archived 3 cleanup candidate(s)" in text
+    assert "Recovery archive: /tmp/test-model/.cmfgen-runs/test/removed" in text
+    assert "Filesystem checks passed" in text
+
+    result["status"] = "failed"
+    result["passes"][0].update(status="failed", problems=["fort.63: permission denied"])
+    stream = io.StringIO()
+    TerminalOutput(stream).result(result)
+    text = stream.getvalue()
+    assert "cleanup: filesystem operation failed" in text
+    assert "[WARN] Archived 3 cleanup candidate(s)" in text
+    assert "Recovery archive: /tmp/test-model/.cmfgen-runs/test/removed" in text
 
 
 @pytest.mark.parametrize("status", ["failed", "invalid_output", "runner_error", "timeout", "cancelled"])
@@ -134,20 +268,88 @@ def setup_cli(monkeypatch, plan, result):
     monkeypatch.setattr(runner, "run_plan", run)
 
 
-@pytest.mark.parametrize("action", ["plan", "run"])
-def test_cli_defaults_to_human_output(monkeypatch, capsys, plan, result, action):
+@pytest.mark.parametrize("planning", [True, False])
+def test_cli_defaults_to_human_output(monkeypatch, capsys, plan, result, planning):
     setup_cli(monkeypatch, plan, result)
-    assert runner.main([action, "/tmp/test-model"]) == 0
+    args = ["/tmp/test-model"] + (["--plan"] if planning else [])
+    assert runner.main(args) == 0
     captured = capsys.readouterr()
     assert "[OK]" in captured.out
     assert not captured.out.lstrip().startswith("{")
-    assert "[RUN]" in captured.err if action == "run" else captured.err == ""
+    assert captured.err == "" if planning else "[RUN]" in captured.err
+
+
+def test_cli_omitted_action_defaults_to_run(monkeypatch, capsys, plan, result):
+    setup_cli(monkeypatch, plan, result)
+
+    assert runner.main(["--stage", "main", "/tmp/test-model"]) == 0
+
+    captured = capsys.readouterr()
+    assert "[OK] main: completed" in captured.out
+    assert "[RUN] main: starting" in captured.err
+
+
+def test_cli_timeout_is_opt_in(monkeypatch, capsys, plan):
+    seen = []
+    monkeypatch.setattr(runner, "resolve_runner_config", lambda **kwargs: ({}, {}))
+
+    def build(*args, **kwargs):
+        seen.append(kwargs["timeout"])
+        return plan
+
+    monkeypatch.setattr(runner, "build_run_plan", build)
+
+    assert runner.main(["/tmp/test-model", "--plan"]) == 0
+    assert runner.main(["/tmp/test-model", "--plan", "--timeout", "3600"]) == 0
+    capsys.readouterr()
+
+    assert seen == [None, 3600.0]
+
+
+def test_cli_repeated_stage_builds_ordered_sequence(monkeypatch, capsys, plan):
+    captured_stages = []
+    monkeypatch.setattr(
+        runner,
+        "resolve_runner_config",
+        lambda **kwargs: ({}, {"threads": "default"}),
+    )
+
+    def build(_model, stages, **_options):
+        captured_stages.append(stages)
+        return {
+            "kind": "sequence",
+            "stage": "sequence",
+            "model": "/tmp/test-model",
+            "stages": stages,
+            "initial_plan": plan,
+            "warnings": [],
+            "errors": [],
+            "ready": True,
+        }
+
+    monkeypatch.setattr(runner, "build_sequence_plan", build)
+
+    assert runner.main(
+        [
+            "/tmp/test-model",
+            "--plan",
+            "--stage",
+            "init",
+            "--stage",
+            "main",
+            "--stage",
+            "flux",
+        ]
+    ) == 0
+
+    assert captured_stages == [["init", "main", "flux"]]
+    assert "Sequence: init → main → flux" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize("progress", [None, "json"])
 def test_json_mode_has_clean_stdout_and_opt_in_events(monkeypatch, capsys, plan, result, progress):
     setup_cli(monkeypatch, plan, result)
-    args = ["run", "/tmp/test-model", "--json"]
+    args = ["/tmp/test-model", "--json"]
     if progress:
         args += ["--progress", progress]
     assert runner.main(args) == 0
@@ -164,7 +366,7 @@ def test_preflight_failure_never_runs_and_is_readable(monkeypatch, capsys, plan,
     setup_cli(monkeypatch, plan, result)
     plan.update(ready=False, errors=["SCRTEMP is missing"])
     monkeypatch.setattr(runner, "run_plan", lambda *args: pytest.fail("should not run"))
-    assert runner.main(["run", "/tmp/test-model"]) == 2
+    assert runner.main(["/tmp/test-model"]) == 2
     captured = capsys.readouterr()
     assert "[ERROR] SCRTEMP is missing" in captured.err
     assert "nothing launched" in captured.err
@@ -175,7 +377,7 @@ def test_config_error_is_readable_by_default(monkeypatch, capsys):
     def fail(**kwargs):
         raise runner.RunnerError("Missing CMFDIST")
     monkeypatch.setattr(runner, "resolve_runner_config", fail)
-    assert runner.main(["run", "/tmp/test-model"]) == 2
+    assert runner.main(["/tmp/test-model"]) == 2
     captured = capsys.readouterr()
     assert captured.out == ""
     assert "[ERROR] Preflight failed: Missing CMFDIST" in captured.err
@@ -183,7 +385,7 @@ def test_config_error_is_readable_by_default(monkeypatch, capsys):
 
 def test_progress_none_preserves_final_summary(monkeypatch, capsys, plan, result):
     setup_cli(monkeypatch, plan, result)
-    assert runner.main(["run", "/tmp/test-model", "--progress", "none"]) == 0
+    assert runner.main(["/tmp/test-model", "--progress", "none"]) == 0
     captured = capsys.readouterr()
     assert "[RUN]" not in captured.err
     assert "[OK] main: completed" in captured.out

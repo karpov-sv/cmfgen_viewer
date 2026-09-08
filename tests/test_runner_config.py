@@ -95,8 +95,8 @@ def test_invalid_thread_counts(config_dirs, monkeypatch, value, source):
     assert resolve_runner_config(cmfgen_root=Path("cmf"), atomic_root=Path("atomic"), threads=1)[0]["threads"] == 1
 
 
-@pytest.mark.parametrize("action", ["plan", "run"])
-def test_cli_resolves_defaults_and_records_sources(config_dirs, monkeypatch, capsys, action):
+@pytest.mark.parametrize("planning", [True, False])
+def test_cli_resolves_defaults_and_records_sources(config_dirs, monkeypatch, capsys, planning):
     _, work_dir = config_dirs
     (work_dir / ".cmfgenrc").write_text("cmfdist = cmf\natomic = atomic\nnthreads = 2\n")
     plans = []
@@ -110,16 +110,17 @@ def test_cli_resolves_defaults_and_records_sources(config_dirs, monkeypatch, cap
         return plan
     monkeypatch.setattr(runner, "build_run_plan", build)
     monkeypatch.setattr(runner, "run_plan", lambda plan, emit: {"status": "initialized", "plan": plan})
-    assert runner.main([action, "model", "--nthreads", "3", "--json"]) == 0
+    args = ["model", "--nthreads", "3", "--json"] + (["--plan"] if planning else [])
+    assert runner.main(args) == 0
     output = json.loads(capsys.readouterr().out)
-    assert output["ready"] if action == "plan" else output["status"] == "initialized"
+    assert output["ready"] if planning else output["status"] == "initialized"
     assert plans[0]["configuration_sources"]["threads"] == "cli"
     assert plans[0]["configuration_sources"]["cmfgen_root"] == str(work_dir / ".cmfgenrc")
 
 
 def test_cli_missing_roots_reports_json_before_execution(config_dirs, monkeypatch, capsys):
     monkeypatch.setattr(runner, "build_run_plan", lambda *args, **kwargs: pytest.fail("must not plan with missing roots"))
-    assert runner.main(["run", "model", "--json"]) == 2
+    assert runner.main(["model", "--json"]) == 2
     output = json.loads(capsys.readouterr().out)
     assert output["status"] == "preflight_failed"
     assert "CMFDIST" in output["error"]
@@ -135,5 +136,5 @@ def test_cli_unreadable_config_reports_json(config_dirs, capsys, kind):
         path.write_bytes(b"\xff")
     else:
         path.symlink_to(work_dir / "missing")
-    assert runner.main(["plan", "model", "--json"]) == 2
+    assert runner.main(["model", "--plan", "--json"]) == 2
     assert json.loads(capsys.readouterr().out)["status"] == "preflight_failed"

@@ -432,7 +432,8 @@ def _build_cleanup_plan(model_relpath: str, model_dir: Path) -> dict[str, object
             reason = _cleanup_reason(child.name, is_symlink=is_symlink)
             if reason is None:
                 continue
-            size = int(child.lstat().st_size)
+            info = child.lstat()
+            size = int(info.st_size)
             target = os.readlink(child) if is_symlink else ""
         except OSError as exc:
             raise ModelStagingError(f"Could not inspect cleanup candidate '{child.name}': {exc}") from exc
@@ -445,6 +446,8 @@ def _build_cleanup_plan(model_relpath: str, model_dir: Path) -> dict[str, object
                 "target": target,
                 "size": size,
                 "human_size": _human_size(size),
+                "modified_ns": int(info.st_mtime_ns),
+                "changed_ns": int(info.st_ctime_ns),
             }
         )
 
@@ -470,6 +473,8 @@ def cleanup_model_directory(
     *,
     model_relpath: str,
     selected_names: list[str],
+    expected_entries: list[dict[str, object]] | None = None,
+    archive_dir: Path | None = None,
 ) -> dict[str, object]:
     requested: list[str] = []
     seen: set[str] = set()
@@ -488,6 +493,34 @@ def cleanup_model_directory(
         normalized, model_dir = _cleanup_model_source(basepath, model_relpath)
         plan = _build_cleanup_plan(normalized, model_dir)
         candidates = {str(item["name"]): item for item in plan["entries"] if isinstance(item, dict)}
+        if expected_entries is not None:
+            expected = {
+                str(item.get("name", "")): item
+                for item in expected_entries
+                if isinstance(item, dict)
+            }
+            signature_keys = ("name", "kind", "target", "size", "modified_ns", "changed_ns")
+            for name in requested:
+                before = expected.get(name)
+                current = candidates.get(name)
+                if before is None or current is None or any(
+                    before.get(key) != current.get(key) for key in signature_keys
+                ):
+                    raise ModelStagingError(
+                        f"Cleanup candidate changed since preflight: {name}"
+                    )
+        resolved_archive: Path | None = None
+        if archive_dir is not None:
+            archive_is_symlink = archive_dir.is_symlink()
+            resolved_archive = archive_dir.resolve()
+            if (
+                not resolved_archive.is_dir()
+                or archive_is_symlink
+                or not resolved_archive.is_relative_to(model_dir)
+            ):
+                raise ModelStagingError(
+                    "Cleanup archive must be an existing regular directory inside the model."
+                )
         removed: list[dict[str, object]] = []
         skipped: list[str] = []
         failures: list[dict[str, str]] = []
@@ -497,7 +530,14 @@ def cleanup_model_directory(
                 skipped.append(name)
                 continue
             try:
-                (model_dir / name).unlink()
+                source = model_dir / name
+                if resolved_archive is None:
+                    source.unlink()
+                else:
+                    destination = resolved_archive / name
+                    if destination.exists() or destination.is_symlink():
+                        raise FileExistsError(f"Cleanup archive target already exists: {destination}")
+                    os.replace(source, destination)
             except OSError as exc:
                 failures.append({"name": name, "error": str(exc)})
             else:

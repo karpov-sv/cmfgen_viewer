@@ -99,11 +99,13 @@ def _links(script: Path, atomic: Path, *, links_only=False) -> list[dict]:
 
 
 def build_run_plan(model: Path, *, stage: str, cmfgen_root: Path, atomic_root: Path,
-                   threads=1, timeout=120.0, memory_mib=4096, iterations=None, fresh_start=False) -> dict:
+                   threads=1, timeout=None, memory_mib=4096, iterations=None, fresh_start=False) -> dict:
     if stage not in PROGRAMS:
         raise RunnerError("Supported stages: init, main, lte, hydro, flux")
-    if threads < 1 or memory_mib < 128 or not math.isfinite(timeout) or timeout <= 0:
-        raise RunnerError("Require positive threads/timeout and at least 128 MiB memory")
+    if threads < 1 or memory_mib < 128:
+        raise RunnerError("Require positive threads and at least 128 MiB memory")
+    if timeout is not None and (not math.isfinite(timeout) or timeout <= 0):
+        raise RunnerError("--timeout must be a positive finite number of seconds")
     if iterations is not None and (iterations < 1 or stage != "main"):
         raise RunnerError("--iterations is a positive main-stage override only")
     if fresh_start and stage not in {"main", "init"}:
