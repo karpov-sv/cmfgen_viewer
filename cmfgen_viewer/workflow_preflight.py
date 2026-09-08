@@ -27,8 +27,18 @@ REQUIRED_ATOMIC_LINKS = {"HYD_L_DATA", "GBF_N_DATA", "HI_F_OSCDAT", "He2_F_OSCDA
 
 def workflow_environment(config: dict | None = None) -> dict:
     config = config or {}
-    return {"cmfdist": str(config.get("cmfgen_root") or os.environ.get("cmfdist", "")),
-            "ATOMIC": str(config.get("atomic_root") or os.environ.get("ATOMIC") or os.environ.get("atomic", ""))}
+    return {
+        "cmfdist": str(
+            config.get("cmfgen_root")
+            or os.environ.get("CMFDIST")
+            or os.environ.get("cmfdist", "")
+        ),
+        "ATOMIC": str(
+            config.get("atomic_root")
+            or os.environ.get("ATOMIC")
+            or os.environ.get("atomic", "")
+        ),
+    }
 
 
 def _literal_path(text: str, cwd: Path, environment: dict, script: Path) -> Path | None:
@@ -166,9 +176,21 @@ def inspect_stage_preflight(model_dir: Path, stage: str, *, config: dict | None 
         if not executable.is_file() or not os.access(executable, os.X_OK):
             issue("error", "executable-unavailable", f"Configured executable is unavailable or non-executable: {executable}")
     else:
-        issue("warning", "executable-unresolved", "cmfdist is not configured in the viewer. Executable resolution in the external shell is unverified.")
+        issue(
+            "warning",
+            "executable-unresolved",
+            "CMFDIST is not configured. Use --cmfgen-root, the CMFDIST "
+            "environment variable, or cmfgen_root in .cmfgenrc. Executable "
+            "resolution in the external shell is unverified.",
+        )
     if not environment["ATOMIC"] and stage != "hydro":
-        issue("warning", "atomic-root-unresolved", "Atomic-data root is not configured; shell-resolved data targets cannot be verified.")
+        issue(
+            "warning",
+            "atomic-root-unresolved",
+            "Atomic-data root is not configured. Use --atomic-root, the ATOMIC "
+            "environment variable, or atomic_root in .cmfgenrc; shell-resolved "
+            "data targets cannot be verified.",
+        )
 
     script = cwd / ("ltebat.sh" if stage == "lte" else "batobs.sh" if stage == "flux" else "batch.sh")
     dependencies = inspect_script_dependencies(script, cwd, environment) if stage != "hydro" else {"links": [], "sources": [], "warnings": [], "effects": []}

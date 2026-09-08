@@ -23,7 +23,7 @@ python viewer.py --dir /path/to/models --read-write \
   --cmfgen-root /path/to/cur_cmf --atomic-root /path/to/atomic
 ```
 
-The JSON/TOML configuration keys are `cmfgen_root` and `atomic_root`. Otherwise the viewer uses its own inherited `cmfdist` and `ATOMIC` (or `atomic`) environment variables. These settings are **only checked**, not injected into terminal commands. Sourced shell setup may override them: ensure they match the installation and atomic tree actually used by the scripts. A configured missing/non-executable program blocks readiness; an unconfigured installation produces an explicit unresolved warning.
+The JSON/TOML configuration keys and command-line options are `cmfgen_root` / `--cmfgen-root` and `atomic_root` / `--atomic-root`. When these are omitted, viewer startup uses the same fallback chain as the standalone runner: nonempty `CMFDIST`, `ATOMIC`, and `OMP_NUM_THREADS` environment variables, then `.cmfgenrc` in the startup working directory, then `~/.cmfgenrc`. The System page shows each effective value and its source. Viewer CLI/JSON/TOML settings have highest priority. These settings are **only checked**, not injected into terminal commands. Sourced shell setup may override them: ensure they match the installation and atomic tree actually used by the scripts. A configured missing/non-executable program blocks readiness; an unconfigured installation produces an explicit warning with configuration guidance.
 
 Less than 100 MiB free is a blocker; less than 1 GiB is a warning. These are basic safeguards, not estimates of CMFGEN scratch requirements. Completed LTE/hydro outputs can still be reviewed and promoted if an executable has since become unavailable; rerunning that stage remains blocked.
 

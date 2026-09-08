@@ -102,9 +102,18 @@ def system_status():
     active_cache_jobs = len(_cache_jobs().snapshots(status="running"))
     fit_pool_size = int(config.get("fit_pool_size_max", 0) or 0)
     read_write_enabled = bool(config.get("read_write_enabled", False))
+    cmfgen_sources = config.get("cmfgen_config_sources", {})
+    if not isinstance(cmfgen_sources, dict):
+        cmfgen_sources = {}
     runtime_rows = [
         ["Model base directory", basepath],
         ["Model directory access", "Read-write" if read_write_enabled else "Read-only"],
+        ["CMFGEN root", str(config.get("cmfgen_root") or "Not configured")],
+        ["CMFGEN root source", str(cmfgen_sources.get("cmfgen_root") or "None")],
+        ["Atomic-data root", str(config.get("atomic_root") or "Not configured")],
+        ["Atomic-data root source", str(cmfgen_sources.get("atomic_root") or "None")],
+        ["Runner thread default", str(config.get("cmfgen_runner_threads", 1))],
+        ["Runner thread source", str(cmfgen_sources.get("threads") or "default")],
         ["Summary cache database", summary_cache_db],
         ["Summary cache size", _format_size(cache_size)],
         ["Upload storage", str(upload_root)],

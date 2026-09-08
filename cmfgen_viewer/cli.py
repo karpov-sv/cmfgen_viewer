@@ -6,6 +6,8 @@ import math
 from pathlib import Path
 
 from .app import create_app
+from .runner_config import resolve_runner_config
+from .runner_recipe import RunnerError
 
 try:
     import tomllib
@@ -257,8 +259,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Disable operations that modify model directories (the default; overrides config)",
     )
     parser.set_defaults(read_write=False)
-    parser.add_argument("--cmfgen-root", default=None, help="CMFGEN installation root for read-only workflow preflight")
-    parser.add_argument("--atomic-root", default=None, help="Atomic-data root for read-only workflow preflight")
+    parser.add_argument(
+        "--cmfgen-root",
+        default=None,
+        help="CMFGEN installation root for workflow preflight (default: CMFDIST or .cmfgenrc)",
+    )
+    parser.add_argument(
+        "--atomic-root",
+        default=None,
+        help="Atomic-data root for workflow preflight (default: ATOMIC or .cmfgenrc)",
+    )
     parser.add_argument(
         "--auth-user",
         dest="auth_user",
@@ -349,6 +359,19 @@ def main(argv: list[str] | None = None) -> None:
         if not auth_password:
             parser.error("--auth-password must not be empty.")
 
+    try:
+        cmfgen_settings, cmfgen_sources = resolve_runner_config(
+            cmfgen_root=args.cmfgen_root,
+            atomic_root=args.atomic_root,
+            require_roots=False,
+        )
+    except RunnerError as exc:
+        parser.error(str(exc))
+    cmfgen_sources = {
+        key: "viewer CLI/config" if source == "cli" else source
+        for key, source in cmfgen_sources.items()
+    }
+
     app = create_app(
         basepath=str(basepath),
         show_all=args.show_all,
@@ -361,7 +384,13 @@ def main(argv: list[str] | None = None) -> None:
         auth_username=auth_user,
         auth_password=auth_password,
         auth_realm=str(args.auth_realm or "CMFGEN Viewer"),
-        cmfgen_root=args.cmfgen_root,
-        atomic_root=args.atomic_root,
+        cmfgen_root=str(cmfgen_settings["cmfgen_root"])
+        if "cmfgen_root" in cmfgen_settings
+        else None,
+        atomic_root=str(cmfgen_settings["atomic_root"])
+        if "atomic_root" in cmfgen_settings
+        else None,
+        cmfgen_runner_threads=int(cmfgen_settings["threads"]),
+        cmfgen_config_sources=cmfgen_sources,
     )
     app.run(host=args.host, port=args.port, debug=args.debug)

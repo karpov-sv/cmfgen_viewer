@@ -11,7 +11,7 @@ from cmfgen_viewer.workflow_plan import build_workflow_plan, external_stage_comm
 
 @pytest.fixture
 def model(tmp_path, monkeypatch):
-    for key in ("cmfdist", "ATOMIC", "atomic"):
+    for key in ("CMFDIST", "cmfdist", "ATOMIC", "atomic"):
         monkeypatch.delenv(key, raising=False)
     root = tmp_path / "model_a"
     (root / "obs").mkdir(parents=True)
@@ -136,6 +136,19 @@ def test_unknown_environment_and_dynamic_shell_are_explicit(model):
     deps = preflight.inspect_script_dependencies(script, model, {})
     assert deps["links"][0]["target"] is None
     assert not (model / "NEVER_RUN").exists()
+
+
+def test_preflight_uses_standard_cmfdist_environment(model, tmp_path, monkeypatch):
+    cmfgen_root = tmp_path / "cmf"
+    executable = cmfgen_root / "exe/cmfgen_dev.exe"
+    executable.parent.mkdir(parents=True)
+    executable.write_text("must never run")
+    executable.chmod(0o755)
+    monkeypatch.setenv("CMFDIST", str(cmfgen_root))
+    result = preflight.inspect_stage_preflight(model, "main")
+    assert result["environment"]["cmfdist"] == str(cmfgen_root)
+    assert result["executable"] == str(executable)
+    assert "executable-unresolved" not in {item["code"] for item in result["issues"]}
 
 
 def test_disk_and_activity_preflight(model, monkeypatch):

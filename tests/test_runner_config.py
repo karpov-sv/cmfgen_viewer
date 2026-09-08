@@ -16,7 +16,7 @@ def config_dirs(tmp_path, monkeypatch):
     work_dir.mkdir()
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: user_dir))
     monkeypatch.chdir(work_dir)
-    for name in ("CMFDIST", "ATOMIC", "OMP_NUM_THREADS"):
+    for name in ("CMFDIST", "ATOMIC", "OMP_NUM_THREADS", "cmfdist", "atomic"):
         monkeypatch.delenv(name, raising=False)
     return user_dir, work_dir
 
@@ -31,6 +31,14 @@ def test_defaults_and_missing_roots(config_dirs):
     assert values == {"cmfgen_root": work_dir / "cmf", "atomic_root": work_dir / "atomic", "threads": 1}
     assert sources == {"cmfgen_root": "cli", "atomic_root": "cli", "threads": "default"}
     assert not (work_dir / ".cmfgenrc").exists()
+
+
+def test_optional_root_resolution_keeps_available_defaults(config_dirs):
+    _, work_dir = config_dirs
+    (work_dir / ".cmfgenrc").write_text("nthreads = 3\n")
+    values, sources = resolve_runner_config(require_roots=False)
+    assert values == {"threads": 3}
+    assert sources == {"threads": str(work_dir / ".cmfgenrc")}
 
 
 def test_home_and_cwd_merge_per_key(config_dirs):

@@ -171,6 +171,8 @@ def test_main_invokes_create_app_and_run(monkeypatch: pytest.MonkeyPatch, tmp_pa
     assert isinstance(create_kwargs, dict)
     assert create_kwargs["cmfgen_root"] == "/tmp/cmf"
     assert create_kwargs["atomic_root"] == "/tmp/atomic"
+    assert create_kwargs["cmfgen_config_sources"]["cmfgen_root"] == "viewer CLI/config"
+    assert create_kwargs["cmfgen_config_sources"]["atomic_root"] == "viewer CLI/config"
     assert create_kwargs["basepath"] == str(tmp_path.resolve())
     assert create_kwargs["lambda_min_angstrom"] == 1000.0
     assert create_kwargs["lambda_max_angstrom"] == 9000.0
@@ -181,6 +183,48 @@ def test_main_invokes_create_app_and_run(monkeypatch: pytest.MonkeyPatch, tmp_pa
     assert create_kwargs["auth_password"] == "secret"
     assert create_kwargs["auth_realm"] == "Realm"
     assert captured["run"] == {"host": "0.0.0.0", "port": 7777, "debug": True}
+
+
+def test_main_uses_runner_rc_fallbacks_for_workflow_config(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    captured: dict[str, object] = {}
+    user_dir = tmp_path / "home"
+    work_dir = tmp_path / "work"
+    model_dir = tmp_path / "models"
+    user_dir.mkdir()
+    work_dir.mkdir()
+    model_dir.mkdir()
+    (user_dir / ".cmfgenrc").write_text(
+        "cmfgen_root = cmf\natomic_root = atomic\nnthreads = 3\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: user_dir))
+    monkeypatch.chdir(work_dir)
+    for name in ("CMFDIST", "ATOMIC", "OMP_NUM_THREADS"):
+        monkeypatch.delenv(name, raising=False)
+
+    class DummyApp:
+        def run(self, **kwargs) -> None:
+            captured["run"] = kwargs
+
+    def fake_create_app(**kwargs):
+        captured["create_app"] = kwargs
+        return DummyApp()
+
+    monkeypatch.setattr(cli, "create_app", fake_create_app)
+    cli.main(["--dir", str(model_dir)])
+
+    create_kwargs = captured["create_app"]
+    assert isinstance(create_kwargs, dict)
+    assert create_kwargs["cmfgen_root"] == str(user_dir / "cmf")
+    assert create_kwargs["atomic_root"] == str(user_dir / "atomic")
+    assert create_kwargs["cmfgen_runner_threads"] == 3
+    assert create_kwargs["cmfgen_config_sources"] == {
+        "cmfgen_root": str(user_dir / ".cmfgenrc"),
+        "atomic_root": str(user_dir / ".cmfgenrc"),
+        "threads": str(user_dir / ".cmfgenrc"),
+    }
 
 
 def test_main_rejects_invalid_inputs(tmp_path: Path) -> None:

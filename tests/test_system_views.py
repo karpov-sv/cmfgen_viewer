@@ -100,6 +100,32 @@ def test_system_page_reports_read_write_mode(tmp_path: Path) -> None:
     assert b"Read-write" in response.data
 
 
+def test_system_page_reports_effective_cmfgen_configuration(tmp_path: Path) -> None:
+    base = tmp_path / "models"
+    base.mkdir()
+    app = create_app(
+        basepath=str(base),
+        secret_key="test-secret",
+        cmfgen_root=str(tmp_path / "cmf"),
+        atomic_root=str(tmp_path / "atomic"),
+        cmfgen_runner_threads=4,
+        cmfgen_config_sources={
+            "cmfgen_root": "env:CMFDIST",
+            "atomic_root": str(tmp_path / ".cmfgenrc"),
+            "threads": "env:OMP_NUM_THREADS",
+        },
+    )
+    response = app.test_client().get("/system/")
+    assert response.status_code == 200
+    assert b"CMFGEN root" in response.data
+    assert str(tmp_path / "cmf").encode() in response.data
+    assert b"env:CMFDIST" in response.data
+    assert b"Atomic-data root" in response.data
+    assert str(tmp_path / "atomic").encode() in response.data
+    assert b"Runner thread default" in response.data
+    assert b"env:OMP_NUM_THREADS" in response.data
+
+
 def test_cache_maintenance_refreshes_stale_entries(tmp_path: Path) -> None:
     app = _make_app(tmp_path)
     cache_store = app.extensions["cmfgen_jobs"]["cache"]

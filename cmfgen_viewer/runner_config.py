@@ -15,6 +15,7 @@ KEYS = {
 ENVIRONMENT = {
     "cmfgen_root": "CMFDIST", "atomic_root": "ATOMIC", "threads": "OMP_NUM_THREADS",
 }
+LEGACY_ENVIRONMENT = {"cmfgen_root": "cmfdist", "atomic_root": "atomic"}
 
 
 def _read_rc(path):
@@ -44,7 +45,9 @@ def _read_rc(path):
     return values
 
 
-def resolve_runner_config(*, cmfgen_root=None, atomic_root=None, threads=None):
+def resolve_runner_config(
+    *, cmfgen_root=None, atomic_root=None, threads=None, require_roots=True
+):
     """Merge CLI > environment > cwd rc > home rc > built-in defaults.
 
     Relative rc paths are relative to their config's directory. Environment
@@ -59,17 +62,20 @@ def resolve_runner_config(*, cmfgen_root=None, atomic_root=None, threads=None):
         for name, value in _read_rc(path).items():
             values[name] = value
             sources[name] = str(path)
-    for name, variable in ENVIRONMENT.items():
-        value = os.environ.get(variable)
-        if value is not None and value.strip():
-            values[name] = value
-            sources[name] = f"env:{variable}"
+    for environment in (LEGACY_ENVIRONMENT, ENVIRONMENT):
+        for name, variable in environment.items():
+            value = os.environ.get(variable)
+            if value is not None and value.strip():
+                values[name] = value
+                sources[name] = f"env:{variable}"
     for name, value in {"cmfgen_root": cmfgen_root, "atomic_root": atomic_root, "threads": threads}.items():
         if value is not None:
             values[name] = value
             sources[name] = "cli"
     for name in ("cmfgen_root", "atomic_root"):
         if name not in values:
+            if not require_roots:
+                continue
             option = "--" + name.replace("_", "-")
             raise RunnerError(f"Missing {name}: supply {option}, {ENVIRONMENT[name]}, or {name} in ~/.cmfgenrc or ./.cmfgenrc")
         values[name] = Path(values[name]).expanduser().resolve()
