@@ -13,6 +13,7 @@ from pathlib import Path
 import re
 
 from .model_editor import model_inputs_modified_since_solution
+from .spectrum_io import load_obs_spectrum
 
 
 STATUS_LABELS = {
@@ -175,6 +176,21 @@ def _is_fresh(path: Path, anchor: float | None) -> bool:
     return anchor is None or modified + 2.0 >= anchor
 
 
+def _spectrum_problem(path: Path) -> str | None:
+    """Return a concise problem when a CMF_FLUX spectrum is not usable."""
+    try:
+        spectrum = load_obs_spectrum(path)
+    except (OSError, ValueError) as exc:
+        return f"could not be parsed ({exc})"
+    points = int(spectrum.get("raw_points", 0))
+    expected = spectrum.get("expected_count")
+    if points < 2:
+        return "does not contain matched frequency and intensity vectors"
+    if isinstance(expected, int) and points != expected:
+        return f"contains {points} matched points, but declares {expected}"
+    return None
+
+
 def _main_input_anchor(model_dir: Path) -> float | None:
     inputs = [model_dir / name for name in ("batch.sh", "VADAT", "MODEL_SPEC", "IN_ITS")]
     gamma_in = model_dir / "GAMMAS_IN"
@@ -193,24 +209,40 @@ def diagnose_main_run(model_dir: Path, *, active: bool = False) -> dict[str, obj
     """Classify the latest CMFGEN result without mistaking warnings for failures."""
     log_path = model_dir / "batch.log"
     log = _read_text(log_path)
+    outgen = model_dir / "OUTGEN"
+    outgen_text = _read_text(outgen)
+    try:
+        # OUTGEN is native and is replaced for every invocation.  If it is
+        # newer, batch.log belongs to an older wrapper-driven run.
+        if log_path.stat().st_mtime < outgen.stat().st_mtime:
+            log = ""
+    except OSError:
+        pass
+    if active:
+        return _record("main", "running", "A CMFGEN process is currently active.")
     fatal = _fatal_details(log, path="batch.log")
+    fatal.extend(_fatal_details(outgen_text, path="OUTGEN"))
     if fatal:
         return _record(
             "main",
             "failed",
-            "The current batch log contains a fatal runtime signature.",
-            fatal,
+            "The current CMFGEN output contains a fatal runtime signature.",
+            fatal[:3],
         )
-    if active:
-        return _record("main", "running", "A CMFGEN process is currently active.")
-
     mod_sum = model_dir / "MOD_SUM"
     rvtj = model_dir / "RVTJ"
-    outgen = model_dir / "OUTGEN"
     if not log and not any(path.is_file() for path in (mod_sum, rvtj, outgen)):
         return _record("main", "unknown", "No CMFGEN run result has been recorded yet.")
 
-    anchors = [value for value in (_main_input_anchor(model_dir), _latest_shell_date(log, "Model started at:")) if value is not None]
+    anchors = [
+        value
+        for value in (
+            _main_input_anchor(model_dir),
+            _mtime(outgen),
+            _latest_shell_date(log, "Model started at:"),
+        )
+        if value is not None
+    ]
     anchor = max(anchors) if anchors else None
     details: list[dict[str, object]] = []
     for path in (mod_sum, rvtj):
@@ -290,10 +322,54 @@ def _flux_input_anchor(obs_dir: Path, log: str) -> float | None:
     return max(values) if values else None
 
 
-def diagnose_flux_run(obs_dir: Path, *, active: bool = False) -> dict[str, object]:
+def _flux_is_superseded_by_main(
+    obs_dir: Path,
+    expected_outputs: list[str],
+) -> bool:
+    main_epoch = _latest_mtime(
+        [obs_dir.parent / name for name in ("OUTGEN", "MOD_SUM")]
+    )
+    flux_paths = [obs_dir / "OUT_FLUX"]
+    flux_paths.extend(obs_dir.joinpath(*Path(name).parts) for name in expected_outputs)
+    flux_epoch = _latest_mtime(flux_paths)
+    return main_epoch is not None and (flux_epoch is None or main_epoch > flux_epoch)
+
+
+def diagnose_flux_run(
+    obs_dir: Path,
+    *,
+    active: bool = False,
+    main_active: bool = False,
+) -> dict[str, object]:
     """Classify the latest CMF_FLUX batch and validate its moved spectra."""
     log_path = obs_dir / "batobs.log"
     log = _read_text(log_path)
+    out_flux = obs_dir / "OUT_FLUX"
+    out_flux_text = _read_text(out_flux, limit=512 * 1024)
+    try:
+        # A newer OUT_FLUX belongs to a later invocation through another
+        # launcher.  A stale legacy log must not determine that run's status.
+        if log_path.stat().st_mtime < out_flux.stat().st_mtime:
+            log = ""
+    except OSError:
+        pass
+    scripts = _flux_scripts(obs_dir)
+    expected_outputs = _expected_flux_outputs(scripts)
+    if active:
+        return _record("flux", "running", "A CMF_FLUX process is currently active.")
+    if main_active:
+        return _record(
+            "flux",
+            "incomplete",
+            "A newer CMFGEN run is active; previous CMF_FLUX results are no longer current.",
+        )
+    if _flux_is_superseded_by_main(obs_dir, expected_outputs):
+        return _record(
+            "flux",
+            "incomplete",
+            "CMFGEN has produced newer model output; CMF_FLUX must be run again.",
+        )
+
     pass_starts = [
         match.start()
         for match in re.finditer(
@@ -303,26 +379,21 @@ def diagnose_flux_run(obs_dir: Path, *, active: bool = False) -> dict[str, objec
         )
     ]
     fatal = _fatal_details(log, path="batobs.log", pass_starts=pass_starts)
+    fatal.extend(_fatal_details(out_flux_text, path="OUT_FLUX"))
     if fatal:
         return _record(
             "flux",
             "failed",
-            "The current CMF_FLUX log contains a fatal runtime signature.",
-            fatal,
+            "The current CMF_FLUX output contains a fatal runtime signature.",
+            fatal[:3],
         )
-    if active:
-        return _record("flux", "running", "A CMF_FLUX process is currently active.")
-    if not log:
-        return _record("flux", "unknown", "No CMF_FLUX run log has been recorded yet.")
-
-    scripts = _flux_scripts(obs_dir)
     expected_passes = _expected_flux_passes(scripts)
     completed = min(
         len(pass_starts),
         len(re.findall(r"Program finished on:", log, flags=re.IGNORECASE)),
     )
     details: list[dict[str, object]] = []
-    if expected_passes is None:
+    if expected_passes is None and log:
         details.append(
             _detail(
                 "The expected CMF_FLUX pass count could not be derived from batobs.sh and bat_ins.sh.",
@@ -330,7 +401,7 @@ def diagnose_flux_run(obs_dir: Path, *, active: bool = False) -> dict[str, objec
                 available=(obs_dir / "batobs.sh").is_file(),
             )
         )
-    elif completed < expected_passes:
+    elif log and completed < expected_passes:
         details.append(
             _detail(
                 f"Only {completed} of {expected_passes} expected CMF_FLUX passes have completion markers.",
@@ -339,8 +410,7 @@ def diagnose_flux_run(obs_dir: Path, *, active: bool = False) -> dict[str, objec
         )
 
     anchor = _flux_input_anchor(obs_dir, log)
-    expected_outputs = _expected_flux_outputs(scripts)
-    if not expected_outputs:
+    if not expected_outputs and log:
         details.append(
             _detail(
                 "Expected spectrum outputs could not be derived from OBSFRAME moves in the run scripts.",
@@ -365,9 +435,14 @@ def diagnose_flux_run(obs_dir: Path, *, active: bool = False) -> dict[str, objec
                     path=relative_name,
                 )
             )
+        elif problem := _spectrum_problem(output):
+            details.append(
+                _detail(
+                    f"Expected spectrum {relative_name} {problem}.",
+                    path=relative_name,
+                )
+            )
 
-    out_flux = obs_dir / "OUT_FLUX"
-    out_flux_text = _read_text(out_flux, limit=512 * 1024)
     if not out_flux.is_file():
         details.append(
             _detail("OUT_FLUX is missing.", path="OUT_FLUX", available=False)
@@ -381,6 +456,13 @@ def diagnose_flux_run(obs_dir: Path, *, active: bool = False) -> dict[str, objec
             _detail("OUT_FLUX has no successful completion marker.", path="OUT_FLUX")
         )
 
+    if not log and not out_flux.is_file() and not expected_outputs:
+        return _record(
+            "flux",
+            "unknown",
+            "No native CMF_FLUX output or legacy run log has been recorded yet.",
+        )
+
     if details:
         return _record(
             "flux",
@@ -388,8 +470,13 @@ def diagnose_flux_run(obs_dir: Path, *, active: bool = False) -> dict[str, objec
             "The latest CMF_FLUX run did not produce every expected current result.",
             details,
         )
-    return _record(
-        "flux",
-        "succeeded",
-        f"All {completed} CMF_FLUX passes and their spectrum outputs completed successfully.",
-    )
+    if log:
+        summary = f"All {completed} CMF_FLUX passes and their spectrum outputs completed successfully."
+    elif expected_outputs:
+        summary = (
+            f"Native CMF_FLUX completion marker and all {len(expected_outputs)} expected "
+            "spectrum outputs are current and valid."
+        )
+    else:
+        summary = "The latest native CMF_FLUX invocation completed successfully."
+    return _record("flux", "succeeded", summary)

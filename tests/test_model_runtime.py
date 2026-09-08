@@ -44,6 +44,16 @@ def _write_fake_process(
     )
 
 
+def _write_flux_spectrum(path: Path) -> None:
+    path.write_text(
+        "Continuum Frequencies (3)\n"
+        "1.0 2.0 3.0\n"
+        "Observed intensity (Janskys)\n"
+        "4.0 5.0 6.0\n",
+        encoding="utf-8",
+    )
+
+
 def test_process_detection_requires_expected_name_and_exact_working_directory(
     tmp_path: Path,
 ) -> None:
@@ -290,6 +300,139 @@ def test_inactive_main_runtime_retains_main_and_flux_progress(tmp_path: Path) ->
     assert flux_metrics["Latest LS loop"] == "84"
 
 
+def test_cmf_flux_progress_uses_native_outputs_without_legacy_log(tmp_path: Path) -> None:
+    model = tmp_path / "model"
+    obs = model / "obs"
+    obs.mkdir(parents=True)
+    proc_root = _empty_proc(tmp_path)
+    (obs / "batobs.sh").write_text(
+        "$PROG_CMF_OBS < IN_FILE\n"
+        "mv -f OBSFRAME obs_fin_15\n"
+        "$PROG_CMF_OBS < IN_FILE\n"
+        "mv -f OBSFRAME obs_cont\n",
+        encoding="utf-8",
+    )
+    _write_flux_spectrum(obs / "obs_fin_15")
+    _write_flux_spectrum(obs / "obs_cont")
+    (obs / "OUT_FLUX").write_text(
+        "LS loop 32 is finished\nCMF_FLUX has finished\n",
+        encoding="utf-8",
+    )
+
+    runtime = inspect_workflow_runtime(model, "main", proc_root=proc_root)
+
+    flux = next(item for item in runtime["recorded_progress"] if item["phase"] == "flux")
+    progress = flux["progress"]
+    assert progress["detail"] == "Detected 2 of 2 current CMF_FLUX spectra"
+    assert progress["current"] == 2
+    assert progress["maximum"] == 2
+    assert progress["percent"] == 100.0
+    assert {item["label"]: item["value"] for item in progress["metrics"]} == {
+        "Current spectra": "2 of 2",
+        "Latest LS loop": "32",
+        "Native status": "Finished",
+    }
+    diagnostic = runtime["diagnostics"][1]
+    assert diagnostic["status"] == "succeeded"
+    assert "all 2 expected spectrum outputs" in diagnostic["summary"]
+
+
+def test_newer_native_flux_output_ignores_stale_legacy_log(tmp_path: Path) -> None:
+    model = tmp_path / "model"
+    obs = model / "obs"
+    obs.mkdir(parents=True)
+    proc_root = _empty_proc(tmp_path)
+    (obs / "batobs.sh").write_text(
+        "$PROG_CMF_OBS < IN_FILE\nmv -f OBSFRAME obs_cont\n",
+        encoding="utf-8",
+    )
+    log = obs / "batobs.log"
+    log.write_text(
+        "PID of cmf_flux.exe is: 1\nFortran runtime error: old failure\n",
+        encoding="utf-8",
+    )
+    os.utime(log, (1000, 1000))
+    _write_flux_spectrum(obs / "obs_cont")
+    (obs / "OUT_FLUX").write_text(
+        "LS loop 8 is finished\nCMF_FLUX has finished\n",
+        encoding="utf-8",
+    )
+
+    runtime = inspect_workflow_runtime(model, "main", proc_root=proc_root)
+
+    flux_progress = next(
+        item["progress"]
+        for item in runtime["recorded_progress"]
+        if item["phase"] == "flux"
+    )
+    assert flux_progress["detail"] == "Detected 1 of 1 current CMF_FLUX spectra"
+    assert runtime["diagnostics"][1]["status"] == "succeeded"
+
+
+def test_newer_finished_main_run_hides_previous_flux_progress(tmp_path: Path) -> None:
+    model = tmp_path / "model"
+    obs = model / "obs"
+    obs.mkdir(parents=True)
+    proc_root = _empty_proc(tmp_path)
+    (obs / "batobs.sh").write_text(
+        "$PROG_CMF_OBS < IN_FILE\nmv -f OBSFRAME obs_cont\n",
+        encoding="utf-8",
+    )
+    _write_flux_spectrum(obs / "obs_cont")
+    (obs / "OUT_FLUX").write_text(
+        "Fortran runtime error: failure from previous model\n",
+        encoding="utf-8",
+    )
+    flux_time = (obs / "OUT_FLUX").stat().st_mtime
+    main_time = flux_time + 10
+    (model / "OUTGEN").write_text(
+        "Model started on: now\nCurrent great iteration count is 1\n",
+        encoding="utf-8",
+    )
+    (model / "MOD_SUM").write_text("Model Finalized on: now\n", encoding="utf-8")
+    (model / "RVTJ").write_text("new restart\n", encoding="utf-8")
+    for name in ("OUTGEN", "MOD_SUM", "RVTJ"):
+        os.utime(model / name, (main_time, main_time))
+
+    runtime = inspect_workflow_runtime(model, "main", proc_root=proc_root)
+
+    assert [item["phase"] for item in runtime["recorded_progress"]] == ["main"]
+    assert runtime["diagnostics"][1]["status"] == "incomplete"
+    assert "must be run again" in runtime["diagnostics"][1]["summary"]
+
+
+def test_active_main_run_marks_previous_flux_results_outdated(tmp_path: Path) -> None:
+    model = tmp_path / "model"
+    obs = model / "obs"
+    obs.mkdir(parents=True)
+    proc_root = _empty_proc(tmp_path)
+    (obs / "batobs.sh").write_text(
+        "$PROG_CMF_OBS < IN_FILE\nmv -f OBSFRAME obs_cont\n",
+        encoding="utf-8",
+    )
+    _write_flux_spectrum(obs / "obs_cont")
+    (obs / "OUT_FLUX").write_text("CMF_FLUX has finished\n", encoding="utf-8")
+    _write_fake_process(
+        proc_root,
+        123,
+        cwd=model,
+        command="/opt/cmfgen/exe/cmfgen_dev.exe",
+        comm="cmfgen_dev.exe",
+    )
+
+    runtime = inspect_workflow_runtime(
+        model,
+        "main",
+        proc_root=proc_root,
+        now_epoch=2000,
+    )
+
+    assert runtime["active"] is True
+    assert runtime["recorded_progress"] == []
+    assert runtime["diagnostics"][1]["status"] == "incomplete"
+    assert "newer CMFGEN run is active" in runtime["diagnostics"][1]["summary"]
+
+
 def test_lte_progress_reads_frequency_counter(tmp_path: Path) -> None:
     proc_root = _empty_proc(tmp_path)
     model = tmp_path / "lte"
@@ -348,6 +491,64 @@ def test_old_file_progress_is_hidden_for_a_new_process(tmp_path: Path) -> None:
 
     assert runtime["active"] is True
     assert runtime["progress"] is None
+
+
+def test_native_outgen_invalidates_results_left_by_failed_wrapperless_run(
+    tmp_path: Path,
+) -> None:
+    proc_root = _empty_proc(tmp_path)
+    model = tmp_path / "model"
+    model.mkdir()
+    (model / "MOD_SUM").write_text(
+        "Model Finalized on: 01-Jan-2026 00:00:00\n",
+        encoding="utf-8",
+    )
+    (model / "RVTJ").write_text("previous restart\n", encoding="utf-8")
+    old_time = (model / "RVTJ").stat().st_mtime - 10
+    os.utime(model / "MOD_SUM", (old_time, old_time))
+    os.utime(model / "RVTJ", (old_time, old_time))
+    (model / "OUTGEN").write_text("new invocation stopped early\n", encoding="utf-8")
+
+    diagnostic = inspect_workflow_runtime(model, "main", proc_root=proc_root)[
+        "diagnostics"
+    ][0]
+
+    assert diagnostic["status"] == "incomplete"
+    assert {detail["path"] for detail in diagnostic["details"]} == {"MOD_SUM", "RVTJ"}
+
+
+def test_main_diagnostic_reads_native_outgen_fatal_without_wrapper_log(
+    tmp_path: Path,
+) -> None:
+    proc_root = _empty_proc(tmp_path)
+    model = tmp_path / "model"
+    model.mkdir()
+    (model / "OUTGEN").write_text(
+        "Fortran runtime error: invalid record\nError termination.\n",
+        encoding="utf-8",
+    )
+
+    diagnostic = inspect_workflow_runtime(model, "main", proc_root=proc_root)[
+        "diagnostics"
+    ][0]
+
+    assert diagnostic["status"] == "failed"
+    assert diagnostic["details"][0]["path"] == "OUTGEN"
+
+
+def test_main_diagnostic_accepts_native_results_without_wrapper_log(tmp_path: Path) -> None:
+    proc_root = _empty_proc(tmp_path)
+    model = tmp_path / "model"
+    model.mkdir()
+    (model / "OUTGEN").write_text("CMFGEN native output\n", encoding="utf-8")
+    (model / "MOD_SUM").write_text("Model Finalized on: now\n", encoding="utf-8")
+    (model / "RVTJ").write_text("new restart\n", encoding="utf-8")
+
+    diagnostic = inspect_workflow_runtime(model, "main", proc_root=proc_root)[
+        "diagnostics"
+    ][0]
+
+    assert diagnostic["status"] == "succeeded"
 
 
 def test_main_diagnostic_reports_fortran_failure_despite_shell_completion(
@@ -451,8 +652,8 @@ def test_run_diagnostics_accept_success_and_ignore_benign_numerical_notes(
         "Program finished on: now\n",
         encoding="utf-8",
     )
-    (obs / "obs_fin_15").write_text("spectrum\n", encoding="utf-8")
-    (obs / "obs_cont").write_text("continuum\n", encoding="utf-8")
+    _write_flux_spectrum(obs / "obs_fin_15")
+    _write_flux_spectrum(obs / "obs_cont")
     (obs / "OUT_FLUX").write_text("CMF_FLUX has finished\n", encoding="utf-8")
 
     diagnostics = inspect_workflow_runtime(model, "main", proc_root=proc_root)[
@@ -489,6 +690,47 @@ def test_flux_diagnostic_reports_incomplete_missing_or_unfinished_results(
     messages = [detail["message"] for detail in diagnostic["details"]]
     assert "Expected spectrum obs_cont is missing." in messages
     assert "OUT_FLUX has no successful completion marker." in messages
+
+
+def test_flux_diagnostic_rejects_invalid_native_spectrum_without_log(
+    tmp_path: Path,
+) -> None:
+    proc_root = _empty_proc(tmp_path)
+    model = tmp_path / "model"
+    obs = model / "obs"
+    obs.mkdir(parents=True)
+    (obs / "batobs.sh").write_text(
+        "$PROG_CMF_OBS < IN_FILE\nmv -f OBSFRAME obs_cont\n",
+        encoding="utf-8",
+    )
+    (obs / "obs_cont").write_text("truncated spectrum\n", encoding="utf-8")
+    (obs / "OUT_FLUX").write_text("CMF_FLUX has finished\n", encoding="utf-8")
+
+    diagnostic = inspect_workflow_runtime(model, "main", proc_root=proc_root)[
+        "diagnostics"
+    ][1]
+
+    assert diagnostic["status"] == "incomplete"
+    assert diagnostic["details"][0]["path"] == "obs_cont"
+    assert "does not contain matched frequency" in diagnostic["details"][0]["message"]
+
+
+def test_flux_diagnostic_reads_native_fatal_signature_without_log(tmp_path: Path) -> None:
+    proc_root = _empty_proc(tmp_path)
+    model = tmp_path / "model"
+    obs = model / "obs"
+    obs.mkdir(parents=True)
+    (obs / "OUT_FLUX").write_text(
+        "Fortran runtime error: invalid record\nError termination.\n",
+        encoding="utf-8",
+    )
+
+    diagnostic = inspect_workflow_runtime(model, "main", proc_root=proc_root)[
+        "diagnostics"
+    ][1]
+
+    assert diagnostic["status"] == "failed"
+    assert diagnostic["details"][0]["path"] == "OUT_FLUX"
 
 
 def test_main_diagnostic_rejects_results_from_before_latest_batch_start(

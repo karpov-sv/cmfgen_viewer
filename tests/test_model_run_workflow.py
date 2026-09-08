@@ -154,6 +154,10 @@ def test_main_computation_page_shows_recorded_cmfgen_and_flux_progress(tmp_path:
         "PID of /opt/cmfgen/exe/cmf_flux.exe is: 123\nProgram finished on: now\n",
         encoding="utf-8",
     )
+    (obs / "OUT_FLUX").write_text(
+        "LS loop 4 is finished\nCMF_FLUX has finished\n",
+        encoding="utf-8",
+    )
     app = create_app(basepath=str(tmp_path), read_write_enabled=True, secret_key="test")
     app.testing = True
 

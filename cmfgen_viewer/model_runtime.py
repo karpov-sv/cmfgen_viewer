@@ -320,52 +320,144 @@ def _cmf_flux_invocation_count(target_dir: Path) -> int | None:
     return count or None
 
 
-def _flux_progress(target_dir: Path) -> dict[str, object] | None:
+def _fresh_flux_outputs(target_dir: Path, anchor: float | None) -> list[str]:
+    scripts = [
+        _read_tail(target_dir / name, limit=512 * 1024)
+        for name in ("bat_ins.sh", "batobs.sh")
+    ]
+    names: list[str] = []
+    move_pattern = re.compile(
+        r"^\s*mv(?:\s+-\S+)*\s+OBSFRAME\s+([^\s#;&]+)",
+        flags=re.IGNORECASE | re.MULTILINE,
+    )
+    for script in scripts:
+        for match in move_pattern.finditer(script):
+            name = match.group(1).strip("'\"")
+            relative = Path(name)
+            if (
+                name
+                and not relative.is_absolute()
+                and ".." not in relative.parts
+                and "$" not in name
+                and name not in names
+            ):
+                names.append(name)
+
+    current: list[str] = []
+    for name in names:
+        path = target_dir.joinpath(*Path(name).parts)
+        try:
+            modified = path.stat().st_mtime
+        except OSError:
+            continue
+        if anchor is None or modified + 2.0 >= anchor:
+            current.append(name)
+    return current
+
+
+def _flux_is_superseded_by_main(target_dir: Path) -> bool:
+    main_times: list[float] = []
+    for name in ("OUTGEN", "MOD_SUM"):
+        try:
+            main_times.append((target_dir.parent / name).stat().st_mtime)
+        except OSError:
+            pass
+    if not main_times:
+        return False
+
+    flux_times: list[float] = []
+    for path in (target_dir / "OUT_FLUX", *target_dir.glob("obs_fin*"), target_dir / "obs_cont"):
+        try:
+            flux_times.append(path.stat().st_mtime)
+        except OSError:
+            pass
+    return not flux_times or max(main_times) > max(flux_times)
+
+
+def _flux_progress(target_dir: Path, *, active: bool = False) -> dict[str, object] | None:
+    if not active and _flux_is_superseded_by_main(target_dir):
+        return None
     log_path = target_dir / "batobs.log"
     log = _read_tail(log_path, limit=512 * 1024)
+    output_path = target_dir / "OUT_FLUX"
+    try:
+        # Native output newer than the legacy log means another launcher has
+        # run CMF_FLUX since that log was written.  Do not combine two runs.
+        if log_path.stat().st_mtime < output_path.stat().st_mtime:
+            log = ""
+    except OSError:
+        pass
     starts = re.findall(
         r"PID of\s+.*?cmf_flux(?:\.exe)?\s+is:\s*\d+",
         log,
         flags=re.IGNORECASE,
     )
     finishes = re.findall(r"Program finished on:", log, flags=re.IGNORECASE)
-    if not starts and not finishes:
-        return None
     started = len(starts)
-    completed = min(len(finishes), started)
+    log_completed = min(len(finishes), started)
     total = _cmf_flux_invocation_count(target_dir)
-    running_pass = started if started > completed else None
+    anchor_paths = [
+        target_dir / name
+        for name in ("batobs.sh", "bat_ins.sh", "CMF_FLUX_PARAM_INIT", "IN_FILE", "RVTJ", "MODEL")
+    ]
+    anchor_paths.extend(target_dir.parent / name for name in ("RVTJ", "MODEL", "MOD_SUM"))
+    anchor_times: list[float] = []
+    for path in anchor_paths:
+        try:
+            anchor_times.append(path.stat().st_mtime)
+        except OSError:
+            pass
+    current_outputs = _fresh_flux_outputs(target_dir, max(anchor_times) if anchor_times else None)
+
+    output = _read_tail(output_path, limit=512 * 1024)
+    native_finished = bool(re.search(r"CMF_FLUX has finished", output, flags=re.IGNORECASE))
+    if not starts and not finishes and not output and not current_outputs:
+        return None
+
+    has_log_history = bool(starts or finishes)
+    completed = log_completed if has_log_history else len(current_outputs)
+    if total is not None:
+        completed = min(completed, total)
+    running_pass = started if started > log_completed else None
+    if active and running_pass is None:
+        running_pass = min(completed + 1, total) if total else completed + 1
     if running_pass is not None:
         detail = (
             f"CMF_FLUX pass {running_pass} of {total} running"
             if total is not None
             else f"CMF_FLUX pass {running_pass} running"
         )
-    else:
+    elif has_log_history:
         detail = (
             f"Completed {completed} of {total} CMF_FLUX passes"
             if total is not None
             else f"Completed {completed} CMF_FLUX passes"
         )
+    elif total is not None:
+        detail = f"Detected {completed} of {total} current CMF_FLUX spectra"
+    elif native_finished:
+        detail = "Latest native CMF_FLUX invocation completed"
+    else:
+        detail = "Native CMF_FLUX output is available"
     percent = 100.0 * completed / total if total and total > 0 else None
     metrics: list[dict[str, str]] = [
         {
-            "label": "Completed passes",
+            "label": "Completed passes" if has_log_history else "Current spectra",
             "value": f"{completed} of {total}" if total is not None else str(completed),
         }
     ]
 
-    output_path = target_dir / "OUT_FLUX"
     control_path = target_dir / "CMF_FLUX_PARAM"
     try:
         output_is_current = output_path.stat().st_mtime >= control_path.stat().st_mtime
     except OSError:
-        output_is_current = False
+        output_is_current = output_path.is_file()
     if output_is_current:
-        output = _read_tail(output_path, limit=512 * 1024)
         loops = re.findall(r"LS loop\s*(\d+)\s+is finished", output, flags=re.IGNORECASE)
         if loops:
             metrics.append({"label": "Latest LS loop", "value": loops[-1]})
+        if native_finished:
+            metrics.append({"label": "Native status", "value": "Finished"})
 
     control = _read_tail(control_path, limit=256 * 1024)
     turbulence = re.search(r"^\s*(\S+)\s+\[VTURB_FIX\]", control, flags=re.MULTILINE)
@@ -422,10 +514,16 @@ def inspect_workflow_runtime(
         "lte": _lte_progress,
         "hydro": _hydro_progress,
     }.get(phase)
-    progress = progress_reader(progress_target) if progress_reader is not None else None
+    progress = (
+        progress_reader(progress_target, active=bool(processes))
+        if phase == "flux" and progress_reader is not None
+        else progress_reader(progress_target)
+        if progress_reader is not None
+        else None
+    )
     progress_source = {
         "main": target_dir / "OUTGEN",
-        "flux": progress_target / "batobs.log",
+        "flux": progress_target / "OUT_FLUX",
         "lte": target_dir / "ML_COUNTER",
         "hydro": target_dir / "RVSIG_COL_NEW",
     }.get(phase)
@@ -462,7 +560,11 @@ def inspect_workflow_runtime(
     if kind == "main":
         diagnostics = [
             diagnose_main_run(target_dir, active=main_processes_active),
-            diagnose_flux_run(target_dir / "obs", active=bool(flux_processes)),
+            diagnose_flux_run(
+                target_dir / "obs",
+                active=bool(flux_processes),
+                main_active=main_processes_active and not flux_processes,
+            ),
         ]
     return {
         "kind": kind,
