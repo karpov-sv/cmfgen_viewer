@@ -246,6 +246,8 @@ def test_upload_routes_end_to_end_for_photometry(tmp_path: Path) -> None:
 
     view_response = client.get(f"/uploads/view/{token}")
     assert view_response.status_code == 200
+    assert b'<button type="submit" formnovalidate class="btn btn-sm btn-outline-primary">' in view_response.data
+    assert b"Save Photometry Data" in view_response.data
 
     update_response = client.post(
         f"/uploads/update-photometry/{token}",
