@@ -101,6 +101,37 @@ def test_parse_uploaded_photometry_token4_boolean_not_misread_as_flux_err(tmp_pa
     assert parsed["flux_err"] == [None]
 
 
+def test_normalize_photometry_table_emits_complete_canonical_schema() -> None:
+    normalized = obs.normalize_photometry_table(
+        "5000 100 1.2e-12\n6000 200 2.3e-12 4e-14 0 # red\n"
+    )
+
+    assert normalized.startswith(obs.CANONICAL_PHOTOMETRY_HEADER + "\n")
+    assert "5000 100 1.2e-12 0 1" in normalized
+    assert "6000 200 2.3e-12 4e-14 0 # red" in normalized
+
+
+def test_manifest_photometry_type_parses_legacy_txt_schema(tmp_path: Path) -> None:
+    path = tmp_path / "source.txt"
+    path.write_text(
+        '# wavelength flux flux_error comment\n5000 1.2e-12 4e-14 "legacy B"\n',
+        encoding="utf-8",
+    )
+
+    parsed = obs.parse_uploaded_spectrum(
+        path,
+        flux_mode="absolute",
+        observation_type="photometry",
+    )
+
+    assert parsed["observation_type"] == "photometry"
+    assert parsed["wavelength"] == [5000.0]
+    assert parsed["band_width"] == [0.0]
+    assert parsed["flux"] == [1.2e-12]
+    assert parsed["flux_err"] == [4e-14]
+    assert parsed["point_comment"] == ["legacy B"]
+
+
 def test_parse_uploaded_spectrum_rejects_unsupported_suffix(tmp_path: Path) -> None:
     path = tmp_path / "upload.abc"
     path.write_text("text", encoding="utf-8")

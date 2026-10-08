@@ -347,6 +347,7 @@ def bulk_spectra(path: str):
                 flux_mode=upload_flux_mode,
                 lambda_min=lambda_min,
                 lambda_max=lambda_max,
+                observation_type=str(entry.get("observation_type", "")),
             )
         except Exception as exc:
             warnings.append(f"Uploaded spectrum '{entry.get('filename', source_path.name)}' failed to load: {exc}")

@@ -11,6 +11,7 @@ from werkzeug.utils import secure_filename
 from .observed_spectrum import (
     is_valid_upload_token,
     list_upload_manifests,
+    normalize_photometry_table,
     parse_uploaded_spectrum,
     read_upload_manifest,
     remove_all_upload_bundles,
@@ -448,8 +449,6 @@ def uploads_update_photometry(token: str):
         return _upload_view_redirect_with_vizier_state(token, error="Only photometry uploads can be edited here.")
 
     photometry_table = str(request.form.get("photometry_table", ""))
-    has_rows = bool(photometry_table.strip())
-
     previous_content = ""
     try:
         previous_content = source_path.read_text(encoding="utf-8", errors="replace")
@@ -458,13 +457,16 @@ def uploads_update_photometry(token: str):
 
     requested_flux_mode = "absolute"
     try:
-        source_path.write_text(photometry_table, encoding="utf-8")
+        canonical_table = normalize_photometry_table(photometry_table)
+        has_rows = bool(canonical_table)
+        source_path.write_text(canonical_table, encoding="utf-8")
         if has_rows:
             parsed = parse_uploaded_spectrum(
                 source_path,
                 flux_mode=requested_flux_mode,
                 lambda_min=lambda_min,
                 lambda_max=lambda_max,
+                observation_type="photometry",
             )
         else:
             parsed = {
@@ -562,12 +564,14 @@ def uploads_append_vizier_photometry(token: str):
 
     requested_flux_mode = "absolute"
     try:
-        source_path.write_text(merged_table, encoding="utf-8")
+        canonical_table = normalize_photometry_table(merged_table)
+        source_path.write_text(canonical_table, encoding="utf-8")
         parsed = parse_uploaded_spectrum(
             source_path,
             flux_mode=requested_flux_mode,
             lambda_min=lambda_min,
             lambda_max=lambda_max,
+            observation_type="photometry",
         )
     except Exception as exc:
         try:

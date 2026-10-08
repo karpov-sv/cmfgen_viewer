@@ -153,6 +153,7 @@ def upload_view(token: str):
             flux_mode=upload_flux_mode,
             lambda_min=lambda_min,
             lambda_max=lambda_max,
+            observation_type=str(entry.get("observation_type", "")),
         )
     except Exception as exc:
         observation_type = str(entry.get("observation_type", "")).strip().lower()
@@ -361,6 +362,7 @@ def upload_fit_grid(token: str):
             flux_mode=upload_flux_mode,
             lambda_min=effective_lambda_min,
             lambda_max=effective_lambda_max,
+            observation_type=str(entry.get("observation_type", "")),
         )
     except Exception as exc:
         return jsonify(
@@ -687,6 +689,7 @@ def _build_upload_grid_overlay_trace(
             flux_mode=upload_flux_mode,
             lambda_min=lambda_min,
             lambda_max=lambda_max,
+            observation_type=str(entry.get("observation_type", "")),
         )
     except Exception as exc:
         return None, f"Could not parse uploaded spectrum: {exc}"
@@ -983,6 +986,7 @@ def upload_fit_grid_match_count(token: str):
                 flux_mode=upload_flux_mode,
                 lambda_min=effective_lambda_min,
                 lambda_max=effective_lambda_max,
+                observation_type=str(entry.get("observation_type", "")),
             )
         except Exception as exc:
             return jsonify({"ok": False, "error": f"Could not parse uploaded spectrum: {exc}", "total_models": 0}), 400

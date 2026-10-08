@@ -12,6 +12,7 @@ from werkzeug.utils import secure_filename
 
 from .observed_spectrum import (
     generate_upload_token,
+    normalize_photometry_table,
     parse_uploaded_spectrum,
     remove_upload_bundle,
     write_upload_manifest,
@@ -86,14 +87,15 @@ def create_photometry_bundle(
     lambda_min: float,
     lambda_max: float,
 ) -> str:
+    canonical_table = normalize_photometry_table(photometry_table)
     manifest = create_upload_bundle(
         upload_root,
         filename=filename,
-        stream=BytesIO(photometry_table.encode("utf-8")),
+        stream=BytesIO(canonical_table.encode("utf-8")),
         flux_mode="absolute",
         lambda_min=lambda_min,
         lambda_max=lambda_max,
         photometry=True,
-        empty_photometry=not photometry_table.strip(),
+        empty_photometry=not canonical_table,
     )
     return str(manifest["token"])

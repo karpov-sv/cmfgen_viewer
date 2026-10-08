@@ -6,6 +6,7 @@ import math
 import os
 import re
 import secrets
+import shlex
 import shutil
 import tempfile
 import time
@@ -38,6 +39,102 @@ PHOTOMETRY_SUFFIXES = {".phot"}
 PHOTOMETRY_SPLIT_RE = re.compile(r"[,\s;]+")
 PHOTOMETRY_TRUE_TOKENS = {"1", "true", "t", "yes", "y", "on", "enable", "enabled"}
 PHOTOMETRY_FALSE_TOKENS = {"0", "false", "f", "no", "n", "off", "disable", "disabled"}
+CANONICAL_PHOTOMETRY_HEADER = "# wavelength_A band_width_A flux flux_error enabled # comment"
+
+
+def _uses_legacy_photometry_schema(content: str) -> bool:
+    header_text = " ".join(
+        line.lstrip("#! ").lower()
+        for line in str(content or "").splitlines()
+        if line.lstrip().startswith(("#", "!"))
+    )
+    return (
+        "wavelength" in header_text
+        and "flux" in header_text
+        and "flux_error" in header_text
+        and "width" not in header_text
+        and "bandwidth" not in header_text
+    )
+
+
+def normalize_photometry_table(content: str) -> str:
+    """Serialize submitted and legacy photometry into one stable on-disk schema."""
+    normalized_lines = str(content or "").replace("\r\n", "\n").replace("\r", "\n").splitlines()
+    legacy_without_width = _uses_legacy_photometry_schema(content)
+
+    rows: list[str] = []
+    invalid_lines: list[int] = []
+    for line_no, raw_line in enumerate(normalized_lines, start=1):
+        stripped = raw_line.strip()
+        if not stripped or stripped.startswith(("#", "!")):
+            continue
+        data_part, separator, hash_comment = stripped.partition("#")
+        try:
+            tokens = shlex.split(data_part, comments=False, posix=True)
+        except ValueError:
+            invalid_lines.append(line_no)
+            continue
+        if legacy_without_width:
+            if len(tokens) < 2:
+                invalid_lines.append(line_no)
+                continue
+            wavelength_token = tokens[0]
+            width_token = "0"
+            flux_token = tokens[1]
+            error_token = tokens[2] if len(tokens) >= 3 else "0"
+            enabled_token = "1"
+            trailing_comment = " ".join(tokens[3:])
+        else:
+            if len(tokens) < 3:
+                invalid_lines.append(line_no)
+                continue
+            wavelength_token, width_token, flux_token = tokens[:3]
+            error_token = "0"
+            enabled_token = "1"
+            trailing_comment = ""
+            if len(tokens) >= 4:
+                fourth_enabled = _parse_enabled_token(tokens[3])
+                if len(tokens) == 4 and fourth_enabled is not None:
+                    enabled_token = "1" if fourth_enabled else "0"
+                else:
+                    error_token = tokens[3]
+            if len(tokens) >= 5:
+                fifth_enabled = _parse_enabled_token(tokens[4])
+                if fifth_enabled is not None:
+                    enabled_token = "1" if fifth_enabled else "0"
+                    trailing_comment = " ".join(tokens[5:])
+                else:
+                    trailing_comment = " ".join(tokens[4:])
+
+        wavelength = parse_float_token(wavelength_token)
+        width = parse_float_token(width_token)
+        flux = parse_float_token(flux_token)
+        error = parse_float_token(error_token)
+        if (
+            wavelength is None or not math.isfinite(float(wavelength)) or float(wavelength) <= 0
+            or width is None or not math.isfinite(float(width)) or float(width) < 0
+            or flux is None or not math.isfinite(float(flux))
+        ):
+            invalid_lines.append(line_no)
+            continue
+        error_text = "0"
+        if error is not None and math.isfinite(float(error)) and float(error) >= 0:
+            error_text = f"{float(error):.15g}"
+        comment = hash_comment.strip() if separator else trailing_comment.strip()
+        row = (
+            f"{float(wavelength):.15g} {float(width):.15g} {float(flux):.15g} "
+            f"{error_text} {enabled_token}"
+        )
+        if comment:
+            row += f" # {comment}"
+        rows.append(row)
+
+    if invalid_lines:
+        labels = ", ".join(str(value) for value in invalid_lines[:5])
+        raise ValueError(f"Invalid photometry row(s) at line(s): {labels}.")
+    if not rows:
+        return ""
+    return CANONICAL_PHOTOMETRY_HEADER + "\n" + "\n".join(rows) + "\n"
 
 
 def generate_upload_token() -> str:
@@ -166,6 +263,7 @@ def parse_uploaded_spectrum(
     flux_mode: str = "auto",
     lambda_min: float | None = None,
     lambda_max: float | None = None,
+    observation_type: str | None = None,
 ) -> dict[str, Any]:
     mode = flux_mode.strip().lower()
     if mode not in {"auto", "normalized", "absolute"}:
@@ -180,6 +278,7 @@ def parse_uploaded_spectrum(
         mode,
         bound_min,
         bound_max,
+        str(observation_type or "").strip().lower(),
     )
 
 
@@ -191,12 +290,13 @@ def _parse_uploaded_spectrum_cached(
     flux_mode: str,
     lambda_min: float | None,
     lambda_max: float | None,
+    observation_type: str,
 ) -> dict[str, Any]:
     del mtime_ns, size
     path = Path(path_str)
     suffix = path.suffix.lower()
 
-    if suffix in PHOTOMETRY_SUFFIXES:
+    if observation_type == "photometry" or suffix in PHOTOMETRY_SUFFIXES:
         return _parse_uploaded_photometry(path, flux_mode=flux_mode, lambda_min=lambda_min, lambda_max=lambda_max)
     if suffix in SUPPORTED_FITS_SUFFIXES:
         return _parse_uploaded_fits(path, flux_mode=flux_mode, lambda_min=lambda_min, lambda_max=lambda_max)
@@ -510,6 +610,8 @@ def _parse_uploaded_photometry(
     warnings: list[str] = []
     try:
         content = path.read_text(encoding="utf-8", errors="replace")
+        if _uses_legacy_photometry_schema(content):
+            content = normalize_photometry_table(content)
     except OSError as exc:
         raise ValueError(f"Could not read photometry upload: {exc}") from exc
 

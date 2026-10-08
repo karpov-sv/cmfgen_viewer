@@ -277,6 +277,7 @@ def spectrum_fit(path: str):
             flux_mode=upload_flux_mode,
             lambda_min=effective_lambda_min,
             lambda_max=effective_lambda_max,
+            observation_type=str(selected_entry.get("observation_type", "")),
         )
     except Exception as exc:
         return fit_error_response(f"Could not load selected observed overlay: {exc}")
@@ -435,6 +436,7 @@ def spectrum(path: str):
                 flux_mode=upload_flux_mode,
                 lambda_min=lambda_min,
                 lambda_max=lambda_max,
+                observation_type=str(entry.get("observation_type", "")),
             )
         except Exception as exc:
             warnings.append(f"Uploaded spectrum '{entry.get('filename', source_path.name)}' failed to load: {exc}")
