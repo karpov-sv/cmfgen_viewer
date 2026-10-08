@@ -266,7 +266,20 @@ precedes interpolation); photometry continues to integrate full bands. Wide
 Gaussian kernels use FFT convolution with the same discrete four-sigma kernel
 and nearest-edge extension as the direct implementation. Small kernels use
 direct convolution. These optimizations do not modify imported spectra or
-introduce additional downsampling; the legacy TLUSTY point cap is unchanged.
+introduce additional downsampling for spectral fits; the legacy TLUSTY point
+cap is unchanged.
+
+Unbroadened absolute photometry fits prepare compact band quadrature, preserving
+native line fluxes and interpolated band edges. Logarithmic grouping starts at
+approximately R=300 and refines until a conservative extinction-averaging bound
+limits relative band-flux error to 0.01% over the fitted E(B-V) range. Signed
+fluxes or bands that cannot meet the bound retain native quadrature. Redshift
+and broadening remain available; trials with nonzero smoothing use native
+spectra. Band integration uses sorted slices rather than scanning the whole
+spectrum per band. Final scores and the zero-broadening comparison use native
+integration. Absolute CMFGEN grid fits skip loading the unused continuum
+and convert Jy to F-lambda directly in NumPy. Fixing redshift and broadening
+to zero also avoids repeating the same extinction/distance optimization stage.
 
 The default free-broadening seed starts above the no-smoothing threshold, uses a 1% relative
 finite-difference step, and explicitly checks the zero-width boundary. Unlike

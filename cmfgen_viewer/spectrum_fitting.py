@@ -14,6 +14,7 @@ from .spectrum_constants import (
     PHOTOMETRY_FIT_FLUX_ERR_FALLBACK_FRACTION,
 )
 from .spectrum_options import spectrum_fit_bounds
+from .photometry_sampling import PreparedPhotometrySampler
 from .spectrum_transforms import (
     _build_model_series_for_fit,
     _clean_xy_with_band_width,
@@ -176,9 +177,10 @@ def _sample_model_on_observed_grid(
         if hi <= lo:
             continue
 
-        segment_mask = (model_x > lo) & (model_x < hi)
-        segment_x = model_x[segment_mask]
-        segment_y = model_y[segment_mask]
+        left = np.searchsorted(model_x, lo, side="right")
+        right = np.searchsorted(model_x, hi, side="left")
+        segment_x = model_x[left:right]
+        segment_y = model_y[left:right]
         segment_x = np.concatenate(([lo], segment_x, [hi]))
         segment_y = np.concatenate(
             (
@@ -316,10 +318,17 @@ class FitResiduals:
     obs_scale: float
     norm_weights: Any
     should_cancel: Callable[[], bool] | None = None
+    ebv_bounds: tuple[float, float] = (0.0, 3.0)
     transform: Any = field(init=False)
+    photometry_sampler: Any = field(init=False, default=None)
 
     def __post_init__(self) -> None:
         self.transform = PreparedSpectrumTransform(self.model_x, self.model_y, self.normalized_mode)
+        if self.normalized_mode == "both" and self.observed_band_width is not None:
+            self.photometry_sampler = PreparedPhotometrySampler(
+                self.model_x, self.model_y, self.observed_x,
+                self.observed_band_width, self.ebv_bounds,
+            )
 
     def check_cancel(self) -> None:
         if self.should_cancel and self.should_cancel():
@@ -347,7 +356,11 @@ class FitResiduals:
             return residual
 
         self.check_cancel()
-        if self.observed_band_width is None and self.transform.is_unbroadened(broadening_km_s):
+        if self.photometry_sampler is not None and self.transform.is_unbroadened(broadening_km_s):
+            model_on_obs = self.photometry_sampler.sample(
+                self.transform, redshift=redshift, ebv=ebv, distance_kpc=distance_kpc,
+            )
+        elif self.observed_band_width is None and self.transform.is_unbroadened(broadening_km_s):
             model_on_obs = self.transform.sample_unbroadened(
                 self.observed_x, redshift=redshift, ebv=ebv, distance_kpc=distance_kpc,
             )
@@ -618,6 +631,7 @@ def fit_model_to_observed(
         obs_scale=obs_scale,
         norm_weights=norm_weights,
         should_cancel=should_cancel,
+        ebv_bounds=bounds.get("ebv", (0.0, 0.0)),
     )
 
     def parameter_from_theta(theta: Any, name: str, fallback: float) -> float:
@@ -642,7 +656,10 @@ def fit_model_to_observed(
         )
 
     stage1_result: Any | None = None
-    if normalized_mode == "both":
+    if normalized_mode == "both" and not (
+        bounds.get("redshift") == (0.0, 0.0)
+        and bounds.get("broadening_km_s") == (0.0, 0.0)
+    ):
         redshift_index = name_to_index.get("redshift")
         ebv_index = name_to_index.get("ebv")
         distance_index = name_to_index.get("distance_kpc")
@@ -750,6 +767,14 @@ def fit_model_to_observed(
         best = result.x
     else:
         best = np.array([], dtype=np.float64)
+    # Use native integration for final scores and the zero-broadening boundary
+    # comparison, so grid rankings are scored without quadrature approximation.
+    residual_for_params.photometry_sampler = None
+
+    def robust_cost(residual: Any) -> float:
+        scale = 0.35 if normalized_mode == "both" else 1.0
+        return float(np.sum(residual ** 2 / (np.sqrt(1 + (residual / scale) ** 2) + 1)))
+
     try:
         final_residual, final_valid_count, final_normalization = residual_for_params(
             redshift=parameter_from_theta(best, "redshift", 0.0),
@@ -770,17 +795,12 @@ def fit_model_to_observed(
                 distance_kpc=parameter_from_theta(best, "distance_kpc", initial_distance),
                 with_valid_count=True, with_normalization=True,
             )
-            scale = 0.35 if normalized_mode == "both" else 1.0
-
-            def robust_cost(residual: Any) -> float:
-                return float(np.sum(residual ** 2 / (np.sqrt(1 + (residual / scale) ** 2) + 1)))
-
             if zero_count == final_valid_count and robust_cost(zero_residual) < robust_cost(final_residual):
                 best = best.copy()
                 best[broadening_index] = 0.0
                 final_residual, final_normalization = zero_residual, zero_normalization
-                if result is not None:
-                    result.cost = robust_cost(final_residual)
+        if result is not None:
+            result.cost = robust_cost(final_residual)
     except _FitCanceledError:
         return None, None, FIT_CANCELED_MESSAGE
     if final_valid_count < min_valid_points:

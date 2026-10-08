@@ -101,7 +101,7 @@ def _fit_single_cmfgen_candidate(
         return {"status": "failed"}
 
     try:
-        continuum = load_obs_spectrum(
+        continuum = {} if mode == "both" else load_obs_spectrum(
             Path(spectrum_files["obs_cont"]),
             lambda_min=lambda_min,
             lambda_max=lambda_max,

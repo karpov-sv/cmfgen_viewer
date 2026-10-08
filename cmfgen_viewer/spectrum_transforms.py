@@ -544,25 +544,29 @@ def _build_model_series_for_fit(
     fin_x = final.get("wavelength")
     fin_y = final.get("flux")
     if (
-        not isinstance(cont_x, list)
-        or not isinstance(cont_y, list)
-        or not isinstance(fin_x, list)
+        not isinstance(fin_x, list)
         or not isinstance(fin_y, list)
     ):
         return None
 
     cleaned_fin = _clean_xy_arrays(fin_x, fin_y)
-    cleaned_cont = _clean_xy_arrays(cont_x, cont_y)
-    if cleaned_fin is None or cleaned_cont is None:
+    if cleaned_fin is None:
         return None
     fin_x_np, fin_y_np = cleaned_fin
-    cont_x_np, cont_y_np = cleaned_cont
 
     if mode == "both":
-        converted_x, converted_y = _jy_to_cgs_per_angstrom(
-            fin_x_np.tolist(), fin_y_np.tolist()
-        )
-        return _clean_xy_arrays(converted_x, converted_y)
+        converted_y = fin_y_np * JY_TO_FLAMBDA_ANGSTROM_FACTOR / np.square(fin_x_np)
+        valid = np.isfinite(converted_y)
+        if np.count_nonzero(valid) < 2:
+            return None
+        return fin_x_np[valid], converted_y[valid]
+
+    if not isinstance(cont_x, list) or not isinstance(cont_y, list):
+        return None
+    cleaned_cont = _clean_xy_arrays(cont_x, cont_y)
+    if cleaned_cont is None:
+        return None
+    cont_x_np, cont_y_np = cleaned_cont
 
     cont_interp = np.interp(fin_x_np, cont_x_np, cont_y_np, left=np.nan, right=np.nan)
     valid = np.isfinite(cont_interp) & np.isfinite(fin_y_np) & (cont_interp != 0)
