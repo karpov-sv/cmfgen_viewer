@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 from pathlib import Path
+from threading import Thread
+import time
 
-from flask import abort, redirect, render_template, request, url_for
+from flask import abort, jsonify, redirect, render_template, request, url_for
 
 from .browser import is_model_context_path, make_breadcrumb, resolve_path
 from .hr_diagram import _load_mamajek_hr_overlay
-from .model_metadata import read_model
-from .model_summary import SUMMARY_COLUMNS, summary_from_model, summary_table_row
-from .model_summary import build_summary_row as _build_summary_row
+from .model_summary import SUMMARY_COLUMNS, summary_table_row
 from .observed_spectrum import (
     list_upload_manifests,
     parse_uploaded_spectrum,
@@ -22,12 +22,17 @@ from .spectrum_plots import (
     build_normalized_plot,
     build_observed_overlay_trace,
 )
-from .summary_cache import list_model_summaries, upsert_model_summary
+from .summary_cache import list_model_summaries
+from .summary_jobs import (
+    SUMMARY_JOB_DETAILS, SUMMARY_JOB_KIND, run_summary_job, summary_job_create,
+    summary_job_progress, summary_job_retry_paths,
+)
 from .upload_service import create_upload_bundle
 from .upload_views import _upload_entry_for_display
 from .view_common import (
     _bulk_spectra_redirect,
     _bulk_spectra_url,
+    _cache_jobs,
     _collect_obs_tokens,
     _collect_quick_links,
     _collect_rel_paths,
@@ -44,8 +49,6 @@ from .view_common import (
 def bulk_summarize(path: str):
     config = _viewer_config()
     basepath = str(config.get("basepath", "."))
-    summary_cache_db = str(config.get("summary_cache_db", "model_summary_cache.sqlite"))
-
     try:
         directory = resolve_path(basepath, path)
     except FileNotFoundError:
@@ -60,52 +63,56 @@ def bulk_summarize(path: str):
     if not selected_paths:
         return redirect(url_for("viewer.view", path=path))
 
-    rows: list[dict[str, object]] = []
-    skipped: list[list[str]] = []
-    cache_update_errors = 0
-    for rel in selected_paths:
-        try:
-            target = resolve_path(basepath, rel)
-        except FileNotFoundError:
-            skipped.append([rel, "Not found"])
-            continue
-        if not target.is_dir():
-            skipped.append([rel, "Not a directory"])
-            continue
-        try:
-            target.relative_to(directory)
-        except ValueError:
-            skipped.append([rel, "Outside current folder"])
-            continue
+    return _start_summary_job(path, selected_paths, force_refresh=request.form.get("force_refresh") == "1")
 
-        vadat_file = target / "VADAT"
-        mod_sum_file = target / "MOD_SUM"
-        if not vadat_file.is_file() or not mod_sum_file.is_file():
-            skipped.append([rel, "Missing VADAT or MOD_SUM"])
-            continue
 
-        model = read_model(target)
-        mod_sum_mtime = mod_sum_file.stat().st_mtime
-        row_values = _build_summary_row(model, mod_sum_mtime=mod_sum_mtime)
-        rows.append(
-            {
-                "values": row_values,
-                "path": rel,
-            }
-        )
+def _start_summary_job(path: str, selected_paths: list[str], *, force_refresh: bool, parent_job_id: str = ""):
+    config = _viewer_config()
+    basepath = str(config.get("basepath", "."))
+    store = _cache_jobs()
+    job_id, existing = summary_job_create(
+        store, basepath=basepath, path=path, selected_paths=selected_paths,
+        force_refresh=force_refresh, parent_job_id=parent_job_id,
+    )
+    notice = ""
+    if existing:
+        active = store.snapshot(job_id)
+        if active is None:
+            return redirect(url_for("viewer.bulk_summary_job", job_id=job_id), code=303)
+        if active.get("kind") != SUMMARY_JOB_KIND:
+            return redirect(url_for("viewer.system_status", job=job_id,
+                error="Wait for cache maintenance to finish before summarizing models.", _anchor="model-cache"), code=303)
+        if (active["path"] != path or active["basepath"] != basepath
+            or set(active["selected_paths"]) != set(selected_paths) or active["force_refresh"] != force_refresh):
+            notice = "Another bulk summary is running; this selection was not started."
+    else:
         try:
-            upsert_model_summary(
-                summary_cache_db,
-                basepath=basepath,
-                relpath=rel,
-                model_dir=target,
-                model_name=str(model.get("name", target.name)),
-                summary=summary_from_model(model),
-                vadat_mtime=vadat_file.stat().st_mtime,
-                mod_sum_mtime=mod_sum_mtime,
-            )
-        except Exception:
-            cache_update_errors += 1
+            worker = Thread(target=run_summary_job, kwargs={
+                "store": store, "job_id": job_id,
+                "summary_cache_db": str(config.get("summary_cache_db", "model_summary_cache.sqlite")),
+            }, daemon=True)
+            worker.start()
+        except Exception as exc:
+            store.update(job_id, status="failed", phase="Failed", finished_at=time.time(),
+                         error=f"Could not start summary worker: {exc}")
+    return redirect(url_for("viewer.bulk_summary_job", job_id=job_id, **({"notice": notice} if notice else {})), code=303)
+
+
+def _summary_job_snapshot(job_id: str, *, compact: bool = False):
+    snapshot = _cache_jobs().snapshot(job_id, exclude=SUMMARY_JOB_DETAILS if compact else ())
+    if (snapshot is None or snapshot.get("kind") != SUMMARY_JOB_KIND
+        or snapshot.get("basepath") != str(_viewer_config().get("basepath", "."))):
+        return None
+    return snapshot
+
+
+@bp.route("/bulk/summary/<job_id>")
+def bulk_summary_job(job_id: str):
+    snapshot = _summary_job_snapshot(job_id)
+    if snapshot is None:
+        abort(404, description="Summary job is unavailable (it may have expired or the server restarted). Saved summaries remain on the Models page.")
+    config = _viewer_config()
+    path, basepath = str(snapshot["path"]), str(snapshot["basepath"])
 
     breadcrumb = make_breadcrumb(path)
     if breadcrumb:
@@ -117,25 +124,57 @@ def bulk_summarize(path: str):
         "basepath": basepath,
         "show_all": bool(config.get("show_all", False)),
         "view_query": {},
-        "quick_links": _collect_quick_links(basepath, path),
-        "spectrum_view": _spectrum_link_context(basepath, path),
+        # Results must remain viewable even if the source folder disappeared
+        # or became unreadable. Summarization pages need no source-file links.
+        "quick_links": [],
+        "spectrum_view": None,
     }
-    cache_notice = ""
-    if cache_update_errors:
-        cache_notice = (
-            f"Summary cache update failed for {cache_update_errors} model(s)."
-        )
-    return render_template(
+    response = render_template(
         "models_summary.html",
         columns=SUMMARY_COLUMNS,
-        rows=rows,
-        skipped=skipped,
-        selected_count=len(selected_paths),
+        rows=snapshot["rows"],
+        skipped=[[item["relpath"], item["reason"]] for item in snapshot["skipped"]],
+        failures=snapshot["failures"],
+        selected_count=snapshot["total"],
         summary_scope="bulk",
-        cache_notice=cache_notice,
+        summary_job=summary_job_progress(snapshot),
+        retry_count=len(summary_job_retry_paths(snapshot)) if snapshot["status"] != "running" else 0,
+        notice=str(request.args.get("notice", "")),
+        cache_notice="",
         hr_overlay=_load_mamajek_hr_overlay(),
         **context,
     )
+    return response, 200, {"Cache-Control": "no-store"}
+
+
+@bp.route("/bulk/summary/<job_id>/status")
+def bulk_summary_job_status(job_id: str):
+    snapshot = _summary_job_snapshot(job_id, compact=True)
+    if snapshot is None:
+        return jsonify({"ok": False, "error": "Summary job is unavailable; it may have expired or the server restarted."}), 404, {"Cache-Control": "no-store"}
+    return jsonify({"ok": True, "job": summary_job_progress(snapshot)}), 200, {"Cache-Control": "no-store"}
+
+
+@bp.route("/bulk/summary/<job_id>/cancel", methods=["POST"])
+def bulk_summary_job_cancel(job_id: str):
+    if _summary_job_snapshot(job_id, compact=True) is None:
+        abort(404)
+    _cache_jobs().request_cancel(job_id)
+    return redirect(url_for("viewer.bulk_summary_job", job_id=job_id), code=303)
+
+
+@bp.route("/bulk/summary/<job_id>/retry", methods=["POST"])
+def bulk_summary_job_retry(job_id: str):
+    snapshot = _summary_job_snapshot(job_id)
+    if snapshot is None:
+        abort(404)
+    if snapshot["status"] == "running":
+        abort(409, description="Wait for the summary job to stop before retrying.")
+    paths = summary_job_retry_paths(snapshot)
+    if not paths:
+        return redirect(url_for("viewer.bulk_summary_job", job_id=job_id), code=303)
+    return _start_summary_job(str(snapshot["path"]), paths,
+                              force_refresh=bool(snapshot["force_refresh"]), parent_job_id=job_id)
 
 
 @bp.route("/models/")
@@ -182,6 +221,8 @@ def global_models_summary():
         skipped=[],
         selected_count=len(rows),
         summary_scope="global",
+        summary_history=[summary_job_progress(snapshot) for snapshot in _cache_jobs().snapshots(
+            kind=SUMMARY_JOB_KIND, basepath=basepath, exclude=SUMMARY_JOB_DETAILS)],
         cache_notice=cache_notice,
         hr_overlay=_load_mamajek_hr_overlay(),
         **context,

@@ -60,3 +60,23 @@ def test_pruning_expires_finished_jobs_and_preserves_running_jobs():
     for i in range(3):
         store.insert({"job_id": str(i), "status": "completed", "finished_at": now + i})
     assert {row["job_id"] for row in store.snapshots()} == {"active", "2"}
+
+
+def test_append_and_compact_snapshots_are_isolated():
+    store = JobStore(max_jobs=16)
+    store.insert({"job_id": "summary", "status": "running", "rows": [], "processed": 0})
+    row = {"values": [1]}
+    store.append("summary", "rows", row, processed=1)
+    row["values"].append(2)
+    assert store.snapshot("summary")["rows"] == [{"values": [1]}]
+    assert store.snapshot("summary", exclude=("rows",))["processed"] == 1
+    assert "rows" not in store.snapshots(exclude=("rows",), status="running")[0]
+
+
+def test_direct_snapshot_expires_old_finished_jobs(monkeypatch):
+    store = JobStore(max_jobs=16, ttl_seconds=10)
+    now = time.time()
+    store.insert({"job_id": "finished", "status": "running", "created_at": now})
+    store.update("finished", status="completed", finished_at=now)
+    monkeypatch.setattr("cmfgen_viewer.job_store.time.time", lambda: now + 11)
+    assert store.snapshot("finished") is None

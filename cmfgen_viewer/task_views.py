@@ -9,6 +9,7 @@ from flask import jsonify, url_for
 
 from .grid_config import _grid_fit_source_label, _normalize_grid_fit_source
 from .observed_spectrum import is_valid_upload_token, list_upload_manifests
+from .summary_jobs import SUMMARY_JOB_DETAILS, SUMMARY_JOB_KIND, summary_job_progress
 from .view_common import _cache_jobs, _grid_jobs, _upload_root, _viewer_config, bp
 
 
@@ -83,6 +84,21 @@ def _cache_maintenance_background_task(snapshot: dict[str, object]) -> dict[str,
     }
 
 
+def _summary_background_task(snapshot: dict[str, object]) -> dict[str, object]:
+    progress = summary_job_progress(snapshot)
+    return {
+        "id": snapshot["job_id"], "kind": SUMMARY_JOB_KIND, "status": "running",
+        "status_label": progress["status_label"], "title": "Bulk model summary",
+        "target": str(snapshot.get("path") or "Model root"),
+        "href": url_for("viewer.bulk_summary_job", job_id=snapshot["job_id"]),
+        "return_label": "Return to model summaries", "processed": progress["processed"],
+        "total": progress["total"], "progress_percent": progress["progress_percent"],
+        "progress_label": f"{progress['processed']}/{progress['total']} folders",
+        "current_model": str(snapshot.get("current_entry", "")),
+        "cancel_requested": bool(snapshot.get("cancel_requested")),
+    }
+
+
 @bp.route("/tasks/status")
 def background_tasks_status():
     upload_root = _upload_root(_viewer_config())
@@ -95,8 +111,9 @@ def background_tasks_status():
         for snapshot in _grid_jobs().snapshots(status="running")
     ]
     cache_tasks = [
-        _cache_maintenance_background_task(snapshot)
-        for snapshot in _cache_jobs().snapshots(status="running")
+        _summary_background_task(snapshot) if snapshot.get("kind") == SUMMARY_JOB_KIND
+        else _cache_maintenance_background_task(snapshot)
+        for snapshot in _cache_jobs().snapshots(status="running", exclude=SUMMARY_JOB_DETAILS)
     ]
     tasks = grid_tasks + cache_tasks
     response = jsonify({"ok": True, "running_count": len(tasks), "tasks": tasks})

@@ -130,13 +130,33 @@ def upsert_model_summary(
     vadat_mtime: float,
     mod_sum_mtime: float,
 ) -> None:
+    with _connect(db_path) as connection:
+        _upsert_model_summary(
+            connection, basepath=basepath, relpath=relpath, model_dir=model_dir,
+            model_name=model_name, summary=summary, vadat_mtime=vadat_mtime,
+            mod_sum_mtime=mod_sum_mtime,
+        )
+
+
+def _upsert_model_summary(
+    connection: sqlite3.Connection,
+    *,
+    basepath: str,
+    relpath: str,
+    model_dir: Path,
+    model_name: str,
+    summary: ModelSummary,
+    vadat_mtime: float,
+    mod_sum_mtime: float,
+) -> None:
+    """Reuse a connection, but commit each model so partial results survive."""
     payload = json.dumps(
         summary_payload(summary), separators=(",", ":"), allow_nan=False
     )
     summarized_at = datetime.now(timezone.utc).isoformat()
     model_key = str(model_dir.expanduser().resolve())
 
-    with _connect(db_path) as connection:
+    with connection:
         connection.execute(
             """
             INSERT INTO model_summary_cache (

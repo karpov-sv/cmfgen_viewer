@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import time
+from contextlib import contextmanager
 from threading import RLock
 
 
@@ -48,15 +49,35 @@ class JobStore:
             job.update(copy.deepcopy(fields))
             return True
 
-    def snapshot(self, job_id: str) -> dict[str, object] | None:
+    @contextmanager
+    def exclusive(self):
+        """Coordinate short foreground operations with atomic job creation."""
         with self._lock:
-            return copy.deepcopy(self._jobs.get(job_id))
+            yield
 
-    def snapshots(self, **filters: object) -> list[dict[str, object]]:
+    def append(self, job_id: str, field: str, item: object, **fields: object) -> bool:
+        """Append one result without copying an ever-growing result collection."""
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if job is None:
+                return False
+            job[field].append(copy.deepcopy(item))
+            job.update(copy.deepcopy(fields))
+            return True
+
+    def snapshot(self, job_id: str, *, exclude: tuple[str, ...] = ()) -> dict[str, object] | None:
+        with self._lock:
+            self._prune(time.time())
+            job = self._jobs.get(job_id)
+            if job is None:
+                return None
+            return copy.deepcopy({key: value for key, value in job.items() if key not in exclude})
+
+    def snapshots(self, *, exclude: tuple[str, ...] = (), **filters: object) -> list[dict[str, object]]:
         with self._lock:
             self._prune(time.time())
             snapshots = [
-                copy.deepcopy(job)
+                copy.deepcopy({key: value for key, value in job.items() if key not in exclude})
                 for job in self._jobs.values()
                 if all(job.get(key) == value for key, value in filters.items())
             ]

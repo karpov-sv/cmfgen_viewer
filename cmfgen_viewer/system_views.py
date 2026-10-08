@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import platform
+import time
+from functools import wraps
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from threading import Thread
@@ -25,6 +27,7 @@ from .cache_jobs import (
 from .grid_config import _tlusty_root
 from .observed_spectrum import list_upload_manifests
 from .spectrum_options import _spectrum_lambda_bounds
+from .summary_jobs import SUMMARY_JOB_DETAILS, SUMMARY_JOB_KIND
 from .summary_cache import (
     delete_model_summary_namespace,
     delete_model_summary_namespaces_except,
@@ -80,17 +83,17 @@ def system_status():
     basepath = str(config.get("basepath", "."))
     summary_cache_db = str(config.get("summary_cache_db", "model_summary_cache.sqlite"))
     upload_root = _upload_root(config)
+    requested_job_id = str(request.args.get("job", "")).strip()
+    maintenance_job = _cache_jobs().snapshot(requested_job_id) if requested_job_id else None
+    if maintenance_job and maintenance_job.get("kind") == SUMMARY_JOB_KIND:
+        return redirect(url_for("viewer.bulk_summary_job", job_id=requested_job_id))
     namespaces = _cache_namespaces(summary_cache_db, current_basepath=basepath)
     current_namespace = next(
         (item for item in namespaces if item.get("is_current")), None
     )
 
-    requested_job_id = str(request.args.get("job", "")).strip()
-    maintenance_job = (
-        _cache_jobs().snapshot(requested_job_id) if requested_job_id else None
-    )
     if maintenance_job is None:
-        maintenance_job = _cache_jobs().latest(basepath=basepath)
+        maintenance_job = _cache_jobs().latest(basepath=basepath, kind="cache-maintenance")
     maintenance_job_payload = _maintenance_job_payload(maintenance_job)
 
     uploads = list_upload_manifests(upload_root)
@@ -99,7 +102,9 @@ def system_status():
     cache_path = Path(summary_cache_db).expanduser()
     cache_size = cache_path.stat().st_size if cache_path.is_file() else 0
     active_grid_jobs = len(_grid_jobs().snapshots(status="running"))
-    active_cache_jobs = len(_cache_jobs().snapshots(status="running"))
+    cache_tasks = _cache_jobs().snapshots(status="running", exclude=SUMMARY_JOB_DETAILS)
+    active_summary_jobs = sum(item.get("kind") == SUMMARY_JOB_KIND for item in cache_tasks)
+    active_cache_jobs = len(cache_tasks) - active_summary_jobs
     fit_pool_size = int(config.get("fit_pool_size_max", 0) or 0)
     read_write_enabled = bool(config.get("read_write_enabled", False))
     cmfgen_sources = config.get("cmfgen_config_sources", {})
@@ -146,7 +151,8 @@ def system_status():
         upload_size=_format_size(upload_bytes),
         active_grid_jobs=active_grid_jobs,
         active_cache_jobs=active_cache_jobs,
-        active_task_count=active_grid_jobs + active_cache_jobs,
+        active_summary_jobs=active_summary_jobs,
+        active_task_count=active_grid_jobs + active_cache_jobs + active_summary_jobs,
         read_write_enabled=read_write_enabled,
         message=str(request.args.get("message", "")).strip(),
         error=str(request.args.get("error", "")).strip(),
@@ -164,19 +170,27 @@ def system_cache_maintain():
     job_id, existing = cache_maintenance_job_create(
         _cache_jobs(), action=action, basepath=basepath
     )
+    startup_error = ""
     if not existing:
-        worker = Thread(
-            target=run_cache_maintenance_job,
-            kwargs={
-                "store": _cache_jobs(),
-                "job_id": job_id,
-                "summary_cache_db": summary_cache_db,
-                "basepath": basepath,
-            },
-            daemon=True,
-        )
-        worker.start()
+        try:
+            worker = Thread(
+                target=run_cache_maintenance_job,
+                kwargs={
+                    "store": _cache_jobs(), "job_id": job_id,
+                    "summary_cache_db": summary_cache_db, "basepath": basepath,
+                },
+                daemon=True,
+            )
+            worker.start()
+        except Exception as exc:
+            startup_error = f"Could not start cache maintenance worker: {exc}"
+            _cache_jobs().update(job_id, status="failed", phase="Failed",
+                error=startup_error, finished_at=time.time())
     if existing:
+        snapshot = _cache_jobs().snapshot(job_id, exclude=SUMMARY_JOB_DETAILS)
+        if snapshot is not None and snapshot.get("kind") == SUMMARY_JOB_KIND:
+            return redirect(url_for("viewer.bulk_summary_job", job_id=job_id,
+                notice="Wait for bulk summarization to finish before starting cache maintenance."), code=303)
         return redirect(
             url_for(
                 "viewer.system_status",
@@ -189,8 +203,8 @@ def system_cache_maintain():
         url_for(
             "viewer.system_status",
             job=job_id,
-            message="Cache maintenance started.",
             _anchor="model-cache",
+            **({"error": startup_error} if startup_error else {"message": "Cache maintenance started."}),
         )
     )
 
@@ -198,7 +212,7 @@ def system_cache_maintain():
 @bp.route("/system/cache/job/<job_id>")
 def system_cache_job_status(job_id: str):
     snapshot = _cache_jobs().snapshot(job_id)
-    if snapshot is None:
+    if snapshot is None or snapshot.get("kind") == SUMMARY_JOB_KIND:
         return jsonify(
             {"ok": False, "error": "Cache maintenance job is not available."}
         ), 404
@@ -212,22 +226,31 @@ def _known_cache_namespaces(summary_cache_db: str) -> set[str]:
 
 
 def _reject_cleanup_while_maintenance_runs():
-    if not _cache_jobs().snapshots(status="running"):
+    if not _cache_jobs().snapshots(status="running", exclude=SUMMARY_JOB_DETAILS):
         return None
     return redirect(
         url_for(
             "viewer.system_status",
-            error="Wait for cache maintenance to finish before deleting cache entries.",
+            error="Wait for cache maintenance or bulk summarization to finish before deleting cache entries.",
             _anchor="model-cache",
         )
     )
 
 
+def _guard_cache_cleanup(view):
+    @wraps(view)
+    def guarded():
+        # Hold the job-store lock through deletion so job creation cannot race
+        # the check. Long background model reads do not hold this lock.
+        with _cache_jobs().exclusive():
+            blocked = _reject_cleanup_while_maintenance_runs()
+            return blocked if blocked is not None else view()
+    return guarded
+
+
 @bp.route("/system/cache/delete-base", methods=["POST"])
+@_guard_cache_cleanup
 def system_cache_delete_base():
-    blocked = _reject_cleanup_while_maintenance_runs()
-    if blocked is not None:
-        return blocked
     config = _viewer_config()
     current_basepath = str(config.get("basepath", "."))
     summary_cache_db = str(config.get("summary_cache_db", "model_summary_cache.sqlite"))
@@ -242,10 +265,8 @@ def system_cache_delete_base():
 
 
 @bp.route("/system/cache/delete-unavailable", methods=["POST"])
+@_guard_cache_cleanup
 def system_cache_delete_unavailable():
-    blocked = _reject_cleanup_while_maintenance_runs()
-    if blocked is not None:
-        return blocked
     config = _viewer_config()
     summary_cache_db = str(config.get("summary_cache_db", "model_summary_cache.sqlite"))
     unavailable = [
@@ -264,10 +285,8 @@ def system_cache_delete_unavailable():
 
 
 @bp.route("/system/cache/delete-noncurrent", methods=["POST"])
+@_guard_cache_cleanup
 def system_cache_delete_noncurrent():
-    blocked = _reject_cleanup_while_maintenance_runs()
-    if blocked is not None:
-        return blocked
     config = _viewer_config()
     current_basepath = str(config.get("basepath", "."))
     summary_cache_db = str(config.get("summary_cache_db", "model_summary_cache.sqlite"))

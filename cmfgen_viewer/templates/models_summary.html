@@ -6,6 +6,26 @@
   {% set is_global_summary = summary_scope == "global" %}
   <section class="mb-4">
     <h2 class="h4 mb-2">{{ "Known Models Summary" if is_global_summary else "Bulk Model Summary" }}</h2>
+    {% if summary_job %}
+      {% include "_summary_job.html" %}
+    {% endif %}
+    {% if summary_history %}
+      <details class="mb-3" {% if summary_history[0].status == 'running' %}open{% endif %}>
+        <summary>Recent bulk summary jobs ({{ summary_history|length }})</summary>
+        <div class="table-responsive mt-2">
+          <table class="table table-sm">
+            <thead><tr><th>Folder</th><th>Status</th><th>Processed</th><th>Successful</th><th>Failed</th><th>Results</th></tr></thead>
+            <tbody>
+              {% for job in summary_history %}
+                <tr><td>{{ job.path or 'ROOT' }}</td><td>{{ job.status_label }}</td>
+                  <td>{{ job.processed }}/{{ job.total }}</td><td>{{ job.successful }}</td><td>{{ job.failed_count }}</td>
+                  <td><a href="{{ url_for('viewer.bulk_summary_job', job_id=job.job_id) }}">Progress and results</a></td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </details>
+    {% endif %}
     {% if is_global_summary %}
       <p class="text-muted mb-3">
         Cached known models: <code>{{ rows|length }}</code>
@@ -185,7 +205,11 @@
         {% if is_global_summary %}
           No cached models yet. Visit a model folder to cache it automatically, or use folder-level <code>Summarize</code> to add multiple models.
         {% else %}
-          No models could be summarized from the selected folders.
+          {% if summary_job and summary_job.status == 'running' %}
+            No summaries yet. Processing continues in the background.
+          {% else %}
+            No models could be summarized from the selected folders.
+          {% endif %}
         {% endif %}
       </p>
     {% endif %}
@@ -206,6 +230,19 @@
                 <td>{{ item[0] }}</td>
                 <td>{{ item[1] }}</td>
               </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% endif %}
+    {% if failures %}
+      <h3 class="h6 mt-3">Failed folders</h3>
+      <div class="table-responsive table-view-wrap">
+        <table class="table table-sm table-striped">
+          <thead><tr><th>Folder</th><th>Stage</th><th>Error</th></tr></thead>
+          <tbody>
+            {% for item in failures %}
+              <tr><td>{{ item.relpath }}</td><td>{{ item.stage }}</td><td>{{ item.error }}</td></tr>
             {% endfor %}
           </tbody>
         </table>

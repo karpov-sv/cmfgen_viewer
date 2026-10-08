@@ -188,8 +188,9 @@
       </table>
     </div>
     {% if show_bulk_selection %}
-      <div class="d-flex align-items-center gap-2 mt-3">
+      <div class="d-flex flex-wrap align-items-center gap-2 mt-3">
         <span class="small text-muted">Bulk operations:</span>
+        <label class="small text-muted"><input type="checkbox" name="force_refresh" value="1" class="form-check-input me-1">Force summary refresh</label>
         <button type="submit" class="btn btn-sm btn-primary bulk-action-btn" id="bulk-summarize-btn" disabled>Summarize</button>
         <button
           type="submit"

@@ -439,6 +439,25 @@ behavior in the single-model, bulk, upload, photometry-editor, and grid-search s
 - Large-file parsing is guarded (`MAX_PARSE_FILE_BYTES`) to avoid heavy accidental loads.
 - Documentation pages are generated from repository markdown; update files in `doc/` to extend in-app docs.
 - Upload grid fitting requires a populated summary cache database (`model_summary_cache.sqlite`). Visiting a model folder that contains both `VADAT` and `MOD_SUM` automatically adds it to the cache, or refreshes its entry when either file has changed. The folder-level `Summarize` workflow remains available for adding multiple selected models at once; cache maintenance refreshes stale entries already known to the cache but does not discover new models.
+- Folder-level `Summarize` starts a background job and redirects immediately to
+  a bookmarkable result page. It shows progress, the current folder, elapsed
+  time, updated/reused/skipped/failed counts, and per-folder diagnostics. The
+  Background Tasks menu links back to running summaries; the Models page lists
+  recent summary jobs, including completed, canceled, and failed attempts. Cancellation finishes
+  the current folder; successful summaries remain committed. Retry processes
+  only failed and unfinished folders, with a link back to the previous attempt.
+  Unchanged valid cache entries are reused unless **Force summary refresh** is
+  selected. Bulk jobs reuse one SQLite connection and commit each model rather
+  than keeping a long transaction open. A systemic database failure stops the
+  job; individual model failures do not abort the remaining selection.
+- Bulk summarization and cache maintenance share one atomic job slot, and cache
+  deletion is blocked while either runs. Job state/results are process-local,
+  retained for up to six hours/16 recent cache jobs, and lost on server restart;
+  the summaries already written to SQLite are unaffected. This is intended for
+  a single web process, like the existing in-memory grid-job infrastructure.
+  Multi-process coordination and restart recovery would require durable job
+  bookkeeping and a separate worker. JavaScript polls only progress counters;
+  without JavaScript, refresh the result page manually.
 - The summary cache stores versioned, named numeric fields, independently of table column order.
   Existing positional summaries are migrated automatically using their historical layout. Migration
   preserves their already-rounded values; refreshing a model summary reads full precision from its source files.

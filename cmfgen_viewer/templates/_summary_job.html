@@ -1,0 +1,41 @@
+{% if notice %}<div class="alert alert-warning py-2">{{ notice }}</div>{% endif %}
+<div id="summary-job" class="border rounded p-3 mb-3"
+     data-status="{{ summary_job.status }}"
+     data-status-url="{{ url_for('viewer.bulk_summary_job_status', job_id=summary_job.job_id) }}">
+  <div class="d-flex justify-content-between gap-2 mb-2">
+    <strong>Summarization progress</strong>
+    <span id="summary-job-status" role="status">{{ summary_job.status_label }}</span>
+  </div>
+  <div class="progress mb-2" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ summary_job.progress_percent|round|int }}">
+    <div id="summary-job-progress" class="progress-bar {% if summary_job.status == 'running' %}progress-bar-striped progress-bar-animated{% endif %}" style="width: {{ summary_job.progress_percent }}%"></div>
+  </div>
+  <p id="summary-job-counts" class="small mb-1">
+    {{ summary_job.processed }}/{{ summary_job.total }} folders;
+    updated: {{ summary_job.updated }}, reused: {{ summary_job.reused }},
+    skipped: {{ summary_job.skipped_count }}, failed: {{ summary_job.failed_count }}.
+  </p>
+  <p id="summary-job-current" class="small text-muted mb-1">{{ summary_job.phase }}{% if summary_job.current_entry %}: {{ summary_job.current_entry }}{% endif %}</p>
+  <p id="summary-job-elapsed" class="small text-muted mb-2">Elapsed: {{ summary_job.elapsed_seconds|round|int }} seconds.</p>
+  {% if summary_job.error %}<div class="alert alert-danger py-2" role="alert">{{ summary_job.error }}</div>{% endif %}
+  <p id="summary-job-connection" class="small text-danger d-none" role="alert"></p>
+  <div class="d-flex flex-wrap gap-2">
+    {% if summary_job.status == 'running' %}
+      <form method="post" action="{{ url_for('viewer.bulk_summary_job_cancel', job_id=summary_job.job_id) }}">
+        <button id="summary-job-cancel" class="btn btn-sm btn-outline-danger" {% if summary_job.cancel_requested %}disabled{% endif %}>Cancel after current folder</button>
+      </form>
+      <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('viewer.bulk_summary_job', job_id=summary_job.job_id) }}">Refresh partial results</a>
+    {% elif retry_count %}
+      <form method="post" action="{{ url_for('viewer.bulk_summary_job_retry', job_id=summary_job.job_id) }}">
+        <button class="btn btn-sm btn-outline-primary">Retry failed{% if summary_job.remaining_count %} and unfinished{% endif %} folders ({{ retry_count }})</button>
+      </form>
+    {% endif %}
+    {% if summary_job.parent_job_id %}
+      <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('viewer.bulk_summary_job', job_id=summary_job.parent_job_id) }}">Previous attempt and results</a>
+    {% endif %}
+  </div>
+  <p class="small text-muted mt-2 mb-0">You may leave this page and return from Background Tasks. Saved summaries are retained; job progress and this result page are process-local and expire after retention or a server restart.</p>
+  <noscript><p class="small mt-2">Refresh this page to see progress and results; processing does not require JavaScript.</p></noscript>
+</div>
+{% if summary_job.status == 'running' %}
+  <script src="{{ url_for('static', filename='summary_job.js') }}"></script>
+{% endif %}
