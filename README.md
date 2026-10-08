@@ -260,6 +260,14 @@ cropped to the enabled observations with margins for the full redshift bounds,
 Gaussian kernel, and photometric band edges. Native sampling is retained;
 nonuniform grids keep their original convolution lattice.
 
+CMFGEN spectra use validated bulk numeric parsing, with the legacy parser as a
+fallback for missing-E Fortran exponents and punctuation. Grid fits request
+read-only NumPy arrays directly; viewer callers continue to receive lists.
+Nonuniform-grid broadening prepares its native-size logarithmic lattice and
+interpolation mappings once per fit and reuses them across redshift, extinction,
+distance, and width trials. The native axis, transform order, discrete Gaussian
+kernel, and edge extension are retained. All caches remain memory-only.
+
 Fits cache reddening-law values by redshift. Unbroadened point-spectrum trials
 transform only the model samples needed for interpolation (reddening still
 precedes interpolation); photometry continues to integrate full bands. Wide

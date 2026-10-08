@@ -76,7 +76,7 @@ def _jy_to_cgs_per_angstrom(
 
 
 def _clean_xy_arrays(
-    x_values: list[float], y_values: list[float]
+    x_values: Any, y_values: Any
 ) -> tuple[Any, Any] | None:
     if np is None:
         return None
@@ -94,9 +94,10 @@ def _clean_xy_arrays(
     if x.size < 2:
         return None
 
-    order = np.argsort(x)
-    x = x[order]
-    y = y[order]
+    if np.any(x[1:] <= x[:-1]):
+        order = np.argsort(x)
+        x = x[order]
+        y = y[order]
 
     # np.interp requires monotonic increasing x; collapse duplicate wavelengths.
     keep = np.ones(x.shape[0], dtype=bool)
@@ -345,6 +346,53 @@ def _uniform_log_step(wavelength: Any) -> float | None:
     return None
 
 
+class _PreparedLinearInterpolation:
+    """Fixed linear interpolation, with np.interp's nearest-edge extension."""
+
+    def __init__(self, source: Any, target: Any):
+        self.left = np.clip(np.searchsorted(source, target, side="right") - 1, 0, source.size - 2)
+        self.fraction = np.clip(
+            (target - source[self.left]) / (source[self.left + 1] - source[self.left]), 0, 1,
+        )
+        self.edges = np.flatnonzero((target <= source[0]) | (target >= source[-1]))
+        self.edge_sources = np.where(target[self.edges] <= source[0], 0, source.size - 1)
+
+    def __call__(self, values: Any) -> Any:
+        left_values = values[self.left]
+        result = left_values + self.fraction * (values[self.left + 1] - left_values)
+        # Avoid cancellation at the endpoints, including tiny nonzero fluxes.
+        result[self.edges] = values[self.edge_sources]
+        return result
+
+
+class _PreparedBroadeningGeometry:
+    """Reuse the native-size log lattice and both interpolation mappings.
+
+    A redshift scales all wavelengths equally, leaving this geometry unchanged
+    apart from roundoff. Extinction is still applied on the native, shifted
+    wavelengths before interpolation and the existing Gaussian convolution.
+    """
+
+    def __init__(self, wavelength: Any):
+        log_min, log_max = math.log(wavelength[0]), math.log(wavelength[-1])
+        self.step = (log_max - log_min) / (wavelength.size - 1)
+        sample_x = np.exp(np.linspace(log_min, log_max, wavelength.size))
+        position = (np.log(wavelength) - log_min) / self.step
+        self.to_log = _PreparedLinearInterpolation(wavelength, sample_x)
+        self.to_native = _PreparedLinearInterpolation(np.arange(wavelength.size), position)
+
+    def __call__(self, values: Any, sigma_km_s: float, shifted: Any) -> Any:
+        # Match the original shifted-axis arithmetic for the discrete kernel's
+        # radius/threshold, even exactly at rounding-sensitive boundaries.
+        step = (math.log(shifted[-1]) - math.log(shifted[0])) / (shifted.size - 1)
+        sigma_pixels = sigma_km_s / LIGHT_SPEED_KM_PER_S / step
+        if sigma_pixels < 0.15:
+            return values
+        sampled = self.to_log(values)
+        smoothed = _smooth_gaussian(sampled, sigma_pixels)
+        return self.to_native(smoothed)
+
+
 class PreparedSpectrumTransform:
     """Per-fit, bounded caches; retain transform order and the native model axis."""
 
@@ -352,6 +400,7 @@ class PreparedSpectrumTransform:
         self.wavelength, self.flux, self.mode = wavelength, flux, mode
         self.log_step = _uniform_log_step(wavelength)
         self.shift_cache = OrderedDict()
+        self.broadening_geometry = None
 
     def is_unbroadened(self, sigma_km_s: float) -> bool:
         if not math.isfinite(sigma_km_s) or sigma_km_s < 0:
@@ -408,6 +457,10 @@ class PreparedSpectrumTransform:
                 sigma_pixels = broadening_km_s / LIGHT_SPEED_KM_PER_S / self.log_step
                 if sigma_pixels >= 0.15:
                     values = _smooth_gaussian(values, sigma_pixels)
+            elif gaussian_filter1d is not None and not self.is_unbroadened(broadening_km_s):
+                if self.broadening_geometry is None:
+                    self.broadening_geometry = _PreparedBroadeningGeometry(self.wavelength)
+                values = self.broadening_geometry(values, broadening_km_s, shifted)
             else:
                 values = _gaussian_broaden_by_velocity(shifted, values, broadening_km_s)
         return shifted, values
@@ -544,8 +597,8 @@ def _build_model_series_for_fit(
     fin_x = final.get("wavelength")
     fin_y = final.get("flux")
     if (
-        not isinstance(fin_x, list)
-        or not isinstance(fin_y, list)
+        not isinstance(fin_x, (list, np.ndarray))
+        or not isinstance(fin_y, (list, np.ndarray))
     ):
         return None
 
@@ -561,7 +614,7 @@ def _build_model_series_for_fit(
             return None
         return fin_x_np[valid], converted_y[valid]
 
-    if not isinstance(cont_x, list) or not isinstance(cont_y, list):
+    if not isinstance(cont_x, (list, np.ndarray)) or not isinstance(cont_y, (list, np.ndarray)):
         return None
     cleaned_cont = _clean_xy_arrays(cont_x, cont_y)
     if cleaned_cont is None:
@@ -574,7 +627,7 @@ def _build_model_series_for_fit(
         return None
     ratio_x = fin_x_np[valid]
     ratio_y = fin_y_np[valid] / cont_interp[valid]
-    cleaned_ratio = _clean_xy_arrays(ratio_x.tolist(), ratio_y.tolist())
+    cleaned_ratio = _clean_xy_arrays(ratio_x, ratio_y)
     if cleaned_ratio is None:
         return None
     return cleaned_ratio

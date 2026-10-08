@@ -105,11 +105,13 @@ def _fit_single_cmfgen_candidate(
             Path(spectrum_files["obs_cont"]),
             lambda_min=lambda_min,
             lambda_max=lambda_max,
+            as_arrays=True,
         )
         final = load_obs_spectrum(
             selected_fin,
             lambda_min=lambda_min,
             lambda_max=lambda_max,
+            as_arrays=True,
         )
     except Exception:
         return {"status": "failed"}

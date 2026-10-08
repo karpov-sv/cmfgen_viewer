@@ -6,12 +6,20 @@ import math
 import re
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
 from .model_metadata import _safe_stat
 from .parsers.common import parse_numeric_tokens
 from .spectrum_constants import LIGHT_SPEED_ANGSTROM_PER_10P15_HZ
 
+try:
+    import numpy as np
+except ModuleNotFoundError:  # pragma: no cover - optional runtime dependency
+    np = None
+
 COUNT_RE = re.compile(r"\((\s*\d+)\)")
+_NUMBER_PATTERN = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[EeDd][+-]?\d+)?"
+_NUMERIC_LINE_RE = re.compile(rf"{_NUMBER_PATTERN}(?:\s+{_NUMBER_PATTERN})*", re.ASCII)
 
 
 def discover_final_spectrum_files(model_dir: Path) -> dict[str, object] | None:
@@ -90,20 +98,17 @@ def _normalize_wavelength_bounds(
     return min_value, max_value
 
 
-@lru_cache(maxsize=16)
-def _load_obs_spectrum_cached(
-    path_str: str,
-    mtime_ns: int,
-    size: int,
-    lambda_min: float | None,
-    lambda_max: float | None,
-) -> dict[str, object]:
-    del mtime_ns, size
-    path = Path(path_str)
-    vectors: dict[str, list[float]] = {
+def _read_obs_vectors(path: Path) -> tuple[dict[str, Any], int | None]:
+    """Validate whole numeric lines before bulk conversion (never parse prefixes).
+
+    The legacy parser handles missing-E Fortran notation and punctuation. An
+    invalid line ends the active vector, just as in the original reader.
+    """
+    vectors: dict[str, Any] = {
         "continuum_frequencies": [],
         "observed_intensity_janskys": [],
     }
+    blocks: dict[str, list[str]] = {key: [] for key in vectors}
     expected_count: int | None = None
     active_key: str | None = None
 
@@ -113,22 +118,92 @@ def _load_obs_spectrum_cached(
             if not stripped:
                 continue
 
-            heading_key, count = _series_heading(stripped)
+            # Numeric lines need no heading normalization/tokenization.
+            heading_key, count = (
+                _series_heading(stripped) if stripped[0] in "CO" else (None, None)
+            )
             if heading_key:
                 active_key = heading_key
                 if heading_key == "continuum_frequencies" and count is not None:
                     expected_count = count
                 continue
 
-            values = parse_numeric_tokens(stripped)
+            if active_key and np is not None and _NUMERIC_LINE_RE.fullmatch(stripped):
+                blocks[active_key].append(stripped)
+                continue
+            values = parse_numeric_tokens(stripped) if active_key else []
             if active_key and values:
-                vectors[active_key].extend(values)
+                if np is None:
+                    vectors[active_key].extend(values)
+                else:
+                    blocks[active_key].append(" ".join(repr(value) for value in values))
                 continue
             active_key = None
 
+    if np is not None:
+        vectors = {
+            key: np.fromstring(" ".join(lines).replace("D", "E").replace("d", "e"), sep=" ")
+            for key, lines in blocks.items()
+        }
+    return vectors, expected_count
+
+
+@lru_cache(maxsize=16)
+def _load_obs_spectrum_cached(
+    path_str: str,
+    mtime_ns: int,
+    size: int,
+    lambda_min: float | None,
+    lambda_max: float | None,
+    as_arrays: bool = False,
+) -> dict[str, object]:
+    del mtime_ns, size
+    path = Path(path_str)
+    vectors, expected_count = _read_obs_vectors(path)
     freq = vectors["continuum_frequencies"]
     intensity = vectors["observed_intensity_janskys"]
     size = min(len(freq), len(intensity))
+    if np is not None:
+        freq, intensity = freq[:size], intensity[:size]
+        valid = (freq > 0) & np.isfinite(freq) & np.isfinite(intensity)
+        skipped = int(size - np.count_nonzero(valid))
+        with np.errstate(over="ignore", divide="ignore"):
+            wavelengths = LIGHT_SPEED_ANGSTROM_PER_10P15_HZ / freq[valid]
+        flux = intensity[valid]
+        if wavelengths.size >= 2 and wavelengths[0] > wavelengths[-1]:
+            if np.all(np.diff(wavelengths) < 0):
+                wavelengths, flux = wavelengths[::-1], flux[::-1]
+            else:
+                # Match Python's stable sort, including duplicate wavelengths.
+                order = np.argsort(wavelengths, kind="stable")
+                wavelengths, flux = wavelengths[order], flux[order]
+        in_range = np.ones(wavelengths.size, dtype=bool)
+        if lambda_min is not None:
+            in_range &= wavelengths >= lambda_min
+        if lambda_max is not None:
+            in_range &= wavelengths <= lambda_max
+        range_skipped = int(wavelengths.size - np.count_nonzero(in_range))
+        wavelengths, flux = wavelengths[in_range], flux[in_range]
+        trimmed_points = 0
+        if flux.size >= 3 and math.isfinite(flux[-1]):
+            above_floor = np.flatnonzero(flux[:-2] > flux[-1])
+            trimmed_points = int(above_floor[0]) if above_floor.size else flux.size - 2
+            wavelengths, flux = wavelengths[trimmed_points:], flux[trimmed_points:]
+        if as_arrays:
+            # Cached arrays are shared by callers and must not be mutated.
+            wavelengths.setflags(write=False)
+            flux.setflags(write=False)
+        else:
+            wavelengths, flux = wavelengths.tolist(), flux.tolist()
+        return {
+            "name": path.name, "wavelength": wavelengths, "flux": flux,
+            "lambda_min": lambda_min, "lambda_max": lambda_max,
+            "expected_count": expected_count, "raw_points": size,
+            "skipped_points": skipped, "range_skipped_points": range_skipped,
+            "trimmed_points": trimmed_points,
+        }
+
+    # Dependency-free compatibility path for plotting installations.
     wavelengths: list[float] = []
     flux: list[float] = []
     skipped = 0
@@ -180,9 +255,11 @@ def load_obs_spectrum(
     *,
     lambda_min: float | None = None,
     lambda_max: float | None = None,
+    as_arrays: bool = False,
 ) -> dict[str, object]:
+    """Load list-based viewer data, or read-only NumPy arrays for fitting."""
     bound_min, bound_max = _normalize_wavelength_bounds(lambda_min, lambda_max)
     mtime_ns, size = _safe_stat(path)
     return _load_obs_spectrum_cached(
-        str(path.resolve()), mtime_ns, size, bound_min, bound_max
+        str(path.resolve()), mtime_ns, size, bound_min, bound_max, as_arrays
     )

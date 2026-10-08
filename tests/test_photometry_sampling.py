@@ -176,6 +176,7 @@ def test_cmfgen_grid_loads_continuum_only_for_normalized_fits(monkeypatch, tmp_p
     loaded = []
 
     def load(path, **kwargs):
+        assert kwargs["as_arrays"] is True
         loaded.append(path.name)
         return {"wavelength": [1000, 2000], "flux": [1, 2]}
 

@@ -34,6 +34,61 @@ def test_prepared_transform_matches_public_transform(uniform, mode):
         np.testing.assert_allclose(actual[1], expected[1], rtol=2e-10, atol=1e-14)
 
 
+@pytest.mark.parametrize("signed", [False, True])
+@pytest.mark.parametrize("mode", ["both", "normalized"])
+def test_nonuniform_broadening_geometry_is_reused_across_redshifts(monkeypatch, signed, mode):
+    wave = np.linspace(3000, 25000, 30000)
+    flux = (5000 / wave) ** 3 * (1 + 0.2 * np.sin(wave / 13))
+    if signed:
+        flux -= 1
+    flux[0], flux[-1] = 10, 1e-30
+    cases = [dict(redshift=z, broadening_km_s=sigma, ebv=ebv, distance_kpc=2)
+             for z, sigma, ebv in [(-0.2, 20, 0), (0, 200, .2), (.7, 800, 1.5), (0, 100, 1)]]
+    expected = [transforms._apply_transform_arrays(wave, flux, mode=mode, **args) for args in cases]
+    prepared = transforms.PreparedSpectrumTransform(wave, flux, mode)
+    builds = []
+    original = transforms._PreparedBroadeningGeometry
+
+    def tracked(*args):
+        builds.append(1)
+        return original(*args)
+
+    def unexpected(*args, **kwargs):
+        raise AssertionError("Prepared broadening must reuse interpolation mappings")
+
+    monkeypatch.setattr(transforms, "_PreparedBroadeningGeometry", tracked)
+    # Normalized mode has no extinction interpolation; broadening needs none.
+    if mode == "normalized":
+        monkeypatch.setattr(np, "interp", unexpected)
+    for args, reference in zip(cases, expected):
+        actual = prepared(**args)
+        np.testing.assert_array_equal(actual[0], reference[0])
+        np.testing.assert_allclose(actual[1], reference[1], rtol=2e-10, atol=1e-12)
+    assert len(builds) == 1
+
+
+@pytest.mark.parametrize("pixel_sigma", [.149, .15, .151, .375, 16.125, 100.125])
+@pytest.mark.parametrize("redshift", [-.2, .7])
+def test_prepared_nonuniform_broadening_matches_discrete_kernel_boundaries(pixel_sigma, redshift):
+    wave = np.linspace(4000, 6000, 10000)
+    flux = np.ones(wave.size)
+    flux[200:203] = [0, 100, 0]
+    shifted = wave * (1 + redshift)
+    step = (np.log(shifted[-1]) - np.log(shifted[0])) / (wave.size - 1)
+    sigma = pixel_sigma * step * transforms.LIGHT_SPEED_KM_PER_S
+    args = dict(redshift=redshift, broadening_km_s=sigma, ebv=0, distance_kpc=1)
+    expected = transforms._apply_transform_arrays(wave, flux, mode="normalized", **args)
+    actual = transforms.PreparedSpectrumTransform(wave, flux, "normalized")(**args)
+    np.testing.assert_allclose(actual[1], expected[1], rtol=2e-10, atol=1e-12)
+
+
+def test_zero_width_trials_do_not_prepare_broadening_geometry():
+    wave = np.linspace(3000, 25000, 10000)
+    prepared = transforms.PreparedSpectrumTransform(wave, np.ones_like(wave), "both")
+    prepared(redshift=0, broadening_km_s=0, ebv=.5, distance_kpc=1)
+    assert prepared.broadening_geometry is None
+
+
 def test_reddening_basis_cache_is_bounded_and_reused(monkeypatch):
     wave = np.geomspace(3000, 25000, 10000)
     original = transforms._reddening_exponent
