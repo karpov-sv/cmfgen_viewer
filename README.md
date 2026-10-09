@@ -315,6 +315,12 @@ searches before evaluating thousands of atmospheres.
   - `OUTLTE`, `OUT_FLUX`, `OUT_PARAMS`, `TRANS_INFO`, `ML_COUNTER`, `DIAGNOSTIC_EST_*`, `TIME_PNT*`,
   - `POP*`, `*OUT` departure files, `NETRATE`/`TOTRATE`/`EWDATA`/`LINEHEAT`, `J_COMP`, `SOB_FORCE_MULT`, `GAMFLUX`, `GAMRAY_ENERGY_DEP`, `CFDAT_OUT`, `CONT_FREQ`, `OBS_FREQ`.
 - Final spectrum tools:
+  - toggleable common spectral line markers (hydrogen, helium, metals), optional labels,
+    air/vacuum conventions, and positions following model redshift; also available on
+    uploaded spectra and parsed wavelength plots ([usage and sources](doc/spectral-line-overlay.md)),
+  - quick wavelength zoom presets for each reference line (±150 Å), the optical
+    range (3800–7500 Å), and the whole visible spectrum, with vertical scaling
+    to the displayed wavelength region,
   - single-model `/spectrum/<path>` and bulk-spectrum `/bulk/spectra/<path>` views,
   - Plotly interactivity with log/linear toggles, redshift/velocity, distance scaling, reddening `E(B-V)`, and resizable plot container,
   - observed overlay support with flux-mode compatibility checks,

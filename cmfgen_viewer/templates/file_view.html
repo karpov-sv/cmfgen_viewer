@@ -76,8 +76,15 @@
         {% endif %}
 
         {% if parsed.plots %}
+          <script src="{{ url_for('static', filename='spectral_lines.js') }}"></script>
           <h6>Plots</h6>
           {% set has_plot_mode_toggle = parsed.plots|length > 1 %}
+          {% set spectral_axes = namespace(all_wavelength=true) %}
+          {% for item in parsed.plots %}
+            {% if item.layout.xaxis.title.text != 'Wavelength (Å)' %}
+              {% set spectral_axes.all_wavelength = false %}
+            {% endif %}
+          {% endfor %}
           {% set plot_mode_id = "plot-mode-" ~ parsed.parser|lower %}
           {% set combined_mode_btn_id = plot_mode_id ~ "-combined" %}
           {% set separate_mode_btn_id = plot_mode_id ~ "-separate" %}
@@ -117,6 +124,11 @@
                 <option value="log">Log</option>
               </select>
             </div>
+            {% if spectral_axes.all_wavelength %}
+              {% with plot_id=combined_plot_id %}
+                {% include "_spectral_line_controls.html" %}
+              {% endwith %}
+            {% endif %}
             <div class="plotly-resizable">
               <div id="{{ combined_plot_id }}" class="plotly-chart"></div>
               <div class="plot-resize-handle" role="separator" aria-orientation="vertical" aria-label="Resize plot"></div>
@@ -288,6 +300,7 @@
                 }
 
                 Plotly.newPlot(target, traces, layout, config).then(function () {
+                  CmfgenSpectralLines.bind(target);
                   if (!xScale || !yScale) {
                     return;
                   }
@@ -328,6 +341,9 @@
                       <option value="log" {% if plot.default_y_scale == 'log' %}selected{% endif %}>Log</option>
                     </select>
                   </div>
+                  {% if plot.layout.xaxis.title.text == 'Wavelength (Å)' %}
+                    {% include "_spectral_line_controls.html" %}
+                  {% endif %}
                   <div class="plotly-resizable">
                     <div id="{{ plot_id }}" class="plotly-chart"></div>
                     <div class="plot-resize-handle" role="separator" aria-orientation="vertical" aria-label="Resize plot"></div>
@@ -428,6 +444,7 @@
                         {{ plot.layout | tojson }},
                         {{ plot.config | tojson }}
                       ).then(function () {
+                        CmfgenSpectralLines.bind(target);
                         var xScale = document.getElementById("{{ x_scale_id }}");
                         var yScale = document.getElementById("{{ y_scale_id }}");
                         if (!xScale || !yScale) {

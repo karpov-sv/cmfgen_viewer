@@ -562,6 +562,7 @@
     scheduleTransforms();
     syncTransformHiddenFields();
     CmfgenSpectrumControls.bindVerticalResize(target);
+    CmfgenSpectralLines.bind(target, { redshiftInput: redshiftInput });
     syncFitRangeMarkers();
   });
 })();

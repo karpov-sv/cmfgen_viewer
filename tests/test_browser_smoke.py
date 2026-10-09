@@ -40,8 +40,10 @@ def test_spectrum_pages_in_chromium(tmp_path):
         (model / "RVTJ").write_text(
             "ND: 2\nRadius\n1 2\nVelocity\n10 20\n", encoding="utf-8"
         )
-        values = " ".join(str(1 + i / 200) for i in range(201))
-        flux = " ".join(str(10 + i / 20) for i in range(201))
+        # CMFGEN frequencies are in 10^15 Hz: cover the optical lines in
+        # descending frequency order without triggering short-wave floor trim.
+        values = " ".join(str(0.83 - i / 500) for i in range(201))
+        flux = " ".join(str(20 - i / 20) for i in range(201))
         contents = f"Continuum Frequencies (201)\n{values}\nObserved intensity (Janskys)\n{flux}\n"
         for path in (obs / "obs_fin", obs / "obs_cont", model / "OBSFLUX"):
             path.write_text(contents, encoding="utf-8")

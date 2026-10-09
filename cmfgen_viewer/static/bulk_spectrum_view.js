@@ -262,5 +262,6 @@
     syncVisibilityButtons();
     applyBulkVisibilityToggles();
     CmfgenSpectrumControls.bindVerticalResize(target);
+    CmfgenSpectralLines.bind(target, { redshiftInput: redshiftInput });
   });
 })();

@@ -496,6 +496,7 @@
     applyAxisScale();
     scheduleTransforms();
     CmfgenSpectrumControls.bindVerticalResize(target);
+    CmfgenSpectralLines.bind(target, { redshiftInput: redshiftInput });
     applyPendingOverlayAction();
     applyPendingFitRangeAction();
   });

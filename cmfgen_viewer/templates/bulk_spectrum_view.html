@@ -176,6 +176,7 @@
           </div>
         {% endif %}
       </div>
+      {% include "_spectral_line_controls.html" %}
       <div class="plotly-resizable">
         <div id="{{ plot_id }}" class="plotly-chart"></div>
         <div class="plot-resize-handle" role="separator" aria-orientation="vertical" aria-label="Resize plot"></div>
@@ -183,6 +184,7 @@
     </div>
     <script src="{{ url_for('static', filename='spectrum_transforms.js') }}"></script>
 <script src="{{ url_for('static', filename='spectrum_controls.js') }}"></script>
+<script src="{{ url_for('static', filename='spectral_lines.js') }}"></script>
 <script type="application/json">
 {
   "plot_id": {{ plot_id | tojson }},
