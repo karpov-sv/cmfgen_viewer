@@ -256,20 +256,28 @@ def test_color_auto_and_explicit_controls(monkeypatch):
     assert "\033" not in stream.getvalue()
 
 
-def test_progress_is_throttled_without_losing_counter_updates():
+@pytest.mark.parametrize("interactive", [False, True])
+@pytest.mark.parametrize("estimate", [
+    {}, {"current": 8}, {"total": 10}, {"current": 4, "total": 0},
+    {"current": 4, "total": -1}, {"current": float("nan"), "total": 10},
+    {"current": 4, "total": "unknown"},
+])
+def test_progress_without_estimate_is_silent(interactive, estimate):
     stream = io.StringIO()
+    stream.isatty = lambda: interactive
     output = TerminalOutput(stream)
-    event = {"event": "progress", "stage": "main", "phase": "iteration", "current": 8}
+    event = {"event": "progress", "stage": "main", "phase": "working", **estimate}
     output.event(event)
     output.event(event)
-    output.event({**event, "current": 9})
-    assert stream.getvalue().count("iteration 8") == 1
-    assert "iteration 9" in stream.getvalue()
+    output.event({**event, "remaining_seconds": 60})
+    output.event({**event, "phase": "initialization"})
+    assert stream.getvalue() == ""
+    assert output.progress_bars == {}
     output.event({"event": "startup_fallback", "message": "fell back to fresh startup"})
     assert "[WARN] fell back" in stream.getvalue()
 
 
-def test_known_progress_falls_back_to_text_when_not_interactive():
+def test_known_progress_is_silent_when_not_interactive():
     stream = io.StringIO()
     output = TerminalOutput(stream)
 
@@ -283,7 +291,8 @@ def test_known_progress_falls_back_to_text_when_not_interactive():
         }
     )
 
-    assert "[RUN] lte: frequencies 25/100" in stream.getvalue()
+    output.event({"event": "progress", "stage": "lte", "phase": "frequencies", "current": 50, "total": 100})
+    assert stream.getvalue() == ""
     assert output.progress_bars == {}
 
 
@@ -341,6 +350,16 @@ def test_known_progress_uses_tqdm_with_terminal_autodetection(monkeypatch):
     assert bar.n == 4
     assert bar.postfix == "30s remaining"
     assert stream.getvalue() == ""
+
+    output.event({"event": "progress", "stage": "main", "phase": "working"})
+    assert bar.closed is True
+    assert output.progress_bars == {}
+    assert stream.getvalue() == ""
+
+    output.event({**event, "current": 5})
+    bar = FakeTqdm.instances[-1]
+    assert bar.n == 5
+    assert bar.closed is False
 
     output.event({"event": "stage_finished", "stage": "main", "status": "succeeded"})
     assert bar.closed is True
@@ -449,6 +468,35 @@ def test_json_mode_has_clean_stdout_and_opt_in_events(monkeypatch, capsys, plan,
         assert [item["event"] for item in events] == ["stage_started", "stage_finished"]
     else:
         assert captured.err == ""
+
+
+@pytest.mark.parametrize("progress", ["text", "json"])
+def test_cli_periodic_progress_is_quiet_in_text_and_available_in_json(monkeypatch, capsys, plan, result, progress):
+    setup_cli(monkeypatch, plan, result)
+    events = [
+        {"event": "stage_started", "stage": "main"},
+        {"event": "progress", "stage": "main", "phase": "working"},
+        {"event": "progress", "stage": "main", "phase": "working"},
+        {"event": "progress", "stage": "main", "phase": "iterations", "current": 2, "total": 5},
+        {"event": "stage_finished", "stage": "main", "status": "succeeded"},
+    ]
+
+    def run(_plan, emit):
+        for item in events:
+            emit(item)
+        return result
+
+    monkeypatch.setattr(runner, "run_plan", run)
+    assert runner.main(["/tmp/test-model", "--progress", progress]) == 0
+    captured = capsys.readouterr()
+    assert "[OK] main: completed" in captured.out
+    if progress == "json":
+        assert [json.loads(line) for line in captured.err.splitlines()] == events
+    else:
+        assert "[RUN] main: starting" in captured.err
+        assert "[OK] main: completed" in captured.err
+        assert "working" not in captured.err
+        assert "iterations 2/5" not in captured.err
 
 
 def test_preflight_failure_never_runs_and_is_readable(monkeypatch, capsys, plan, result):

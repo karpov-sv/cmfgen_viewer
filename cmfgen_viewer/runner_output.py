@@ -2,7 +2,6 @@
 
 from datetime import datetime
 import os
-import time
 
 from tqdm import tqdm
 
@@ -28,7 +27,6 @@ class TerminalOutput:
             color == "auto" and getattr(stream, "isatty", lambda: False)()
             and "NO_COLOR" not in os.environ and os.environ.get("TERM") != "dumb"
         )
-        self.last_progress = {}
         self.progress_bars = {}
         self.disabled_progress_bars = set()
 
@@ -261,23 +259,8 @@ class TerminalOutput:
                 message = "filesystem operation failed"
             self.line(label, f"{stage}: {message}")
         elif kind == "progress":
-            if self._update_progress_bar(item):
-                return
-            phase, current, total = item.get("phase", "working"), item.get("current"), item.get("total")
-            key = (phase, current, total)
-            now = time.monotonic()
-            previous = self.last_progress.get(stage)
-            if previous and previous[0] == key and now - previous[1] < 10:
-                return
-            self.last_progress[stage] = (key, now)
-            detail = phase
-            if current is not None:
-                detail += f" {current}"
-                if total is not None:
-                    detail += f"/{total}"
-            if item.get("remaining_seconds") is not None:
-                detail += f" ({item['remaining_seconds']:g}s remaining)"
-            self.line("RUN", f"{stage}: {detail}")
+            if not self._update_progress_bar(item):
+                self._close_progress(str(item.get("stage", "run")))
         # The final summary replaces the raw run_finished event.
 
     def result(self, result, *, preflight_warnings=()):
