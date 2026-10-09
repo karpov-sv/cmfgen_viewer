@@ -320,6 +320,8 @@ searches before evaluating thousands of atmospheres.
   - observed overlay support with flux-mode compatibility checks,
   - bulk visibility toggles for final vs continuum traces (without removing traces).
 - Global uploads workflow:
+  - text/CSV and VOTable files with explicit wavelength, flux, and bandwidth (`bandwidth`, `band_width`, `bandpass_width`, or `filter_width`, optionally suffixed `_A`) columns are automatically imported as absolute-flux photometry; commented text headers and quoted comments are supported,
+  - detected photometry is saved as canonical `source.phot` with errors, comments, and enabled flags (default `1`) preserved; the original uploaded file remains in the bundle. VOTable wavelength and bandwidth units are both converted to Å, and declared flux/error units to erg/s/cm²/Å (including Jy). Generic `width` and headerless tables do not trigger automatic photometry detection,
   - upload management page (`/uploads/`),
   - quasi-persistent tokenized uploads under upload root,
   - upload detail page (`/uploads/view/<token>`) with file/format summary, parsed point counts, skipped-point diagnostics, and configured wavelength window display,

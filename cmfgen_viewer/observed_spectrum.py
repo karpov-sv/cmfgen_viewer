@@ -23,11 +23,13 @@ except ModuleNotFoundError:  # pragma: no cover - runtime dependency
     np = None  # type: ignore[assignment]
 
 try:
+    from astropy import units as u
     from astropy.io import fits
     from astropy.table import Table
 except ModuleNotFoundError:  # pragma: no cover - runtime dependency
     fits = None  # type: ignore[assignment]
     Table = None  # type: ignore[assignment,misc]
+    u = None  # type: ignore[assignment]
 
 
 SUPPORTED_FITS_SUFFIXES = {".fits", ".fit", ".fts"}
@@ -40,6 +42,151 @@ PHOTOMETRY_SPLIT_RE = re.compile(r"[,\s;]+")
 PHOTOMETRY_TRUE_TOKENS = {"1", "true", "t", "yes", "y", "on", "enable", "enabled"}
 PHOTOMETRY_FALSE_TOKENS = {"0", "false", "f", "no", "n", "off", "disable", "disabled"}
 CANONICAL_PHOTOMETRY_HEADER = "# wavelength_A band_width_A flux flux_error enabled # comment"
+
+
+def _photometry_columns(names: list[str]) -> dict[str, str] | None:
+    """Require explicit column names; generic width and positional data are ambiguous."""
+    aliases = {
+        "wave": ("wavelength", "lambda", "lam", "wave", "wl", "lambda_eff"),
+        "width": ("bandwidth", "band_width", "bandpass_width", "filter_width"),
+        "flux": ("flux", "flx", "f_lambda", "flambda"),
+        "error": ("flux_error", "flux_err", "fluxerror", "eflux", "e_flux", "uncertainty"),
+        "enabled": ("enabled",),
+        "comment": ("comment", "comments"),
+    }
+    lowered = {_normalize_column_name(name): name for name in names}
+    columns = {}
+    for role, candidates in aliases.items():
+        for candidate in candidates:
+            for suffix in ("", "_a", "_angstrom", "_angstroms"):
+                if candidate + suffix in lowered:
+                    columns[role] = lowered[candidate + suffix]
+                    break
+            if role in columns:
+                break
+    return columns if all(role in columns for role in ("wave", "width", "flux")) else None
+
+
+def _canonical_named_photometry(rows: list[dict[str, Any]], columns: dict[str, str]) -> str:
+    lines = []
+    for index, row in enumerate(rows, start=1):
+        def value(role: str, default: Any = "") -> Any:
+            result = row.get(columns.get(role, ""), default)
+            return default if np is not None and np.ma.is_masked(result) else result
+
+        numeric = [parse_float_token(str(value(role))) for role in ("wave", "width", "flux")]
+        if (
+            any(number is None or not math.isfinite(number) for number in numeric)
+            or numeric[0] <= 0 or numeric[1] < 0
+        ):
+            raise ValueError(f"Invalid photometry row at row {index}: expected positive wavelength, non-negative bandwidth, and finite flux.")
+        enabled = _parse_enabled_token(str(value("enabled", "1")))
+        if enabled is None:
+            raise ValueError(f"Invalid photometry enabled flag at row {index}.")
+        comment = " ".join(str(value("comment")).splitlines()).strip()
+        line = (
+            f"{numeric[0]} {numeric[1]} {numeric[2]} "
+            f"{value('error', '0') or '0'} {int(enabled)}"
+        )
+        if comment:
+            line += f" # {comment}"
+        lines.append(line)
+    return normalize_photometry_table("\n".join(lines))
+
+
+def _photometry_from_text(content: str) -> str | None:
+    header = None
+    columns = None
+    delimiter = None
+    rows = []
+    for raw_line in content.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        commented = line.startswith(("#", "!"))
+        if commented:
+            if header is not None:
+                continue
+            line = line.lstrip("#! ")
+        try:
+            row_delimiter = delimiter
+            if header is None:
+                row_delimiter = "," if "," in line else ";" if ";" in line else None
+            if row_delimiter:
+                tokens = [token.strip() for token in next(csv.reader([line], delimiter=row_delimiter))]
+            else:
+                tokens = shlex.split(line, comments=True)
+        except (ValueError, csv.Error) as exc:
+            if header is not None:
+                raise ValueError(f"Invalid photometry table row: {exc}") from exc
+            continue
+        if header is None:
+            candidate = _photometry_columns(tokens)
+            if candidate is not None:
+                header, columns = tokens, candidate
+                delimiter = row_delimiter
+            elif not commented:
+                return None
+        else:
+            if len(tokens) < len(header):
+                raise ValueError("Photometry row has fewer columns than its header.")
+            if len(tokens) > len(header):
+                raise ValueError("Photometry row has more columns than its header; quote comments containing spaces or delimiters.")
+            rows.append(dict(zip(header, tokens)))
+    if columns is None:
+        return None
+    if not rows:
+        raise ValueError("Photometry table contains a header but no data rows.")
+    return _canonical_named_photometry(rows, columns)
+
+
+def _photometry_from_astropy_table(table: Any) -> str | None:
+    columns = _photometry_columns(list(table.colnames))
+    if columns is None:
+        return None
+    values = {role: table[name] for role, name in columns.items()}
+    # Wavelength and bandwidth must use the same physical units in canonical data.
+    for role in ("wave", "width"):
+        column = values[role]
+        if column.unit is not None:
+            try:
+                values[role] = column.quantity.to_value("Angstrom")
+            except Exception as exc:
+                raise ValueError(f"Cannot convert photometry {role} unit '{column.unit}' to Å.") from exc
+    for role in ("flux", "error"):
+        column = values.get(role)
+        if column is not None and column.unit is not None:
+            try:
+                values[role] = column.quantity.to_value(
+                    "erg / (s cm2 Angstrom)",
+                    equivalencies=u.spectral_density(values["wave"] * u.Angstrom),
+                )
+            except Exception as exc:
+                raise ValueError(f"Cannot convert photometry {role} unit '{column.unit}' to flux per Å.") from exc
+    rows = [
+        {
+            columns[role]: np.ma.masked if np.ma.is_masked(table[columns[role]][index]) else vector[index]
+            for role, vector in values.items()
+        }
+        for index in range(len(table))
+    ]
+    if not rows:
+        raise ValueError("Photometry table contains no data rows.")
+    return _canonical_named_photometry(rows, columns)
+
+
+def uploaded_photometry_table(path: Path) -> str | None:
+    """Return canonical photometry for explicitly named text/VOTable band tables."""
+    if path.suffix.lower() in SUPPORTED_TEXT_SUFFIXES:
+        return _photometry_from_text(path.read_text(encoding="utf-8-sig", errors="replace"))
+    if path.suffix.lower() in SUPPORTED_VOTABLE_SUFFIXES:
+        if Table is None or np is None:
+            raise ValueError("VOTable parsing requires astropy and numpy.")
+        with python_warnings.catch_warnings():
+            python_warnings.filterwarnings("ignore", message=".*has been deprecated in the VOUnit standard.*")
+            table = Table.read(path, format="votable")
+        return _photometry_from_astropy_table(table)
+    return None
 
 
 def _uses_legacy_photometry_schema(content: str) -> bool:
@@ -365,6 +512,11 @@ def _parse_uploaded_votable(
         raise ValueError(f"Could not read VOTable: {exc}") from exc
 
     warnings: list[str] = []
+    canonical = _photometry_from_astropy_table(table)
+    if canonical is not None:
+        return _parse_photometry_content(
+            path, canonical, flux_mode=flux_mode, lambda_min=lambda_min, lambda_max=lambda_max
+        )
     wavelength, flux, flux_err, table_warnings = _extract_from_astropy_table(table)
     warnings.extend(table_warnings)
     return _finalize_uploaded_spectrum(
@@ -391,6 +543,12 @@ def _parse_uploaded_text(
         content = path.read_text(encoding="utf-8-sig", errors="replace")
     except OSError as exc:
         raise ValueError(f"Could not read text spectrum upload: {exc}") from exc
+
+    canonical = _photometry_from_text(content)
+    if canonical is not None:
+        return _parse_photometry_content(
+            path, canonical, flux_mode=flux_mode, lambda_min=lambda_min, lambda_max=lambda_max
+        )
 
     rows: list[tuple[int, list[str]]] = []
     for line_no, raw_line in enumerate(content.splitlines(), start=1):
@@ -607,7 +765,6 @@ def _parse_uploaded_photometry(
     lambda_min: float | None,
     lambda_max: float | None,
 ) -> dict[str, Any]:
-    warnings: list[str] = []
     try:
         content = path.read_text(encoding="utf-8", errors="replace")
         if _uses_legacy_photometry_schema(content):
@@ -615,6 +772,20 @@ def _parse_uploaded_photometry(
     except OSError as exc:
         raise ValueError(f"Could not read photometry upload: {exc}") from exc
 
+    return _parse_photometry_content(
+        path, content, flux_mode=flux_mode, lambda_min=lambda_min, lambda_max=lambda_max
+    )
+
+
+def _parse_photometry_content(
+    path: Path,
+    content: str,
+    *,
+    flux_mode: str,
+    lambda_min: float | None,
+    lambda_max: float | None,
+) -> dict[str, Any]:
+    warnings: list[str] = []
     wavelength: list[float] = []
     flux: list[float] = []
     band_width: list[float] = []

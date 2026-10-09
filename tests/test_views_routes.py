@@ -5,6 +5,8 @@ import os
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+import pytest
+
 from cmfgen_viewer.app import create_app
 from cmfgen_viewer.model_summary import SUMMARY_COLUMNS, summary_from_payload
 from cmfgen_viewer.observed_spectrum import (
@@ -17,6 +19,44 @@ from cmfgen_viewer.summary_cache import (
     list_model_summaries,
 )
 from cmfgen_viewer.vizier_photometry import VizierPhotometryPoint
+
+
+@pytest.mark.parametrize("suffix", ["csv", "txt", "vot"])
+def test_sed_file_upload_supports_photometry_editor(tmp_path, suffix):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    if suffix == "vot":
+        table_module = pytest.importorskip("astropy.table")
+        source = tmp_path / "sed.vot"
+        table_module.Table({
+            "wavelength": [5000, 6000], "bandwidth": [100, 200],
+            "flux": [1e-12, 2e-12], "comment": ["Survey B", "Survey V"],
+        }).write(source, format="votable")
+        content = source.read_bytes()
+    elif suffix == "csv":
+        content = b'wavelength,bandwidth,flux,comment\n5000,100,1e-12,"Survey B"\n6000,200,2e-12,"Survey V"\n'
+    else:
+        content = b'# wavelength bandwidth flux comment\n5000 100 1e-12 "Survey B"\n6000 200 2e-12 "Survey V"\n'
+    response = client.post("/uploads/upload", data={"observed_file": (io.BytesIO(content), f"sed.{suffix}")})
+    assert response.status_code == 302
+    root = Path(app.config["CMFGEN_VIEWER"]["upload_root"])
+    manifest = list_upload_manifests(root)[0]
+    token = manifest["token"]
+    assert manifest["stored_name"] == "source.phot"
+    assert manifest["observation_type"] == "photometry"
+    page = client.get(f"/uploads/view/{token}")
+    assert page.status_code == 200
+    assert b"Save Photometry Data" in page.data
+    assert b"5000 100 1e-12 0 1 # Survey B" in page.data
+    response = client.post(f"/uploads/update-photometry/{token}", data={
+        "photometry_table": "5000 100 1e-12 0 1 # Survey B\n6000 200 2e-12 0 0 # Survey V\n",
+    })
+    assert response.status_code == 302
+    updated = read_upload_manifest(root, token)
+    assert updated["observation_type"] == "photometry"
+    assert updated["points"] == 1
+    assert updated["original_stored_name"] == f"source.{suffix}"
+    assert (root / token / f"source.{suffix}").read_bytes() == content
 
 
 def _make_app(tmp_path: Path):

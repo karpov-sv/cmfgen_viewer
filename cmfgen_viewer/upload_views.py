@@ -506,6 +506,8 @@ def uploads_update_photometry(token: str):
         "created_at": created_at,
         "updated_at": time.time(),
     }
+    if entry.get("original_stored_name"):
+        manifest["original_stored_name"] = entry["original_stored_name"]
     write_upload_manifest(upload_root, token, manifest)
     return _upload_view_redirect_with_vizier_state(token, message="Photometry data updated.")
 
@@ -601,6 +603,8 @@ def uploads_append_vizier_photometry(token: str):
         "created_at": created_at,
         "updated_at": time.time(),
     }
+    if entry.get("original_stored_name"):
+        manifest["original_stored_name"] = entry["original_stored_name"]
     write_upload_manifest(upload_root, token, manifest)
     if added_rows > 0:
         message = f"Appended {added_rows} VizieR photometry point(s)."

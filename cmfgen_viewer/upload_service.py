@@ -15,6 +15,7 @@ from .observed_spectrum import (
     normalize_photometry_table,
     parse_uploaded_spectrum,
     remove_upload_bundle,
+    uploaded_photometry_table,
     write_upload_manifest,
 )
 
@@ -45,6 +46,13 @@ def create_upload_bundle(
         source = token_dir / stored_name
         with source.open("wb") as destination:
             shutil.copyfileobj(stream, destination)
+        canonical = uploaded_photometry_table(source)
+        original_stored_name = ""
+        if canonical is not None:
+            original_stored_name = stored_name
+            stored_name = "source.phot"
+            source = token_dir / stored_name
+            source.write_text(canonical, encoding="utf-8")
         if photometry and empty_photometry:
             parsed = {
                 "detected_flux_mode": "absolute",
@@ -72,6 +80,8 @@ def create_upload_bundle(
             "points": len(parsed.get("wavelength", [])),
             "created_at": time.time(),
         }
+        if original_stored_name:
+            manifest["original_stored_name"] = original_stored_name
         write_upload_manifest(upload_root, token, manifest)
     except Exception:
         remove_upload_bundle(upload_root, token)
