@@ -138,7 +138,7 @@ def parse_obsflux(path: Path) -> dict[str, object]:
             spectrum_flux,
             x_label="Wavelength (Å)",
             y_label="Intensity (Janskys)",
-            max_points=1400,
+            preserve_native=True,
             default_x_scale="log",
         )
         if plotly:

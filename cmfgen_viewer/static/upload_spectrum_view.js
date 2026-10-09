@@ -253,6 +253,7 @@
     if (gridOverlayIndex >= 0 && gridOverlayIndex < baseData.length) {
       baseData[gridOverlayIndex] = cloned;
       transformTargets[gridOverlayIndex] = "observed";
+      trace = sampling.replaceTrace(gridOverlayIndex, trace);
       Plotly.restyle(target, {
         x: [trace.x],
         y: [trace.y],
@@ -268,6 +269,7 @@
     gridOverlayIndex = baseData.length;
     baseData.push(cloned);
     transformTargets.push("observed");
+    trace = sampling.appendTrace(trace);
     Plotly.addTraces(target, [trace]).then(function () {
       scheduleTransforms();
     });
@@ -285,6 +287,7 @@
     baseData.splice(deleteIndex, 1);
     transformTargets.splice(deleteIndex, 1);
     gridOverlayIndex = -1;
+    sampling.removeTrace(deleteIndex);
     Plotly.deleteTraces(target, [deleteIndex]).then(function () {
       scheduleTransforms();
     });
@@ -428,10 +431,7 @@
       transformedY.push(transformed[1]);
     }
 
-    Plotly.restyle(target, {
-      x: transformedX,
-      y: transformedY
-    });
+    sampling.setSeries(transformedX, transformedY);
   }
 
   function scheduleTransforms() {
@@ -444,7 +444,9 @@
     });
   }
 
-  Plotly.newPlot(target, plotData, plotLayout, plotConfig).then(function () {
+  var sampling = CmfgenSpectrumSampling.create(target, plotData, plotLayout);
+  Plotly.newPlot(target, sampling.initialData, plotLayout, plotConfig).then(function () {
+    sampling.bind();
     xScale.addEventListener("change", applyAxisScale);
     yScale.addEventListener("change", applyAxisScale);
     if (redshiftInput) {

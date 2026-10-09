@@ -98,8 +98,14 @@ def build_plotly_line_plot(
     color: str = "#0b7285",
     default_x_scale: str = "linear",
     default_y_scale: str = "linear",
+    preserve_native: bool = False,
 ) -> dict[str, object] | None:
-    sampled_x, sampled_y = downsample_xy(x_values, y_values, max_points=max_points)
+    if preserve_native:
+        sampled_x, sampled_y = list(x_values), list(y_values)
+        size = min(len(sampled_x), len(sampled_y))
+        sampled_x, sampled_y = sampled_x[:size], sampled_y[:size]
+    else:
+        sampled_x, sampled_y = downsample_xy(x_values, y_values, max_points=max_points)
     if len(sampled_x) < 2:
         return None
 
@@ -112,7 +118,7 @@ def build_plotly_line_plot(
                 "mode": "lines",
                 "x": sampled_x,
                 "y": sampled_y,
-                "line": {"color": color, "width": 1.6},
+                "line": {"color": color, "width": 1.6, "simplify": not preserve_native},
                 "hovertemplate": f"{x_label}=%{{x:.6g}}<br>{y_label}=%{{y:.6g}}<extra></extra>",
             }
         ],

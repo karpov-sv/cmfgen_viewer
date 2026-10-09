@@ -49,6 +49,7 @@ def parse_cmf_spectrum(path: Path) -> dict[str, object]:
         column_labels=["Wavelength (Angstrom)", "Flux"],
         prefer_log_x=True,
         prefer_log_y=True,
+        preserve_native=True,
     )
 
 
@@ -104,6 +105,7 @@ def parse_ewdata(path: Path) -> dict[str, object]:
             [point[1] for point in points],
             x_label=columns[0],
             y_label=columns[column_index],
+            preserve_native=columns[0] == "Wavelength (Angstrom)",
             default_x_scale=_scale(x),
             default_y_scale=_scale([point[1] for point in points]),
         )

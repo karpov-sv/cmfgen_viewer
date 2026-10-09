@@ -42,13 +42,13 @@ def test_spectrum_pages_in_chromium(tmp_path):
         )
         # CMFGEN frequencies are in 10^15 Hz: cover the optical lines in
         # descending frequency order without triggering short-wave floor trim.
-        values = " ".join(str(0.83 - i / 500) for i in range(201))
-        flux = " ".join(str(20 - i / 20) for i in range(201))
-        contents = f"Continuum Frequencies (201)\n{values}\nObserved intensity (Janskys)\n{flux}\n"
+        values = " ".join(str(0.83 - i / 25000) for i in range(10001))
+        flux = " ".join(str(20 - i / 1000) for i in range(10001))
+        contents = f"Continuum Frequencies (10001)\n{values}\nObserved intensity (Janskys)\n{flux}\n"
         for path in (obs / "obs_fin", obs / "obs_cont", model / "OBSFLUX"):
             path.write_text(contents, encoding="utf-8")
     upload_root = tmp_path / "uploads"
-    wave = np.linspace(4000, 7000, 201)
+    wave = np.linspace(4000, 7000, 6001)
     continuum = np.full(wave.size, 1e8)
     normalized = 1 - 0.4 * np.exp(-0.5 * ((wave - 5000) / 50) ** 2)
     model_flux = continuum * normalized

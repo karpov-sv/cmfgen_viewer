@@ -2,7 +2,8 @@
 
 Enable **Spectral lines** above a single-model, bulk-model, or uploaded-spectrum
 plot to show dotted reference positions. The overlay starts disabled. It is also
-available on parsed file plots whose horizontal axis is explicitly Wavelength (Å).
+available on parsed file plots whose horizontal axis is explicitly Wavelength (Å)
+or Wavelength (Angstrom).
 For files containing both wavelength and depth plots, use **Separate** to view the
 overlay on the wavelength plot.
 
@@ -37,6 +38,35 @@ and line segments crossing its edges, with a small margin. They retain the selec
 linear/logarithmic scales. Empty windows keep the previous vertical range; log
 scales use positive flux values. After a jump,
 the menu returns to its prompt so you can select the same destination again.
+
+## Spectrum detail
+
+Spectral viewers keep native samples in the browser. **Detail → Adaptive** reduces
+only the drawn curve: wide views
+retain the first/last points and flux minima/maxima in wavelength bins, so narrow
+line cores and emission peaks survive the overview. Bins follow the selected
+linear or logarithmic wavelength axis. Zooming or panning redraws from the native
+spectrum; windows with at most the display budget (normally 5,000 samples per
+curve, rising to 12,000 for wide plots) show every original sample. Gaps and
+uncertainties remain aligned with the selected samples. Photometry keeps all bands.
+
+Choose **Full resolution in displayed region** to draw every sample even in a
+dense window. The count beside the selector shows displayed points and the total
+native points of visible curves. Plotly's additional line simplification is disabled.
+**Whole spectrum**, double-click/reset, and line-menu availability use the native
+coverage, so zooming does not discard access to other wavelengths. The quick zoom
+presets calculate the vertical range from native transformed flux and error bars.
+
+Redshift, distance, reddening, and velocity broadening operate on the complete
+native arrays before display reduction. Broadening therefore has the surrounding
+data it needs even when inspecting a narrow window. Fitted-model overlays also
+retain their native samples. Display settings do not change fitting or exports.
+
+Keeping native arrays increases page size and browser memory use, especially in
+bulk comparisons. Adaptive mode bounds the drawn curve, but loading and physical
+transforms still process the full spectrum; full-resolution views of very dense
+regions may take longer to draw. The existing wavelength limits and any source
+file's intrinsic resolution still apply.
 
 ## Reference data
 

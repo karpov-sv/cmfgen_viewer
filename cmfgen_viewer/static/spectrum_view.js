@@ -391,10 +391,7 @@
       transformedY.push(transformed[1]);
     }
 
-    Plotly.restyle(target, {
-      x: transformedX,
-      y: transformedY
-    });
+    sampling.setSeries(transformedX, transformedY);
   }
 
   function scheduleTransforms() {
@@ -407,7 +404,9 @@
     });
   }
 
-  Plotly.newPlot(target, plotData, plotLayout, plotConfig).then(function () {
+  var sampling = CmfgenSpectrumSampling.create(target, plotData, plotLayout);
+  Plotly.newPlot(target, sampling.initialData, plotLayout, plotConfig).then(function () {
+    sampling.bind();
     xScale.addEventListener("change", applyAxisScale);
     yScale.addEventListener("change", applyAxisScale);
     if (redshiftInput) {

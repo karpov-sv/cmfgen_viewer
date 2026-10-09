@@ -76,13 +76,16 @@
         {% endif %}
 
         {% if parsed.plots %}
+          <script src="{{ url_for('static', filename='spectrum_sampling.js') }}"></script>
           <script src="{{ url_for('static', filename='spectral_lines.js') }}"></script>
           <h6>Plots</h6>
           {% set has_plot_mode_toggle = parsed.plots|length > 1 %}
-          {% set spectral_axes = namespace(all_wavelength=true) %}
+          {% set spectral_axes = namespace(all_wavelength=true, any_wavelength=false) %}
           {% for item in parsed.plots %}
-            {% if item.layout.xaxis.title.text != 'Wavelength (Å)' %}
+            {% if item.layout.xaxis.title.text not in ['Wavelength (Å)', 'Wavelength (Angstrom)'] %}
               {% set spectral_axes.all_wavelength = false %}
+            {% else %}
+              {% set spectral_axes.any_wavelength = true %}
             {% endif %}
           {% endfor %}
           {% set plot_mode_id = "plot-mode-" ~ parsed.parser|lower %}
@@ -299,7 +302,9 @@
                   yScale.value = defaultY;
                 }
 
-                Plotly.newPlot(target, traces, layout, config).then(function () {
+                var sampling = {% if spectral_axes.any_wavelength %}CmfgenSpectrumSampling.create(target, traces, layout){% else %}null{% endif %};
+                Plotly.newPlot(target, sampling ? sampling.initialData : traces, layout, config).then(function () {
+                  if (sampling) sampling.bind();
                   CmfgenSpectralLines.bind(target);
                   if (!xScale || !yScale) {
                     return;
@@ -341,7 +346,7 @@
                       <option value="log" {% if plot.default_y_scale == 'log' %}selected{% endif %}>Log</option>
                     </select>
                   </div>
-                  {% if plot.layout.xaxis.title.text == 'Wavelength (Å)' %}
+                  {% if plot.layout.xaxis.title.text in ['Wavelength (Å)', 'Wavelength (Angstrom)'] %}
                     {% include "_spectral_line_controls.html" %}
                   {% endif %}
                   <div class="plotly-resizable">
@@ -438,12 +443,13 @@
                         handle.addEventListener("pointercancel", finishDrag);
                       }
 
-                      Plotly.newPlot(
-                        target,
-                        {{ plot.data | tojson }},
-                        {{ plot.layout | tojson }},
+                      var data = {{ plot.data | tojson }};
+                      var layout = {{ plot.layout | tojson }};
+                      var sampling = {% if plot.layout.xaxis.title.text in ['Wavelength (Å)', 'Wavelength (Angstrom)'] %}CmfgenSpectrumSampling.create(target, data, layout){% else %}null{% endif %};
+                      Plotly.newPlot(target, sampling ? sampling.initialData : data, layout,
                         {{ plot.config | tojson }}
                       ).then(function () {
+                        if (sampling) sampling.bind();
                         CmfgenSpectralLines.bind(target);
                         var xScale = document.getElementById("{{ x_scale_id }}");
                         var yScale = document.getElementById("{{ y_scale_id }}");

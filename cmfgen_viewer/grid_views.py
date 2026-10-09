@@ -31,7 +31,6 @@ from .observed_spectrum import (
     list_upload_manifests,
     parse_uploaded_spectrum,
 )
-from .parsers.common import downsample_xy
 from .spectrum_io import discover_final_spectrum_files, load_obs_spectrum
 from .spectrum_options import (
     _normalize_fit_bounds,
@@ -634,7 +633,6 @@ def _build_tlusty_overlay_trace(
         clipped_x.append(x_value)
         clipped_y.append(y_value)
 
-    clipped_x, clipped_y = downsample_xy(clipped_x, clipped_y, max_points=5000)
     if len(clipped_x) < 2 or len(clipped_y) < 2:
         return None, f"No transformed {source_label} points overlap the observed wavelength range."
 
@@ -787,7 +785,6 @@ def _build_upload_grid_overlay_trace(
         clipped_x.append(x_value)
         clipped_y.append(y_value)
 
-    clipped_x, clipped_y = downsample_xy(clipped_x, clipped_y, max_points=5000)
     if len(clipped_x) < 2 or len(clipped_y) < 2:
         return None, "No transformed model points overlap the observed wavelength range."
 

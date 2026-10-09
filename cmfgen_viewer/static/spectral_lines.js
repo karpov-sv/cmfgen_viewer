@@ -94,7 +94,7 @@
     var frame = null;
 
     function spectrumCoverage() {
-      var data = target.data || [];
+      var data = target.__spectrumSampling ? target.__spectrumSampling.getSources() : target.data || [];
       if (coverageSnapshot.length === data.length && data.every(function (trace, index) {
         return coverageSnapshot[index].x === trace.x && coverageSnapshot[index].visible === trace.visible;
       })) return coverage;
@@ -150,7 +150,7 @@
         high = Math.max(high, value);
       }
 
-      (target.data || []).forEach(function (trace) {
+      (target.__spectrumSampling ? target.__spectrumSampling.getSources() : target.data || []).forEach(function (trace) {
         if (trace.visible === false || trace.visible === "legendonly" ||
             (trace.yaxis && trace.yaxis !== "y") || !trace.x || !trace.y) return;
         var drawLines = String(trace.mode || "lines").indexOf("lines") !== -1;

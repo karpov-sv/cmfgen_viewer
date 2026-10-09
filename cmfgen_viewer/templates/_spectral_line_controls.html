@@ -30,3 +30,12 @@
   </select>
   <span class="small text-muted">Line windows: ±150 Å. Vertical scale fits the displayed region.</span>
 </div>
+
+<div class="plot-controls">
+  <label for="{{ plot_id }}-sampling" class="plot-control-label">Detail</label>
+  <select id="{{ plot_id }}-sampling" class="form-select form-select-sm w-auto">
+    <option value="adaptive">Adaptive (zoom for native samples)</option>
+    <option value="native">Full resolution in displayed region</option>
+  </select>
+  <span id="{{ plot_id }}-sampling-status" class="small text-muted" aria-live="polite"></span>
+</div>

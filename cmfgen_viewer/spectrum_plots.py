@@ -8,7 +8,6 @@ import re
 from .model_metadata import _as_text
 from .parsers.common import downsample_xy, format_number
 from .spectrum_constants import (
-    MAX_SERIES_POINTS,
     OBSERVED_ERROR_BAR_CAP_WIDTH,
     OBSERVED_ERROR_BAR_COLOR,
     OBSERVED_ERROR_BAR_THICKNESS,
@@ -67,13 +66,13 @@ def _downsample_spectrum_with_flux_err(
     *,
     max_points: int,
 ) -> tuple[list[float], list[float], list[float | None] | None]:
-    """Downsample spectral values and their uncertainties at identical indices."""
+    """Select spectral values and aligned uncertainties; nonpositive limits keep all."""
     size = min(len(wavelength), len(flux))
     if size <= 0:
         return [], [], None
 
     errors = flux_err if isinstance(flux_err, list) and len(flux_err) >= size else None
-    if size <= max_points:
+    if max_points <= 0 or size <= max_points:
         indices = list(range(size))
     else:
         step = size / max_points
@@ -228,7 +227,7 @@ def build_observed_overlay_trace(
         wavelength,
         flux,
         flux_err,
-        max_points=MAX_SERIES_POINTS,
+        max_points=0,
     )
     if len(x) < 2:
         return None, "Uploaded spectrum has too few valid points for plotting."
@@ -408,7 +407,7 @@ def build_uploaded_spectrum_plot(
         wavelength,
         flux,
         flux_err,
-        max_points=MAX_SERIES_POINTS,
+        max_points=0,
     )
     if len(x) < 2:
         return None, "Uploaded spectrum has too few valid points for plotting."
@@ -481,13 +480,14 @@ def build_final_model_series(
     final: dict[str, object],
     *,
     mode: str,
-    max_points: int = MAX_SERIES_POINTS,
+    max_points: int = 0,
 ) -> tuple[list[float], list[float]] | None:
     """
     Build the model's final-spectrum-only series in the requested plotting mode.
 
     - `both`: absolute final flux converted to CGS per Angstrom.
     - `normalized`: final/continuum ratio.
+    Native samples are retained by default, so display transforms precede reduction.
     """
     normalized_mode = "both" if mode == "both" else "normalized"
     prepared = _build_model_series_for_fit(continuum, final, mode=normalized_mode)
@@ -500,7 +500,10 @@ def build_final_model_series(
     if len(x_values) < 2 or len(y_values) < 2:
         return None
 
-    x_ds, y_ds = downsample_xy(x_values, y_values, max_points=max_points)
+    x_ds, y_ds = (
+        downsample_xy(x_values, y_values, max_points=max_points)
+        if max_points > 0 else (x_values, y_values)
+    )
     if len(x_ds) < 2 or len(y_ds) < 2:
         return None
     return x_ds, y_ds
@@ -528,23 +531,14 @@ def build_both_plot(
     if len(cont_x_cgs) < 2 or len(fin_x_cgs) < 2:
         return None
 
-    cont_x_ds, cont_y_ds = downsample_xy(
-        cont_x_cgs, cont_y_cgs, max_points=MAX_SERIES_POINTS
-    )
-    fin_x_ds, fin_y_ds = downsample_xy(
-        fin_x_cgs, fin_y_cgs, max_points=MAX_SERIES_POINTS
-    )
-    if len(cont_x_ds) < 2 or len(fin_x_ds) < 2:
-        return None
-
     return {
         "data": [
             {
                 "type": "scatter",
                 "mode": "lines",
                 "name": f"Final ({final.get('name', 'obs_fin')})",
-                "x": fin_x_ds,
-                "y": fin_y_ds,
+                "x": fin_x_cgs,
+                "y": fin_y_cgs,
                 "line": {"color": "#1f77b4", "width": 1.6},
                 "hovertemplate": "Wavelength=%{x:.6g} Å<br>Flux=%{y:.6e} erg s^-1 cm^-2 Å^-1<extra></extra>",
                 "meta": {
@@ -557,8 +551,8 @@ def build_both_plot(
                 "type": "scatter",
                 "mode": "lines",
                 "name": "Continuum (obs_cont)",
-                "x": cont_x_ds,
-                "y": cont_y_ds,
+                "x": cont_x_cgs,
+                "y": cont_y_cgs,
                 "line": {"color": "#d62728", "width": 1.3},
                 "hovertemplate": "Wavelength=%{x:.6g} Å<br>Flux=%{y:.6e} erg s^-1 cm^-2 Å^-1<extra></extra>",
                 "meta": {
@@ -609,10 +603,7 @@ def build_normalized_plot(
         ratio_x.append(wavelength)
         ratio_y.append(value)
 
-    ratio_x_ds, ratio_y_ds = downsample_xy(
-        ratio_x, ratio_y, max_points=MAX_SERIES_POINTS
-    )
-    if len(ratio_x_ds) < 2:
+    if len(ratio_x) < 2:
         return None
 
     return {
@@ -621,8 +612,8 @@ def build_normalized_plot(
                 "type": "scatter",
                 "mode": "lines",
                 "name": f"{final.get('name', 'obs_fin')} / obs_cont",
-                "x": ratio_x_ds,
-                "y": ratio_y_ds,
+                "x": ratio_x,
+                "y": ratio_y,
                 "line": {"color": "#198754", "width": 1.5},
                 "hovertemplate": "Wavelength=%{x:.6g} Å<br>Normalized=%{y:.6g}<extra></extra>",
                 "meta": {

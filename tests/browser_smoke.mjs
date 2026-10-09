@@ -93,7 +93,7 @@ try {
         input.dispatchEvent(new Event('change'));})()`);
     }
     const baseline = await evaluate(`(()=>{const p=${plot}; return {
-      data: JSON.stringify(p.data), range: p._fullLayout.xaxis.range,
+      data: JSON.stringify(p.__spectrumSampling.getSources()), range: p._fullLayout.xaxis.range,
       shapes: p.layout.shapes || [], annotations: p.layout.annotations || [],
       type: p.layout.xaxis.type, yRange: p._fullLayout.yaxis.range, yAutorange: p._fullLayout.yaxis.autorange
     };})()`);
@@ -107,7 +107,7 @@ try {
     }
     await waitFor(`Array.from(document.getElementById(${id} + '-lines-zoom').options).some(o => o.textContent.startsWith('Hα'))`);
     const hAlphaPreset = await evaluate(`Array.from(document.getElementById(${id} + '-lines-zoom').options).find(o => o.textContent.startsWith('Hα')).value`);
-    const fullRange = await evaluate(`(()=>{const wavelengths=${plot}.data.filter(t => t.visible !== false && t.visible !== 'legendonly').flatMap(t => t.x);
+    const fullRange = await evaluate(`(()=>{const wavelengths=${plot}.__spectrumSampling.getSources().filter(t => t.visible !== false && t.visible !== 'legendonly').flatMap(t => t.x);
       return [Math.min(...wavelengths), Math.max(...wavelengths)];})()`);
     assert(await evaluate(`!document.getElementById(${id} + '-lines-show').checked`));
     await zoomTo('optical', [3800, 7500]);
@@ -126,7 +126,7 @@ try {
     await change('-lines-show', 'checked', true);
     await waitFor(`${lines}.length > 0`);
     assert.deepEqual(await evaluate(`${plot}._fullLayout.xaxis.range`), baseline.range);
-    assert.equal(await evaluate(`JSON.stringify(${plot}.data)`), baseline.data);
+    assert.equal(await evaluate(`JSON.stringify(${plot}.__spectrumSampling.getSources())`), baseline.data);
     await waitFor(`${lines}.some(s => Math.abs(s.x0 - ${6564.614 * (1 + z)}) < 1e-6)`);
     await waitFor(`${labels}.some(a => a.text === 'Hα')`);
     const hAlpha = await evaluate(`${labels}.find(a => a.text === 'Hα').x`);
@@ -162,24 +162,59 @@ try {
     await waitFor(`${lines}.length === 0 && ${labels}.length === 0`);
     assert.deepEqual(await evaluate(`${plot}.layout.shapes`), [fitShape]);
     assert.deepEqual(await evaluate(`${plot}.layout.annotations`), [note]);
-    assert.equal(await evaluate(`JSON.stringify(${plot}.data)`), baseline.data);
+    assert.equal(await evaluate(`JSON.stringify(${plot}.__spectrumSampling.getSources())`), baseline.data);
     await evaluate(`Plotly.relayout(${plot}, {shapes:${JSON.stringify(baseline.shapes)},
       annotations:${JSON.stringify(baseline.annotations)}, 'xaxis.type':${JSON.stringify(baseline.type)},
       'xaxis.range':${JSON.stringify(baseline.range)}, 'xaxis.autorange':true,
       'yaxis.range':${JSON.stringify(baseline.yRange)}, 'yaxis.autorange':${JSON.stringify(baseline.yAutorange)}}).then(() => null)`);
   }
 
+  async function checkSpectrumDetail(plotId) {
+    const plot = `document.getElementById(${JSON.stringify(plotId)})`;
+    const control = `document.getElementById(${JSON.stringify(plotId + '-sampling')})`;
+    assert(await evaluate(`${plot}.__spectrumSampling.getSources()[0].x.length > 5000`));
+    const count = await evaluate(`${plot}.__spectrumSampling.getSources()[0].x.length`);
+    const initialType = await evaluate(`${plot}._fullLayout.xaxis.type`);
+    await evaluate(`(()=>{const p=${plot}; return Plotly.relayout(p,
+      {'xaxis.type':'linear', 'xaxis.range':[4900,5100], 'xaxis.autorange':false}).then(() => null);})()`);
+    await waitFor(`${plot}.data[0].x.length < 1000`);
+    assert(await evaluate(`(()=>{const p=${plot}, source=p.__spectrumSampling.getSources()[0];
+      const expected=source.x.filter(x=>x>=4900 && x<=5100);
+      const actual=p.data[0].x.filter(x=>x>=4900 && x<=5100);
+      return JSON.stringify(expected)===JSON.stringify(actual) && p.data[0].line.simplify===false;
+    })()`));
+    // Panning restores a different native region, without touching the source.
+    await evaluate(`Plotly.relayout(${plot}, {'xaxis.range':[6400,6600]}).then(() => null)`);
+    await waitFor(`${plot}.data[0].x.some(x=>x>=6500) && !${plot}.data[0].x.some(x=>x>=4900 && x<=5100)`);
+    await evaluate(`Plotly.relayout(${plot}, {'xaxis.autorange':true}).then(() => null)`);
+    await waitFor(`${plot}.data[0].x[0] < 4100 && ${plot}.data[0].x.at(-1) > 6900`);
+    await evaluate(`(()=>{const c=${control}; c.value='native'; c.dispatchEvent(new Event('change'));})()`);
+    await waitFor(`${plot}.data[0].x.length === ${count}`);
+    await evaluate(`(()=>{const c=${control}; c.value='adaptive'; c.dispatchEvent(new Event('change'));})()`);
+    await waitFor(`${plot}.data[0].x.length <= 5000`);
+    assert.equal(await evaluate(`${plot}.__spectrumSampling.getSources()[0].x.length`), count);
+    await evaluate(`Plotly.relayout(${plot}, {'xaxis.type':${JSON.stringify(initialType)}, 'xaxis.autorange':true}).then(() => null)`);
+  }
+
   async function checkVerticalZoom(plotId) {
     const plot = `document.getElementById(${JSON.stringify(plotId)})`;
     const select = `document.getElementById(${JSON.stringify(plotId + '-lines-zoom')})`;
-    await evaluate(`window.verticalZoomOriginal = JSON.parse(JSON.stringify({data:${plot}.data, layout:${plot}.layout})); null`);
+    await evaluate(`window.verticalZoomOriginal = JSON.parse(JSON.stringify({data:${plot}.__spectrumSampling.getSources(), layout:${plot}.layout})); null`);
     const fixture = [
       {name:'Vertical zoom fixture', mode:'lines', x:[4000,6400,6500,6600,6750,7000], y:[1e6,2,2,4,4,1e6],
        error_y:{type:'data', visible:true, symmetric:false, array:[0,0,0.5,3,0,0], arrayminus:[0,0,1,0.5,0,0]}},
       {mode:'lines', visible:'legendonly', x:[6500,6600], y:[1e9,1e9]}
     ];
+    await evaluate(`(()=>{const controller=${plot}.__spectrumSampling;
+      controller.replaceTrace(0, ${JSON.stringify(fixture[0])});
+      controller.appendTrace(${JSON.stringify(fixture[1])}); })()`);
     await evaluate(`Plotly.react(${plot}, ${JSON.stringify(fixture)}, Object.assign({}, window.verticalZoomOriginal.layout,
       {xaxis:{type:'linear'}, yaxis:{type:'linear'}})).then(() => null)`);
+    async function replaceFixture(update) {
+      await evaluate(`(()=>{const controller=${plot}.__spectrumSampling;
+        controller.replaceTrace(0, Object.assign({}, controller.getSources()[0], ${JSON.stringify(update)}));
+        return controller.render().then(() => null);})()`);
+    }
     async function jump(expected) {
       await evaluate(`(()=>{const select=${select}; select.value=Array.from(select.options).find(o=>o.textContent.startsWith('Hα')).value;
         select.dispatchEvent(new Event('change'));})()`);
@@ -191,19 +226,22 @@ try {
     await evaluate(`Plotly.relayout(${plot}, {'yaxis.type':'log'}).then(() => null)`);
     const upper = Math.log10(7);
     await jump([-upper * 0.05, upper * 1.05]);
-    await evaluate(`Plotly.restyle(${plot}, {y:[[2,2,2,2,2,2]], 'error_y.visible':false}, [0]).then(() => null)`);
+    await replaceFixture({y:[2,2,2,2,2,2], error_y:{visible:false}});
     await jump([Math.log10(2) - 0.05, Math.log10(2) + 0.05]);
     await evaluate(`Plotly.relayout(${plot}, {'yaxis.type':'linear'}).then(() => null)`);
     await jump([1.9, 2.1]);
-    await evaluate(`Plotly.restyle(${plot}, {y:[[null,null,null,null,null,null]]}, [0]).then(() => null)`);
+    await replaceFixture({y:[null,null,null,null,null,null]});
     await jump([1.9, 2.1]);
     // A sparse line crosses both window edges without any sample inside.
-    await evaluate(`Plotly.restyle(${plot}, {x:[[6400,6800]], y:[[2,10]]}, [0]).then(() => null)`);
+    await replaceFixture({x:[6400,6800], y:[2,10]});
     await jump([1.99228, 8.59228]);
-    await evaluate(`Plotly.restyle(${plot}, {x:[[4000,6400,6500,6600,6750,7000]], y:[[-1,0,null,4,0,-1]]}, [0]).then(() => null)`);
+    await replaceFixture({x:[4000,6400,6500,6600,6750,7000], y:[-1,0,null,4,0,-1]});
     await evaluate(`Plotly.relayout(${plot}, {'yaxis.type':'log'}).then(() => null)`);
     await jump([Math.log10(4) - 0.05, Math.log10(4) + 0.05]);
-    await evaluate(`Plotly.react(${plot}, window.verticalZoomOriginal.data, window.verticalZoomOriginal.layout).then(() => null)`);
+    await evaluate(`(()=>{const controller=${plot}.__spectrumSampling;
+      controller.removeTrace(1); controller.replaceTrace(0, window.verticalZoomOriginal.data[0]);
+      return Plotly.react(${plot}, window.verticalZoomOriginal.data, window.verticalZoomOriginal.layout)
+        .then(() => controller.render()).then(() => null);})()`);
   }
 
   await open("/view/");
@@ -214,6 +252,7 @@ try {
     if (file === 'OBSFLUX') {
       await waitFor("!!document.getElementById('plotly-obsflux-combined').__spectralLinesBound");
       await checkSpectralLines('plotly-obsflux-combined');
+      await checkSpectrumDetail('plotly-obsflux-combined');
     }
   }
   const docHref = await evaluate('document.querySelector("[aria-labelledby=docs-dropdown] a").getAttribute("href")');
@@ -234,10 +273,11 @@ try {
 
   await open("/spectrum/model_a", "final-spectrum-plot");
   await checkSpectralLines('final-spectrum-plot');
+  await checkSpectrumDetail('final-spectrum-plot');
   await evaluate("document.getElementById('final-spectrum-plot-lines-show').click()");
-  await evaluate('window.originalX = document.getElementById("final-spectrum-plot").data[0].x[0]');
+  await evaluate('window.originalX = document.getElementById("final-spectrum-plot").__spectrumSampling.getSources()[0].x[0]');
   await evaluate('var input = document.getElementById("final-spectrum-plot-redshift"); input.value = "0.01"; input.dispatchEvent(new Event("input", {bubbles:true}))');
-  await waitFor('Math.abs(document.getElementById("final-spectrum-plot").data[0].x[0] / window.originalX - 1.01) < 1e-8');
+  await waitFor('Math.abs(document.getElementById("final-spectrum-plot").__spectrumSampling.getSources()[0].x[0] / window.originalX - 1.01) < 1e-8');
   await waitFor("document.getElementById('final-spectrum-plot').layout.shapes.some(s => Math.abs(s.x0 - 6564.614 * 1.01) < 1e-6)");
   await evaluate(`(()=>{const select=document.getElementById('final-spectrum-plot-lines-zoom');
     select.value=Array.from(select.options).find(o=>o.textContent.startsWith('Hα')).value;
@@ -252,15 +292,17 @@ try {
   await command("Input.dispatchMouseEvent", { type: "mouseReleased", x: handle.x, y: handle.y + 80, button: "left", clickCount: 1 });
   await waitFor(`document.getElementById("final-spectrum-plot").closest(".plotly-resizable").getBoundingClientRect().height > ${handle.height + 40}`);
   await evaluate('document.getElementById("final-spectrum-plot-reset-transform").click()');
-  await waitFor('Math.abs(document.getElementById("final-spectrum-plot").data[0].x[0] / window.originalX - 1) < 1e-8');
+  await waitFor('Math.abs(document.getElementById("final-spectrum-plot").__spectrumSampling.getSources()[0].x[0] / window.originalX - 1) < 1e-8');
   await waitFor("document.getElementById('final-spectrum-plot').layout.shapes.some(s => Math.abs(s.x0 - 6564.614) < 1e-6)");
 
   await open("/bulk/spectra/?selected_models=model_a&selected_models=model_b", "bulk-final-spectrum-plot");
   await checkSpectralLines('bulk-final-spectrum-plot');
+  await checkSpectrumDetail('bulk-final-spectrum-plot');
   await evaluate('document.getElementById("bulk-final-spectrum-plot-toggle-final").click()');
   await waitFor('document.getElementById("bulk-final-spectrum-plot").data.filter(t=>t.meta.plot_role==="final").every(t=>t.visible==="legendonly")');
   await open(`/uploads/view/${uploadToken}`, "upload-spectrum-plot");
   await checkSpectralLines('upload-spectrum-plot');
+  await checkSpectrumDetail('upload-spectrum-plot');
   await checkVerticalZoom('upload-spectrum-plot');
   await evaluate('var input = document.getElementById("upload-spectrum-plot-xscale"); input.value = "linear"; input.dispatchEvent(new Event("change"))');
   await waitFor('document.getElementById("upload-spectrum-plot").layout.xaxis.type === "linear"');

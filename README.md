@@ -321,6 +321,9 @@ searches before evaluating thousands of atmospheres.
   - quick wavelength zoom presets for each reference line (±150 Å), the optical
     range (3800–7500 Å), and the whole visible spectrum, with vertical scaling
     to the displayed wavelength region,
+  - native spectral samples retained in the browser; adaptive overview curves preserve
+    peaks/troughs and restore native detail on zoom or pan, with a full-resolution option,
+  - physical preview transforms and broadening applied before display reduction,
   - single-model `/spectrum/<path>` and bulk-spectrum `/bulk/spectra/<path>` views,
   - Plotly interactivity with log/linear toggles, redshift/velocity, distance scaling, reddening `E(B-V)`, and resizable plot container,
   - observed overlay support with flux-mode compatibility checks,

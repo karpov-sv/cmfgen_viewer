@@ -198,6 +198,7 @@ def parse_numeric_diagnostic(
     detect_header_labels: bool = False,
     prefer_log_x: bool = False,
     prefer_log_y: bool = False,
+    preserve_native: bool = False,
 ) -> dict[str, object]:
     lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
     scalars = _extract_scalars(lines)
@@ -265,6 +266,7 @@ def parse_numeric_diagnostic(
                 default_x_scale="log" if log_x else "linear",
                 default_y_scale="log" if log_y else "linear",
                 max_points=1200,
+                preserve_native=preserve_native,
             )
             if plotly:
                 plots.append({"title": f"{y_label} vs {x_label}", **plotly})
