@@ -125,6 +125,11 @@ def test_system_page_reports_effective_cmfgen_configuration(tmp_path: Path) -> N
     assert b"Runner thread default" in response.data
     assert b"env:OMP_NUM_THREADS" in response.data
 
+    app = create_app(basepath=str(base), cmfgen_runner_threads=None)
+    response = app.test_client().get("/system/")
+    assert response.status_code == 200
+    assert b"Inherited" in response.data
+
 
 def test_cache_maintenance_refreshes_stale_entries(tmp_path: Path) -> None:
     app = _make_app(tmp_path)

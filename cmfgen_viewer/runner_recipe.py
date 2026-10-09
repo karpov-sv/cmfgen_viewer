@@ -99,10 +99,11 @@ def _links(script: Path, atomic: Path, *, links_only=False) -> list[dict]:
 
 
 def build_run_plan(model: Path, *, stage: str, cmfgen_root: Path, atomic_root: Path,
-                   threads=1, timeout=None, memory_mib=4096, iterations=None, fresh_start=False) -> dict:
+                   threads=None, timeout=None, memory_mib=None, iterations=None, fresh_start=False,
+                   no_core_dumps=False) -> dict:
     if stage not in PROGRAMS:
         raise RunnerError("Supported stages: init, main, lte, hydro, flux")
-    if threads < 1 or memory_mib < 128:
+    if (threads is not None and threads < 1) or (memory_mib is not None and memory_mib < 128):
         raise RunnerError("Require positive threads and at least 128 MiB memory")
     if timeout is not None and (not math.isfinite(timeout) or timeout <= 0):
         raise RunnerError("--timeout must be a positive finite number of seconds")
@@ -327,7 +328,7 @@ def build_run_plan(model: Path, *, stage: str, cmfgen_root: Path, atomic_root: P
     return {"schema_version": 1, "profile": "ostar-v1", "stage": stage, "model": str(model), "cwd": str(cwd),
             "executable": str(exe), "executable_snapshot": snapshot(exe), "links": kept, "passes": passes,
             "inputs": [snapshot(path) for path in sorted(paths)], "threads": threads, "timeout": timeout,
-            "memory_mib": memory_mib, "errors": errors, "warnings": warnings,
+            "memory_mib": memory_mib, "no_core_dumps": no_core_dumps, "errors": errors, "warnings": warnings,
             "fresh_start": fresh_start,
             "restart": restart,
             "permitted_links": sorted(permitted_links),

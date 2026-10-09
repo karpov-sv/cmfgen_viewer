@@ -390,7 +390,7 @@ def main(argv: list[str] | None = None) -> None:
         atomic_root=str(cmfgen_settings["atomic_root"])
         if "atomic_root" in cmfgen_settings
         else None,
-        cmfgen_runner_threads=int(cmfgen_settings["threads"]),
+        cmfgen_runner_threads=cmfgen_settings["threads"],
         cmfgen_config_sources=cmfgen_sources,
     )
     app.run(host=args.host, port=args.port, debug=args.debug)

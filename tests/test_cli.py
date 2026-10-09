@@ -185,8 +185,9 @@ def test_main_invokes_create_app_and_run(monkeypatch: pytest.MonkeyPatch, tmp_pa
     assert captured["run"] == {"host": "0.0.0.0", "port": 7777, "debug": True}
 
 
+@pytest.mark.parametrize("threads", [None, 3])
 def test_main_uses_runner_rc_fallbacks_for_workflow_config(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, threads: int | None
 ) -> None:
     captured: dict[str, object] = {}
     user_dir = tmp_path / "home"
@@ -196,7 +197,7 @@ def test_main_uses_runner_rc_fallbacks_for_workflow_config(
     work_dir.mkdir()
     model_dir.mkdir()
     (user_dir / ".cmfgenrc").write_text(
-        "cmfgen_root = cmf\natomic_root = atomic\nnthreads = 3\n",
+        "cmfgen_root = cmf\natomic_root = atomic\n" + (f"nthreads = {threads}\n" if threads is not None else ""),
         encoding="utf-8",
     )
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: user_dir))
@@ -219,11 +220,11 @@ def test_main_uses_runner_rc_fallbacks_for_workflow_config(
     assert isinstance(create_kwargs, dict)
     assert create_kwargs["cmfgen_root"] == str(user_dir / "cmf")
     assert create_kwargs["atomic_root"] == str(user_dir / "atomic")
-    assert create_kwargs["cmfgen_runner_threads"] == 3
+    assert create_kwargs["cmfgen_runner_threads"] == threads
     assert create_kwargs["cmfgen_config_sources"] == {
         "cmfgen_root": str(user_dir / ".cmfgenrc"),
         "atomic_root": str(user_dir / ".cmfgenrc"),
-        "threads": str(user_dir / ".cmfgenrc"),
+        "threads": str(user_dir / ".cmfgenrc") if threads is not None else "default",
     }
 
 

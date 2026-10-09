@@ -52,6 +52,17 @@ def test_readable_preflight_shows_explicit_timeout(plan):
     assert "60s budget" in stream.getvalue()
 
 
+def test_readable_preflight_shows_inherited_resources(plan):
+    plan.update(threads=None, memory_mib=None)
+    stream = io.StringIO()
+    TerminalOutput(stream).plan(plan)
+    text = stream.getvalue()
+    assert "inherited thread settings" in text
+    assert "no runner memory limit (host limits inherited)" in text
+    assert "core-dump policy inherited" in text
+    assert "None" not in text
+
+
 def test_sequence_plan_and_result_are_presented_in_order(plan, result):
     sequence_plan = {
         "kind": "sequence",
@@ -367,21 +378,21 @@ def test_cli_omitted_action_defaults_to_run(monkeypatch, capsys, plan, result):
     assert "[RUN] main: starting" in captured.err
 
 
-def test_cli_timeout_is_opt_in(monkeypatch, capsys, plan):
+def test_cli_resource_limits_are_opt_in(monkeypatch, capsys, plan):
     seen = []
     monkeypatch.setattr(runner, "resolve_runner_config", lambda **kwargs: ({}, {}))
 
     def build(*args, **kwargs):
-        seen.append(kwargs["timeout"])
+        seen.append((kwargs["timeout"], kwargs["memory_mib"], kwargs["no_core_dumps"]))
         return plan
 
     monkeypatch.setattr(runner, "build_run_plan", build)
 
     assert runner.main(["/tmp/test-model", "--plan"]) == 0
-    assert runner.main(["/tmp/test-model", "--plan", "--timeout", "3600"]) == 0
+    assert runner.main(["/tmp/test-model", "--plan", "--timeout", "3600", "--memory-mib", "16384", "--no-core-dumps"]) == 0
     capsys.readouterr()
 
-    assert seen == [None, 3600.0]
+    assert seen == [(None, None, False), (3600.0, 16384, True)]
 
 
 def test_cli_repeated_stage_builds_ordered_sequence(monkeypatch, capsys, plan):

@@ -136,12 +136,14 @@ def test_promotion_cli_bypasses_cmfgen_configuration(
     assert "no native executable" in captured.out
 
 
+@pytest.mark.parametrize("options", [["--timeout", "60"], ["--memory-mib", "512"], ["--no-core-dumps"]])
 def test_promotion_rejects_execution_only_options(
     promotable_model: Path,
     capsys: pytest.CaptureFixture[str],
+    options: list[str],
 ) -> None:
     assert runner.main(
-        [str(promotable_model), "--plan", "--stage", "promote", "--timeout", "60"]
+        [str(promotable_model), "--plan", "--stage", "promote", *options]
     ) == 2
 
     assert "do not apply to promotion" in capsys.readouterr().err

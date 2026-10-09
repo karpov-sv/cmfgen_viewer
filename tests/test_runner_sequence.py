@@ -130,6 +130,32 @@ def test_sequence_rebuilds_each_preflight_after_predecessor_success(
     assert Path(result["journal"]).joinpath("stage-03-promote-plan.json").is_file()
 
 
+@pytest.mark.parametrize("resource_options", [{}, {"memory_mib": 2048, "no_core_dumps": True}])
+def test_sequence_preserves_opt_in_resource_settings_after_serialization(tmp_path, monkeypatch, resource_options):
+    def build(model, *, stage, **options):
+        return {**_ready_stage(stage), "model": str(model), **options}
+
+    monkeypatch.setattr(runner, "build_run_plan", build)
+    sequence = runner.build_sequence_plan(
+        tmp_path,
+        ["init", "main"],
+        native_config={"threads": None},
+        configuration_sources={},
+        timeout=None,
+        iterations=None,
+        fresh_start=False,
+        cleanup_files=None,
+        **resource_options,
+    )
+    restored = json.loads(json.dumps(sequence))
+    later = runner._sequence_stage_plan(restored, "main", timeout=None)
+    for plan in (restored["initial_plan"], later):
+        assert plan["threads"] is None
+        assert plan["timeout"] is None
+        assert plan["memory_mib"] == resource_options.get("memory_mib")
+        assert plan["no_core_dumps"] == resource_options.get("no_core_dumps", False)
+
+
 def test_real_filesystem_sequence_runs_cleanup_then_promotion(tmp_path: Path) -> None:
     model = tmp_path / "model"
     lte = model / "lte"

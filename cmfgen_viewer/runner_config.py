@@ -53,7 +53,7 @@ def resolve_runner_config(
     Relative rc paths are relative to their config's directory. Environment
     and CLI paths are relative to the invoking working directory.
     """
-    values = {"threads": 1}
+    values = {"threads": None}
     sources = {"threads": "default"}
     paths = dict.fromkeys((Path.home() / ".cmfgenrc", Path.cwd() / ".cmfgenrc"))
     for path in paths:
@@ -79,6 +79,8 @@ def resolve_runner_config(
             option = "--" + name.replace("_", "-")
             raise RunnerError(f"Missing {name}: supply {option}, {ENVIRONMENT[name]}, or {name} in ~/.cmfgenrc or ./.cmfgenrc")
         values[name] = Path(values[name]).expanduser().resolve()
+    if values["threads"] is None:
+        return values, sources
     try:
         values["threads"] = int(values["threads"])
         if values["threads"] < 1:

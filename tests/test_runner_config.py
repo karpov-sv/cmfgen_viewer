@@ -28,7 +28,7 @@ def test_defaults_and_missing_roots(config_dirs):
     with pytest.raises(RunnerError, match="Missing atomic_root"):
         resolve_runner_config(cmfgen_root=Path("cmf"))
     values, sources = resolve_runner_config(cmfgen_root=Path("cmf"), atomic_root=Path("atomic"))
-    assert values == {"cmfgen_root": work_dir / "cmf", "atomic_root": work_dir / "atomic", "threads": 1}
+    assert values == {"cmfgen_root": work_dir / "cmf", "atomic_root": work_dir / "atomic", "threads": None}
     assert sources == {"cmfgen_root": "cli", "atomic_root": "cli", "threads": "default"}
     assert not (work_dir / ".cmfgenrc").exists()
 

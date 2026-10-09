@@ -117,7 +117,7 @@ def system_status():
         ["CMFGEN root source", str(cmfgen_sources.get("cmfgen_root") or "None")],
         ["Atomic-data root", str(config.get("atomic_root") or "Not configured")],
         ["Atomic-data root source", str(cmfgen_sources.get("atomic_root") or "None")],
-        ["Runner thread default", str(config.get("cmfgen_runner_threads", 1))],
+        ["Runner thread default", str(config.get("cmfgen_runner_threads") or "Inherited")],
         ["Runner thread source", str(cmfgen_sources.get("threads") or "default")],
         ["Summary cache database", summary_cache_db],
         ["Summary cache size", _format_size(cache_size)],

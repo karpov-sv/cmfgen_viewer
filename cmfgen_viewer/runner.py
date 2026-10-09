@@ -212,10 +212,11 @@ def _build_requested_stage_plan(
     native_config: dict[str, object],
     configuration_sources: dict[str, str],
     timeout: float | None,
-    memory_mib: int,
+    memory_mib: int | None = None,
     iterations: int | None,
     fresh_start: bool,
     cleanup_files: list[str] | None,
+    no_core_dumps: bool = False,
 ) -> dict[str, object]:
     """Build one stage, applying sequence-wide options only where relevant."""
     if stage == "promote":
@@ -231,6 +232,7 @@ def _build_requested_stage_plan(
             **native_config,
             timeout=timeout,
             memory_mib=memory_mib,
+            no_core_dumps=no_core_dumps,
             iterations=iterations if stage == "main" else None,
             fresh_start=fresh_start if stage in {"main", "init"} else False,
         )
@@ -246,10 +248,11 @@ def build_sequence_plan(
     native_config: dict[str, object],
     configuration_sources: dict[str, str],
     timeout: float | None,
-    memory_mib: int,
+    memory_mib: int | None = None,
     iterations: int | None,
     fresh_start: bool,
     cleanup_files: list[str] | None,
+    no_core_dumps: bool = False,
 ) -> dict[str, object]:
     """Build the initial preflight and a serializable just-in-time stage recipe."""
     if len(stages) < 2:
@@ -268,6 +271,7 @@ def build_sequence_plan(
         configuration_sources=configuration_sources,
         timeout=timeout,
         memory_mib=memory_mib,
+        no_core_dumps=no_core_dumps,
         iterations=iterations,
         fresh_start=stages[0] == fresh_start_stage,
         cleanup_files=cleanup_files,
@@ -290,6 +294,7 @@ def build_sequence_plan(
             "native_config": serialized_config,
             "timeout": timeout,
             "memory_mib": memory_mib,
+            "no_core_dumps": no_core_dumps,
             "iterations": iterations,
             "fresh_start": fresh_start,
             "fresh_start_stage": fresh_start_stage,
@@ -328,7 +333,8 @@ def _sequence_stage_plan(
         native_config=native_config,
         configuration_sources=dict(sequence.get("configuration_sources", {})),
         timeout=timeout,
-        memory_mib=int(options["memory_mib"]),
+        memory_mib=int(options["memory_mib"]) if options.get("memory_mib") is not None else None,
+        no_core_dumps=options.get("no_core_dumps", False),
         iterations=options.get("iterations"),
         fresh_start=stage == options.get("fresh_start_stage"),
         cleanup_files=options.get("cleanup_files"),
@@ -418,8 +424,14 @@ def run_plan(plan: dict, emit=None) -> dict:
                     destination.unlink()
                 destination.symlink_to(link["target"])
             env = os.environ.copy()
-            for key in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
-                env[key] = str(plan["threads"])
+            if plan.get("threads") is not None:
+                for key in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
+                    env[key] = str(plan["threads"])
+            child_command = [sys.executable, str(Path(__file__).with_name("runner_child.py")), plan["executable"]]
+            if plan.get("memory_mib") is not None:
+                child_command.extend(["--memory-mib", str(plan["memory_mib"])])
+            if plan.get("no_core_dumps"):
+                child_command.append("--no-core-dumps")
             timeout = plan.get("timeout")
             deadline = time.monotonic() + timeout if timeout is not None else None
             if stage == "flux":
@@ -478,7 +490,7 @@ def run_plan(plan: dict, emit=None) -> dict:
                     input_handle = subprocess.DEVNULL
                 try:
                     with (pass_dir / "process.log").open("wb") as output:
-                        process = subprocess.Popen([sys.executable, str(Path(__file__).with_name("runner_child.py")), plan["executable"], str(plan["memory_mib"])],
+                        process = subprocess.Popen(child_command,
                                                    cwd=cwd, env=env, stdin=input_handle, stdout=output, stderr=subprocess.STDOUT,
                                                    start_new_session=True, pass_fds=(lock_fd,))
                         record["pid"] = process.pid
@@ -970,7 +982,7 @@ def main(argv=None):
     )
     parser.add_argument("--cmfgen-root", type=Path, help="Installation root (default: CMFDIST or .cmfgenrc)")
     parser.add_argument("--atomic-root", type=Path, help="Atomic data root (default: ATOMIC or .cmfgenrc)")
-    parser.add_argument("--threads", "--nthreads", type=int, help="Thread count (default: OMP_NUM_THREADS, .cmfgenrc nthreads, or 1)")
+    parser.add_argument("--threads", "--nthreads", type=int, help="Thread count override (default: OMP_NUM_THREADS, .cmfgenrc nthreads, or inherited library settings)")
     parser.add_argument(
         "--timeout",
         type=float,
@@ -979,8 +991,9 @@ def main(argv=None):
     parser.add_argument(
         "--memory-mib",
         type=int,
-        help="Per-child virtual-memory limit in MiB (default: 4096)",
+        help="Per-child virtual-memory limit in MiB (default: inherit host limits)",
     )
+    parser.add_argument("--no-core-dumps", action="store_true", help="Disable core dumps in native children (default: inherit host policy)")
     parser.add_argument("--iterations", type=int)
     parser.add_argument("--fresh-start", action="store_true", help="Archive POINT1/POINT2/SCRTEMP and force *_IN startup (default: continue when checkpoints are usable)")
     parser.add_argument(
@@ -1016,6 +1029,7 @@ def main(argv=None):
                     ("--threads", args.threads is not None),
                     ("--timeout", args.timeout is not None),
                     ("--memory-mib", args.memory_mib is not None),
+                    ("--no-core-dumps", args.no_core_dumps),
                     ("--iterations", args.iterations is not None),
                     ("--fresh-start", args.fresh_start),
                 )
@@ -1050,7 +1064,6 @@ def main(argv=None):
             raise RunnerError("--fresh-start applies only to main/init")
         if args.cleanup_file and "cleanup" not in stages:
             raise RunnerError("--cleanup-file applies only to the cleanup stage")
-        memory_mib = args.memory_mib if args.memory_mib is not None else 4096
         if len(stages) == 1:
             plan = _build_requested_stage_plan(
                 args.model,
@@ -1058,7 +1071,8 @@ def main(argv=None):
                 native_config=config,
                 configuration_sources=sources,
                 timeout=args.timeout,
-                memory_mib=memory_mib,
+                memory_mib=args.memory_mib,
+                no_core_dumps=args.no_core_dumps,
                 iterations=args.iterations,
                 fresh_start=args.fresh_start,
                 cleanup_files=args.cleanup_file,
@@ -1070,7 +1084,8 @@ def main(argv=None):
                 native_config=config,
                 configuration_sources=sources,
                 timeout=args.timeout,
-                memory_mib=memory_mib,
+                memory_mib=args.memory_mib,
+                no_core_dumps=args.no_core_dumps,
                 iterations=args.iterations,
                 fresh_start=args.fresh_start,
                 cleanup_files=args.cleanup_file,

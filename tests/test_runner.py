@@ -1,11 +1,12 @@
 import hashlib
 import json
+import resource
 from pathlib import Path
 import sys
 
 import pytest
 
-from cmfgen_viewer import runner_recipe
+from cmfgen_viewer import runner, runner_recipe
 from cmfgen_viewer.runner import run_plan, _progress, _validate
 from cmfgen_viewer.runner_recipe import RunnerError, build_run_plan, override_controls, snapshot
 
@@ -52,6 +53,9 @@ def test_success_restores_controls_and_archives_old_logs(workspace):
     plan = make_plan()
     assert plan["ready"], plan["errors"]
     assert plan["timeout"] is None
+    assert plan["memory_mib"] is None
+    assert plan["threads"] is None
+    assert plan["no_core_dumps"] is False
     assert not (model / ".cmfgen-runs").exists()
     events = []
     original_mtime = (model / "IN_ITS").stat().st_mtime_ns
@@ -152,8 +156,49 @@ def test_unsafe_outputs_do_not_overwrite_symlink_target(workspace, tmp_path):
 
 def test_resource_limit_is_applied_in_child(workspace):
     _, make_plan = workspace
-    code = "import resource; assert resource.getrlimit(resource.RLIMIT_AS)[0] == 256*1024**2\n" + SUCCESS
-    assert run_plan(make_plan(code, memory_mib=256))["status"] == "initialized"
+    code = """
+import os
+import resource
+assert resource.getrlimit(resource.RLIMIT_AS) == (256*1024**2, 256*1024**2)
+assert resource.getrlimit(resource.RLIMIT_CORE) == (0, 0)
+for name in ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS'):
+    assert os.environ[name] == '2'
+""" + SUCCESS
+    assert run_plan(make_plan(code, memory_mib=256, threads=2, no_core_dumps=True))["status"] == "initialized"
+
+
+def test_default_children_preserve_inherited_limits_and_thread_settings(workspace, monkeypatch):
+    _, make_plan = workspace
+    monkeypatch.delenv("OMP_NUM_THREADS", raising=False)
+    monkeypatch.setenv("OPENBLAS_NUM_THREADS", "3")
+    monkeypatch.setenv("MKL_NUM_THREADS", "5")
+    limits = {}
+    for name, requested in (("RLIMIT_AS", 512*1024**2), ("RLIMIT_CORE", 128*1024**2)):
+        _, hard = resource.getrlimit(getattr(resource, name))
+        limits[name] = (requested if hard == resource.RLIM_INFINITY else min(requested, hard), hard)
+    # Set inherited limits in an intermediate process, without altering pytest's limits.
+    bootstrap = "import os, resource, sys\n"
+    for name, limit in limits.items():
+        bootstrap += f"resource.setrlimit(resource.{name}, {limit!r})\n"
+    bootstrap += "os.execv(sys.argv[1], sys.argv[1:])\n"
+    original_popen = runner.subprocess.Popen
+
+    def launch(command, **kwargs):
+        return original_popen([sys.executable, "-c", bootstrap, *command], **kwargs)
+
+    monkeypatch.setattr(runner.subprocess, "Popen", launch)
+    code = "import os, resource\n"
+    for name, limit in limits.items():
+        code += f"assert resource.getrlimit(resource.{name}) == {limit!r}\n"
+    code += """
+assert 'OMP_NUM_THREADS' not in os.environ
+assert os.environ['OPENBLAS_NUM_THREADS'] == '3'
+assert os.environ['MKL_NUM_THREADS'] == '5'
+soft, hard = resource.getrlimit(resource.RLIMIT_STACK)
+assert soft == hard
+""" + SUCCESS
+    result = run_plan(make_plan(code))
+    assert result["status"] == "initialized", result
 
 
 def test_override_is_lossless_and_requires_unique_keys():

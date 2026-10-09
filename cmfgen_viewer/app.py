@@ -23,7 +23,7 @@ def create_app(
     auth_realm: str = "CMFGEN Viewer",
     cmfgen_root: str | None = None,
     atomic_root: str | None = None,
-    cmfgen_runner_threads: int = 1,
+    cmfgen_runner_threads: int | None = None,
     cmfgen_config_sources: dict[str, str] | None = None,
 ) -> Flask:
     """Create Flask app for browsing CMFGEN model outputs."""
@@ -63,7 +63,7 @@ def create_app(
         "auth_realm": auth_realm_text,
         "cmfgen_root": cmfgen_root,
         "atomic_root": atomic_root,
-        "cmfgen_runner_threads": max(1, int(cmfgen_runner_threads)),
+        "cmfgen_runner_threads": max(1, int(cmfgen_runner_threads)) if cmfgen_runner_threads is not None else None,
         "cmfgen_config_sources": dict(cmfgen_config_sources or {}),
     }
     app.secret_key = secret_key or secrets.token_hex(24)

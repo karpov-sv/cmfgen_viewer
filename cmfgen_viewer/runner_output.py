@@ -198,7 +198,12 @@ class TerminalOutput:
         self.line("INFO", f"CMFGEN {plan['stage']} — {plan['model']}")
         timeout = plan.get("timeout")
         time_limit = f"{timeout:g}s budget" if timeout is not None else "no time limit"
-        self.line("INFO", f"{plan['threads']} thread(s) | {time_limit} | {plan['memory_mib']} MiB address-space limit")
+        threads = plan.get("threads")
+        thread_count = f"{threads} thread(s)" if threads is not None else "inherited thread settings"
+        memory_mib = plan.get("memory_mib")
+        memory_limit = f"{memory_mib} MiB address-space limit" if memory_mib is not None else "no runner memory limit (host limits inherited)"
+        core_dumps = "core dumps disabled" if plan.get("no_core_dumps") else "core-dump policy inherited"
+        self.line("INFO", f"{thread_count} | {time_limit} | {memory_limit} | {core_dumps}")
         self.line("INFO", f"Executable: {plan['executable']}")
         if plan.get("restart"):
             self.line("INFO", plan["restart"]["message"])
