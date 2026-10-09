@@ -30,7 +30,7 @@ REVIEWED_SCRIPTS = {
     "obs/bat_ins.sh": {"95c167e47d7e3419b045832f0743237e4aae8bdf8121f3bfefc4dfa60fafb40f"},
     "lte/ltebat.sh": {"0591cd72fd414cc1835547e20c283f07287c41ed7a75bdef9e545cd63a4c9fad"},
 }
-PROGRAMS = {"main": "cmfgen_dev.exe", "init": "cmfgen_dev.exe", "lte": "main_lte.exe",
+PROGRAMS = {"main": "cmfgen_dev.exe", "test": "cmfgen_dev.exe", "lte": "main_lte.exe",
             "hydro": "wind_hyd.exe", "flux": "cmf_flux.exe"}
 # Observer passes use different grids/profiles. The legacy script discards
 # these scratch caches between passes; archive them instead, including before
@@ -102,21 +102,21 @@ def build_run_plan(model: Path, *, stage: str, cmfgen_root: Path, atomic_root: P
                    threads=None, timeout=None, memory_mib=None, iterations=None, fresh_start=False,
                    no_core_dumps=False) -> dict:
     if stage not in PROGRAMS:
-        raise RunnerError("Supported stages: init, main, lte, hydro, flux")
+        raise RunnerError("Supported stages: test, main, lte, hydro, flux")
     if (threads is not None and threads < 1) or (memory_mib is not None and memory_mib < 128):
         raise RunnerError("Require positive threads and at least 128 MiB memory")
     if timeout is not None and (not math.isfinite(timeout) or timeout <= 0):
         raise RunnerError("--timeout must be a positive finite number of seconds")
     if iterations is not None and (iterations < 1 or stage != "main"):
         raise RunnerError("--iterations is a positive main-stage override only")
-    if fresh_start and stage not in {"main", "init"}:
-        raise RunnerError("--fresh-start applies only to main/init")
+    if fresh_start and stage not in {"main", "test"}:
+        raise RunnerError("--fresh-start applies only to main/test")
     model, cmfgen_root, atomic_root = (p.expanduser().resolve() for p in (model, cmfgen_root, atomic_root))
     if not model.is_dir() or not (model / "VADAT").is_file() or not (model / "MODEL_SPEC").is_file():
         raise RunnerError("Not a model workspace")
     cwd = model / "lte" if stage in {"lte", "hydro"} else model / "obs" if stage == "flux" else model
     errors, warnings = [], []
-    restart = inspect_restart(model, fresh_start=fresh_start) if stage in {"main", "init"} else None
+    restart = inspect_restart(model, fresh_start=fresh_start) if stage in {"main", "test"} else None
     continuing = restart is not None and restart["mode"] == "continuation"
     if restart:
         errors.extend(restart["errors"])
@@ -149,7 +149,7 @@ def build_run_plan(model: Path, *, stage: str, cmfgen_root: Path, atomic_root: P
             errors.append("Hydro requires exactly one boolean [OLD_MOD] in HYDRO_PARAMS")
         else:
             old_model = rows[0]["value"].upper() == "T"
-    required = (["VADAT", "MODEL_SPEC", "IN_ITS"] + ([] if continuing else ["GAMMAS_IN", "He2_IN"])) if stage in {"main", "init"} else (
+    required = (["VADAT", "MODEL_SPEC", "IN_ITS"] + ([] if continuing else ["GAMMAS_IN", "He2_IN"])) if stage in {"main", "test"} else (
         ["VADAT", "MODEL_SPEC", "GRID_PARAMS"] if stage == "lte" else
         ["HYDRO_PARAMS", "ROSSELAND_LTE_TAB", "MODEL_SPEC"] + (["RVTJ"] if old_model else []) if stage == "hydro" else
         ["CMF_FLUX_PARAM_INIT", "IN_FILE", "../RVTJ", "../MODEL", "../MODEL_SPEC"])
@@ -162,7 +162,7 @@ def build_run_plan(model: Path, *, stage: str, cmfgen_root: Path, atomic_root: P
             validate_rvtj_core(model / "RVTJ", model / "MODEL_SPEC")
         except (OSError, ValueError, UnicodeError) as exc:
             errors.append(f"Invalid flux input RVTJ: {exc}. Regenerate a finite atmosphere before spectral synthesis.")
-    if stage in {"main", "init"}:
+    if stage in {"main", "test"}:
         for issue in inspect_model_preflight(model)["issues"]:
             if issue["code"] == "script-not-executable":
                 continue  # The runner reads scripts as recipes, never runs them.
@@ -248,7 +248,7 @@ def build_run_plan(model: Path, *, stage: str, cmfgen_root: Path, atomic_root: P
         if destination.exists() and not destination.is_symlink():
             errors.append(f"Refusing to replace non-symlink atomic destination: {destination}")
         kept.append(link)
-    if stage in {"main", "init"} and not continuing:
+    if stage in {"main", "test"} and not continuing:
         kept.append({"name": "T_IN", "target": str(model / "He2_IN"), "source": "recipe"})
     permitted_links = seen | {"T_IN"} | {Path(name).name for name in required}
     if stage == "hydro" and cwd.is_dir():
@@ -295,7 +295,7 @@ def build_run_plan(model: Path, *, stage: str, cmfgen_root: Path, atomic_root: P
             "output_depth_points": hydro_nd, "maximum_optical_depth": "native default", "text": stdin,
         }}]
     else:
-        passes = [{"id": stage, "overrides": {"NUM_ITS": "0" if stage == "init" else str(iterations)} if stage == "init" or iterations is not None else {}}]
+        passes = [{"id": stage, "overrides": {"NUM_ITS": "0" if stage == "test" else str(iterations)} if stage == "test" or iterations is not None else {}}]
     for step in passes:
         filename = "CMF_FLUX_PARAM_INIT" if stage == "flux" else "IN_ITS"
         if step["overrides"] and (cwd / filename).is_file():
@@ -311,7 +311,7 @@ def build_run_plan(model: Path, *, stage: str, cmfgen_root: Path, atomic_root: P
     if stage != "hydro":
         paths.add(model / "batch_ins.sh")
     paths.update(cwd.glob("*_IN"))
-    if stage in {"main", "init"}:
+    if stage in {"main", "test"}:
         # Snapshot absent files too: a newly appeared checkpoint changes the
         # startup mode and must invalidate a previously prepared plan.
         paths.update(model / name for name in RESTART_FILES)

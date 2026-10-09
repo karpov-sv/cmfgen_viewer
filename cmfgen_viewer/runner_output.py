@@ -8,7 +8,7 @@ from tqdm import tqdm
 
 LABELS = {
     "succeeded": ("OK", "completed"),
-    "initialized": ("OK", "initialization completed"),
+    "tested": ("OK", "startup test passed"),
     "preflight_failed": ("ERROR", "preflight failed"),
     "failed": ("ERROR", "executable failed"),
     "invalid_output": ("ERROR", "output validation failed"),
@@ -128,6 +128,42 @@ class TerminalOutput:
         elif skipped:
             other.extend(skipped)
         self.details("WARN", other)
+
+    def status(self, report):
+        self.line("INFO", f"CMFGEN model — {report['model']}")
+        self.line("INFO", "Read-only status; select --stage main to run or --stage test for a zero-iteration startup check")
+        for label, key in (("VADAT", "parameters"), ("MODEL_SPEC", "dimensions")):
+            values = report[key]
+            self.line("INFO", f"{label}: " + (", ".join(f"{name}={value}" for name, value in values.items()) or "unavailable"))
+        state = report["state"]
+        self.line("INFO", "Run evidence: " + (", ".join(state["evidence_files"]) if state["evidence_files"] else "runner journal" if state["has_run"] else "none recorded"))
+        self.line("INFO", f"Model activity: {state['activity']['state']}")
+        if state["activity"].get("reason"):
+            self.line("INFO", state["activity"]["reason"])
+        self.line("INFO", f"Saved checkpoint iterations: {state['saved_iterations'] if state['saved_iterations'] is not None else 'unavailable'}")
+        self.line("INFO", f"Latest logged iteration: {state['last_logged_iteration'] if state['last_logged_iteration'] is not None else 'unavailable'}")
+        self.line("INFO", f"Configured iterations for next main run: {state['configured_iterations'] if state['configured_iterations'] is not None else 'unavailable'}")
+        self.line("INFO", f"Checkpoint: {state['restart']['message']}")
+        latest = state.get("latest_run")
+        if latest:
+            label, message = LABELS.get(latest["status"], ("INFO", latest["status"]))
+            if latest["status"] == "running" and state["activity"]["state"] != "active":
+                message = "unfinished report; current execution unconfirmed"
+            self.line(label, f"Latest recorded runner run: {latest['stage']} — {message}")
+            self.line("INFO", f"Run report: {latest['journal']}/result.json")
+        main_result = state["main_result"]
+        self.line("INFO", f"Main solution: {main_result['status_label']} — {main_result['summary']}")
+        if self.verbose:
+            for detail in main_result.get("details", []):
+                self.line("INFO", detail["message"])
+        self.warnings(report.get("warnings", []))
+        self.line("INFO", "Main-stage preflight:")
+        preflight = report["preflight"]
+        if preflight.get("executable"):
+            self.plan(preflight)
+        else:
+            self.details("ERROR", preflight.get("errors", []))
+            self.line("ERROR", "Preflight failed — nothing launched")
 
     def plan(self, plan):
         if plan.get("kind") == "sequence":
@@ -282,7 +318,7 @@ class TerminalOutput:
         warnings = [f"{', '.join(dict.fromkeys(native_warnings[w]))}: {w}" for w in ordered]
         warnings.extend(preflight_warnings)
         warnings = list(dict.fromkeys(warnings))
-        if warnings and status in {"succeeded", "initialized"}:
+        if warnings and status in {"succeeded", "tested"}:
             label = "WARN"
             message += " with warnings"
         duration = ""
@@ -329,7 +365,7 @@ class TerminalOutput:
                     for line in selected:
                         print("    " + line.replace("\033", r"\x1b").replace("\r", r"\r"), file=self.stream)
         self.warnings(warnings)
-        if status in {"succeeded", "initialized"}:
+        if status in {"succeeded", "tested"}:
             if result.get("stage") in {"promote", "cleanup"}:
                 self.line("INFO", "Filesystem checks passed; scientific acceptance is not applicable.")
             else:

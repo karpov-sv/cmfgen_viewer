@@ -117,18 +117,18 @@ def test_cli_resolves_defaults_and_records_sources(config_dirs, monkeypatch, cap
         plans.append(plan)
         return plan
     monkeypatch.setattr(runner, "build_run_plan", build)
-    monkeypatch.setattr(runner, "run_plan", lambda plan, emit: {"status": "initialized", "plan": plan})
-    args = ["model", "--nthreads", "3", "--json"] + (["--plan"] if planning else [])
+    monkeypatch.setattr(runner, "run_plan", lambda plan, emit: {"status": "tested", "plan": plan})
+    args = ["model", "--stage", "test", "--nthreads", "3", "--json"] + (["--plan"] if planning else [])
     assert runner.main(args) == 0
     output = json.loads(capsys.readouterr().out)
-    assert output["ready"] if planning else output["status"] == "initialized"
+    assert output["ready"] if planning else output["status"] == "tested"
     assert plans[0]["configuration_sources"]["threads"] == "cli"
     assert plans[0]["configuration_sources"]["cmfgen_root"] == str(work_dir / ".cmfgenrc")
 
 
 def test_cli_missing_roots_reports_json_before_execution(config_dirs, monkeypatch, capsys):
     monkeypatch.setattr(runner, "build_run_plan", lambda *args, **kwargs: pytest.fail("must not plan with missing roots"))
-    assert runner.main(["model", "--json"]) == 2
+    assert runner.main(["model", "--stage", "test", "--json"]) == 2
     output = json.loads(capsys.readouterr().out)
     assert output["status"] == "preflight_failed"
     assert "CMFDIST" in output["error"]
@@ -144,5 +144,5 @@ def test_cli_unreadable_config_reports_json(config_dirs, capsys, kind):
         path.write_bytes(b"\xff")
     else:
         path.symlink_to(work_dir / "missing")
-    assert runner.main(["model", "--plan", "--json"]) == 2
+    assert runner.main(["model", "--stage", "test", "--plan", "--json"]) == 2
     assert json.loads(capsys.readouterr().out)["status"] == "preflight_failed"

@@ -68,7 +68,7 @@ def test_sequence_plan_and_result_are_presented_in_order(plan, result):
         "kind": "sequence",
         "stage": "sequence",
         "model": "/tmp/test-model",
-        "stages": ["init", "main"],
+        "stages": ["test", "main"],
         "initial_plan": plan,
         "warnings": ["Later stages use just-in-time preflight."],
         "ready": True,
@@ -76,17 +76,17 @@ def test_sequence_plan_and_result_are_presented_in_order(plan, result):
     stream = io.StringIO()
     TerminalOutput(stream).plan(sequence_plan)
     text = stream.getvalue()
-    assert "Sequence: init → main" in text
-    assert "Initial stage preflight (init)" in text
+    assert "Sequence: test → main" in text
+    assert "Initial stage preflight (test)" in text
     assert "later stages remain guarded" in text
 
-    first = {**result, "stage": "init", "status": "initialized"}
-    first["passes"] = [{**result["passes"][0], "id": "init"}]
+    first = {**result, "stage": "test", "status": "tested"}
+    first["passes"] = [{**result["passes"][0], "id": "test"}]
     sequence_result = {
         "stage": "sequence",
         "status": "preflight_failed",
-        "stages": ["init", "main", "flux"],
-        "completed_stages": ["init"],
+        "stages": ["test", "main", "flux"],
+        "completed_stages": ["test"],
         "remaining_stages": ["flux"],
         "stage_results": [
             first,
@@ -104,7 +104,7 @@ def test_sequence_plan_and_result_are_presented_in_order(plan, result):
     TerminalOutput(stream).result(sequence_result)
     text = stream.getvalue()
     assert "Multi-stage run: preflight failed" in text
-    assert "1/3 stages completed successfully: init" in text
+    assert "1/3 stages completed successfully: test" in text
     assert "main: preflight failed" in text
     assert "checkpoint is unhealthy" in text
     assert "Not run: flux" in text
@@ -122,6 +122,15 @@ def test_success_and_warning_states_are_distinct(result):
     TerminalOutput(stream).result(result)
     assert "[WARN] main: completed with warnings" in stream.getvalue()
     assert "[WARN] main: Possible error converging f" in stream.getvalue()
+
+
+def test_startup_test_result_reports_test_success(result):
+    result.update(stage="test", status="tested")
+    result["passes"][0]["id"] = "test"
+    stream = io.StringIO()
+    TerminalOutput(stream).result(result)
+    assert "[OK] test: startup test passed" in stream.getvalue()
+    assert "scientific convergence/acceptance is not assessed" in stream.getvalue()
 
 
 def test_promotion_result_reports_backup_and_invalidated_state(result):
@@ -377,9 +386,9 @@ def setup_cli(monkeypatch, plan, result):
 
 
 @pytest.mark.parametrize("planning", [True, False])
-def test_cli_defaults_to_human_output(monkeypatch, capsys, plan, result, planning):
+def test_cli_selected_stage_defaults_to_human_output(monkeypatch, capsys, plan, result, planning):
     setup_cli(monkeypatch, plan, result)
-    args = ["/tmp/test-model"] + (["--plan"] if planning else [])
+    args = ["/tmp/test-model", "--stage", "main"] + (["--plan"] if planning else [])
     assert runner.main(args) == 0
     captured = capsys.readouterr()
     assert "[OK]" in captured.out
@@ -387,7 +396,7 @@ def test_cli_defaults_to_human_output(monkeypatch, capsys, plan, result, plannin
     assert captured.err == "" if planning else "[RUN]" in captured.err
 
 
-def test_cli_omitted_action_defaults_to_run(monkeypatch, capsys, plan, result):
+def test_cli_explicit_stage_runs_without_plan(monkeypatch, capsys, plan, result):
     setup_cli(monkeypatch, plan, result)
 
     assert runner.main(["--stage", "main", "/tmp/test-model"]) == 0
@@ -407,8 +416,8 @@ def test_cli_resource_limits_are_opt_in(monkeypatch, capsys, plan):
 
     monkeypatch.setattr(runner, "build_run_plan", build)
 
-    assert runner.main(["/tmp/test-model", "--plan"]) == 0
-    assert runner.main(["/tmp/test-model", "--plan", "--timeout", "3600", "--memory-mib", "16384", "--no-core-dumps"]) == 0
+    assert runner.main(["/tmp/test-model", "--stage", "main", "--plan"]) == 0
+    assert runner.main(["/tmp/test-model", "--stage", "main", "--plan", "--timeout", "3600", "--memory-mib", "16384", "--no-core-dumps"]) == 0
     capsys.readouterr()
 
     assert seen == [(None, None, False), (3600.0, 16384, True)]
@@ -442,7 +451,7 @@ def test_cli_repeated_stage_builds_ordered_sequence(monkeypatch, capsys, plan):
             "/tmp/test-model",
             "--plan",
             "--stage",
-            "init",
+            "test",
             "--stage",
             "main",
             "--stage",
@@ -450,14 +459,14 @@ def test_cli_repeated_stage_builds_ordered_sequence(monkeypatch, capsys, plan):
         ]
     ) == 0
 
-    assert captured_stages == [["init", "main", "flux"]]
-    assert "Sequence: init → main → flux" in capsys.readouterr().out
+    assert captured_stages == [["test", "main", "flux"]]
+    assert "Sequence: test → main → flux" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize("progress", [None, "json"])
 def test_json_mode_has_clean_stdout_and_opt_in_events(monkeypatch, capsys, plan, result, progress):
     setup_cli(monkeypatch, plan, result)
-    args = ["/tmp/test-model", "--json"]
+    args = ["/tmp/test-model", "--stage", "main", "--json"]
     if progress:
         args += ["--progress", progress]
     assert runner.main(args) == 0
@@ -487,7 +496,7 @@ def test_cli_periodic_progress_is_quiet_in_text_and_available_in_json(monkeypatc
         return result
 
     monkeypatch.setattr(runner, "run_plan", run)
-    assert runner.main(["/tmp/test-model", "--progress", progress]) == 0
+    assert runner.main(["/tmp/test-model", "--stage", "main", "--progress", progress]) == 0
     captured = capsys.readouterr()
     assert "[OK] main: completed" in captured.out
     if progress == "json":
@@ -503,7 +512,7 @@ def test_preflight_failure_never_runs_and_is_readable(monkeypatch, capsys, plan,
     setup_cli(monkeypatch, plan, result)
     plan.update(ready=False, errors=["SCRTEMP is missing"])
     monkeypatch.setattr(runner, "run_plan", lambda *args: pytest.fail("should not run"))
-    assert runner.main(["/tmp/test-model"]) == 2
+    assert runner.main(["/tmp/test-model", "--stage", "main"]) == 2
     captured = capsys.readouterr()
     assert "[ERROR] SCRTEMP is missing" in captured.err
     assert "nothing launched" in captured.err
@@ -514,7 +523,7 @@ def test_config_error_is_readable_by_default(monkeypatch, capsys):
     def fail(**kwargs):
         raise runner.RunnerError("Missing CMFDIST")
     monkeypatch.setattr(runner, "resolve_runner_config", fail)
-    assert runner.main(["/tmp/test-model"]) == 2
+    assert runner.main(["/tmp/test-model", "--stage", "main"]) == 2
     captured = capsys.readouterr()
     assert captured.out == ""
     assert "[ERROR] Preflight failed: Missing CMFDIST" in captured.err
@@ -522,7 +531,7 @@ def test_config_error_is_readable_by_default(monkeypatch, capsys):
 
 def test_progress_none_preserves_final_summary(monkeypatch, capsys, plan, result):
     setup_cli(monkeypatch, plan, result)
-    assert runner.main(["/tmp/test-model", "--progress", "none"]) == 0
+    assert runner.main(["/tmp/test-model", "--stage", "main", "--progress", "none"]) == 0
     captured = capsys.readouterr()
     assert "[RUN]" not in captured.err
     assert "[OK] main: completed" in captured.out

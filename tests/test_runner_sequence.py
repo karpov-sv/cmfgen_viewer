@@ -51,8 +51,8 @@ def _stage_result(stage: str, status: str = "succeeded") -> dict[str, object]:
         "passes": [
             {
                 "id": stage,
-                "status": "succeeded" if status == "initialized" else status,
-                "problems": [] if status in {"initialized", "succeeded"} else ["native failure"],
+                "status": "succeeded" if status == "tested" else status,
+                "problems": [] if status in {"tested", "succeeded"} else ["native failure"],
             }
         ],
     }
@@ -74,7 +74,7 @@ def test_sequence_build_is_serializable_and_only_preflights_first_stage(
 
     plan = runner.build_sequence_plan(
         model,
-        ["lte", "hydro", "promote", "init", "main"],
+        ["lte", "hydro", "promote", "test", "main"],
         native_config={
             "cmfgen_root": tmp_path / "cmf",
             "atomic_root": tmp_path / "atomic",
@@ -89,7 +89,7 @@ def test_sequence_build_is_serializable_and_only_preflights_first_stage(
     )
 
     assert built == [("lte", False)]
-    assert plan["stage_options"]["fresh_start_stage"] == "init"
+    assert plan["stage_options"]["fresh_start_stage"] == "test"
     assert plan["initial_plan"]["stage"] == "lte"
     assert json.loads(json.dumps(plan))["stages"][-1] == "main"
 
@@ -138,7 +138,7 @@ def test_sequence_preserves_opt_in_resource_settings_after_serialization(tmp_pat
     monkeypatch.setattr(runner, "build_run_plan", build)
     sequence = runner.build_sequence_plan(
         tmp_path,
-        ["init", "main"],
+        ["test", "main"],
         native_config={"threads": None},
         configuration_sources={},
         timeout=None,
@@ -235,14 +235,14 @@ def test_sequence_stops_before_next_stage_after_execution_failure(
     monkeypatch.setattr(runner, "_sequence_stage_plan", build)
     monkeypatch.setattr(runner, "run_plan", execute)
 
-    result = runner._run_sequence_plan(_sequence(model, ["init", "main", "flux"]))
+    result = runner._run_sequence_plan(_sequence(model, ["test", "main", "flux"]))
 
     assert result["status"] == "invalid_output"
-    assert result["failed_stage"] == "init"
+    assert result["failed_stage"] == "test"
     assert result["completed_stages"] == []
     assert result["remaining_stages"] == ["main", "flux"]
-    assert built == ["init"]
-    assert executed == ["init"]
+    assert built == ["test"]
+    assert executed == ["test"]
 
 
 def test_sequence_stops_on_just_in_time_preflight_failure(
@@ -289,9 +289,9 @@ def test_fresh_start_applies_only_to_first_cmfgen_stage(
 ) -> None:
     model = tmp_path / "model"
     model.mkdir()
-    plan = _sequence(model, ["init", "main"])
+    plan = _sequence(model, ["test", "main"])
     plan["stage_options"]["fresh_start"] = True
-    plan["stage_options"]["fresh_start_stage"] = "init"
+    plan["stage_options"]["fresh_start_stage"] = "test"
     observed: list[tuple[str, bool]] = []
 
     def build(_model, stage, **options):
@@ -300,10 +300,10 @@ def test_fresh_start_applies_only_to_first_cmfgen_stage(
 
     monkeypatch.setattr(runner, "_build_requested_stage_plan", build)
 
-    runner._sequence_stage_plan(plan, "init", timeout=None)
+    runner._sequence_stage_plan(plan, "test", timeout=None)
     runner._sequence_stage_plan(plan, "main", timeout=None)
 
-    assert observed == [("init", True), ("main", False)]
+    assert observed == [("test", True), ("main", False)]
 
 
 def test_timeout_budget_is_reduced_before_next_native_stage(
@@ -312,7 +312,7 @@ def test_timeout_budget_is_reduced_before_next_native_stage(
 ) -> None:
     model = tmp_path / "model"
     model.mkdir()
-    plan = _sequence(model, ["init", "main"])
+    plan = _sequence(model, ["test", "main"])
     plan["stage_options"]["timeout"] = 10.0
     observed: list[tuple[str, float | None]] = []
     clock = iter((100.0, 103.0, 104.0, 106.5))
@@ -322,7 +322,7 @@ def test_timeout_budget_is_reduced_before_next_native_stage(
         return _ready_stage(stage)
 
     def execute(stage_plan, emit=None):
-        status = "initialized" if stage_plan["stage"] == "init" else "succeeded"
+        status = "tested" if stage_plan["stage"] == "test" else "succeeded"
         return _stage_result(stage_plan["stage"], status)
 
     monkeypatch.setattr(runner, "_sequence_stage_plan", build)
@@ -332,7 +332,7 @@ def test_timeout_budget_is_reduced_before_next_native_stage(
     result = runner._run_sequence_plan(plan)
 
     assert result["status"] == "succeeded"
-    assert observed == [("init", 10.0), ("main", 7.0)]
+    assert observed == [("test", 10.0), ("main", 7.0)]
 
 
 def test_sequence_rejects_duplicate_stages(tmp_path: Path) -> None:

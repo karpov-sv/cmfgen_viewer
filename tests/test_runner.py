@@ -6,7 +6,7 @@ import sys
 
 import pytest
 
-from cmfgen_viewer import runner, runner_recipe
+from cmfgen_viewer import runner, runner_recipe, runner_status
 from cmfgen_viewer.runner import run_plan, _progress, _validate
 from cmfgen_viewer.runner_recipe import RunnerError, build_run_plan, override_controls, snapshot
 
@@ -39,7 +39,7 @@ def workspace(tmp_path, monkeypatch):
     (tmp_path / "atomic/test.dat").write_text("data")
     (tmp_path / "cmf/exe").mkdir(parents=True)
     def make_plan(code=SUCCESS, **options):
-        stage = options.pop("stage", "init")
+        stage = options.pop("stage", "test")
         exe = tmp_path / "cmf/exe" / runner_recipe.PROGRAMS[stage]
         exe.write_text(f"#!{sys.executable}\n" + code)
         exe.chmod(0o755)
@@ -60,13 +60,13 @@ def test_success_restores_controls_and_archives_old_logs(workspace):
     events = []
     original_mtime = (model / "IN_ITS").stat().st_mtime_ns
     result = run_plan(plan, events.append)
-    assert result["status"] == "initialized", result
+    assert result["status"] == "tested", result
     assert (model / "IN_ITS").read_text() == "2 [NUM_ITS]\n"
     assert (model / "IN_ITS").stat().st_mtime_ns == original_mtime
     archive = Path(result["journal"])
-    assert (archive / "init/IN_ITS").read_text() == "0 [NUM_ITS]\n"
-    assert (archive / "init/before/OUTGEN").read_text() == "old failure"
-    assert json.loads((archive / "result.json").read_text())["status"] == "initialized"
+    assert (archive / "test/IN_ITS").read_text() == "0 [NUM_ITS]\n"
+    assert (archive / "test/before/OUTGEN").read_text() == "old failure"
+    assert json.loads((archive / "result.json").read_text())["status"] == "tested"
     assert events[-1]["event"] == "run_finished"
     assert result["scientific_acceptance"] == "not assessed"
 
@@ -164,7 +164,7 @@ assert resource.getrlimit(resource.RLIMIT_CORE) == (0, 0)
 for name in ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS'):
     assert os.environ[name] == '2'
 """ + SUCCESS
-    assert run_plan(make_plan(code, memory_mib=256, threads=2, no_core_dumps=True))["status"] == "initialized"
+    assert run_plan(make_plan(code, memory_mib=256, threads=2, no_core_dumps=True))["status"] == "tested"
 
 
 def test_default_children_preserve_inherited_limits_and_thread_settings(workspace, monkeypatch):
@@ -198,7 +198,161 @@ soft, hard = resource.getrlimit(resource.RLIMIT_STACK)
 assert soft == hard
 """ + SUCCESS
     result = run_plan(make_plan(code))
-    assert result["status"] == "initialized", result
+    assert result["status"] == "tested", result
+
+
+def _status_config(monkeypatch, model):
+    monkeypatch.setattr(runner, "resolve_runner_config", lambda **kwargs: (
+        {"cmfgen_root": model.parent / "cmf", "atomic_root": model.parent / "atomic", "threads": None},
+        {},
+    ))
+
+
+@pytest.mark.parametrize("options", [[], ["--plan"], ["--json"], ["--plan", "--json"]])
+def test_no_stage_inspects_model_and_main_preflight_without_mutation(workspace, monkeypatch, capsys, options):
+    model, make_plan = workspace
+    make_plan(stage="main")
+    _status_config(monkeypatch, model)
+    monkeypatch.setattr(runner, "run_plan", lambda *args: pytest.fail("status must never execute"))
+    before = {path.relative_to(model): snapshot(path) for path in model.rglob("*")}
+
+    assert runner.main([str(model), *options]) == 0
+
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    if "--json" in options:
+        report = json.loads(captured.out)
+        assert report["kind"] == "status"
+        assert report["ready"] is True
+        assert report["dimensions"]["ND"] == "2"
+        assert report["parameters"]["RSTAR"] == "1"
+        assert report["state"]["has_run"] is False
+        assert report["state"]["saved_iterations"] is None
+        assert report["state"]["configured_iterations"] == 2
+        assert report["preflight"]["stage"] == "main"
+        assert report["preflight"]["passes"] == [{"id": "main", "overrides": {}}]
+    else:
+        assert "Read-only status" in captured.out
+        assert "Run evidence: none recorded" in captured.out
+        assert "Configured iterations for next main run: 2" in captured.out
+        assert "Main-stage preflight" in captured.out
+        assert "[OK] Preflight passed" in captured.out
+    assert {path.relative_to(model): snapshot(path) for path in model.rglob("*")} == before
+    assert not (model / ".cmfgen-runs").exists()
+    assert not (model / ".cmfgen-viewer-write.lock").exists()
+
+
+def test_status_distinguishes_checkpoint_iterations_from_failed_attempt(workspace, monkeypatch, capsys):
+    model, make_plan = workspace
+    code = SUCCESS + """
+(p/'POINT1').write_text('2 9 1 -1000\\n')
+(p/'SCRTEMP').write_bytes(b'\\0'*256)
+"""
+    assert run_plan(make_plan(code))["status"] == "tested"
+    code = "from pathlib import Path; Path('OUTGEN').write_text('Current great iteration count is 10\\nUnable to allocate memory\\n')"
+    result = run_plan(make_plan(code, stage="main"))
+    assert result["status"] == "invalid_output"
+    _status_config(monkeypatch, model)
+    monkeypatch.setattr(runner, "run_plan", lambda *args: pytest.fail("status must never execute"))
+
+    assert runner.main([str(model), "--json"]) == 0
+
+    report = json.loads(capsys.readouterr().out)
+    assert report["state"]["has_run"] is True
+    assert report["state"]["saved_iterations"] == 9
+    assert report["state"]["last_logged_iteration"] == 10
+    assert report["state"]["latest_run"]["status"] == "invalid_output"
+    assert report["state"]["latest_run"]["stage"] == "main"
+    assert report["state"]["latest_run"]["journal"] == result["journal"]
+    assert report["state"]["restart"]["mode"] == "continuation"
+
+    assert runner.main([str(model), "--color", "never"]) == 0
+    text = capsys.readouterr().out
+    assert "Saved checkpoint iterations: 9" in text
+    assert "Latest logged iteration: 10" in text
+    assert "Latest recorded runner run: main — output validation failed" in text
+
+
+def test_model_status_ignores_unrelated_runs_and_reports_malformed_journals(workspace):
+    model, make_plan = workspace
+    result = run_plan(make_plan())
+    directory = model / ".cmfgen-runs"
+    unrelated = directory / "later-cleanup"
+    unrelated.mkdir()
+    (unrelated / "result.json").write_text(json.dumps({"stage": "cleanup", "status": "succeeded"}))
+    malformed = directory / "latest-malformed"
+    malformed.mkdir()
+    (malformed / "result.json").write_text("[]")
+
+    report = runner_status.inspect_model_status(model)
+
+    assert report["state"]["latest_run"]["journal"] == result["journal"]
+    assert report["state"]["latest_run"]["status"] == "tested"
+    assert any("latest-malformed" in message for message in report["warnings"])
+
+
+@pytest.mark.parametrize("planning", [False, True])
+def test_startup_test_cli_uses_stage_name_and_success_status(workspace, monkeypatch, capsys, planning):
+    model, make_plan = workspace
+    make_plan()
+    _status_config(monkeypatch, model)
+    args = [str(model), "--stage", "test", "--json"] + (["--plan"] if planning else [])
+
+    assert runner.main(args) == 0
+
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    output = json.loads(captured.out)
+    assert output["stage"] == "test"
+    assert output["passes"][0]["id"] == "test"
+    if planning:
+        assert output["passes"][0]["overrides"] == {"NUM_ITS": "0"}
+        assert not (model / ".cmfgen-runs").exists()
+    else:
+        assert output["status"] == "tested"
+        archive = Path(output["journal"])
+        assert (archive / "test/IN_ITS").read_text() == "0 [NUM_ITS]\n"
+        assert not (archive / "init").exists()
+        assert (model / "IN_ITS").read_text() == "2 [NUM_ITS]\n"
+
+
+def test_cli_rejects_old_stage_name(workspace, capsys):
+    model, make_plan = workspace
+    with pytest.raises(SystemExit) as exc:
+        runner.main([str(model), "--stage", "init"])
+    assert exc.value.code == 2
+    assert "invalid choice" in capsys.readouterr().err
+    plan = make_plan()
+    plan["stage"] = "init"
+    with pytest.raises(RunnerError, match="Unsupported stage"):
+        run_plan(plan)
+    assert not (model / ".cmfgen-runs").exists()
+
+
+@pytest.mark.parametrize("problem", ["missing_config", "missing_input"])
+def test_status_keeps_model_info_when_main_preflight_is_blocked(workspace, monkeypatch, capsys, problem):
+    model, make_plan = workspace
+    make_plan(stage="main")
+    if problem == "missing_config":
+        def resolve(**kwargs):
+            raise RunnerError("Missing cmfgen_root")
+        monkeypatch.setattr(runner, "resolve_runner_config", resolve)
+    else:
+        _status_config(monkeypatch, model)
+        (model / "GAMMAS_IN").unlink()
+    monkeypatch.setattr(runner, "run_plan", lambda *args: pytest.fail("status must never execute"))
+
+    assert runner.main([str(model), "--json"]) == 2
+
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    report = json.loads(captured.out)
+    assert report["kind"] == "status"
+    assert report["dimensions"]["ND"] == "2"
+    assert report["ready"] is False
+    assert report["preflight"]["errors"]
+    assert report["preflight"]["stage"] == "main"
+    assert not (model / ".cmfgen-runs").exists()
 
 
 def test_override_is_lossless_and_requires_unique_keys():
@@ -230,7 +384,7 @@ except BlockingIOError:
 else:
     raise RuntimeError('runner lost its lease')
 """ + SUCCESS
-    assert run_plan(make_plan(code))["status"] == "initialized"
+    assert run_plan(make_plan(code))["status"] == "tested"
 
 
 def test_fresh_start_archives_checkpoint_instead_of_deleting(workspace):
@@ -238,7 +392,7 @@ def test_fresh_start_archives_checkpoint_instead_of_deleting(workspace):
     (model / "POINT1").write_text("old restart")
     assert not make_plan()["ready"]
     result = run_plan(make_plan(fresh_start=True))
-    assert result["status"] == "initialized"
+    assert result["status"] == "tested"
     assert (Path(result["journal"]) / "restart-before/POINT1").read_text() == "old restart"
 
 

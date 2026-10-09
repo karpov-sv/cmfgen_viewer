@@ -4,17 +4,26 @@
 
 ## Quick start
 
+With roots configured, show model information, recorded run/checkpoint state, saved and logged iteration counts, and main-stage preflight without changing the workspace:
+
+```bash
+python3 cmfgen_run.py /path/to/model
+python3 cmfgen_run.py /path/to/model --json
+```
+
+No stage means read-only inspection, including when `--plan` is supplied. Model information remains available if installation configuration or preflight is incomplete. Exit status reflects main-stage preflight readiness (`0` ready, `2` blocked), independently of whether a previous run failed. A saved checkpoint iteration count and the latest logged iteration are shown separately: an attempted iteration can fail before saving a checkpoint. Recorded execution success does not establish convergence.
+
 Preview the disposable smoke-test model without changing it:
 
 ```bash
 python3 cmfgen_run.py models/ostar/model_Bstar1060_new --plan \
-  --stage init --fresh-start \
+  --stage test --fresh-start \
   --cmfgen-root /home/karpov/CMFGEN2023/cur_cmf \
   --atomic-root /home/karpov/CMFGEN2023/atomic \
   --threads 1 --timeout 60 --memory-mib 2048
 ```
 
-Execution is the default: omit `--plan` to run the model with the same options. Planning is always opt-in through `--plan` and never changes the workspace. Main/init runs continue from usable checkpoints by default, following CMFGEN's native behavior. `--fresh-start` explicitly moves existing `POINT1`, `POINT2`, and `SCRTEMP` into that run's `restart-before/` archive before starting from `*_IN`. These checkpoints are retained, not deleted, and are not automatically restored over newly generated restart state. Use a disposable or staged workspace when trying a new configuration.
+Execution requires an explicit `--stage`: omit `--plan` from the command above to execute the selected stage with the same options. Use `--stage main` for model iterations and `--stage test` for a zero-iteration startup check. Planning through `--plan` never changes the workspace. Main/test runs continue from usable checkpoints by default, following CMFGEN's native behavior. `--fresh-start` explicitly moves existing `POINT1`, `POINT2`, and `SCRTEMP` into that run's `restart-before/` archive before starting from `*_IN`. These checkpoints are retained, not deleted, and are not automatically restored over newly generated restart state. Use a disposable or staged workspace when trying a new configuration.
 
 ## Continuation and fresh starts
 
@@ -64,7 +73,7 @@ Config keys are case-insensitive; `CMFDIST` and `ATOMIC` are also accepted as fi
 With roots configured, a preview becomes simply:
 
 ```bash
-python3 cmfgen_run.py models/ostar/model_Bstar1060_new --plan --fresh-start
+python3 cmfgen_run.py models/ostar/model_Bstar1060_new --plan --stage main --fresh-start
 ```
 
 The human-readable plan shows effective settings; `--verbose` also shows their sources. The JSON plan (`--json`) records `configuration_sources` for programmatic inspection. These defaults apply to the standalone runner; the viewer's existing JSON/TOML configuration is unchanged.
@@ -75,19 +84,19 @@ Repeat `--stage` to execute an ordered sequence:
 
 ```bash
 python3 cmfgen_run.py /path/to/model --plan \
-  --stage lte --stage hydro --stage promote --stage init --stage main --stage flux
+  --stage lte --stage hydro --stage promote --stage test --stage main --stage flux
 
 python3 cmfgen_run.py /path/to/model \
-  --stage lte --stage hydro --stage promote --stage init --stage main --stage flux
+  --stage lte --stage hydro --stage promote --stage test --stage main --stage flux
 ```
 
-The `--plan` mode fully preflights the first stage and records the remaining order. Later stages are deliberately not accepted in advance: each is rebuilt and preflighted immediately before it runs, after the preceding stage has produced and validated its outputs. A stage starts only when its predecessor returned `succeeded` or, for `init`, `initialized`. Execution failure, invalid output, timeout, cancellation, or a just-in-time preflight error stops the sequence and leaves all remaining stages unstarted. Duplicate stages are rejected; issue a separate runner command when a stage genuinely needs to be repeated.
+The `--plan` mode fully preflights the first stage and records the remaining order. Later stages are deliberately not accepted in advance: each is rebuilt and preflighted immediately before it runs, after the preceding stage has produced and validated its outputs. A stage starts only when its predecessor returned `succeeded` or, for `test`, `tested`. Execution failure, invalid output, timeout, cancellation, or a just-in-time preflight error stops the sequence and leaves all remaining stages unstarted. Duplicate stages are rejected; issue a separate runner command when a stage genuinely needs to be repeated.
 
-Executable settings apply to every native stage in the sequence. `--iterations` applies only to its `main` stage. `--fresh-start` applies only to the first `init` or `main` stage, allowing a following `main` stage to continue from a successful initialization. `--cleanup-file` applies to the sequence's `cleanup` stage. A configured `--timeout` is a shared native-execution budget: elapsed execution is deducted before each subsequent native stage, while filesystem-only promotion/cleanup does not consume it. With no `--timeout`, the complete sequence remains unlimited.
+Executable settings apply to every native stage in the sequence. `--iterations` applies only to its `main` stage. `--fresh-start` applies only to the first `test` or `main` stage, allowing a following `main` stage to continue from a successful initialization. `--cleanup-file` applies to the sequence's `cleanup` stage. A configured `--timeout` is a shared native-execution budget: elapsed execution is deducted before each subsequent native stage, while filesystem-only promotion/cleanup does not consume it. With no `--timeout`, the complete sequence remains unlimited.
 
 ## Stages
 
-- `init` (default): temporarily sets `NUM_ITS=0` and runs `cmfgen_dev.exe`. Requires fresh `MODEL` and text `RVTJ`, matching depth count, and complete finite radius, velocity, temperature, and electron-density vectors. Radius, temperature, and electron density must also be positive. Returns **initialized**, not a completed solution. Uncomputed auxiliary diagnostics can be nonfinite; no `MOD_SUM` finalization is required. Initialization alone does not establish scientifically valid spectral-synthesis input.
+- `test` (zero-iteration startup check): temporarily sets `NUM_ITS=0` and runs `cmfgen_dev.exe`. It checks native startup and writes initial atmosphere/checkpoint outputs; it does not create or configure a model directory. Requires fresh `MODEL` and text `RVTJ`, matching depth count, and complete finite radius, velocity, temperature, and electron-density vectors. Radius, temperature, and electron density must also be positive. Returns **tested**, not a completed solution. Uncomputed auxiliary diagnostics can be nonfinite; no `MOD_SUM` finalization is required. Passing the startup test alone does not establish scientifically valid spectral-synthesis input.
 - `main`: runs `cmfgen_dev.exe` using `IN_ITS`, optionally with a temporary positive `--iterations N` override. Requires fresh `MODEL`, `RVTJ`, and `MOD_SUM`, a native finalization record, valid core vectors, and no nonfinite/overflow tokens in `RVTJ`. It does not automatically launch observer synthesis.
 - `lte`: runs `main_lte.exe` in an already prepared `lte/` directory. Checks its own controls and validates the generated Rosseland table's dimensions, complete rows, and finite nonnegative values. It does not prepare, promote, or automatically run hydro.
 - `hydro`: runs `wind_hyd.exe` directly in the prepared `lte/` directory after a successful LTE stage. It requires a complete, finite `ROSSELAND_LTE_TAB`, `HYDRO_PARAMS`, and `MODEL_SPEC`; stale Rosseland tables are rejected. The runner selects PGPLOT's `/null` device, exits the diagnostic plot, requests the `MODEL_SPEC` depth count, and accepts the executable's calculated maximum optical depth. When `OLD_MOD=T`, `lte/RVTJ` is also required and selected. Stdout/stderr is captured as both the journal `process.log` and `lte/WIND_HYD`. Success requires a fresh `RVSIG_COL_NEW` with matching depth count, complete ordered rows, and finite physical grid values. The generated structure is not promoted automatically.
@@ -130,11 +139,11 @@ python3 cmfgen_run.py /path/to/model --stage main --json --progress json
 
 The same modes apply to multi-stage runs. The final JSON object contains ordered `stage_results`, `completed_stages`, `remaining_stages`, and `failed_stage` when applicable.
 
-`--json` by itself disables live progress by default. `--progress json` explicitly selects structured stderr events; with human final output, the preflight summary moves to stdout to keep that event stream clean. JSON journals (`plan.json`, `result.json`, and `events.jsonl`) are always retained independently of terminal output options. Exit codes are unchanged.
+`--json` by itself disables live progress by default. Without a stage, it returns one status object containing model information, `state`, `preflight`, and `ready`, and creates no journal. `--progress json` explicitly selects structured stderr events for an executed stage; with human final output, the preflight summary moves to stdout to keep that event stream clean. Executed actions retain JSON journals (`plan.json`, `result.json`, and `events.jsonl`) independently of terminal output options. Exit codes are unchanged.
 
 No percentage is invented when native output lacks a reliable total. The structured Python event callback remains available for a future UI/progress adapter independently of the terminal renderer.
 
-Exit codes: `0` initialized/succeeded, `1` execution or output-validation failure, `2` preflight/argument failure, `124` timeout, `130` cancellation.
+Exit codes: `0` tested/succeeded (or ready read-only preflight), `1` execution or output-validation failure, `2` preflight/argument failure, `124` timeout, `130` cancellation.
 
 ## Evidence and recovery
 
@@ -166,7 +175,7 @@ An important control detail: `ISF` contains important-variable, superlevel, and 
 
 With one thread and a 2 GiB address-space limit, initialization completed in approximately 0.25 seconds. A full iteration finished in approximately 2.2 seconds but produced nonfinite `RVTJ` values and was correctly rejected as `invalid_output`, despite its zero exit code and finalization marker. This configuration exercises fast startup and failure reporting; it is intentionally not physically meaningful or a converged atmosphere.
 
-The observer workflow was subsequently exercised against the real disposable model. A parent atmosphere containing NaN temperatures and electron densities reproduced the reported `INS_LINE` failure. Regenerating finite startup data with `init` removed that crash. The observer template was also coarsened for testing (frequency/profile spacing and spatial interpolation), preserving the original in `.runner-smoke-original/CMF_FLUX_PARAM_INIT`.
+The observer workflow was subsequently exercised against the real disposable model. A parent atmosphere containing NaN temperatures and electron densities reproduced the reported `INS_LINE` failure. Regenerating finite startup data with `test` removed that crash. The observer template was also coarsened for testing (frequency/profile spacing and spatial interpolation), preserving the original in `.runner-smoke-original/CMF_FLUX_PARAM_INIT`.
 
 All four flux passes then completed and validated in approximately 31.5 seconds total, using one thread, a 60-second shared budget, and a 2 GiB address-space limit. Run `20260907T100701Z-f8af40d8` retains the successful report and individual products. Outputs from this deliberately unconverged initialization are for workflow testing only, not physical interpretation.
 

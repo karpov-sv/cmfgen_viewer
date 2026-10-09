@@ -24,15 +24,16 @@ from .runner_recipe import RunnerError, build_run_plan, override_controls, snaps
 from .runner_validation import validate_rosseland_table, validate_rvsig_structure, validate_rvtj_core
 from .runner_restart import RESTART_FILES, observe_startup
 from .runner_output import TerminalOutput
+from .runner_status import inspect_model_status
 
 
-NATIVE_STAGES = {"init", "main", "lte", "hydro", "flux"}
+NATIVE_STAGES = {"test", "main", "lte", "hydro", "flux"}
 FILESYSTEM_STAGES = {"promote", "cleanup"}
-STAGE_CHOICES = ("init", "main", "lte", "hydro", "promote", "flux", "cleanup")
+STAGE_CHOICES = ("test", "main", "lte", "hydro", "promote", "flux", "cleanup")
 
 
 def _stage_succeeded(stage: str, status: str) -> bool:
-    return status == "succeeded" or (stage == "init" and status == "initialized")
+    return status == "succeeded" or (stage == "test" and status == "tested")
 
 
 def _json(path, value):
@@ -100,7 +101,7 @@ def _stop(process):
 
 
 def _validate(stage, cwd, before):
-    required = {"main": ("MOD_SUM", "RVTJ", "MODEL"), "init": ("RVTJ", "MODEL"),
+    required = {"main": ("MOD_SUM", "RVTJ", "MODEL"), "test": ("RVTJ", "MODEL"),
                 "lte": ("ROSSELAND_LTE_TAB",), "hydro": ("RVSIG_COL_NEW",),
                 "flux": ("OBSFRAME",)}[stage]
     problems = []
@@ -112,7 +113,7 @@ def _validate(stage, cwd, before):
         )
         if not fresh_outputs[name]:
             problems.append(f"Missing, empty, or unchanged output: {name}")
-    if stage in {"main", "init"}:
+    if stage in {"main", "test"}:
         if (
             stage == "main"
             and fresh_outputs["MOD_SUM"]
@@ -170,7 +171,7 @@ def _validate(stage, cwd, before):
 
 
 def _progress(stage, cwd):
-    filename = "OUTGEN" if stage in {"main", "init"} else "OUTLTE" if stage == "lte" else "WIND_HYD" if stage == "hydro" else "OUT_FLUX"
+    filename = "OUTGEN" if stage in {"main", "test"} else "OUTLTE" if stage == "lte" else "WIND_HYD" if stage == "hydro" else "OUT_FLUX"
     text = _tail(cwd / filename, 128*1024)
     if stage == "lte":
         total = re.findall(r"Number of frequencies is\s+(\d+)", text)
@@ -202,7 +203,7 @@ def _progress(stage, cwd):
         counters = re.findall(r"LS loop\s*(\d+)\s+is finished", text)
         if counters:
             return {"phase": "LS loop", "current": int(counters[-1])}
-    return {"phase": "initialization" if stage == "init" else "working"}
+    return {"phase": "startup check" if stage == "test" else "working"}
 
 
 def _build_requested_stage_plan(
@@ -234,7 +235,7 @@ def _build_requested_stage_plan(
             memory_mib=memory_mib,
             no_core_dumps=no_core_dumps,
             iterations=iterations if stage == "main" else None,
-            fresh_start=fresh_start if stage in {"main", "init"} else False,
+            fresh_start=fresh_start if stage in {"main", "test"} else False,
         )
         sources = configuration_sources
     plan["configuration_sources"] = sources
@@ -260,7 +261,7 @@ def build_sequence_plan(
     if len(set(stages)) != len(stages):
         raise RunnerError("A multi-stage run cannot contain duplicate stages")
     fresh_start_stage = (
-        next((stage for stage in stages if stage in {"init", "main"}), None)
+        next((stage for stage in stages if stage in {"test", "main"}), None)
         if fresh_start
         else None
     )
@@ -344,6 +345,8 @@ def _sequence_stage_plan(
 def run_plan(plan: dict, emit=None) -> dict:
     if plan.get("kind") == "sequence":
         return _run_sequence_plan(plan, emit)
+    if plan["stage"] not in STAGE_CHOICES:
+        raise RunnerError(f"Unsupported stage: {plan['stage']}")
     if plan["stage"] == "cleanup":
         return _run_cleanup_plan(plan, emit)
     if plan["stage"] == "promote":
@@ -395,7 +398,7 @@ def run_plan(plan: dict, emit=None) -> dict:
                     target = inputs_dir / path.relative_to(model)
                     target.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(path, target)
-            if stage in {"main", "init"} and plan.get("restart", {}).get("present_files"):
+            if stage in {"main", "test"} and plan.get("restart", {}).get("present_files"):
                 restart_backup = journal / "restart-before"
                 restart_backup.mkdir()
                 for name in RESTART_FILES:
@@ -447,10 +450,10 @@ def run_plan(plan: dict, emit=None) -> dict:
                 pass_dir.mkdir()
                 previous = pass_dir / "before"
                 previous.mkdir()
-                logs = (("OUTGEN", "WARNINGS") if stage in {"main", "init"} else
+                logs = (("OUTGEN", "WARNINGS") if stage in {"main", "test"} else
                         ("OUTLTE", "ML_COUNTER") if stage == "lte" else
                         ("WIND_HYD",) if stage == "hydro" else ("OUT_FLUX",))
-                products = (("MOD_SUM", "RVTJ", "MODEL") if stage in {"main", "init"} else
+                products = (("MOD_SUM", "RVTJ", "MODEL") if stage in {"main", "test"} else
                             ("ROSSELAND_LTE_TAB",) if stage == "lte" else
                             ("RVSIG_COL_NEW",) if stage == "hydro" else ("OBSFRAME",))
                 retired = (*logs, *plan.get("cache_files", []))
@@ -566,7 +569,7 @@ def run_plan(plan: dict, emit=None) -> dict:
                         total=len(plan["passes"]),
                     )
             else:
-                result["status"] = "initialized" if stage == "init" else "succeeded"
+                result["status"] = "tested" if stage == "test" else "succeeded"
         except KeyboardInterrupt:
             result["status"] = "cancelled"
         except Exception as exc:
@@ -964,7 +967,7 @@ def _run_sequence_plan(plan: dict, emit=None) -> dict:
 def main(argv=None):
     parser = argparse.ArgumentParser(
         description=(
-            "CMFGEN runner (default action: run; reviewed ostar recipes; "
+            "CMFGEN runner (default action: read-only model status and main preflight; reviewed ostar recipes; "
             "no Flask or shell execution)"
         ),
     )
@@ -972,13 +975,13 @@ def main(argv=None):
     parser.add_argument(
         "--plan",
         action="store_true",
-        help="Perform read-only preflight without executing (default: execute)",
+        help="Preview explicitly selected stages without executing (no stage: read-only status)",
     )
     parser.add_argument(
         "--stage",
         choices=STAGE_CHOICES,
         action="append",
-        help="Stage to run; repeat for an ordered multi-stage run (default: init)",
+        help="Stage to run; repeat for an ordered multi-stage run (no stage: read-only status; test: zero-iteration startup check)",
     )
     parser.add_argument("--cmfgen-root", type=Path, help="Installation root (default: CMFDIST or .cmfgenrc)")
     parser.add_argument("--atomic-root", type=Path, help="Atomic data root (default: ATOMIC or .cmfgenrc)")
@@ -1001,12 +1004,14 @@ def main(argv=None):
         action="append",
         help="Restrict cleanup to this current candidate (repeatable; default: all)",
     )
-    parser.add_argument("--json", action="store_true", help="Emit the full JSON plan/result on stdout (default: readable terminal summary)")
+    parser.add_argument("--json", action="store_true", help="Emit the full JSON status/plan/result on stdout (default: readable terminal summary)")
     parser.add_argument("--verbose", action="store_true", help="Show all reported warnings and captured diagnostic tails")
     parser.add_argument("--color", choices=("auto", "always", "never"), default="auto", help="Status-label colors (default: auto; respects NO_COLOR)")
     parser.add_argument("--progress", choices=("text", "json", "none"), help="Live stderr output (default: text, or none with --json)")
     args = parser.parse_args(argv)
-    stages = args.stage or ["init"]
+    inspection = args.stage is None
+    stages = args.stage or ["main"]
+    status_report = None
     progress = args.progress or ("none" if args.json else "text")
     terminal = TerminalOutput(sys.stdout, color=args.color, verbose=args.verbose)
     live = TerminalOutput(sys.stderr, color=args.color, verbose=args.verbose)
@@ -1017,6 +1022,8 @@ def main(argv=None):
             live.event(item)
     old_handler = signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
     try:
+        if inspection:
+            status_report = inspect_model_status(args.model)
         if len(set(stages)) != len(stages):
             raise RunnerError("A multi-stage run cannot contain duplicate stages")
         native_stages = [stage for stage in stages if stage in NATIVE_STAGES]
@@ -1060,8 +1067,8 @@ def main(argv=None):
             raise RunnerError("--iterations is a positive main-stage override only")
         if args.iterations is not None and "main" not in stages:
             raise RunnerError("--iterations is a positive main-stage override only")
-        if args.fresh_start and not any(stage in {"init", "main"} for stage in stages):
-            raise RunnerError("--fresh-start applies only to main/init")
+        if args.fresh_start and not any(stage in {"test", "main"} for stage in stages):
+            raise RunnerError("--fresh-start applies only to main/test")
         if args.cleanup_file and "cleanup" not in stages:
             raise RunnerError("--cleanup-file applies only to the cleanup stage")
         if len(stages) == 1:
@@ -1090,6 +1097,14 @@ def main(argv=None):
                 fresh_start=args.fresh_start,
                 cleanup_files=args.cleanup_file,
             )
+        if inspection:
+            status_report["preflight"] = plan
+            status_report["ready"] = plan["ready"]
+            if args.json:
+                print(json.dumps(status_report, indent=2))
+            else:
+                terminal.status(status_report)
+            return 0 if plan["ready"] else 2
         if args.plan:
             if args.json:
                 print(json.dumps(plan, indent=2))
@@ -1105,8 +1120,16 @@ def main(argv=None):
             print(json.dumps(result, indent=2))
         else:
             terminal.result(result, preflight_warnings=plan.get("warnings", []))
-        return 0 if result["status"] in {"initialized", "succeeded"} else 2 if result["status"] == "preflight_failed" else 124 if result["status"] == "timeout" else 130 if result["status"] == "cancelled" else 1
+        return 0 if result["status"] in {"tested", "succeeded"} else 2 if result["status"] == "preflight_failed" else 124 if result["status"] == "timeout" else 130 if result["status"] == "cancelled" else 1
     except (RunnerError, OSError, UnicodeError) as exc:
+        if status_report is not None:
+            status_report["ready"] = False
+            status_report["preflight"] = {"stage": "main", "ready": False, "errors": [str(exc)], "warnings": []}
+            if args.json:
+                print(json.dumps(status_report, indent=2))
+            else:
+                terminal.status(status_report)
+            return 2
         if args.json:
             print(json.dumps({"status": "preflight_failed", "error": str(exc)}))
         else:
