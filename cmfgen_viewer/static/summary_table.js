@@ -815,10 +815,12 @@
         const isLog10Linear = mode === "log10_linear";
         currentHrAxisMode = isLog10Linear ? "log10_linear" : "log_values";
         if (hrAxisLogButton) {
+            hrAxisLogButton.setAttribute("aria-pressed", String(!isLog10Linear));
             hrAxisLogButton.classList.toggle("btn-primary", !isLog10Linear);
             hrAxisLogButton.classList.toggle("btn-outline-primary", isLog10Linear);
         }
         if (hrAxisLog10Button) {
+            hrAxisLog10Button.setAttribute("aria-pressed", String(isLog10Linear));
             hrAxisLog10Button.classList.toggle("btn-primary", isLog10Linear);
             hrAxisLog10Button.classList.toggle("btn-outline-primary", !isLog10Linear);
         }
@@ -831,10 +833,12 @@
         const isHrMode = mode !== "generic";
         currentPlotMode = isHrMode ? "hr" : "generic";
         if (modeHrButton) {
+            modeHrButton.setAttribute("aria-pressed", String(isHrMode));
             modeHrButton.classList.toggle("btn-primary", isHrMode);
             modeHrButton.classList.toggle("btn-outline-primary", !isHrMode);
         }
         if (modeGenericButton) {
+            modeGenericButton.setAttribute("aria-pressed", String(!isHrMode));
             modeGenericButton.classList.toggle("btn-primary", !isHrMode);
             modeGenericButton.classList.toggle("btn-outline-primary", isHrMode);
         }
