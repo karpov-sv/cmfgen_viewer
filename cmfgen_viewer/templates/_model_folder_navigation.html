@@ -16,14 +16,12 @@
 {% endfor %}
 {% if quick_links %}
   <div class="folder-shortcut-groups mb-3">
-    {% if key_files %}
-      <div class="quick-links model-key-files">
-        <span class="small text-muted me-1">Key files</span>
-        {% for item in key_files %}
-          <a class="btn btn-sm btn-outline-primary quick-link-item" href="{{ url_for('viewer.view', path=item.path, **view_query) }}">{{ item.name }}</a>
-        {% endfor %}
-      </div>
-    {% endif %}
+    <div class="quick-links model-key-files">
+      <span class="small text-muted me-1">Quick links:</span>
+      {% for item in key_files %}
+        <a class="btn btn-sm btn-outline-primary quick-link-item" href="{{ url_for('viewer.view', path=item.path, **view_query) }}">{{ item.name }}</a>
+      {% endfor %}
+    </div>
     {% for label, items in groups.items() %}
       {% if items %}
         <details class="folder-shortcut-group">

@@ -52,4 +52,9 @@ def model_navigation_context(config, endpoint, view_args):
         "supports_staging": not is_sn_model_directory(model),
         "has_spectrum": discover_final_spectrum_files(model) is not None,
         "active": active,
+        "grouped_shortcuts": endpoint == "viewer.spectrum" or (
+            endpoint == "viewer.view" and (
+                target == model or (target.is_file() and target.parent == model)
+            )
+        ),
     }

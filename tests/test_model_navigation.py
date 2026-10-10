@@ -58,6 +58,8 @@ def test_folder_and_file_share_one_toolbar(tmp_path):
         assert response.status_code == 200
         html = response.data.decode()
         assert html.count('aria-label="Model workflow"') == 1
+        assert 'folder-shortcut-groups' in html
+        assert 'Quick links:' in html
         assert 'href="/view/star"' in html
         assert 'disabled title="Model-directory read-write mode is disabled."' in html
     assert b'aria-label="Model workflow"' not in client.get("/view/").data
@@ -80,3 +82,7 @@ def test_lte_and_observer_shortcuts_stay_local_and_flat(tmp_path):
         assert b'Quick links:' in response.data
         assert f'href="/view/star/{folder}/{filename}"'.encode() in response.data
         assert b'aria-label="Model workflow"' in response.data
+    response = client.get('/view/star/lte/VADAT')
+    assert response.status_code == 200
+    assert b'Quick links:' in response.data
+    assert b'folder-shortcut-groups' not in response.data

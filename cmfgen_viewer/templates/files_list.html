@@ -1,13 +1,5 @@
 {% extends "files.html" %}
 
-{% block files_navigation %}
-  {% if model_navigation and model_navigation.active == 'folder' %}
-    {% include "_model_folder_navigation.html" %}
-  {% else %}
-    {{ super() }}
-  {% endif %}
-{% endblock %}
-
 {% block files_body %}
   {% set role_labels = {
     'core_viewer': 'Core output', 'optional_diagnostic': 'Diagnostic',

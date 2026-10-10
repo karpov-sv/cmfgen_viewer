@@ -18,13 +18,6 @@
       are treated as stale until a newer solution is produced.
     </div>
   {% endif %}
-  {% if not model_navigation %}
-    <div class="mb-3">
-      <div class="small text-muted">Base path: <code>{{ basepath }}</code></div>
-      <div class="small text-muted">Show hidden files: <code>{{ "yes" if show_all else "no" }}</code></div>
-    </div>
-  {% endif %}
-
   {% if breadcrumb %}
     <nav aria-label="breadcrumb">
       <ol class="breadcrumb">
@@ -44,7 +37,9 @@
   {% include "_model_toolbar.html" %}
 
   {% block files_navigation %}
-  {% if quick_links or spectrum_view %}
+  {% if model_navigation and model_navigation.grouped_shortcuts %}
+    {% include "_model_folder_navigation.html" %}
+  {% elif quick_links or spectrum_view %}
     <div class="quick-links mb-3">
       <span class="small text-muted me-2">Quick links:</span>
       {% if spectrum_view and not model_navigation %}
