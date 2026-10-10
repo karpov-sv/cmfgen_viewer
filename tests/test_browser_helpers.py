@@ -114,6 +114,67 @@ def test_list_directory_filters_hidden_and_sorts_dirs_first(tmp_path: Path) -> N
     assert {entry["name"] for entry in all_entries} == {"b_dir", "a_file.txt", ".hidden.txt"}
 
 
+def test_listing_skips_repeated_unavailable_symlink_targets(tmp_path, monkeypatch):
+    folder = tmp_path / "listing"
+    folder.mkdir()
+    unavailable = tmp_path / "unavailable"
+    for index in range(20):
+        target = unavailable / "atomic" / "data"
+        if index % 2:
+            target = Path("../unavailable/atomic/data")
+        (folder / f"atomic_{index}").symlink_to(target)
+    original_stat = Path.stat
+    probes = []
+
+    def track_stat(path, *args, **kwargs):
+        if path.parent == folder and path.name.startswith("atomic_"):
+            probes.append(path)
+        return original_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", track_stat)
+    assert browser.list_directory(str(folder)) == []
+    assert len(probes) == 2  # One lookup for each absolute/relative target prefix.
+
+    # The missing-directory cache is local to the listing: restored data must
+    # appear immediately, without restarting the app or expiring a cache.
+    (unavailable / "atomic").mkdir(parents=True)
+    (unavailable / "atomic" / "data").write_text("atomic data\n")
+    entries = browser.list_directory(str(folder))
+    assert len(entries) == 20
+    assert all(entry["is_symlink"] and entry["size"] == 12 for entry in entries)
+
+
+def test_listing_preserves_valid_links_beside_missing_files(tmp_path):
+    folder = tmp_path / "listing"
+    folder.mkdir()
+    targets = tmp_path / "targets"
+    targets.mkdir()
+    (targets / "data.txt").write_text("data\n")
+    (targets / "subdir").mkdir()
+    (folder / "broken").symlink_to(targets / "absent.txt")
+    (folder / "file.txt").symlink_to(targets / "data.txt")
+    (folder / "directory").symlink_to(targets / "subdir", target_is_directory=True)
+    visible = browser.list_directory(str(folder))
+    assert [entry["name"] for entry in visible] == ["directory", "file.txt"]
+    assert visible[0]["is_dir"]
+    hidden_links = browser.list_directory(str(folder), show_symlinks=False)
+    assert [entry["name"] for entry in hidden_links] == ["directory"]
+
+
+def test_symlink_targets_keep_parent_traversal_semantics(tmp_path):
+    folder = tmp_path / "listing"
+    folder.mkdir()
+    (tmp_path / "deep" / "child").mkdir(parents=True)
+    (tmp_path / "deep" / "available").mkdir()
+    (tmp_path / "deep" / "available" / "data.txt").write_text("data\n")
+    (tmp_path / "alias").symlink_to(tmp_path / "deep" / "child", target_is_directory=True)
+    # 'alias/..' means 'deep', not tmp_path. A lexical normalization would
+    # wrongly treat the valid target's parent as unavailable after the failure.
+    (folder / "broken").symlink_to(tmp_path / "alias" / ".." / "available" / "absent.txt")
+    (folder / "valid.txt").symlink_to(tmp_path / "alias" / ".." / "available" / "data.txt")
+    assert [entry["name"] for entry in browser.list_directory(str(folder))] == ["valid.txt"]
+
+
 def test_describe_file_returns_parsed_payload_for_known_text_file(tmp_path: Path) -> None:
     _write_file(
         tmp_path / "RVTJ",

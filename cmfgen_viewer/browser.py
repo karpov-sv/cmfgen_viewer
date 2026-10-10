@@ -504,6 +504,8 @@ def list_directory(
         raise NotADirectoryError(str(directory))
 
     entries: list[dict[str, object]] = []
+    missing_link_parents: set[Path] = set()
+    existing_link_parents: set[Path] = set()
     model_context = is_model_context_path(str(directory))
     for entry in directory.iterdir():
         if entry.name.startswith(".") and not show_all:
@@ -514,18 +516,40 @@ def list_directory(
         except OSError:
             continue
 
-        if is_symlink and not show_symlinks:
+        link_target = None
+        if is_symlink:
             try:
-                if not entry.is_dir():
-                    continue
+                # Keep '..' segments: collapsing them could change the meaning
+                # of a target that traverses another symlink directory.
+                link_target = entry.parent / entry.readlink()
             except OSError:
+                continue
+            if any(parent in missing_link_parents for parent in link_target.parents):
                 continue
 
         try:
             stat = entry.stat()
             is_dir = entry.is_dir()
+        except FileNotFoundError:
+            if link_target is not None:
+                # Imported models often have hundreds of atomic-data links
+                # beneath the same missing directory. Probe its ancestors once
+                # and skip the remaining broken links for this listing only.
+                for parent in reversed(link_target.parents):
+                    if parent in existing_link_parents:
+                        continue
+                    if parent.is_dir():
+                        existing_link_parents.add(parent)
+                    else:
+                        missing_link_parents.add(parent)
+                        break
+            continue
         except OSError:
             continue
+
+        if is_symlink and not show_symlinks:
+            if not is_dir:
+                continue
 
         rel = _join_relpath(relpath, entry.name)
         mime = mimetypes.guess_type(entry.name)[0]
