@@ -28,7 +28,7 @@
       {% if items %}
         <details class="folder-shortcut-group">
           <summary>{{ label }} <span class="small text-muted">({{ items|length }})</span></summary>
-          <div class="quick-links mt-2">
+          <div class="quick-links">
             {% for item in items %}
               <a class="btn btn-sm btn-outline-primary quick-link-item" href="{{ url_for('viewer.view', path=item.path, **view_query) }}">{{ item.name }}</a>
             {% endfor %}

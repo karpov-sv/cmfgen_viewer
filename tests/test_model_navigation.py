@@ -61,3 +61,22 @@ def test_folder_and_file_share_one_toolbar(tmp_path):
         assert 'href="/view/star"' in html
         assert 'disabled title="Model-directory read-write mode is disabled."' in html
     assert b'aria-label="Model workflow"' not in client.get("/view/").data
+
+
+def test_lte_and_observer_shortcuts_stay_local_and_flat(tmp_path):
+    make_model(tmp_path / "star")
+    make_model(tmp_path / "star" / "lte")
+    (tmp_path / "star" / "obs").mkdir()
+    (tmp_path / "star" / "obs" / "obs_fin").write_text("spectrum\n")
+    app = create_app(basepath=str(tmp_path), upload_root=str(tmp_path / "uploads"))
+    app.config["CMFGEN_VIEWER"]["summary_cache_db"] = str(tmp_path / "summary.sqlite")
+    client = app.test_client()
+    root = client.get("/view/star")
+    assert b'folder-shortcut-groups' in root.data
+    for folder, filename in (("lte", "VADAT"), ("obs", "obs_fin")):
+        response = client.get(f"/view/star/{folder}")
+        assert response.status_code == 200
+        assert b'folder-shortcut-groups' not in response.data
+        assert b'Quick links:' in response.data
+        assert f'href="/view/star/{folder}/{filename}"'.encode() in response.data
+        assert b'aria-label="Model workflow"' in response.data

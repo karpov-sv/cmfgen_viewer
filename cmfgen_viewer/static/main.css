@@ -122,22 +122,25 @@ a:focus {
     margin-right: 0.5rem;
 }
 
-.folder-shortcut-group {
-    border: 1px solid #e3e7ec;
-    border-radius: 0.35rem;
-    padding: 0.25rem 0.65rem;
-}
-
-.folder-shortcut-group[open] {
-    flex-basis: 100%;
-    min-width: 0;
+.folder-shortcut-group[open],
+.folder-shortcut-group[open] > .quick-links {
+    display: contents;
 }
 
 .folder-shortcut-group summary {
+    border: 1px solid #e3e7ec;
+    border-radius: 0.35rem;
+    padding: 0.25rem 0.65rem;
+    list-style-position: inside;
+    white-space: nowrap;
     cursor: pointer;
     font-size: 0.85rem;
     font-weight: 600;
     color: #4f5964;
+}
+
+.folder-shortcut-group[open] summary {
+    background: #f2f5f8;
 }
 
 .folder-shortcut-group summary:focus-visible {

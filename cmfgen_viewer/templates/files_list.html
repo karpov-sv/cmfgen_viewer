@@ -1,7 +1,7 @@
 {% extends "files.html" %}
 
 {% block files_navigation %}
-  {% if model_parameters_source %}
+  {% if model_navigation and model_navigation.active == 'folder' %}
     {% include "_model_folder_navigation.html" %}
   {% else %}
     {{ super() }}
