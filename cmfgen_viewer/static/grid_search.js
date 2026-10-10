@@ -23,6 +23,7 @@
   var patternInput = document.getElementById("grid-model-pattern");
   var patternMatch = document.getElementById("grid-pattern-match");
   var fitSourceInput = document.getElementById("grid-fit-source");
+  var searchButton = document.getElementById("grid-fit-submit");
   var distanceFields = document.getElementById("grid-fit-distance-fields");
   var tlustyScaleNote = document.getElementById("grid-fit-tlusty-scale-note");
   var lambdaMinInput = document.getElementById("grid-fit-lambda-min");
@@ -410,6 +411,10 @@
     if (fitSourceInput) {
       fitSourceInput.value = normalized;
     }
+    if (searchButton) {
+      searchButton.setAttribute("data-fit-source", normalized);
+      searchButton.textContent = "Find best " + normalized.toUpperCase() + " model";
+    }
     for (var i = 0; i < submitButtons.length; i += 1) {
       var button = submitButtons[i];
       var buttonSource = String(button.getAttribute("data-fit-source") || "").trim().toLowerCase();
@@ -419,6 +424,9 @@
   }
 
   function setSubmitButtonsDisabled(disabled) {
+    if (fitSourceInput) {
+      fitSourceInput.disabled = !!disabled;
+    }
     for (var i = 0; i < submitButtons.length; i += 1) {
       submitButtons[i].disabled = !!disabled ||
         (spectrumMode !== "both" && submitButtons[i].getAttribute("data-fit-source") === "phoenix");
@@ -1184,6 +1192,13 @@
     })(submitButtons[submitIndex]);
   }
   setSelectedFitSource(getSelectedFitSource());
+
+  if (fitSourceInput) {
+    fitSourceInput.addEventListener("change", function () {
+      setSelectedFitSource(getSelectedFitSource());
+      schedulePatternMatchCount();
+    });
+  }
 
   if (patternInput) {
     patternInput.addEventListener("input", schedulePatternMatchCount);

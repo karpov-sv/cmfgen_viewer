@@ -118,10 +118,10 @@
 <script src="{{ url_for('static', filename='upload_spectrum_view.js') }}"></script>
     {% endif %}
 
-    <section id="grid-fit" class="mb-4">
-      <h3 class="h5 mb-2">Grid Fit</h3>
+    <section id="grid-fit" class="plot-wrap spectrum-panel mb-4" aria-labelledby="grid-fit-title">
+      <h3 id="grid-fit-title" class="h5 mb-2">Grid Fit</h3>
       <p class="small text-muted mb-2">
-        Run server-side fitting across cached CMFGEN models, TLUSTY, BOSZ, or PHOENIX grids and select the model with the smallest residual.
+        Compare {% if upload.observation_type == "photometry" %}enabled photometric bands{% else %}the uploaded spectrum{% endif %} with a model grid and overlay the best match.
       </p>
       <form
         id="grid-fit-form"
@@ -130,176 +130,82 @@
         class="mb-3"
       >
         <input type="hidden" name="async" value="1">
-        <input type="hidden" id="grid-fit-source" name="fit_source" value="{{ fit_source }}">
-        <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
-          <label for="grid-model-pattern" class="small text-muted mb-0">
-            Model name pattern (shell-like).
-            <span id="grid-pattern-match">...</span>
-          </label>
-          <input
-            id="grid-model-pattern"
-            name="model_name_pattern"
-            type="text"
-            class="form-control form-control-sm"
-            value="{{ model_name_pattern }}"
-            placeholder="e.g. model_Bstar* or model_1[012]*"
-          >
+        <div class="grid-fit-selection">
+          <div class="spectrum-field">
+            <label for="grid-fit-source" class="plot-control-label">Model grid</label>
+            <select id="grid-fit-source" name="fit_source" class="form-select form-select-sm">
+              {% for source, label in [('cmfgen', 'CMFGEN'), ('tlusty', 'TLUSTY'), ('bosz', 'BOSZ'), ('phoenix', 'PHOENIX')] %}
+                <option value="{{ source }}" {% if fit_source == source %}selected{% endif %} {% if source == 'phoenix' and mode != 'both' %}disabled title="PHOENIX has no continua; absolute flux or photometry required"{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="spectrum-field">
+            <label for="grid-model-pattern" class="plot-control-label">Model name filter <span class="text-muted">(optional)</span></label>
+            <input id="grid-model-pattern" name="model_name_pattern" type="text" class="form-control form-control-sm" value="{{ model_name_pattern }}" placeholder="All models, or e.g. model_Bstar*">
+          </div>
         </div>
-        <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
-          <span class="small text-muted">Fit wavelength range (Å, optional):</span>
-          <label for="grid-fit-lambda-min" class="small text-muted mb-0">min</label>
-          <input
-            id="grid-fit-lambda-min"
-            name="fit_lambda_min"
-            type="number"
-            min="0.000001"
-            step="any"
-            class="form-control form-control-sm grid-fit-range-input"
-            value="{{ fit_wavelength_inputs.min }}"
-            placeholder="auto"
-          >
-          <span class="small text-muted">..</span>
-          <input
-            id="grid-fit-lambda-max"
-            name="fit_lambda_max"
-            type="number"
-            min="0.000001"
-            step="any"
-            class="form-control form-control-sm grid-fit-range-input"
-            value="{{ fit_wavelength_inputs.max }}"
-            placeholder="auto"
-          >
-          <button id="grid-fit-use-plot-range" type="button" class="btn btn-sm btn-outline-secondary">Use Plot Range</button>
-        </div>
-        <div class="d-flex flex-wrap align-items-center gap-2">
-          <span class="small text-muted">Fit bounds (equal values freeze a parameter):</span>
-          <label for="grid-fit-redshift-min" class="small text-muted mb-0">z</label>
-          <input
-            id="grid-fit-redshift-min"
-            name="fit_redshift_min"
-            type="number"
-            step="any"
-            class="form-control form-control-sm grid-fit-range-input"
-            value="{{ fit_bounds.redshift[0] }}"
-          >
-          <span class="small text-muted">..</span>
-          <input
-            name="fit_redshift_max"
-            type="number"
-            step="any"
-            class="form-control form-control-sm grid-fit-range-input"
-            value="{{ fit_bounds.redshift[1] }}"
-          >
-          <label for="grid-fit-broadening-min" class="small text-muted mb-0">sigma (km/s)</label>
-          <input
-            id="grid-fit-broadening-min"
-            name="fit_broadening_km_s_min"
-            type="number"
-            min="0"
-            step="any"
-            class="form-control form-control-sm grid-fit-range-input"
-            value="{{ fit_bounds.broadening_km_s[0] }}"
-          >
-          <span class="small text-muted">..</span>
-          <input
-            name="fit_broadening_km_s_max"
-            type="number"
-            min="0"
-            step="any"
-            class="form-control form-control-sm grid-fit-range-input"
-            value="{{ fit_bounds.broadening_km_s[1] }}"
-          >
-          {% if mode == "both" %}
-            <label for="grid-fit-ebv-min" class="small text-muted mb-0">E(B-V)</label>
-            <input
-              id="grid-fit-ebv-min"
-              name="fit_ebv_min"
-              type="number"
-              step="any"
-              class="form-control form-control-sm grid-fit-range-input"
-              value="{{ fit_bounds.ebv[0] }}"
-            >
-            <span class="small text-muted">..</span>
-            <input
-              name="fit_ebv_max"
-              type="number"
-              step="any"
-              class="form-control form-control-sm grid-fit-range-input"
-              value="{{ fit_bounds.ebv[1] }}"
-            >
-            <span
-              id="grid-fit-distance-fields"
-              class="d-inline-flex flex-wrap align-items-center gap-2{% if fit_source in ['tlusty', 'bosz', 'phoenix'] %} d-none{% endif %}"
-            >
-              <label for="grid-fit-distance-min" class="small text-muted mb-0">distance (kpc)</label>
-              <input
-                id="grid-fit-distance-min"
-                name="fit_distance_kpc_min"
-                type="number"
-                min="0.000001"
-                step="any"
-                class="form-control form-control-sm grid-fit-range-input"
-                value="{{ fit_bounds.distance_kpc[0] if fit_bounds.distance_kpc is defined else '' }}"
-              >
-              <span class="small text-muted">..</span>
-              <input
-                name="fit_distance_kpc_max"
-                type="number"
-                min="0.000001"
-                step="any"
-                class="form-control form-control-sm grid-fit-range-input"
-                value="{{ fit_bounds.distance_kpc[1] if fit_bounds.distance_kpc is defined else '' }}"
-              >
-            </span>
-            <span
-              id="grid-fit-tlusty-scale-note"
-              class="small text-muted{% if fit_source not in ['tlusty', 'bosz', 'phoenix'] %} d-none{% endif %}"
-            >
-              TLUSTY/BOSZ/PHOENIX absolute fits ignore distance and solve a free normalization per model. Photometry requires coverage of every enabled band.
-            </span>
-          {% endif %}
-          <button
-            type="submit"
-            class="btn btn-sm btn-outline-success"
-            data-fit-source="cmfgen"
-          >
-            Find Best CMFGEN Model
-          </button>
-          <button
-            type="submit"
-            class="btn btn-sm btn-outline-primary"
-            data-fit-source="tlusty"
-          >
-            Find Best TLUSTY Model
-          </button>
-          <button
-            type="submit"
-            class="btn btn-sm btn-outline-primary"
-            data-fit-source="bosz"
-          >
-            Find Best BOSZ Model
-          </button>
-          <button
-            type="submit"
-            class="btn btn-sm btn-outline-primary"
-            data-fit-source="phoenix"
-            {% if mode != 'both' %}disabled title="PHOENIX has no continua; absolute flux or photometry required"{% endif %}
-          >
-            Find Best PHOENIX Model
-          </button>
-          <button id="grid-fit-cancel" type="button" class="btn btn-sm btn-outline-danger d-none">Stop Search</button>
-        </div>
-        <p id="grid-fit-bosz-resolution-note" class="small text-muted{% if fit_source != 'bosz' %} d-none{% endif %}">
+        <div class="small text-muted mb-3" id="grid-pattern-match" aria-live="polite">Counting matching models…</div>
+
+        <details class="spectrum-settings grid-fit-settings" open>
+          <summary>Fit settings</summary>
+          <div class="spectrum-settings-body">
+            <div class="grid-fit-wavelength">
+              <fieldset class="grid-fit-bound">
+                <legend>Wavelength range (Å, optional)</legend>
+                <div class="grid-fit-bound-inputs">
+                  {% for side, label in [('min', 'Min'), ('max', 'Max')] %}
+                    <div class="spectrum-field">
+                      <label for="grid-fit-lambda-{{ side }}" class="plot-control-label">{{ label }}</label>
+                      <input id="grid-fit-lambda-{{ side }}" name="fit_lambda_{{ side }}" type="number" min="0.000001" step="any" class="form-control form-control-sm grid-fit-range-input" value="{{ fit_wavelength_inputs[side] }}" placeholder="auto">
+                    </div>
+                  {% endfor %}
+                </div>
+              </fieldset>
+              <button id="grid-fit-use-plot-range" type="button" class="btn btn-sm btn-outline-secondary">Use plot range</button>
+              <span class="small text-muted">Leave blank to use all {% if upload.observation_type == "photometry" %}enabled bands{% else %}available wavelengths{% endif %}.</span>
+            </div>
+            <div class="grid-fit-bounds">
+              {% set parameters = [('redshift', 'redshift', 'Redshift z', none), ('broadening', 'broadening_km_s', 'Velocity dispersion (km/s)', 0)] %}
+              {% if mode == 'both' %}
+                {% set parameters = parameters + [('ebv', 'ebv', 'Reddening E(B-V)', none), ('distance', 'distance_kpc', 'Distance (kpc)', 0.000001)] %}
+              {% endif %}
+              {% for slug, parameter, label, minimum in parameters %}
+                <fieldset {% if slug == 'distance' %}id="grid-fit-distance-fields"{% endif %} class="grid-fit-bound{% if slug == 'distance' and fit_source in ['tlusty', 'bosz', 'phoenix'] %} d-none{% endif %}">
+                  <legend>{{ label }}</legend>
+                  <div class="grid-fit-bound-inputs">
+                    {% for side, side_label in [('min', 'Min'), ('max', 'Max')] %}
+                      <div class="spectrum-field">
+                        <label for="grid-fit-{{ slug }}-{{ side }}" class="plot-control-label">{{ side_label }}</label>
+                        <input id="grid-fit-{{ slug }}-{{ side }}" name="fit_{{ parameter }}_{{ side }}" type="number" step="any" {% if minimum is not none %}min="{{ minimum }}"{% endif %} class="form-control form-control-sm grid-fit-range-input" value="{{ fit_bounds[parameter][loop.index0] if parameter in fit_bounds else '' }}">
+                      </div>
+                    {% endfor %}
+                  </div>
+                </fieldset>
+              {% endfor %}
+            </div>
+            <p class="small text-muted spectrum-help">Bounds set the search range. Use equal minimum and maximum values to hold a parameter fixed.</p>
+          </div>
+        </details>
+        {% if mode == "both" %}
+          <p id="grid-fit-tlusty-scale-note" class="small text-muted grid-fit-note{% if fit_source not in ['tlusty', 'bosz', 'phoenix'] %} d-none{% endif %}">
+            TLUSTY/BOSZ/PHOENIX absolute fits solve a free normalization for each model; distance is not fitted. Photometry requires coverage of every enabled band.
+          </p>
+        {% endif %}
+        <p id="grid-fit-bosz-resolution-note" class="small text-muted grid-fit-note{% if fit_source != 'bosz' %} d-none{% endif %}">
           The installed BOSZ subset is already broadened to R=2000 (about 150 km/s FWHM).
           The fitted Gaussian broadening σ is additional to the native broadening; it cannot sharpen the grid.
           Use spectra at comparable or lower resolution. Full BOSZ filenames distinguish atmosphere families.
         </p>
-        <p id="grid-fit-phoenix-resolution-note" class="small text-muted{% if fit_source != 'phoenix' and mode == 'both' %} d-none{% endif %}">
+        <p id="grid-fit-phoenix-resolution-note" class="small text-muted grid-fit-note{% if fit_source != 'phoenix' and mode == 'both' %} d-none{% endif %}">
           PHOENIX ACES: R=10000 (about 30 km/s FWHM), vacuum wavelengths 3000–25000 Å.
           Gaussian broadening σ is additional to the native broadening; use spectra at comparable or lower resolution.
           Absolute-flux spectra and photometry only: no continua are supplied for normalized fitting.
           Models with negative flux are excluded. Grid-author interpolated spectra are retained and labelled in results.
         </p>
+        <div class="grid-fit-actions">
+          <button id="grid-fit-submit" type="submit" class="btn btn-sm btn-success" data-fit-source="{{ fit_source }}">Find best {{ fit_source | upper }} model</button>
+          <button id="grid-fit-cancel" type="button" class="btn btn-sm btn-outline-danger d-none">Stop search</button>
+        </div>
       </form>
 
       <div id="grid-fit-feedback" class="alert py-2 mb-3 d-none" role="status" aria-live="polite"></div>

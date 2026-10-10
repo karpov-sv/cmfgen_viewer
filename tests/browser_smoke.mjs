@@ -313,15 +313,19 @@ try {
       if (input) input.value = "0";
     }
   }
-  document.querySelector('[data-fit-source="bosz"]').click();`);
+  const source = document.getElementById('grid-fit-source');
+  source.value = 'bosz'; source.dispatchEvent(new Event('change'));
+  document.getElementById('grid-fit-submit').click();`);
   await waitFor('document.getElementById("grid-fit-source").value === "bosz"');
   assert(await evaluate('!document.getElementById("grid-fit-bosz-resolution-note").classList.contains("d-none")'));
   assert(await evaluate('document.getElementById("grid-fit-tlusty-scale-note").classList.contains("d-none") === false'));
   await waitFor('!document.getElementById("grid-fit-result").classList.contains("d-none")');
   assert(await evaluate('document.getElementById("grid-fit-result-body").textContent.includes("ATLAS9 plane-parallel")'));
   await waitFor('document.getElementById("upload-spectrum-plot").data.some(t=>t.meta?.plot_role==="grid_fit_best")');
-  await waitFor('!document.querySelector(\'[data-fit-source="phoenix"]\').disabled');
-  await evaluate('document.querySelector(\'[data-fit-source="phoenix"]\').click()');
+  await waitFor('!document.getElementById("grid-fit-submit").disabled');
+  await evaluate(`const source = document.getElementById('grid-fit-source');
+    source.value = 'phoenix'; source.dispatchEvent(new Event('change'));
+    document.getElementById('grid-fit-submit').click();`);
   await waitFor('document.getElementById("grid-fit-source").value === "phoenix"');
   assert(await evaluate('!document.getElementById("grid-fit-phoenix-resolution-note").classList.contains("d-none")'));
   await waitFor('!document.getElementById("grid-fit-result").classList.contains("d-none") && document.getElementById("grid-fit-result-body").textContent.includes("PHOENIX ACES")');

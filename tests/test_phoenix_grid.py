@@ -232,4 +232,4 @@ def test_fit_overlay_api_and_mode_guard(phoenix_case, tmp_path, monkeypatch, nor
     np.testing.assert_allclose(trace["y"], np.interp(trace["x"], wave, flux) * 2e-20, rtol=1e-6)
     app.extensions["cmfgen_jobs"]["grid"].update(job_id, status="running")
     page = client.get(f"/uploads/view/{token}").get_data(as_text=True)
-    assert 'name="fit_source" value="phoenix"' in page
+    assert '<option value="phoenix" selected' in page

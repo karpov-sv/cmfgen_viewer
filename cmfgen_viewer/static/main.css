@@ -375,6 +375,78 @@ a:focus {
     max-width: calc(13ch + 1.25rem);
 }
 
+.grid-fit-selection {
+    display: grid;
+    grid-template-columns: 12rem minmax(0, 1fr);
+    gap: 1rem;
+    margin: 1rem 0 0.5rem;
+}
+
+.grid-fit-wavelength {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    gap: 0.75rem 1rem;
+    margin-bottom: 1.25rem;
+}
+
+.grid-fit-wavelength > .grid-fit-bound {
+    flex: 0 1 20rem;
+}
+
+.grid-fit-wavelength > span {
+    padding-bottom: 0.35rem;
+}
+
+.grid-fit-bounds {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+    gap: 1rem;
+}
+
+.grid-fit-bound {
+    min-width: 0;
+    margin: 0;
+}
+
+.grid-fit-bound legend {
+    float: none;
+    margin-bottom: 0.4rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+
+.grid-fit-bound-inputs {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.5rem;
+}
+
+.grid-fit-bound .grid-fit-range-input {
+    flex: none;
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+}
+
+.grid-fit-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    padding-top: 1rem;
+    border-top: 1px solid #e9ecef;
+}
+
+.grid-fit-note {
+    margin: 0 0 1rem;
+}
+
+@media (max-width: 575px) {
+    .grid-fit-selection {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
 .plotly-resizable {
     position: relative;
     width: 100%;

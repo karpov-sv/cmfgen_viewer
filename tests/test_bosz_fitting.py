@@ -120,7 +120,7 @@ def test_bosz_fit_and_overlay_api(bosz_case, tmp_path, monkeypatch, mode):
     # Restoring a running search must preserve BOSZ rather than falling back to CMFGEN.
     app.extensions["cmfgen_jobs"]["grid"].update(job_id, status="running")
     reload = client.get(f"/uploads/view/{token}").get_data(as_text=True)
-    assert 'name="fit_source" value="bosz"' in reload
+    assert '<option value="bosz" selected' in reload
 
 
 def test_bosz_bounds_and_cancel(bosz_case):
