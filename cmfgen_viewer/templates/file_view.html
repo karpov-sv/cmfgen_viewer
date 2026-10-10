@@ -263,17 +263,18 @@
 
             <div id="{{ custom_wrap_id }}" style="display: none;">
               <div class="plot-wrap mb-4">
-                <div class="plot-title">Custom curve</div>
-                <div class="plot-controls">
-                  <label for="{{ custom_x_col_id }}" class="plot-control-label">X column</label>
-                  <select id="{{ custom_x_col_id }}" class="form-select form-select-sm plot-column-select"></select>
-                  <label for="{{ custom_y_col_id }}" class="plot-control-label">Y column</label>
-                  <select id="{{ custom_y_col_id }}" class="form-select form-select-sm plot-column-select"></select>
-                  {% with x_scale_id=custom_x_scale_id, y_scale_id=custom_y_scale_id %}
-                    {% include "_spectrum_axis_controls.html" %}
+                <div class="custom-plot-heading">
+                  <div class="plot-title">Custom curve</div>
+                  <span id="{{ custom_info_id }}" class="small text-muted"></span>
+                </div>
+                <div class="plot-column-controls custom-plot-controls">
+                  {% with axis_controls=[
+                    ('X', custom_x_col_id, custom_x_scale_id, none, 'linear'),
+                    ('Y', custom_y_col_id, custom_y_scale_id, none, 'linear')
+                  ] %}
+                    {% include "_plot_column_controls.html" %}
                   {% endwith %}
                 </div>
-                <p id="{{ custom_info_id }}" class="small text-muted mb-2"></p>
                 {% with plot_id=custom_plot_id %}{% include "_spectrum_plot_canvas.html" %}{% endwith %}
                 <script>
                   (function () {

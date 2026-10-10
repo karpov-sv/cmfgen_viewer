@@ -103,31 +103,13 @@
               <label for="{{ summary_hr_overlay_toggle_id }}" class="form-check-label small">Mamajek dwarf sequence</label>
             </div>
           {% endif %}
-          <div id="{{ summary_mode_generic_controls_id }}" class="summary-plot-axes d-none">
-            {% for axis, column_id, scale_id, default_col, default_scale in [
+          <div id="{{ summary_mode_generic_controls_id }}" class="plot-column-controls d-none">
+            {% with axis_columns=columns, first_column=1, axis_controls=[
               ('X', summary_x_col_id, summary_x_scale_id, summary_defaults.generic_x, 'linear'),
               ('Y', summary_y_col_id, summary_y_scale_id, summary_defaults.generic_y, 'log')
             ] %}
-              <div class="summary-plot-axis">
-                <div class="summary-plot-field summary-plot-column">
-                  <label for="{{ column_id }}" class="plot-control-label">{{ axis }} column</label>
-                  <select id="{{ column_id }}" class="form-select form-select-sm">
-                    {% for column in columns %}
-                      {% if loop.index0 > 0 %}
-                        <option value="{{ loop.index0 }}" {% if loop.index0 == default_col %}selected{% endif %}>{{ column }}</option>
-                      {% endif %}
-                    {% endfor %}
-                  </select>
-                </div>
-                <div class="summary-plot-field">
-                  <label for="{{ scale_id }}" class="plot-control-label">{{ axis }} scale</label>
-                  <select id="{{ scale_id }}" class="form-select form-select-sm">
-                    <option value="linear" {% if default_scale == 'linear' %}selected{% endif %}>Linear</option>
-                    <option value="log" {% if default_scale == 'log' %}selected{% endif %}>Log</option>
-                  </select>
-                </div>
-              </div>
-            {% endfor %}
+              {% include "_plot_column_controls.html" %}
+            {% endwith %}
           </div>
         </div>
         <div class="summary-plot-status">

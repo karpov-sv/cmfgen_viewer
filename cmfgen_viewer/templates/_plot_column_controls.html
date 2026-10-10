@@ -1,0 +1,23 @@
+{# axis_controls: (axis label, column ID, scale ID, default column, default scale).
+   Omit axis_columns when options are populated by JavaScript. #}
+{% for axis, column_id, scale_id, default_col, default_scale in axis_controls %}
+  <div class="plot-column-axis">
+    <div class="spectrum-field plot-column-field">
+      <label for="{{ column_id }}" class="plot-control-label">{{ axis }} column</label>
+      <select id="{{ column_id }}" class="form-select form-select-sm">
+        {% for column in axis_columns | default([]) %}
+          {% if loop.index0 >= (first_column | default(0)) %}
+            <option value="{{ loop.index0 }}" {% if loop.index0 == default_col %}selected{% endif %}>{{ column }}</option>
+          {% endif %}
+        {% endfor %}
+      </select>
+    </div>
+    <div class="spectrum-field spectrum-axis">
+      <label for="{{ scale_id }}" class="plot-control-label">{{ axis }} scale</label>
+      <select id="{{ scale_id }}" class="form-select form-select-sm">
+        <option value="linear" {% if default_scale == 'linear' %}selected{% endif %}>Linear</option>
+        <option value="log" {% if default_scale == 'log' %}selected{% endif %}>Log</option>
+      </select>
+    </div>
+  </div>
+{% endfor %}

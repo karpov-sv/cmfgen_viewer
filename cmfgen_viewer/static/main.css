@@ -271,22 +271,40 @@ a:focus {
     margin: 0 0 0.35rem auto;
 }
 
-.summary-plot-axes {
+.plot-column-controls {
     display: flex;
     flex: 1;
     flex-wrap: wrap;
     gap: 0.75rem 1.25rem;
 }
 
-.summary-plot-axis {
+.plot-column-axis {
     display: flex;
     flex: 1 1 15rem;
     gap: 0.5rem;
     min-width: 0;
 }
 
-.summary-plot-column {
+.plot-column-field {
     flex: 1;
+    min-width: 0;
+}
+
+.custom-plot-heading {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.25rem 1rem;
+    margin-bottom: 0.75rem;
+}
+
+.custom-plot-heading .plot-title {
+    margin-bottom: 0;
+}
+
+.custom-plot-controls {
+    margin-bottom: 0.75rem;
 }
 
 .summary-plot-status,
@@ -316,7 +334,7 @@ a:focus {
         margin-left: 0;
     }
 
-    .summary-plot-axes {
+    .plot-column-controls {
         flex-basis: 100%;
     }
 }
