@@ -1,0 +1,35 @@
+<details class="spectrum-settings">
+  <summary>Line and display settings</summary>
+  <div class="spectrum-settings-body">
+    <div class="spectrum-display-fields">
+      <div class="spectrum-field">
+        <label for="{{ plot_id }}-lines-group" class="plot-control-label">Line group</label>
+        <select id="{{ plot_id }}-lines-group" class="form-select form-select-sm" disabled>
+          <option value="all">All common lines</option>
+          <option value="hydrogen">Hydrogen</option>
+          <option value="helium">Helium</option>
+          <option value="metals">Metals</option>
+        </select>
+      </div>
+      <div class="spectrum-field">
+        <label for="{{ plot_id }}-lines-medium" class="plot-control-label">Wavelengths</label>
+        <select id="{{ plot_id }}-lines-medium" class="form-select form-select-sm">
+          <option value="vacuum">Vacuum</option>
+          <option value="air">Air (UV stays vacuum)</option>
+        </select>
+      </div>
+      <div class="spectrum-field">
+        <label for="{{ plot_id }}-sampling" class="plot-control-label">Sampling detail</label>
+        <select id="{{ plot_id }}-sampling" class="form-select form-select-sm">
+          <option value="adaptive">Adaptive (zoom for native samples)</option>
+          <option value="native">Full resolution in displayed region</option>
+        </select>
+      </div>
+      <label class="form-check-label small spectrum-line-toggle" for="{{ plot_id }}-lines-labels">
+        <input id="{{ plot_id }}-lines-labels" class="form-check-input me-1" type="checkbox" checked disabled> Line labels
+      </label>
+    </div>
+    <p class="small text-muted spectrum-help">{% if redshift_id is defined %}Line positions follow model redshift.{% else %}Rest wavelengths.{% endif %} Zoom for more labels. Line windows span ±150 Å and fit the vertical scale to the displayed region.</p>
+    <div id="{{ plot_id }}-sampling-status" class="small text-muted" aria-live="polite"></div>
+  </div>
+</details>

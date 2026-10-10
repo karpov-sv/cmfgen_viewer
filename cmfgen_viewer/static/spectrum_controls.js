@@ -79,5 +79,27 @@
   function setAxisScale(target, xScale, yScale) {
     return Plotly.relayout(target, { "xaxis.type": xScale, "yaxis.type": yScale });
   }
-  window.CmfgenSpectrumControls = { bindVerticalResize: bindVerticalResize, setAxisScale: setAxisScale };
+  function createPlot(target, data, layout, config, options) {
+    options = options || {};
+    var sampling = options.sampling === false ? null
+      : CmfgenSpectrumSampling.create(target, data, layout);
+    var ready = Plotly.newPlot(target, sampling ? sampling.initialData : data, layout, config)
+      .then(function () {
+        if (sampling) sampling.bind();
+        CmfgenSpectralLines.bind(target, { redshiftInput: options.redshiftInput });
+        bindVerticalResize(target);
+        if (options.xScale && options.yScale) {
+          function applyScale() {
+            return setAxisScale(target, options.xScale.value, options.yScale.value);
+          }
+          options.xScale.addEventListener("change", applyScale);
+          options.yScale.addEventListener("change", applyScale);
+          return applyScale();
+        }
+      });
+    return { sampling: sampling, ready: ready };
+  }
+  window.CmfgenSpectrumControls = {
+    bindVerticalResize: bindVerticalResize, setAxisScale: setAxisScale, createPlot: createPlot
+  };
 })();

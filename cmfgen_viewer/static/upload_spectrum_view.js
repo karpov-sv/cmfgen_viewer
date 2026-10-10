@@ -11,21 +11,8 @@
 
   var plotData = pageConfig.plot_data_data;
   var plotLayout = pageConfig.plot_data_layout;
-  var plotConfig = pageConfig.plot_data_config;
   var spectrumMode = pageConfig.mode;
   var yAxisName = spectrumMode === "both" ? "Flux" : "Normalized";
-
-  var LIGHT_SPEED_KM_PER_S = 299792.458;
-
-  var xScale = document.getElementById(pageConfig.x_scale_id);
-  var yScale = document.getElementById(pageConfig.y_scale_id);
-  var redshiftInput = document.getElementById(pageConfig.redshift_id);
-  var velocityInput = document.getElementById(pageConfig.velocity_id);
-  var broadeningInput = document.getElementById(pageConfig.broadening_id);
-  var ebvInput = document.getElementById(pageConfig.ebv_id);
-  var distanceInput = document.getElementById(pageConfig.distance_id);
-  var resetTransform = document.getElementById(pageConfig.reset_transform_id);
-  var transformHint = document.getElementById(pageConfig.transform_hint_id);
 
   function cloneTraceWithArrays(trace) {
     var cloned = Object.assign({}, trace);
@@ -71,8 +58,6 @@
   var pendingOverlayAction = null;
   var pendingFitRangeAction = null;
   var fitRangeSignature = "";
-  var isSyncingVelocity = false;
-  var transformFrame = null;
 
   function formatNumeric(value, decimals) {
     if (!Number.isFinite(value)) {
@@ -177,15 +162,6 @@
     var bounds = pendingFitRangeAction;
     pendingFitRangeAction = null;
     setFitRangeMarkers(bounds.min, bounds.max);
-  }
-
-  function setTransformHint(message, isError) {
-    if (!transformHint) {
-      return;
-    }
-    transformHint.textContent = message;
-    transformHint.classList.toggle("text-danger", !!isError);
-    transformHint.classList.toggle("text-muted", !isError);
   }
 
   function formatOverlayRmse(value) {
@@ -343,162 +319,15 @@
     }
   };
 
-  function updateVelocityFromRedshift() {
-    if (!redshiftInput || !velocityInput) {
-      return;
-    }
-    var redshift = Number(redshiftInput.value);
-    if (!Number.isFinite(redshift)) {
-      return;
-    }
-    isSyncingVelocity = true;
-    velocityInput.value = formatNumeric(redshift * LIGHT_SPEED_KM_PER_S, 6);
-    isSyncingVelocity = false;
-  }
-
-  function updateRedshiftFromVelocity() {
-    if (!redshiftInput || !velocityInput) {
-      return;
-    }
-    var velocity = Number(velocityInput.value);
-    if (!Number.isFinite(velocity)) {
-      return;
-    }
-    isSyncingVelocity = true;
-    redshiftInput.value = formatNumeric(velocity / LIGHT_SPEED_KM_PER_S, 10);
-    isSyncingVelocity = false;
-  }
-
-  function applyAxisScale() {
-    CmfgenSpectrumControls.setAxisScale(target, xScale.value, yScale.value);
-  }
-
-  function applyPhysicalTransforms() {
-    var redshift = redshiftInput ? Number(redshiftInput.value) : 0;
-    if (!Number.isFinite(redshift)) {
-      redshift = 0;
-    }
-    if ((1 + redshift) <= 0) {
-      setTransformHint("Redshift must be greater than -1.", true);
-      return;
-    }
-
-    var distanceKpc = distanceInput ? Number(distanceInput.value) : 1;
-    if (!Number.isFinite(distanceKpc) || distanceKpc <= 0) {
-      setTransformHint("Distance must be a positive number in kpc.", true);
-      return;
-    }
-
-    var ebv = ebvInput ? Number(ebvInput.value) : 0;
-    if (!Number.isFinite(ebv)) {
-      setTransformHint("E(B-V) must be a valid number.", true);
-      return;
-    }
-
-    var sigmaVelocity = broadeningInput ? Number(broadeningInput.value) : 0;
-    if (!Number.isFinite(sigmaVelocity) || sigmaVelocity < 0) {
-      setTransformHint("Velocity dispersion must be zero or positive (km/s).", true);
-      return;
-    }
-
-    var broadeningText = sigmaVelocity > 0
-      ? " Gaussian line broadening uses sigma_v=" + formatNumeric(sigmaVelocity, 4) + " km/s."
-      : " Gaussian line broadening is disabled.";
-    if (spectrumMode === "both") {
-      setTransformHint("Absolute mode applies wavelength shift, reddening, distance scaling, and optional broadening." + broadeningText, false);
-    } else {
-      setTransformHint("Normalized mode applies wavelength shift and optional broadening." + broadeningText, false);
-    }
-
-    var transformedX = [];
-    var transformedY = [];
-
-    for (var traceIndex = 0; traceIndex < baseData.length; traceIndex += 1) {
-      var sourceX = baseData[traceIndex].x;
-      var sourceY = baseData[traceIndex].y;
-      if (transformTargets[traceIndex] !== "model") {
-        transformedX.push(sourceX.slice());
-        transformedY.push(sourceY.slice());
-        continue;
-      }
-
-      var shouldBroaden = spectrumMode !== "both" || baseData[traceIndex].meta?.plot_role === "final";
-      var transformed = CmfgenSpectrumTransforms.transformSeries(sourceX, sourceY, {
-        mode: spectrumMode, redshift: redshift, distance_kpc: distanceKpc,
-        ebv: ebv, broadening_km_s: shouldBroaden ? sigmaVelocity : 0
-      });
-      transformedX.push(transformed[0]);
-      transformedY.push(transformed[1]);
-    }
-
-    sampling.setSeries(transformedX, transformedY);
-  }
-
-  function scheduleTransforms() {
-    if (transformFrame !== null) {
-      window.cancelAnimationFrame(transformFrame);
-    }
-    transformFrame = window.requestAnimationFrame(function () {
-      transformFrame = null;
-      applyPhysicalTransforms();
-    });
-  }
-
-  var sampling = CmfgenSpectrumSampling.create(target, plotData, plotLayout);
-  Plotly.newPlot(target, sampling.initialData, plotLayout, plotConfig).then(function () {
-    sampling.bind();
-    xScale.addEventListener("change", applyAxisScale);
-    yScale.addEventListener("change", applyAxisScale);
-    if (redshiftInput) {
-      redshiftInput.addEventListener("input", function () {
-        if (!isSyncingVelocity) {
-          updateVelocityFromRedshift();
-        }
-        scheduleTransforms();
-      });
-    }
-    if (velocityInput) {
-      velocityInput.addEventListener("input", function () {
-        if (!isSyncingVelocity) {
-          updateRedshiftFromVelocity();
-        }
-        scheduleTransforms();
-      });
-    }
-    if (distanceInput) {
-      distanceInput.addEventListener("input", scheduleTransforms);
-    }
-    if (ebvInput) {
-      ebvInput.addEventListener("input", scheduleTransforms);
-    }
-    if (broadeningInput) {
-      broadeningInput.addEventListener("input", scheduleTransforms);
-    }
-    if (resetTransform) {
-      resetTransform.addEventListener("click", function () {
-        if (redshiftInput) {
-          redshiftInput.value = "0";
-        }
-        if (velocityInput) {
-          velocityInput.value = "0";
-        }
-        if (broadeningInput) {
-          broadeningInput.value = "0";
-        }
-        if (distanceInput) {
-          distanceInput.value = "1";
-        }
-        if (ebvInput) {
-          ebvInput.value = "0";
-        }
-        scheduleTransforms();
-      });
-    }
-    updateVelocityFromRedshift();
-    applyAxisScale();
-    scheduleTransforms();
-    CmfgenSpectrumControls.bindVerticalResize(target);
-    CmfgenSpectralLines.bind(target, { redshiftInput: redshiftInput });
+  var viewer = CmfgenSpectrumViewer.create(pageConfig, {
+    baseData: baseData,
+    transformTargets: transformTargets,
+    shouldBroaden: function (index, trace) { return spectrumMode !== "both" || trace.meta?.plot_role === "final"; },
+    absoluteHint: "Absolute mode applies wavelength shift, reddening, distance scaling, and optional broadening."
+  });
+  var sampling = viewer.sampling;
+  var scheduleTransforms = viewer.scheduleTransforms;
+  viewer.ready.then(function () {
     applyPendingOverlayAction();
     applyPendingFitRangeAction();
   });

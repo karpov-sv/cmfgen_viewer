@@ -1,0 +1,3 @@
+{% for script in ['spectrum_transforms.js', 'spectrum_controls.js', 'spectrum_sampling.js', 'spectral_lines.js', 'spectrum_viewer.js'] %}
+<script src="{{ url_for('static', filename=script) }}"></script>
+{% endfor %}

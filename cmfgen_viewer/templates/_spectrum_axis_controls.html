@@ -1,0 +1,11 @@
+{% set default_x_scale = default_x_scale | default(plot_data.default_x_scale if plot_data is defined else 'linear') %}
+{% set default_y_scale = default_y_scale | default(plot_data.default_y_scale if plot_data is defined else 'linear') %}
+  {% for scale_id, label, default in [(x_scale_id, "X scale", default_x_scale), (y_scale_id, "Y scale", default_y_scale)] %}
+    <div class="spectrum-field spectrum-axis">
+      <label for="{{ scale_id }}" class="plot-control-label">{{ label }}</label>
+      <select id="{{ scale_id }}" class="form-select form-select-sm">
+        <option value="linear" {% if default != 'log' %}selected{% endif %}>Linear</option>
+        <option value="log" {% if default == 'log' %}selected{% endif %}>Log</option>
+      </select>
+    </div>
+  {% endfor %}

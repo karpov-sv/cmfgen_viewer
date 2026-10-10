@@ -1,0 +1,20 @@
+<script type="application/json">
+{
+  "plot_id": {{ plot_id | tojson }},
+  "plot_data_data": {{ plot_data.data | tojson }},
+  "plot_data_layout": {{ plot_data.layout | tojson }},
+  "plot_data_config": {{ plot_data.config | tojson }},
+  "mode": {{ mode | tojson }},
+  "x_scale_id": {{ x_scale_id | tojson }},
+  "y_scale_id": {{ y_scale_id | tojson }},
+  "redshift_id": {{ redshift_id | tojson }},
+  "velocity_id": {{ velocity_id | tojson }},
+  "broadening_id": {{ broadening_id | tojson }},
+  "ebv_id": {{ ebv_id | tojson }},
+  "distance_id": {{ distance_id | tojson }},
+  "reset_transform_id": {{ reset_transform_id | tojson }},
+  "transform_hint_id": {{ transform_hint_id | tojson }}{% if final_toggle_id is defined %},
+  "final_toggle_id": {{ final_toggle_id | tojson }},
+  "continuum_toggle_id": {{ continuum_toggle_id | tojson }}{% endif %}
+}
+</script>

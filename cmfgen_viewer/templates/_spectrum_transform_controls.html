@@ -1,0 +1,22 @@
+{% set transform_params = transform_params | default({"redshift": 0, "velocity_km_s": 0, "broadening_km_s": 0, "ebv": 0, "distance_kpc": 1}) %}
+      <details class="spectrum-settings" id="{{ plot_id }}-transforms" {% if transform_params.redshift or transform_params.broadening_km_s or transform_params.ebv or transform_params.distance_kpc != 1 %}open{% endif %}>
+        <summary>Model transformations</summary>
+        <div class="spectrum-settings-body">
+          <div class="spectrum-transform-fields">
+            {% for input_id, label, value, minimum in [
+              (redshift_id, "Redshift z", transform_params.redshift, none),
+              (velocity_id, "Radial velocity (km/s)", transform_params.velocity_km_s, none),
+              (broadening_id, "Velocity dispersion (km/s)", transform_params.broadening_km_s, 0),
+              (ebv_id, "E(B-V)", transform_params.ebv, none),
+              (distance_id, "Distance (kpc)", transform_params.distance_kpc, 0.000001)
+            ] %}
+              <div class="spectrum-field">
+                <label for="{{ input_id }}" class="plot-control-label">{{ label }}</label>
+                <input id="{{ input_id }}" type="number" step="any" {% if minimum is not none %}min="{{ minimum }}"{% endif %} class="form-control form-control-sm" value="{{ value }}">
+              </div>
+            {% endfor %}
+            <button id="{{ reset_transform_id }}" type="button" class="btn btn-outline-secondary btn-sm spectrum-reset">Reset transformations</button>
+          </div>
+          <div id="{{ transform_hint_id }}" class="small text-muted spectrum-help" aria-live="polite"></div>
+        </div>
+      </details>

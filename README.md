@@ -321,9 +321,15 @@ and exit codes. Execution checks do not establish scientific convergence.
 
 ## Notes
 
-Spectrum pages pass configuration through JSON to static JavaScript. Shared numerical code lives in
-`static/spectrum_transforms.js`, plot controls in `static/spectrum_controls.js`, and page-specific
-behavior in the single-model, bulk, upload, photometry-editor, and grid-search scripts.
+Spectrum pages share Jinja components for axes, zoom, line settings, transformations,
+the plot canvas, and JSON configuration (`templates/_spectrum_*.html`).
+`static/spectrum_controls.js` initializes plots and binds axes, sampling, line overlays,
+and resizing, including parsed file previews. `static/spectrum_viewer.js` adds shared
+transformation validation, redshift/velocity synchronization, reset, and trace updates.
+Numerical code lives in `static/spectrum_transforms.js`. The single-model, bulk, and
+upload scripts supply trace policies and handle their own fitting, visibility toggles,
+and grid-search overlays. Layout and common control behavior should be changed in the
+shared components rather than copied into a page adapter.
 
 - The UI is optimized for local analysis workflows and iterative parser development.
 - Large-file parsing is guarded (`MAX_PARSE_FILE_BYTES`) to avoid heavy accidental loads.

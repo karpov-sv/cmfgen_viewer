@@ -156,7 +156,17 @@ def test_spectral_pages_render_native_payloads_and_valid_inline_scripts(tmp_path
         assert response.status_code == 200
         html = response.get_data(as_text=True)
         assert "spectrum_sampling.js" in html
+        assert "spectrum_controls.js" in html
+        assert "Line and display settings" in html
         assert "Full resolution in displayed region" in html
+        plot_ids = [
+            value for value in re.findall(r'\bid="([^"]+)"', html)
+            if value.startswith("plotly-") or "spectrum-plot" in value
+        ]
+        assert len(plot_ids) == len(set(plot_ids)), "Shared components must keep plot IDs unique"
+        if not url.startswith("/view/"):
+            assert "spectrum_viewer.js" in html
+            assert "Reset transformations" in html
         # Verify every rendered inline script parses, including raw combined
         # and separate plot branches and large embedded native vectors.
         scripts = re.findall(r"<script\b([^>]*)>(.*?)</script>", html, re.S)

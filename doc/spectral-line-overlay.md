@@ -7,6 +7,11 @@ or Wavelength (Angstrom).
 For files containing both wavelength and depth plots, use **Separate** to view the
 overlay on the wavelength plot.
 
+The model, bulk, upload, and parsed-file viewers share the same zoom and line
+controls. Open **Line and display settings** to choose a line group, wavelength
+convention, labels, and sampling detail. Model transformations are in a separate
+expandable group on the model, bulk, and upload pages.
+
 Choose **All common lines**, **Hydrogen**, **Helium**, or **Metals**. Hydrogen includes
 Lyman, Balmer, Paschen, and Brackett lines; helium includes common He I and He II
 diagnostics; metals include UV blends, Ca II, Na I D, and common nebular lines.

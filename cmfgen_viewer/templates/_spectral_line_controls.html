@@ -1,41 +1,6 @@
-<div class="plot-controls" aria-label="Spectral line overlay">
-  <label class="form-check-label small" for="{{ plot_id }}-lines-show">
-    <input id="{{ plot_id }}-lines-show" class="form-check-input me-1" type="checkbox"> Spectral lines
-  </label>
-  <label for="{{ plot_id }}-lines-group" class="plot-control-label">Lines</label>
-  <select id="{{ plot_id }}-lines-group" class="form-select form-select-sm w-auto" disabled>
-    <option value="all">All common lines</option>
-    <option value="hydrogen">Hydrogen</option>
-    <option value="helium">Helium</option>
-    <option value="metals">Metals</option>
-  </select>
-  <label for="{{ plot_id }}-lines-medium" class="plot-control-label">Wavelengths</label>
-  <select id="{{ plot_id }}-lines-medium" class="form-select form-select-sm w-auto">
-    <option value="vacuum">Vacuum</option>
-    <option value="air">Air (UV stays vacuum)</option>
-  </select>
-  <label class="form-check-label small" for="{{ plot_id }}-lines-labels">
-    <input id="{{ plot_id }}-lines-labels" class="form-check-input me-1" type="checkbox" checked disabled> Labels
-  </label>
-  <span class="small text-muted">{% if redshift_id is defined %}Line positions follow model redshift.{% else %}Rest wavelengths.{% endif %} Zoom for more labels.</span>
+{% with show_axis_controls=show_axis_controls | default(false) %}
+<div class="spectrum-toolbar" aria-label="Spectrum view controls">
+  {% include "_spectrum_view_toolbar.html" %}
 </div>
-<div class="plot-controls">
-  <label for="{{ plot_id }}-lines-zoom" class="plot-control-label">Zoom to</label>
-  <select id="{{ plot_id }}-lines-zoom" class="form-select form-select-sm w-auto">
-    <option value="" selected>Choose a range or line…</option>
-    <optgroup label="Spectrum views">
-      <option value="full">Whole spectrum</option>
-      <option value="optical">Optical (3800–7500 Å)</option>
-    </optgroup>
-  </select>
-  <span class="small text-muted">Line windows: ±150 Å. Vertical scale fits the displayed region.</span>
-</div>
-
-<div class="plot-controls">
-  <label for="{{ plot_id }}-sampling" class="plot-control-label">Detail</label>
-  <select id="{{ plot_id }}-sampling" class="form-select form-select-sm w-auto">
-    <option value="adaptive">Adaptive (zoom for native samples)</option>
-    <option value="native">Full resolution in displayed region</option>
-  </select>
-  <span id="{{ plot_id }}-sampling-status" class="small text-muted" aria-live="polite"></span>
-</div>
+{% include "_spectrum_view_controls.html" %}
+{% endwith %}
