@@ -1,0 +1,40 @@
+{% set groups = {'Inputs': [], 'Results': [], 'Diagnostics': [], 'Spectra': []} %}
+{% set key_files = [] %}
+{% for item in quick_links %}
+  {% set name = item.name | upper %}
+  {% if name in ['MOD_SUM', 'OUTGEN'] %}
+    {% set _ = key_files.append(item) %}
+  {% elif name in ['VADAT', 'MODEL_SPEC', 'IN_ITS'] %}
+    {% set _ = groups['Inputs'].append(item) %}
+  {% elif name in ['RVTJ', 'OBSFLUX', 'GAMMAS'] %}
+    {% set _ = groups['Results'].append(item) %}
+  {% elif name.startswith('OBS_FIN') or name.startswith('OBS_CONT') %}
+    {% set _ = groups['Spectra'].append(item) %}
+  {% else %}
+    {% set _ = groups['Diagnostics'].append(item) %}
+  {% endif %}
+{% endfor %}
+{% if quick_links %}
+  <div class="folder-shortcut-groups mb-3">
+    {% if key_files %}
+      <div class="quick-links model-key-files">
+        <span class="small text-muted me-1">Key files</span>
+        {% for item in key_files %}
+          <a class="btn btn-sm btn-outline-primary quick-link-item" href="{{ url_for('viewer.view', path=item.path, **view_query) }}">{{ item.name }}</a>
+        {% endfor %}
+      </div>
+    {% endif %}
+    {% for label, items in groups.items() %}
+      {% if items %}
+        <details class="folder-shortcut-group">
+          <summary>{{ label }} <span class="small text-muted">({{ items|length }})</span></summary>
+          <div class="quick-links mt-2">
+            {% for item in items %}
+              <a class="btn btn-sm btn-outline-primary quick-link-item" href="{{ url_for('viewer.view', path=item.path, **view_query) }}">{{ item.name }}</a>
+            {% endfor %}
+          </div>
+        </details>
+      {% endif %}
+    {% endfor %}
+  </div>
+{% endif %}

@@ -99,6 +99,90 @@ a:focus {
     white-space: nowrap;
 }
 
+.model-folder-toolbar,
+.folder-file-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.model-folder-actions {
+    margin-left: auto;
+}
+
+.folder-shortcut-groups {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.model-key-files {
+    margin-right: 0.5rem;
+}
+
+.folder-shortcut-group {
+    border: 1px solid #e3e7ec;
+    border-radius: 0.35rem;
+    padding: 0.25rem 0.65rem;
+}
+
+.folder-shortcut-group[open] {
+    flex-basis: 100%;
+    min-width: 0;
+}
+
+.folder-shortcut-group summary {
+    cursor: pointer;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #4f5964;
+}
+
+.folder-shortcut-group summary:focus-visible {
+    outline: 2px solid #0d6efd;
+    outline-offset: 2px;
+}
+
+.folder-file-toolbar {
+    align-items: end;
+    gap: 0.75rem;
+    margin: 1rem 0 0.75rem;
+}
+
+.folder-file-search {
+    flex: 1 1 14rem;
+}
+
+.folder-role-filter {
+    flex: 0 1 12rem;
+}
+
+#files-visible-count {
+    margin-left: auto;
+    align-self: end;
+    display: flex;
+    align-items: center;
+    min-height: calc(1.5em + 0.5rem + 2px);
+}
+
+#files-table .file-modified {
+    font-size: 0.85rem;
+    color: #6c757d;
+    font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 575.98px) {
+    .model-folder-actions {
+        margin-left: 0;
+    }
+
+    .folder-role-filter {
+        flex: 1 1 10rem;
+    }
+}
+
 #files-table .col-name {
     width: 100%;
 }

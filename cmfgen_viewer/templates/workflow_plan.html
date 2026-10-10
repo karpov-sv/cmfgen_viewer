@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Workflow dry-run — {{ source_path }}{% endblock %}
 {% block body %}
+{% include "_model_toolbar.html" %}
 <h1 class="h4">Workflow dry-run: {{ plan.scope }}</h1>
 <p><code>{{ plan.model_path }}</code></p>
 <div class="alert alert-info">Preview only. Nothing is executed or written. Readiness is a snapshot, not permission to launch.</div>

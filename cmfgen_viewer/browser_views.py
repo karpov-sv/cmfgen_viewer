@@ -26,6 +26,7 @@ from .documentation import discover_docs as _discover_docs
 from .documentation import render_document
 from .model_editor import find_editable_model_file, model_inputs_modified_since_solution
 from .model_metadata import read_model
+from .model_navigation import model_navigation_context
 from .model_staging import is_sn_model_directory
 from .model_summary import summary_from_model
 from .summary_cache import (
@@ -85,6 +86,13 @@ def _cache_model_summary_on_visit(
         mod_sum_mtime=mod_sum_mtime,
     )
     return "added" if cached_status == "absent" else "refreshed"
+
+
+@bp.app_context_processor
+def inject_model_navigation():
+    return {"model_navigation": model_navigation_context(
+        _viewer_config(), request.endpoint, request.view_args or {},
+    )}
 
 
 @bp.app_context_processor

@@ -1,0 +1,44 @@
+{% if model_navigation %}
+{% set nav = model_navigation %}
+{% macro toolbar_link(section, enabled, endpoint, label, icon, folder=false) %}
+  {% if enabled %}
+    <a class="btn btn-sm {{ 'btn-primary' if nav.active == section else 'btn-outline-primary' }}" {% if nav.active == section %}aria-current="page"{% endif %} href="{{ url_for(endpoint, path=nav.path) if folder else url_for(endpoint, source_path=nav.path) }}"><i class="fa fa-{{ icon }} me-1" aria-hidden="true"></i>{{ label }}</a>
+  {% else %}
+    <button class="btn btn-sm btn-outline-secondary" type="button" disabled title="{{ 'Model-directory read-write mode is disabled.' if not nav.read_write else 'Not supported for SN models.' }}"><i class="fa fa-{{ icon }} me-1" aria-hidden="true"></i>{{ label }}</button>
+  {% endif %}
+{% endmacro %}
+<nav class="model-folder-toolbar mb-3" aria-label="Model workflow">
+  {{ toolbar_link('folder', true, 'viewer.view', 'Model folder', 'folder-open-o', true) }}
+  {% if nav.has_spectrum %}
+    <a class="btn btn-sm {{ 'btn-success' if nav.active == 'spectrum' else 'btn-outline-success' }}" {% if nav.active == 'spectrum' %}aria-current="page"{% endif %} href="{{ url_for('viewer.spectrum', path=nav.path) }}"><i class="fa fa-line-chart me-1" aria-hidden="true"></i>Final Spectrum</a>
+  {% endif %}
+  {{ toolbar_link('parameters', nav.read_write, 'viewer.model_parameters', 'Edit Parameters', 'sliders') }}
+  {{ toolbar_link('lte', nav.read_write and nav.supports_staging, 'viewer.model_lte_hydro', 'LTE / Hydro', 'cogs') }}
+  {{ toolbar_link('main', nav.read_write, 'viewer.model_main_computation', 'Main Computation', 'play-circle') }}
+  <div class="dropdown model-folder-actions">
+    <button class="btn btn-sm {{ 'btn-secondary' if nav.active in ['create', 'rename', 'cleanup'] else 'btn-outline-secondary' }} dropdown-toggle" type="button" id="model-folder-actions" data-bs-toggle="dropdown" aria-expanded="false">Model actions</button>
+    <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="model-folder-actions">
+      {% for section, enabled, endpoint, label, icon in [
+        ('create', nav.read_write and nav.supports_staging, 'viewer.model_create_from_solution', 'New Model from Current', 'files-o'),
+        ('rename', nav.read_write, 'viewer.model_rename', 'Rename / Move Model', 'pencil'),
+        ('cleanup', nav.read_write, 'viewer.model_cleanup', 'Cleanup Model', 'trash')
+      ] %}
+        <li>
+          {% if enabled %}
+            <a class="dropdown-item {{ 'active' if nav.active == section else 'text-danger' if icon == 'trash' else '' }}" {% if nav.active == section %}aria-current="page"{% endif %} href="{{ url_for(endpoint, source_path=nav.path) }}"><i class="fa fa-{{ icon }} me-2" aria-hidden="true"></i>{{ label }}</a>
+          {% else %}
+            <button class="dropdown-item" type="button" disabled><i class="fa fa-{{ icon }} me-2" aria-hidden="true"></i>{{ label }}</button>
+          {% endif %}
+        </li>
+      {% endfor %}
+      {% if not nav.read_write %}
+        <li><hr class="dropdown-divider"></li>
+        <li class="px-3 small text-muted">Model-directory read-write mode is disabled.</li>
+      {% elif not nav.supports_staging %}
+        <li><hr class="dropdown-divider"></li>
+        <li class="px-3 small text-muted">Creating new models from SN solutions is not supported yet.</li>
+      {% endif %}
+    </ul>
+  </div>
+</nav>
+{% endif %}

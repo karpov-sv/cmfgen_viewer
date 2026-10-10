@@ -1,93 +1,23 @@
 {% extends "files.html" %}
 
+{% block files_navigation %}
+  {% if model_parameters_source %}
+    {% include "_model_folder_navigation.html" %}
+  {% else %}
+    {{ super() }}
+  {% endif %}
+{% endblock %}
+
 {% block files_body %}
-  {% if model_create_source or model_rename_source or model_cleanup_source or model_parameters_source or model_workflow_source %}
-    <div class="quick-links mb-2">
-      <span class="small text-muted me-2">Model maintenance:</span>
-      {% if read_write_enabled and model_create_supported %}
-        <a class="btn btn-sm btn-outline-danger" href="{{ url_for('viewer.model_create_from_solution', source_path=model_create_source) }}">
-          <i class="fa fa-files-o me-1" aria-hidden="true"></i>
-          New Model from Current
-        </a>
-      {% else %}
-        <button class="btn btn-sm btn-outline-secondary" type="button" disabled>
-          <i class="fa fa-files-o me-1" aria-hidden="true"></i>
-          New Model from Current
-        </button>
-      {% endif %}
-      {% if read_write_enabled %}
-        <a class="btn btn-sm btn-outline-primary" href="{{ url_for('viewer.model_rename', source_path=model_rename_source) }}">
-          <i class="fa fa-pencil me-1" aria-hidden="true"></i>
-          Rename / Move Model
-        </a>
-      {% else %}
-        <button class="btn btn-sm btn-outline-secondary" type="button" disabled>
-          <i class="fa fa-pencil me-1" aria-hidden="true"></i>
-          Rename / Move Model
-        </button>
-      {% endif %}
-      {% if read_write_enabled %}
-        <a class="btn btn-sm btn-outline-danger" href="{{ url_for('viewer.model_cleanup', source_path=model_cleanup_source) }}">
-          <i class="fa fa-trash me-1" aria-hidden="true"></i>
-          Cleanup Model
-        </a>
-      {% else %}
-        <button class="btn btn-sm btn-outline-secondary" type="button" disabled>
-          <i class="fa fa-trash me-1" aria-hidden="true"></i>
-          Cleanup Model
-        </button>
-      {% endif %}
-      {% if not read_write_enabled %}
-        <span class="small text-muted">Model-directory read-write mode is disabled.</span>
-      {% elif not model_create_supported %}
-        <span class="small text-muted">Creating new models from SN solutions is not supported yet.</span>
-      {% endif %}
-    </div>
-    <div class="quick-links mb-3">
-      <span class="small text-muted me-2">Model workflow:</span>
-      {% if read_write_enabled %}
-        <a class="btn btn-sm btn-outline-primary" href="{{ url_for('viewer.model_parameters', source_path=model_parameters_source) }}">
-          <i class="fa fa-sliders me-1" aria-hidden="true"></i>
-          Edit Parameters
-        </a>
-      {% else %}
-        <button class="btn btn-sm btn-outline-secondary" type="button" disabled>
-          <i class="fa fa-sliders me-1" aria-hidden="true"></i>
-          Edit Parameters
-        </button>
-      {% endif %}
-      {% if read_write_enabled and model_workflow_supported %}
-        <a class="btn btn-sm btn-outline-primary" href="{{ url_for('viewer.model_lte_hydro', source_path=model_workflow_source) }}">
-          <i class="fa fa-cogs me-1" aria-hidden="true"></i>
-          LTE / Hydro
-        </a>
-      {% else %}
-        <button class="btn btn-sm btn-outline-secondary" type="button" disabled>
-          <i class="fa fa-cogs me-1" aria-hidden="true"></i>
-          LTE / Hydro
-        </button>
-      {% endif %}
-      {% if read_write_enabled %}
-        <a class="btn btn-sm btn-outline-primary" href="{{ url_for('viewer.model_main_computation', source_path=model_workflow_source) }}">
-          <i class="fa fa-play-circle me-1" aria-hidden="true"></i>
-          Main Computation
-        </a>
-      {% else %}
-        <button class="btn btn-sm btn-outline-secondary" type="button" disabled>
-          <i class="fa fa-play-circle me-1" aria-hidden="true"></i>
-          Main Computation
-        </button>
-      {% endif %}
-    </div>
-  {% endif %}
-  {% if show_symlink_toggle %}
-    <div class="mb-2 d-flex align-items-center gap-2">
-      <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('viewer.view', path=path, **symlink_toggle_query) }}">
-        {% if show_symlinks %}Hide Symlinked Files{% else %}Show Symlinked Files{% endif %}
-      </a>
-      <span class="small text-muted">Symlinked files are currently {{ "shown" if show_symlinks else "hidden" }}.</span>
-    </div>
-  {% endif %}
+  {% set role_labels = {
+    'core_viewer': 'Core output', 'optional_diagnostic': 'Diagnostic',
+    'restart_internal': 'Internal restart', 'input_control': 'Control input',
+    'input_restart': 'Restart input', 'input_atomic_core': 'Atomic data',
+    'input_atomic_optional': 'Optional atomic data', 'input_init_model': 'Initial model',
+    'input_grid_profile': 'Grid profile', 'input_velocity': 'Velocity input',
+    'input_sn_nonthermal': 'SN nonthermal input', 'input_hydro_iteration': 'Hydro input',
+    'script': 'Script', 'other': 'Other'
+  } %}
   {% set selectable_dirs = files | selectattr("is_dir") | list %}
   {% set show_bulk_selection = enable_multi_model_ops and selectable_dirs %}
   {% if not files %}
@@ -96,7 +26,31 @@
     {% if show_bulk_selection %}
       <form id="bulk-model-form" method="post" action="{{ url_for('viewer.bulk_summarize', path=path) }}">
     {% endif %}
-    <p class="text-muted">{{ files|length }} entries</p>
+    <div class="folder-file-toolbar">
+      <div class="spectrum-field folder-file-search">
+        <label for="files-search" class="plot-control-label">Find a file</label>
+        <input id="files-search" type="search" class="form-control form-control-sm" placeholder="Filter by filename" aria-controls="files-table">
+      </div>
+      {% if show_role_badges %}
+        <div class="spectrum-field folder-role-filter">
+          <label for="files-role-filter" class="plot-control-label">File role</label>
+          <select id="files-role-filter" class="form-select form-select-sm" aria-controls="files-table">
+            <option value="">All roles</option>
+            <option value="directory">Folders</option>
+            {% for role in files | rejectattr('is_dir') | map(attribute='cmfgen_role') | unique | sort %}
+              <option value="{{ role }}">{{ role_labels.get(role, role | replace('_', ' ') | capitalize) }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      {% endif %}
+      {% if show_symlink_toggle %}
+        <a class="btn btn-sm btn-outline-secondary folder-symlink-toggle" href="{{ url_for('viewer.view', path=path, **symlink_toggle_query) }}" title="Symlinked files are currently {{ 'shown' if show_symlinks else 'hidden' }}.">
+          {% if show_symlinks %}Hide Symlinked Files{% else %}Show Symlinked Files{% endif %}
+        </a>
+      {% endif %}
+      <button id="files-filter-reset" class="btn btn-sm btn-outline-secondary" type="button" hidden>Clear filters</button>
+      <span id="files-visible-count" class="small text-muted" role="status" aria-live="polite">{{ files|length }} entries</span>
+    </div>
     <div class="table-responsive">
       <table class="table table-sm table-hover align-middle" id="files-table">
         <thead>
@@ -107,8 +61,8 @@
                   type="checkbox"
                   class="form-check-input"
                   id="model-select-toggle"
-                  aria-label="Select or unselect all model folders"
-                  title="Select All"
+                  aria-label="Select or unselect all visible model folders"
+                  title="Select visible model folders"
                 >
               </th>
             {% endif %}
@@ -119,8 +73,8 @@
             </th>
             {% if show_role_badges %}
               <th class="col-fixed text-end">
-                <button type="button" class="table-sort" data-key="role" data-type="string">
-                  CMFGEN Role <span class="sort-indicator"></span>
+                <button type="button" class="table-sort" data-key="roleLabel" data-type="string">
+                  Role <span class="sort-indicator"></span>
                 </button>
               </th>
             {% endif %}
@@ -142,6 +96,7 @@
               data-entry
               data-name="{{ file.name|lower }}"
               data-role="{{ file.cmfgen_role|lower }}"
+              data-role-label="{{ role_labels.get(file.cmfgen_role, file.cmfgen_role | replace('_', ' ') | capitalize) }}"
               data-size="{{ -1 if file.is_dir else file.size }}"
               data-modified="{{ file.modified_ts }}"
               data-is-dir="{{ 1 if file.is_dir else 0 }}"
@@ -170,7 +125,7 @@
               {% if show_role_badges %}
                 <td class="col-fixed text-end">
                   {% if not file.is_dir %}
-                    <span class="role-badge role-{{ file.cmfgen_role }}">{{ file.cmfgen_role }}</span>
+                    <span class="role-badge role-{{ file.cmfgen_role }}">{{ role_labels.get(file.cmfgen_role, file.cmfgen_role | replace('_', ' ') | capitalize) }}</span>
                   {% endif %}
                 </td>
               {% endif %}
@@ -181,15 +136,17 @@
                   {{ file.human_size }}
                 {% endif %}
               </td>
-              <td class="col-fixed text-end"><code>{{ file.modified_display }}</code></td>
+              <td class="col-fixed text-end"><time class="file-modified" datetime="{{ file.modified_iso }}">{{ file.modified_display }}</time></td>
             </tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
+    <p id="files-filter-empty" class="small text-muted mt-2" hidden>No entries match these filters.</p>
     {% if show_bulk_selection %}
       <div class="d-flex flex-wrap align-items-center gap-2 mt-3">
         <span class="small text-muted">Bulk operations:</span>
+        <span id="bulk-selection-count" class="small text-muted"></span>
         <label class="small text-muted"><input type="checkbox" name="force_refresh" value="1" class="form-check-input me-1">Force summary refresh</label>
         <button type="submit" class="btn btn-sm btn-primary bulk-action-btn" id="bulk-summarize-btn" disabled>Summarize</button>
         <button
@@ -222,9 +179,10 @@
             if (!actionButtons.length) {
               return;
             }
-            var hasSelection = checkboxes.some(function (checkbox) {
-              return checkbox.checked;
-            });
+            var selectedCount = checkboxes.filter(function (checkbox) { return checkbox.checked; }).length;
+            var selectionCount = document.getElementById("bulk-selection-count");
+            if (selectionCount) selectionCount.textContent = selectedCount + " folders selected";
+            var hasSelection = selectedCount > 0;
             actionButtons.forEach(function (button) {
               button.disabled = !hasSelection;
             });
@@ -234,16 +192,16 @@
             if (!selectToggle) {
               return;
             }
-            var selectedCount = checkboxes.filter(function (checkbox) {
-              return checkbox.checked;
-            }).length;
-            selectToggle.checked = selectedCount > 0 && selectedCount === checkboxes.length;
-            selectToggle.indeterminate = selectedCount > 0 && selectedCount < checkboxes.length;
+            var visible = checkboxes.filter(function (checkbox) { return !checkbox.closest("tr").hidden; });
+            var selectedCount = visible.filter(function (checkbox) { return checkbox.checked; }).length;
+            selectToggle.disabled = visible.length === 0;
+            selectToggle.checked = selectedCount > 0 && selectedCount === visible.length;
+            selectToggle.indeterminate = selectedCount > 0 && selectedCount < visible.length;
           }
 
           function setAllCheckboxes(checked) {
             checkboxes.forEach(function (checkbox) {
-              checkbox.checked = checked;
+              if (!checkbox.closest("tr").hidden) checkbox.checked = checked;
             });
             syncToggleState();
             syncSubmitState();
@@ -262,6 +220,7 @@
             });
           });
 
+          document.getElementById("files-table").addEventListener("cmfgen:files-filtered", syncToggleState);
           syncToggleState();
           syncSubmitState();
         })();

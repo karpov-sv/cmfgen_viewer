@@ -6,6 +6,47 @@
 
     const tbody = table.tBodies[0];
     const headers = Array.from(table.querySelectorAll(".table-sort"));
+    const search = document.getElementById("files-search");
+    const roleFilter = document.getElementById("files-role-filter");
+    const reset = document.getElementById("files-filter-reset");
+    const count = document.getElementById("files-visible-count");
+    const empty = document.getElementById("files-filter-empty");
+
+    function applyFilters() {
+        const query = search ? search.value.trim().toLowerCase() : "";
+        const role = roleFilter ? roleFilter.value : "";
+        const rows = Array.from(tbody.querySelectorAll("tr[data-entry]"));
+        let visibleCount = 0;
+        rows.forEach(row => {
+            const matchesName = String(row.dataset.name || "").includes(query);
+            const matchesRole = !role || (role === "directory"
+                ? row.dataset.isDir === "1"
+                : row.dataset.isDir !== "1" && row.dataset.role === role);
+            row.hidden = !(matchesName && matchesRole);
+            if (!row.hidden) visibleCount += 1;
+        });
+        if (count) count.textContent = (query || role
+            ? visibleCount + " of " + rows.length
+            : String(rows.length)) + " entries";
+        if (reset) reset.hidden = !query && !role;
+        if (empty) empty.hidden = visibleCount !== 0;
+        table.dispatchEvent(new Event("cmfgen:files-filtered"));
+    }
+
+    if (search) {
+        search.addEventListener("input", applyFilters);
+        search.addEventListener("keydown", event => {
+            // Filtering must not submit the enclosing bulk-operation form.
+            if (event.key === "Enter") event.preventDefault();
+        });
+    }
+    if (roleFilter) roleFilter.addEventListener("change", applyFilters);
+    if (reset) reset.addEventListener("click", () => {
+        if (search) search.value = "";
+        if (roleFilter) roleFilter.value = "";
+        applyFilters();
+        if (search) search.focus();
+    });
 
     function resetIndicators() {
         headers.forEach((header) => {
@@ -83,4 +124,5 @@
             applySort(header);
         });
     });
+    applyFilters();
 })();

@@ -42,8 +42,8 @@ def test_create_from_solution_route_previews_and_creates_model(tmp_path: Path) -
     source_page = client.get("/view/grid/model_a")
     assert source_page.status_code == 200
     assert b"New Model from Current" in source_page.data
-    assert b"Model maintenance:" in source_page.data
-    assert b"Model workflow:" in source_page.data
+    assert b"Model actions" in source_page.data
+    assert b'aria-label="Model workflow"' in source_page.data
     assert b"Rename / Move Model" in source_page.data
     assert b"Cleanup Model" in source_page.data
     assert b"Edit Parameters" in source_page.data

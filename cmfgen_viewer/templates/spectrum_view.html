@@ -2,6 +2,10 @@
 
 {% block title %}Final Spectrum - CMFGEN Viewer{% endblock %}
 
+{% block files_navigation %}
+  {% include "_model_folder_navigation.html" %}
+{% endblock %}
+
 {% block files_body %}
   <section class="plot-wrap spectrum-panel mb-4" aria-labelledby="final-spectrum-title">
     <h2 id="final-spectrum-title" class="h5 mb-1">Final Spectrum</h2>
