@@ -181,6 +181,50 @@ a:focus {
     min-width: 12rem;
 }
 
+.vizier-query-fields {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 8rem minmax(0, 1fr);
+    align-items: end;
+    gap: 0.75rem;
+}
+
+.vizier-query-field {
+    min-width: 0;
+}
+
+.vizier-catalog-controls,
+.vizier-catalog-list {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem 1rem;
+}
+
+.vizier-catalog-list {
+    flex: 1 1 auto;
+}
+
+.vizier-all-catalogs {
+    margin-left: auto;
+    padding-left: 2rem;
+    border-left: 1px solid #dee2e6;
+}
+
+@media (max-width: 767px) {
+    .vizier-query-fields {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .vizier-all-catalogs {
+        flex: 1 1 100%;
+        margin-left: 0;
+        padding-left: 1.5rem;
+        padding-top: 0.5rem;
+        border-left: 0;
+        border-top: 1px solid #dee2e6;
+    }
+}
+
 .plot-wrap {
     border: 1px solid #dee2e6;
     border-radius: 0.4rem;
