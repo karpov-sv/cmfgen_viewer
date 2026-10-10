@@ -16,6 +16,8 @@
 
   var pollTimer = null;
   var requestInFlight = false;
+  var refreshPending = false;
+  var runningCount = 0;
 
   function asFiniteNumber(value, fallback) {
     var numeric = Number(value);
@@ -94,15 +96,27 @@
     return tasks.length;
   }
 
-  function schedulePoll(delay) {
+  function stopPolling() {
     if (pollTimer !== null) {
       window.clearTimeout(pollTimer);
+      pollTimer = null;
     }
-    pollTimer = window.setTimeout(refresh, delay);
+  }
+
+  function schedulePoll(delay) {
+    stopPolling();
+    if (!document.hidden) {
+      pollTimer = window.setTimeout(refresh, delay);
+    }
   }
 
   function refresh() {
+    stopPolling();
+    if (document.hidden) {
+      return;
+    }
     if (requestInFlight) {
+      refreshPending = true;
       return;
     }
     requestInFlight = true;
@@ -118,22 +132,33 @@
         return response.json();
       })
       .then(function (payload) {
-        var runningCount = render(payload);
-        schedulePoll(runningCount > 0 ? 1500 : 5000);
+        runningCount = render(payload);
+        if (runningCount > 0) {
+          schedulePoll(1500);
+        }
       })
       .catch(function () {
-        schedulePoll(10000);
+        if (runningCount > 0) {
+          schedulePoll(10000);
+        }
       })
       .finally(function () {
         requestInFlight = false;
+        if (refreshPending) {
+          refreshPending = false;
+          refresh();
+        }
       });
   }
 
   document.addEventListener("visibilitychange", function () {
-    if (!document.hidden) {
+    if (document.hidden) {
+      stopPolling();
+    } else {
       refresh();
     }
   });
+  window.addEventListener("focus", refresh);
   window.addEventListener("cmfgen:background-tasks-changed", refresh);
   refresh();
 })();
