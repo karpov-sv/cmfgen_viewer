@@ -6,10 +6,15 @@ import copy
 import time
 from contextlib import contextmanager
 from threading import RLock
+from typing import Callable
 
 
 class JobStore:
-    def __init__(self, *, max_jobs: int, ttl_seconds: float = 6 * 60 * 60):
+    def __init__(
+        self, *, max_jobs: int, ttl_seconds: float = 6 * 60 * 60,
+        on_change: Callable[[], None] | None = None,
+    ):
+        self._on_change = on_change or (lambda: None)
         self.max_jobs = max_jobs
         self.ttl_seconds = ttl_seconds
         self._lock = RLock()
@@ -39,6 +44,7 @@ class JobStore:
             job_id = str(payload["job_id"])
             self._jobs[job_id] = copy.deepcopy(payload)
             self._prune(time.time())
+            self._on_change()
             return job_id, False
 
     def update(self, job_id: str, **fields: object) -> bool:
@@ -47,6 +53,7 @@ class JobStore:
             if job is None:
                 return False
             job.update(copy.deepcopy(fields))
+            self._on_change()
             return True
 
     @contextmanager
@@ -63,6 +70,7 @@ class JobStore:
                 return False
             job[field].append(copy.deepcopy(item))
             job.update(copy.deepcopy(fields))
+            self._on_change()
             return True
 
     def snapshot(self, job_id: str, *, exclude: tuple[str, ...] = ()) -> dict[str, object] | None:
@@ -96,6 +104,7 @@ class JobStore:
                 return None
             if job.get("status") == "running":
                 job.update(cancel_requested=True, cancel_requested_at=time.time())
+                self._on_change()
             return copy.deepcopy(job)
 
     def cancel_requested(self, job_id: str) -> bool:

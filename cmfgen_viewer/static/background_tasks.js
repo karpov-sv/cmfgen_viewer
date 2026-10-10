@@ -18,6 +18,7 @@
   var requestInFlight = false;
   var refreshPending = false;
   var runningCount = 0;
+  var streamConnected = false;
 
   function asFiniteNumber(value, fallback) {
     var numeric = Number(value);
@@ -112,7 +113,7 @@
 
   function refresh() {
     stopPolling();
-    if (document.hidden) {
+    if (document.hidden || streamConnected) {
       return;
     }
     if (requestInFlight) {
@@ -132,13 +133,13 @@
         return response.json();
       })
       .then(function (payload) {
-        runningCount = render(payload);
-        if (runningCount > 0) {
+        if (!streamConnected) runningCount = render(payload);
+        if (runningCount > 0 && !streamConnected) {
           schedulePoll(1500);
         }
       })
       .catch(function () {
-        if (runningCount > 0) {
+        if (runningCount > 0 && !streamConnected) {
           schedulePoll(10000);
         }
       })
@@ -160,5 +161,17 @@
   });
   window.addEventListener("focus", refresh);
   window.addEventListener("cmfgen:background-tasks-changed", refresh);
-  refresh();
+  if (window.CmfgenLiveUpdates) {
+    window.CmfgenLiveUpdates.subscribe("tasks", function (payload) {
+      stopPolling();
+      runningCount = render(payload);
+    });
+    window.CmfgenLiveUpdates.subscribe("connection", function (connected) {
+      streamConnected = connected;
+      if (connected) stopPolling();
+      else refresh();
+    });
+  } else {
+    refresh();
+  }
 })();

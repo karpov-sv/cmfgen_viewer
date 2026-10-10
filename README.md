@@ -311,6 +311,8 @@ and exit codes. Execution checks do not establish scientific convergence.
   - `upload_service.py`: upload bundle creation with failure rollback and atomic manifest persistence.
   - `job_store.py`: shared thread-safe job lifecycle; each app owns separate grid and cache job stores
     through `app.extensions["cmfgen_jobs"]`. Background workers receive their store explicitly.
+  - `live_events.py`, `live_event_views.py`: application-local job notifications and a shared
+    server-sent event endpoint for task navigation and model runtime panels.
   - `grid_config.py`, `hr_diagram.py`: grid definitions and reference HR-diagram data without Flask dependencies.
   - `observed_spectrum.py`: uploaded observed-spectrum parsing and upload-manifest lifecycle.
   - `syntax.py`: syntax highlighting and CMFGEN input lexer.
@@ -320,6 +322,20 @@ and exit codes. Execution checks do not establish scientific convergence.
 - `CMFGEN_*_investigation_*.txt`: source investigation logs.
 
 ## Notes
+
+Task navigation and model runtime panels share one `/tasks/events` connection per visible
+page. Each connection starts with current snapshots, including after a reload or reconnect.
+Job-store changes push task updates, coalesced to at most once per second. While a runtime
+panel is open, the server checks its external processes and output files every five seconds
+and pushes changed status, progress, and completion diagnostics. Linux `/proc` remains the
+source of process detection, including runs started outside the viewer. Idle task streams
+wait for notifications and send only a keepalive every 15 seconds.
+
+Hidden pages close the stream and resynchronize when visible. The existing JSON status
+endpoints provide a polling fallback if SSE is unavailable. Individual fit/summary job pages
+retain their own job-specific progress polling. No new dependencies are needed. As with the
+in-memory job stores, notification delivery assumes a single server process; deploying
+multiple worker processes would require a shared job store and notification service.
 
 Spectrum pages share Jinja components for axes, zoom, line settings, transformations,
 the plot canvas, and JSON configuration (`templates/_spectrum_*.html`).

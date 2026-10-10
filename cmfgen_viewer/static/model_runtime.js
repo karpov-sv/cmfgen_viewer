@@ -157,6 +157,9 @@
     );
   };
 
+  let streamConnected = false;
+  let pollTimer = null;
+
   const refresh = async (monitor) => {
     try {
       const response = await fetch(monitor.dataset.modelRuntimeUrl, {
@@ -166,20 +169,50 @@
       if (!response.ok) {
         throw new Error(`Runtime status request failed: ${response.status}`);
       }
-      render(monitor, await response.json());
+      const runtime = await response.json();
+      if (!streamConnected) render(monitor, runtime);
     } catch (_error) {
-      const checked = monitor.querySelector("[data-runtime-checked]");
-      checked.textContent = "Live update unavailable";
+      if (!streamConnected) {
+        const checked = monitor.querySelector("[data-runtime-checked]");
+        checked.textContent = "Live update unavailable";
+      }
     }
   };
 
   const refreshAll = () => {
-    if (!document.hidden) {
+    if (!document.hidden && !streamConnected) {
       monitors.forEach(refresh);
     }
   };
 
-  window.setTimeout(refreshAll, 1000);
-  window.setInterval(refreshAll, 5000);
-  document.addEventListener("visibilitychange", refreshAll);
+  const stopPolling = () => {
+    if (pollTimer !== null) window.clearInterval(pollTimer);
+    pollTimer = null;
+  };
+  const startPolling = () => {
+    if (document.hidden || streamConnected || pollTimer !== null) return;
+    refreshAll();
+    pollTimer = window.setInterval(refreshAll, 5000);
+  };
+
+  if (window.CmfgenLiveUpdates) {
+    monitors.forEach(monitor => {
+      const key = monitor.dataset.runtimeKey;
+      window.CmfgenLiveUpdates.subscribe("runtime:" + key, runtime => render(monitor, runtime));
+      window.CmfgenLiveUpdates.subscribe("runtime-error:" + key, () => {
+        monitor.querySelector("[data-runtime-checked]").textContent = "Live update unavailable";
+      });
+    });
+    window.CmfgenLiveUpdates.subscribe("connection", connected => {
+      streamConnected = connected;
+      if (connected) stopPolling();
+      else startPolling();
+    });
+  } else {
+    startPolling();
+  }
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) stopPolling();
+    else startPolling();
+  });
 })();

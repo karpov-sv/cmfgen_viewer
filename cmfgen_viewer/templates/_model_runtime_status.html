@@ -19,6 +19,7 @@
 
 <div
   class="model-runtime-monitor border rounded p-3 mb-3"
+  data-runtime-key="{{ runtime.kind }}:{{ source_path }}"
   data-model-runtime-url="{{ runtime_url }}"
   data-runtime-view-prefix="{{ url_for('viewer.view', path=runtime_source_path) }}"
   aria-live="polite"

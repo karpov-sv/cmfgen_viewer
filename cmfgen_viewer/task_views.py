@@ -99,8 +99,7 @@ def _summary_background_task(snapshot: dict[str, object]) -> dict[str, object]:
     }
 
 
-@bp.route("/tasks/status")
-def background_tasks_status():
+def background_tasks_payload():
     upload_root = _upload_root(_viewer_config())
     upload_names = {
         str(entry.get("token", "")): str(entry.get("filename", "")).strip()
@@ -116,6 +115,11 @@ def background_tasks_status():
         for snapshot in _cache_jobs().snapshots(status="running", exclude=SUMMARY_JOB_DETAILS)
     ]
     tasks = grid_tasks + cache_tasks
-    response = jsonify({"ok": True, "running_count": len(tasks), "tasks": tasks})
+    return {"ok": True, "running_count": len(tasks), "tasks": tasks}
+
+
+@bp.route("/tasks/status")
+def background_tasks_status():
+    response = jsonify(background_tasks_payload())
     response.headers["Cache-Control"] = "no-store"
     return response

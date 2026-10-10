@@ -29,10 +29,14 @@ def create_app(
     """Create Flask app for browsing CMFGEN model outputs."""
     app = Flask(__name__)
     from .job_store import JobStore
+    from .live_events import ChangeSignal
+
+    signal = ChangeSignal()
+    app.extensions["cmfgen_changes"] = signal
 
     app.extensions["cmfgen_jobs"] = {
-        "grid": JobStore(max_jobs=32),
-        "cache": JobStore(max_jobs=16),
+        "grid": JobStore(max_jobs=32, on_change=signal.notify),
+        "cache": JobStore(max_jobs=16, on_change=signal.notify),
     }
     default_summary_cache_db = (
         Path(__file__).resolve().parent.parent / "model_summary_cache.sqlite"
