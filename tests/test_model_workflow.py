@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
 import pytest
@@ -646,3 +647,114 @@ def test_workflow_page_never_runs_processes_and_guards_read_only_mode(
     read_only = create_app(basepath=str(tmp_path), read_write_enabled=False, secret_key="test")
     read_only.testing = True
     assert read_only.test_client().get("/model-actions/lte-hydro/model_a").status_code == 403
+
+
+def test_prepared_workflow_focuses_next_stage_and_distinguishes_existing_root(tmp_path):
+    model = _write_misaligned_hydro_model(tmp_path)
+    (model / "lte/ROSSELAND_LTE_TAB").unlink()
+    (model / "lte/RVSIG_COL_NEW").unlink()
+    (model / "ROSSELAND_LTE_TAB").write_text("existing root structure\n")
+    with (model / "lte/ltebat.sh").open("a") as script:
+        script.write("ln -sf /missing/atomic/oxygen.dat OVIII_F_TO_S\n")
+    app = create_app(basepath=str(tmp_path), read_write_enabled=True, secret_key="test")
+    client = app.test_client()
+    page = client.get("/model-actions/lte-hydro/model_a").get_data(as_text=True)
+    assert re.search(r'id="hydro-run"\s*>', page)
+    assert re.search(r'id="lte-run"\s+open', page)
+    assert '>Run LTE</a>' in page
+    assert 'Waiting for LTE' in page
+    assert 'Parameter mismatch' in page
+    assert 'Existing root structure available' in page
+    assert 'Handoff ready' not in page
+    assert 'The current LTE/hydro workspace results have not been promoted' in page
+    assert 'No blockers' in page and '1 warning' in page
+    assert '1 missing atomic / restart link target' in page
+    assert 'Full target path' in page
+    assert '/missing/atomic/oxygen.dat' in page
+    state = inspect_lte_hydro_workflow(str(tmp_path), model_relpath="model_a")
+    assert state['hydro_preflight']['blocking']
+    assert not state['hydro_ready']
+    _make_outputs_fresh(model)
+    page = client.get("/model-actions/lte-hydro/model_a").get_data(as_text=True)
+    assert re.search(r'id="hydro-run"\s+open', page)
+    assert '>Review hydro parameters</a>' in page
+    assert 'How the proposed values are calculated' in page
+
+
+def _write_initializable_workspace_inputs(tmp_path):
+    model = _write_model(tmp_path)
+    _write_templates(tmp_path)
+    (model / 'VADAT').write_text(
+        '2.5D0 [TEFF]\n3.7 [LOGG]\n11500 [LSTAR]\n2D-8 [MDOT]\n'
+        '1800 [VINF]\n2 [BETA]\nF [CHK_NG]\n',
+    )
+    (tmp_path / 'examples/HYDRO_PARAMS').write_text(
+        '! Keep template comment\n3.9 [TEFF] ! temperature\n3.55 [LOG_G]\n'
+        '1.8e-6 [MDOT]\n2277.344 [VINF]\n1 [BETA]\n127.55 [REF_R]\n135 [CON_R]\n'
+        'F [OLD_MOD]\nF [OLD_V]\nT [WIND_PRES]\n100 [MAX_R]\n',
+    )
+    return model
+
+
+def test_prepare_initializes_hydro_and_preserves_sources(tmp_path):
+    model = _write_initializable_workspace_inputs(tmp_path)
+    template = tmp_path / 'examples/HYDRO_PARAMS'
+    template.chmod(0o640)
+    original_template = template.read_bytes()
+    original_vadat = (model / 'VADAT').read_bytes()
+    app = create_app(basepath=str(tmp_path), read_write_enabled=True, secret_key='test')
+    response = app.test_client().post('/model-actions/lte-hydro/model_a',
+                                      data={'action': 'prepare'}, follow_redirects=True)
+    assert response.status_code == 200
+    assert b'HYDRO_PARAMS initialized from VADAT' in response.data
+    assert b'review the connection radius' in response.data.lower()
+    assert b'retained its template values' not in response.data
+    state = inspect_lte_hydro_workflow(str(tmp_path), model_relpath='model_a')
+    alignment = state['hydro_alignment']
+    assert alignment['ready'] and not alignment['has_changes'] and not alignment['has_mismatch']
+    values = model_workflow._control_numeric_values(model / 'lte/HYDRO_PARAMS')
+    assert values['TEFF'] == 2.5 and values['LOG_G'] == 3.7
+    assert values['MDOT'] == 2e-8 and values['VINF'] == 1800 and values['BETA'] == 2
+    assert (values['REF_R'] / 6.9599) ** 2 * (2.5 / 0.5770) ** 4 == pytest.approx(11500)
+    assert values['CON_R'] / values['REF_R'] == pytest.approx(135 / 127.55)
+    contents = (model / 'lte/HYDRO_PARAMS').read_text()
+    assert '! Keep template comment' in contents and '! temperature' in contents
+    assert '100 [MAX_R]' in contents and 'F [OLD_MOD]' in contents
+    assert (model / 'lte/HYDRO_PARAMS').stat().st_mode & 0o777 == 0o640
+    assert template.read_bytes() == original_template
+    assert (model / 'VADAT').read_bytes() == original_vadat
+    assert not state['hydro_ready']  # Preparation has not produced any LTE result.
+    with pytest.raises(ModelWorkflowError):
+        prepare_lte_hydro_workspace(str(tmp_path), model_relpath='model_a')
+    assert (model / 'lte/HYDRO_PARAMS').read_text() == contents
+
+
+@pytest.mark.parametrize('filename,old,new', [
+    ('VADAT', '11500 [LSTAR]', 'NaN [LSTAR]'),
+    ('VADAT', '3.7 [LOGG]', '3.7 [LOGG]\n4 [LOGG]'),
+    ('HYDRO_PARAMS', 'F [OLD_V]', 'T [OLD_V]'),
+])
+def test_prepare_reports_unsupported_hydro_initialization_without_partial_changes(tmp_path, filename, old, new):
+    model = _write_initializable_workspace_inputs(tmp_path)
+    target = model / filename if filename == 'VADAT' else tmp_path / 'examples/HYDRO_PARAMS'
+    target.write_text(target.read_text().replace(old, new))
+    original = (tmp_path / 'examples/HYDRO_PARAMS').read_bytes()
+    app = create_app(basepath=str(tmp_path), read_write_enabled=True, secret_key='test')
+    response = app.test_client().post('/model-actions/lte-hydro/model_a',
+                                      data={'action': 'prepare'}, follow_redirects=True)
+    assert response.status_code == 200
+    assert b'HYDRO_PARAMS retained its template values' in response.data
+    assert b'Initialization issues' in response.data
+    assert (model / 'lte/HYDRO_PARAMS').read_bytes() == original
+    assert not inspect_lte_hydro_workflow(str(tmp_path), model_relpath='model_a')['hydro_alignment']['ready']
+
+
+def test_prepare_does_not_publish_workspace_if_hydro_initialization_write_fails(tmp_path, monkeypatch):
+    model = _write_initializable_workspace_inputs(tmp_path)
+    monkeypatch.setattr(model_workflow, '_atomic_write',
+                        lambda *args: (_ for _ in ()).throw(OSError('write failed')))
+    with pytest.raises(ModelWorkflowError, match='write failed'):
+        prepare_lte_hydro_workspace(str(tmp_path), model_relpath='model_a')
+    assert not (model / 'lte').exists()
+    assert not (model / 'RVSIG_COL_OLD').exists()
+    assert not list(model.glob('.cmfgen-lte-*'))

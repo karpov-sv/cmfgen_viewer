@@ -31,7 +31,10 @@
     const table = append(responsive, "table", "table table-sm align-middle mb-0");
     const head = append(table, "thead");
     const headRow = append(head, "tr");
-    ["Process", "State", "Elapsed", "CPU", "Memory"].forEach((label) => append(headRow, "th", "", label));
+    ["Process", "OS state", "Elapsed", "CPU", "Memory"].forEach((label) => {
+      const heading = append(headRow, "th", "", label);
+      if (label === "OS state") heading.title = "OS scheduling snapshot; sleeping does not by itself mean the calculation is paused.";
+    });
     const body = append(table, "tbody");
     processes.forEach((process) => {
       const row = append(body, "tr");
@@ -194,6 +197,9 @@
   };
 
   const render = (monitor, runtime) => {
+    if (monitor.dataset.runtimeCompact === "true") {
+      monitor.classList.toggle("runtime-idle", !runtime.active && runtime.monitoring_available === true);
+    }
     const badge = monitor.querySelector("[data-runtime-state]");
     badge.className = `badge ${runtime.active ? "bg-success" : "bg-secondary"}`;
     badge.textContent = runtime.active ? `Running now · ${runtime.phase_label}`

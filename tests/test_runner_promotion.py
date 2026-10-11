@@ -61,7 +61,7 @@ def test_promotion_plan_needs_no_executable_configuration(promotable_model: Path
     plan = build_promotion_plan(promotable_model)
 
     assert plan["ready"] is True
-    assert plan["stage"] == "promote"
+    assert plan["stage"] == "promote-hydro"
     assert plan["kind"] == "filesystem"
     assert plan["synchronized_rmax"] == 2.0
     assert plan["timeout"] is None
@@ -153,7 +153,7 @@ def test_promotion_cli_bypasses_cmfgen_configuration(
         lambda **kwargs: pytest.fail("promotion must not resolve CMFDIST/ATOMIC"),
     )
 
-    assert runner.main([str(promotable_model), "--plan", "--stage", "promote"]) == 0
+    assert runner.main([str(promotable_model), "--plan", "--stage", "promote-hydro"]) == 0
 
     captured = capsys.readouterr()
     assert "Promotion preflight passed" in captured.out
@@ -167,7 +167,18 @@ def test_promotion_rejects_execution_only_options(
     options: list[str],
 ) -> None:
     assert runner.main(
-        [str(promotable_model), "--plan", "--stage", "promote", *options]
+        [str(promotable_model), "--plan", "--stage", "promote-hydro", *options]
     ) == 2
 
     assert "do not apply to promotion" in capsys.readouterr().err
+
+
+def test_promotion_emits_named_stage_in_journal(promotable_model):
+    plan = build_promotion_plan(promotable_model)
+    events = []
+    result = run_plan(plan, events.append)
+    assert result['status'] == 'succeeded'
+    assert result['stage'] == result['passes'][0]['id'] == 'promote-hydro'
+    saved = json.loads((Path(result['journal']) / 'plan.json').read_text())
+    assert saved['stage'] == 'promote-hydro'
+    assert all(item['stage'] == 'promote-hydro' for item in events)

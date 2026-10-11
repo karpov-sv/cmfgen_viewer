@@ -207,8 +207,8 @@ def _file_state(path: Path, *, dependencies: tuple[Path, ...] = ()) -> dict[str,
     }
 
 
-def _template_paths(basepath: str) -> dict[str, Path | None]:
-    root = Path(basepath).expanduser().resolve() / "examples"
+def _template_paths(basepath: str, template_root: str | None = None) -> dict[str, Path | None]:
+    root = Path(template_root).expanduser().resolve() if template_root is not None else Path(basepath).expanduser().resolve() / "examples"
     result: dict[str, Path | None] = {}
     for name in ("GRID_PARAMS", "ltebat.sh", "HYDRO_PARAMS"):
         candidates = (root / name, root / "lte2" / name)
@@ -387,6 +387,12 @@ def _hydro_parameter_alignment(basepath: str, model_relpath: str) -> dict[str, o
     except ModelEditorError as exc:
         preview["issues"] = [str(exc)]
         return preview
+    return _hydro_alignment_from_records(records)
+
+
+def _hydro_alignment_from_records(records: dict[str, dict]) -> dict[str, object]:
+    """Shared calculation for a prepared workspace or newly copied staging files."""
+    preview = {"rows": [], "issues": [], "ready": False, "has_mismatch": False}
     issues = preview["issues"]
     occurrences = {name: _control_occurrences(str(record["contents"])) for name, record in records.items()}
 
@@ -709,11 +715,11 @@ def _save_workflow_quick_controls(
         raise ModelWorkflowError(str(exc)) from exc
 
 
-def inspect_lte_hydro_workflow(basepath: str, *, model_relpath: str, config: dict | None = None) -> dict[str, object]:
+def inspect_lte_hydro_workflow(basepath: str, *, model_relpath: str, config: dict | None = None, template_root: str | None = None) -> dict[str, object]:
     normalized, model_dir = _resolve_model(basepath, model_relpath)
     activity = inspect_model_activity(model_dir)
     lte_dir = model_dir / "lte"
-    templates = _template_paths(basepath)
+    templates = _template_paths(basepath, template_root)
     root_files = [
         {**_file_state(model_dir / name), "required": name in ROOT_REQUIRED_INPUTS}
         for name in (*ROOT_REQUIRED_INPUTS, *ROOT_OPTIONAL_INPUTS)
@@ -742,7 +748,7 @@ def inspect_lte_hydro_workflow(basepath: str, *, model_relpath: str, config: dic
     elif missing_root:
         prepare_reason = f"Missing model input(s): {', '.join(missing_root)}."
     elif missing_templates:
-        prepare_reason = f"Missing template(s) under {Path(basepath).resolve() / 'examples'}: {', '.join(missing_templates)}."
+        prepare_reason = f"Missing template(s) under {template_root or Path(basepath).resolve() / 'examples'}: {', '.join(missing_templates)}."
     elif prepared:
         prepare_reason = "The LTE workspace is prepared."
     else:
@@ -802,7 +808,7 @@ def inspect_lte_hydro_workflow(basepath: str, *, model_relpath: str, config: dic
         "hydro_preflight": hydro_preflight,
         "model_path": str(model_dir),
         "lte_path": str(lte_dir),
-        "template_root": str(Path(basepath).expanduser().resolve() / "examples"),
+        "template_root": str(Path(template_root).expanduser().resolve() if template_root is not None else Path(basepath).expanduser().resolve() / "examples"),
         "root_files": root_files,
         "template_files": template_files,
         "lte_files": lte_files,
@@ -842,14 +848,50 @@ def _copy_regular(source: Path, destination: Path) -> None:
     shutil.copy2(source, destination)
 
 
-def prepare_lte_hydro_workspace(basepath: str, *, model_relpath: str) -> dict[str, object]:
+def _initialize_hydro_parameters(staging: Path) -> dict[str, object]:
+    """Initialize only new template copies; unsupported inputs remain unchanged."""
+    try:
+        records = {}
+        for name in ("VADAT", "HYDRO_PARAMS"):
+            payload = (staging / name).read_bytes()
+            records[name] = {"contents": payload.decode("utf-8"),
+                             "digest": hashlib.sha256(payload).hexdigest()}
+    except UnicodeError:
+        return {"initialized": False, "issues": ["VADAT or HYDRO_PARAMS is not valid UTF-8 text."]}
+    preview = _hydro_alignment_from_records(records)
+    if not preview["ready"]:
+        return {"initialized": False, "issues": preview["issues"]}
+    values = preview["values"]
+    updated = _updated_control_contents(
+        records["HYDRO_PARAMS"]["contents"], "HYDRO_PARAMS", values,
+        definitions_by_file={"HYDRO_PARAMS": tuple({"key": key, "comment": "Initialized from VADAT"} for key in values)},
+        marker_label="workspace initialization",
+    )
+    updated += ("\n! CMFGEN Viewer: initialized from LTE/VADAT during workspace preparation.\n"
+                "! CON_R preserves the template CON_R / REF_R ratio; review before running hydro.\n")
+    target = staging / "HYDRO_PARAMS"
+    _atomic_write(target, updated.encode("utf-8"), stat.S_IMODE(target.stat().st_mode))
+    return {"initialized": True, "issues": []}
+
+
+def prepare_lte_hydro_workspace(basepath: str, *, model_relpath: str, template_root: str | None = None, expected_digests: dict[str, str | None] | None = None) -> dict[str, object]:
     with MODEL_WRITE_LOCK, model_mutation_guard(_resolve_model(basepath, model_relpath)[1], ModelWorkflowError):
-        state = inspect_lte_hydro_workflow(basepath, model_relpath=model_relpath)
+        state = inspect_lte_hydro_workflow(basepath, model_relpath=model_relpath, template_root=template_root)
         if not state["prepare_allowed"]:
             raise ModelWorkflowError(str(state["prepare_reason"] or "LTE workspace cannot be prepared."))
         model_dir = Path(str(state["model_path"]))
         lte_dir = model_dir / "lte"
-        templates = _template_paths(basepath)
+        templates = _template_paths(basepath, template_root)
+        if expected_digests is not None and any(
+            source is not None and str(source) not in expected_digests
+            for source in templates.values()
+        ):
+            raise ModelWorkflowError("Template selection changed since preflight; rebuild the plan.")
+        for path, expected in (expected_digests or {}).items():
+            source = Path(path)
+            current = hashlib.sha256(source.read_bytes()).hexdigest() if source.exists() else None
+            if current != expected:
+                raise ModelWorkflowError(f"Input changed since preflight: {path}")
         staging = Path(tempfile.mkdtemp(prefix=".cmfgen-lte-", dir=str(model_dir)))
         created_rvsig_backup = False
         try:
@@ -859,6 +901,7 @@ def prepare_lte_hydro_workspace(basepath: str, *, model_relpath: str) -> dict[st
                 if source is None:
                     raise ModelWorkflowError(f"Required workflow template is unavailable: {name}")
                 _copy_regular(source, staging / name)
+            hydro_initialization = _initialize_hydro_parameters(staging)
             if _regular_file(model_dir / "RVSIG_COL") and not (model_dir / "RVSIG_COL_OLD").exists():
                 _copy_regular(model_dir / "RVSIG_COL", model_dir / "RVSIG_COL_OLD")
                 created_rvsig_backup = True
@@ -873,7 +916,10 @@ def prepare_lte_hydro_workspace(basepath: str, *, model_relpath: str) -> dict[st
         finally:
             if staging.exists():
                 shutil.rmtree(staging, ignore_errors=True)
-    return inspect_lte_hydro_workflow(basepath, model_relpath=model_relpath)
+    prepared = inspect_lte_hydro_workflow(basepath, model_relpath=model_relpath, template_root=template_root)
+    prepared["hydro_initialized"] = hydro_initialization["initialized"]
+    prepared["hydro_initialization_issues"] = hydro_initialization["issues"]
+    return prepared
 
 
 def _atomic_copy(source: Path, destination: Path) -> None:

@@ -1,8 +1,10 @@
-{% macro issue_row(issue) %}
+{% macro issue_row(issue, waiting=false) %}
   <div class="workflow-issue small">
-    <span class="badge {{ 'text-bg-danger' if issue.severity == 'error' else 'text-bg-warning' if issue.severity == 'warning' else 'text-bg-info' }}">{{ issue.severity|capitalize }}</span>
+    <span class="badge {{ 'text-bg-secondary' if waiting else 'text-bg-danger' if issue.severity == 'error' else 'text-bg-warning' if issue.severity == 'warning' else 'text-bg-info' }}">{{ 'Waiting' if waiting else issue.severity|capitalize }}</span>
     <div>
-      {{ issue.message }}
+      {% if waiting %}Waiting for LTE to produce <code>ROSSELAND_LTE_TAB</code>. Hydro remains blocked until the output is usable.
+      {% else %}{{ issue.display_message | default(issue.message) }}{% endif %}
+      {% if issue.detail_path %}<details class="workflow-help"><summary class="fw-normal">Full target path</summary><code>{{ issue.detail_path }}</code></details>{% endif %}
       {% if issue.file %}
         {% if issue.editable %}<a class="ms-1" href="{{ url_for('viewer.model_parameters', source_path=source_path, file=issue.file) }}">Edit {{ issue.file }}</a>
         {% elif issue.available %}<a class="ms-1" href="{{ url_for('viewer.view', path=source_path ~ '/' ~ issue.file) }}">Open {{ issue.file }}</a>{% endif %}
@@ -12,18 +14,32 @@
   </div>
 {% endmacro %}
 {% set errors = preflight.issues | selectattr('severity', 'equalto', 'error') | list %}
-{% set notices = preflight.issues | rejectattr('severity', 'equalto', 'error') | list %}
-<div class="workflow-preflight mb-3">
+{% set waiting_file = preflight_waiting_file | default('') %}
+{% set blockers = errors | rejectattr('file', 'equalto', waiting_file) | list %}
+{% set warnings = preflight.issues | selectattr('severity', 'equalto', 'warning') | list %}
+{% set notes = preflight.issues | selectattr('severity', 'equalto', 'info') | list %}
+{% set link_warnings = warnings | selectattr('code', 'equalto', 'link-target-not-file') | list %}
+{% set other_warnings = warnings | rejectattr('code', 'equalto', 'link-target-not-file') | list %}
+<div class="workflow-preflight mb-2">
   <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
     <strong class="small">{{ preflight_title | default('Input validation') }}</strong>
-    {% if errors %}<span class="badge text-bg-danger">{{ errors|length }} blocker{% if errors|length != 1 %}s{% endif %}</span>
-    {% else %}<span class="badge text-bg-success">Passed</span>{% endif %}
+    {% if blockers %}<span class="badge text-bg-danger">{{ blockers|length }} blocker{% if blockers|length != 1 %}s{% endif %}</span>
+    {% elif errors %}<span class="badge text-bg-secondary">Waiting for LTE</span>
+    {% else %}<span class="badge text-bg-success">No blockers</span>{% endif %}
+    {% if warnings %}<span class="small text-warning-emphasis">{{ warnings|length }} warning{% if warnings|length != 1 %}s{% endif %}</span>{% endif %}
+    {% if notes %}<span class="small text-muted">{{ notes|length }} note{% if notes|length != 1 %}s{% endif %}</span>{% endif %}
   </div>
-  {% for issue in errors %}{{ issue_row(issue) }}{% endfor %}
-  {% if notices %}
-    <details class="workflow-help small mt-2">
-      <summary>{{ notices|length }} warning{% if notices|length != 1 %}s{% endif %} / notes</summary>
-      {% for issue in notices %}{{ issue_row(issue) }}{% endfor %}
+  {% for issue in errors %}{{ issue_row(issue, waiting_file and issue.file == waiting_file) }}{% endfor %}
+  {% if link_warnings %}
+    <details class="workflow-help small mt-1">
+      <summary>{{ link_warnings|length }} missing atomic / restart link target{% if link_warnings|length != 1 %}s{% endif %}</summary>
+      {% for issue in link_warnings %}{{ issue_row(issue) }}{% endfor %}
+    </details>
+  {% endif %}
+  {% if other_warnings or notes %}
+    <details class="workflow-help small mt-1">
+      <summary>Script and environment notes ({{ other_warnings|length + notes|length }})</summary>
+      {% for issue in other_warnings + notes %}{{ issue_row(issue) }}{% endfor %}
     </details>
   {% endif %}
 </div>

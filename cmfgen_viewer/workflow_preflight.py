@@ -128,9 +128,9 @@ def inspect_stage_preflight(model_dir: Path, stage: str, *, config: dict | None 
     environment = workflow_environment(config)
     issues = []
 
-    def issue(level, code, message, file=None):
+    def issue(level, code, message, file=None, **display):
         issues.append({"severity": level, "code": code, "message": message, "file": file,
-                       "available": bool(file and (model_dir / file).is_file()), "editable": False, "line": None})
+                       "available": bool(file and (model_dir / file).is_file()), "editable": False, "line": None, **display})
 
     activity = activity if activity is not None else inspect_model_activity(model_dir)
     if not activity["safe_to_modify"]:
@@ -215,7 +215,9 @@ def inspect_stage_preflight(model_dir: Path, stage: str, *, config: dict | None 
     for link in bad_links:
         name = Path(link["destination_expression"]).name
         level = "error" if name in REQUIRED_ATOMIC_LINKS else "warning"
-        issue(level, "link-target-not-file", f"Link {name} targets a missing file or a directory: {link['target']}. Check whether this ion is enabled.")
+        issue(level, "link-target-not-file", f"Link {name} targets a missing file or a directory: {link['target']}. Check whether this ion is enabled.",
+              display_message=f"{name}: target missing or not a file. Check whether this ion is enabled.",
+              detail_path=link["target"])
     if any(link["target"] is None for link in dependencies["links"]):
         issue("warning", "link-target-unresolved", "Some atomic/restart link targets depend on unresolved shell expressions; review the script dependencies.")
     if stage == "lte":

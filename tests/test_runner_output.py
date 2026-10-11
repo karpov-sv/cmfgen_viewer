@@ -149,8 +149,8 @@ def test_startup_test_result_reports_test_success(result):
 
 
 def test_promotion_result_reports_backup_and_invalidated_state(result):
-    result["stage"] = "promote"
-    result["passes"][0]["id"] = "promote"
+    result["stage"] = "promote-hydro"
+    result["passes"][0]["id"] = "promote-hydro"
     result["promotion"] = {
         "synchronized_rmax": 12.5,
         "backup_path": "/tmp/model/.cmfgen-viewer-backups/lte-hydro/test",

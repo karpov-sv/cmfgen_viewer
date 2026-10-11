@@ -17,6 +17,17 @@
       }
     });
   });
+  const revealStage = (hash = window.location.hash) => {
+    if (!hash) return;
+    const target = document.getElementById(decodeURIComponent(hash.slice(1)));
+    const stage = target?.closest("details.workflow-stage");
+    if (stage) stage.open = true;
+  };
+  window.addEventListener("hashchange", () => revealStage());
+  document.querySelectorAll('.workflow-next-step a[href^="#"]').forEach(link => {
+    link.addEventListener("click", () => revealStage(link.hash));
+  });
+  revealStage();
   document.querySelectorAll("details.workflow-stage").forEach(section => {
     section.addEventListener("toggle", () => {
       if (!section.open || !window.Plotly) return;

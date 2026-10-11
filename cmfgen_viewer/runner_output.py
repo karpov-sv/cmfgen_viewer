@@ -180,6 +180,21 @@ class TerminalOutput:
                 else "Sequence cannot start — nothing launched",
             )
             return
+        if plan["stage"] == "prepare-lte":
+            self.line("INFO", f"CMFGEN LTE workspace preparation — {plan['model']}")
+            self.line("INFO", f"Templates: {plan['template_root']}")
+            for item in plan["copies"]:
+                self.line("INFO", f"Copy {item['source']} → {item['destination']}")
+            if plan.get("backs_up_rvsig"):
+                self.line("INFO", "Preserve RVSIG_COL as RVSIG_COL_OLD")
+            alignment = plan.get("hydro_alignment")
+            if alignment and alignment["ready"]:
+                self.line("INFO", "Initialize HYDRO_PARAMS from VADAT: " + ", ".join(
+                    f"{key}={value}" for key, value in alignment["values"].items()))
+            self.warnings(plan.get("warnings", []))
+            self.details("ERROR", plan.get("errors", []))
+            self.line("OK" if plan["ready"] else "ERROR", "Preparation preflight passed" if plan["ready"] else "Preparation preflight failed — nothing changed")
+            return
         if plan["stage"] == "cleanup":
             self.line("INFO", f"CMFGEN model cleanup — {plan['model']}")
             entries = list(plan.get("entries", []))
@@ -215,7 +230,7 @@ class TerminalOutput:
                 else "Cleanup preflight failed — nothing changed",
             )
             return
-        if plan["stage"] == "promote":
+        if plan["stage"] == "promote-hydro":
             self.line("INFO", f"CMFGEN LTE/hydro promotion — {plan['model']}")
             self.line("INFO", "Filesystem handoff only; no native executable will be launched")
             if plan.get("synchronized_rmax") is not None:
@@ -294,7 +309,7 @@ class TerminalOutput:
         elif kind == "stage_finished":
             self._close_progress(stage)
             label, message = LABELS.get(item["status"], ("INFO", item["status"]))
-            if stage in {"promote", "cleanup"} and item["status"] == "failed":
+            if stage in {"prepare-lte", "promote-hydro", "cleanup"} and item["status"] == "failed":
                 message = "filesystem operation failed"
             self.line(label, f"{stage}: {message}")
         elif kind == "progress":
@@ -308,7 +323,7 @@ class TerminalOutput:
             return
         status = result["status"]
         label, message = LABELS.get(status, ("ERROR", status))
-        if result.get("stage") in {"promote", "cleanup"} and status == "failed":
+        if result.get("stage") in {"prepare-lte", "promote-hydro", "cleanup"} and status == "failed":
             message = "filesystem operation failed"
         passes = result.get("passes", [])
         native_warnings = {}
@@ -344,6 +359,11 @@ class TerminalOutput:
             invalidated = promotion.get("invalidated_files", [])
             if invalidated:
                 self.line("INFO", "Invalidated previous main state: " + ", ".join(invalidated))
+        if result.get("preparation"):
+            preparation = result["preparation"]
+            self.line("INFO", f"Prepared workspace: {preparation['workspace']}")
+            self.line("INFO", "HYDRO_PARAMS initialized from VADAT" if preparation["hydro_initialized"]
+                      else "HYDRO_PARAMS retains template values; review before running hydro")
         if result.get("cleanup"):
             cleanup = result["cleanup"]
             self.line(
@@ -373,7 +393,7 @@ class TerminalOutput:
                         print("    " + line.replace("\033", r"\x1b").replace("\r", r"\r"), file=self.stream)
         self.warnings(warnings)
         if status in {"succeeded", "tested"}:
-            if result.get("stage") in {"promote", "cleanup"}:
+            if result.get("stage") in {"prepare-lte", "promote-hydro", "cleanup"}:
                 self.line("INFO", "Filesystem checks passed; scientific acceptance is not applicable.")
             else:
                 self.line("INFO", "Execution checks passed; scientific convergence/acceptance is not assessed.")

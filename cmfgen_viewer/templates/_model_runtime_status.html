@@ -18,17 +18,23 @@
 {%- endmacro %}
 
 <div
-  class="model-runtime-monitor border rounded p-3 mb-3"
+  class="model-runtime-monitor border rounded p-3 mb-3{% if runtime_compact | default(false) %} runtime-compact{% if runtime.workspace_available and not runtime.active and runtime.monitoring_available %} runtime-idle{% endif %}{% endif %}"
   {% if runtime.workspace_available %}
     data-runtime-key="{{ runtime.kind }}:{{ source_path }}"
     data-runtime-active="{{ 'true' if runtime.active else 'false' }}"
     data-model-runtime-url="{{ runtime_url }}"
   {% endif %}
   data-runtime-view-prefix="{{ url_for('viewer.view', path=runtime_source_path) }}"
+  {% if runtime_compact | default(false) %}data-runtime-compact="true"{% endif %}
   aria-live="polite"
 >
   <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
-    <strong>Process and progress</strong>
+    {% if runtime_compact | default(false) %}
+      <details class="workflow-help runtime-monitor-help">
+        <summary>Process and progress</summary>
+        <p class="small text-muted mb-0 mt-1">Processes are matched by name and exact working directory. An OS state of sleeping does not by itself mean the calculation is paused; use progress and CPU changes to assess activity. File-derived progress is an estimate and may update in batches. Diagnostics use explicit fatal signatures and current result files; benign numerical warnings are not treated as failures.</p>
+      </details>
+    {% else %}<strong>Process and progress</strong>{% endif %}
     <div>
       <span class="badge {% if runtime.active %}bg-success{% else %}bg-secondary{% endif %}" data-runtime-state>
         {% if not runtime.workspace_available %}Workspace not prepared{% elif runtime.active %}Running now · {{ runtime.phase_label }}{% elif not runtime.monitoring_available %}Monitoring unavailable{% else %}Not running{% endif %}
@@ -41,7 +47,7 @@
     {% if runtime.processes %}
       <div class="table-responsive mb-2">
         <table class="table table-sm align-middle mb-0">
-          <thead><tr><th>Process</th><th>State</th><th>Elapsed</th><th>CPU</th><th>Memory</th></tr></thead>
+          <thead><tr><th>Process</th><th title="OS scheduling snapshot; sleeping does not by itself mean the calculation is paused.">OS state</th><th>Elapsed</th><th>CPU</th><th>Memory</th></tr></thead>
           <tbody>
             {% for process in runtime.processes %}
               <tr>
@@ -118,8 +124,10 @@
     {% endif %}
   </div>
 
+  {% if not runtime_compact | default(false) %}
   <details class="workflow-help small text-muted mt-2">
     <summary>About process monitoring</summary>
-    Running state is matched by process name and exact working directory. File-derived progress is an estimate and may update in batches. Diagnostics use explicit fatal signatures and current result files; benign numerical warnings are not treated as failures.
+    Running state is matched by process name and exact working directory. An OS state of sleeping does not by itself mean the calculation is paused; use progress and CPU changes to assess activity. File-derived progress is an estimate and may update in batches. Diagnostics use explicit fatal signatures and current result files; benign numerical warnings are not treated as failures.
   </details>
+  {% endif %}
 </div>

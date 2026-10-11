@@ -78,31 +78,59 @@ python3 cmfgen_run.py models/ostar/model_Bstar1060_new --plan --stage main --fre
 
 The human-readable plan shows effective settings; `--verbose` also shows their sources. The JSON plan (`--json`) records `configuration_sources` for programmatic inspection. These defaults apply to the standalone runner; the viewer's existing JSON/TOML configuration is unchanged.
 
+## Preparing the LTE workspace
+
+Use the explicit filesystem stage before the first LTE calculation:
+
+```bash
+python3 cmfgen_run.py /path/to/model --plan --stage prepare-lte \
+  --template-root /path/to/examples
+python3 cmfgen_run.py /path/to/model --stage prepare-lte \
+  --template-root /path/to/examples
+```
+
+`--template-root` names a directory containing `GRID_PARAMS`, `ltebat.sh`, and
+`HYDRO_PARAMS`; each file may also live in its `lte2/` subdirectory. Without the
+option, the runner uses the nearest ancestor's `examples/` directory. Preparation
+alone requires no native executable or atomic-data configuration. It uses the
+same guarded, atomic preparation as the viewer and records a runner journal.
+An existing or incomplete `lte/` path is rejected without overwriting it.
+
+The plan lists copies and proposed HYDRO_PARAMS values. Preparation copies the
+model's VADAT, MODEL_SPEC, and clean.sh, copies the three templates, and preserves
+RVSIG_COL as RVSIG_COL_OLD when needed. HYDRO_PARAMS is initialized from VADAT,
+including derived REF_R and CON_R. Unsupported inputs retain the template values
+with a warning; review them before hydro. CON_R retains the template's radius
+ratio and always needs review. Source contents are rechecked under the model
+write guard before preparation; changed inputs require a new plan. No scripts
+are executed and no native calculation starts during this stage.
+
 ## Multi-stage runs
 
 Repeat `--stage` to execute an ordered sequence:
 
 ```bash
 python3 cmfgen_run.py /path/to/model --plan \
-  --stage lte --stage hydro --stage promote --stage test --stage main --stage flux
+  --stage prepare-lte --stage lte --stage hydro --stage promote-hydro --stage test --stage main --stage flux
 
 python3 cmfgen_run.py /path/to/model \
-  --stage lte --stage hydro --stage promote --stage test --stage main --stage flux
+  --stage prepare-lte --stage lte --stage hydro --stage promote-hydro --stage test --stage main --stage flux
 ```
 
 The `--plan` mode fully preflights the first stage and records the remaining order. Later stages are deliberately not accepted in advance: each is rebuilt and preflighted immediately before it runs, after the preceding stage has produced and validated its outputs. A stage starts only when its predecessor returned `succeeded` or, for `test`, `tested`. Execution failure, invalid output, timeout, cancellation, or a just-in-time preflight error stops the sequence and leaves all remaining stages unstarted. Duplicate stages are rejected; issue a separate runner command when a stage genuinely needs to be repeated.
 
-Executable settings apply to every native stage in the sequence. `--iterations` applies only to its `main` stage. `--fresh-start` applies only to the first `test` or `main` stage, allowing a following `main` stage to continue from a successful initialization. `--cleanup-file` applies to the sequence's `cleanup` stage. A configured `--timeout` is a shared native-execution budget: elapsed execution is deducted before each subsequent native stage, while filesystem-only promotion/cleanup does not consume it. With no `--timeout`, the complete sequence remains unlimited.
+Executable settings apply to every native stage in the sequence. `--iterations` applies only to its `main` stage. `--fresh-start` applies only to the first `test` or `main` stage, allowing a following `main` stage to continue from a successful initialization. `--cleanup-file` applies to the sequence's `cleanup` stage. A configured `--timeout` is a shared native-execution budget: elapsed execution is deducted before each subsequent native stage, while filesystem-only preparation/promotion/cleanup does not consume it. With no `--timeout`, the complete sequence remains unlimited.
 
 ## Stages
 
-- `test` (zero-iteration startup check): temporarily sets `NUM_ITS=0` and runs `cmfgen_dev.exe`. It checks native startup and writes initial atmosphere/checkpoint outputs; it does not create or configure a model directory. Requires fresh `MODEL` and text `RVTJ`, matching depth count, and complete finite radius, velocity, temperature, and electron-density vectors. Radius, temperature, and electron density must also be positive. Returns **tested**, not a completed solution. Uncomputed auxiliary diagnostics can be nonfinite; no `MOD_SUM` finalization is required. Passing the startup test alone does not establish scientifically valid spectral-synthesis input.
-- `main`: runs `cmfgen_dev.exe` using `IN_ITS`, optionally with a temporary positive `--iterations N` override. Requires fresh `MODEL`, `RVTJ`, and `MOD_SUM`, a native finalization record, valid core vectors, and no nonfinite/overflow tokens in `RVTJ`. It does not automatically launch observer synthesis.
+- `prepare-lte`: prepares a new `lte/` workspace as described above. May be the first stage of a sequence; subsequent LTE preflight runs after preparation finishes. Existing workspaces are never overwritten. `--template-root` applies only to this stage.
 - `lte`: runs `main_lte.exe` in an already prepared `lte/` directory. Checks its own controls and validates the generated Rosseland table's dimensions, complete rows, and finite nonnegative values. It does not prepare, promote, or automatically run hydro.
 - `hydro`: runs `wind_hyd.exe` directly in the prepared `lte/` directory after a successful LTE stage. It requires a complete, finite `ROSSELAND_LTE_TAB`, `HYDRO_PARAMS`, and `MODEL_SPEC`; stale Rosseland tables are rejected. The runner selects PGPLOT's `/null` device, exits the diagnostic plot, requests the `MODEL_SPEC` depth count, and accepts the executable's calculated maximum optical depth. When `OLD_MOD=T`, `lte/RVTJ` is also required and selected. Stdout/stderr is captured as both the journal `process.log` and `lte/WIND_HYD`. Success requires a fresh `RVSIG_COL_NEW` with matching depth count, complete ordered rows, and finite physical grid values. The generated structure is not promoted automatically.
-- `promote`: performs the same guarded LTE/hydro handoff as the web UI without launching an executable or requiring CMFDIST/ATOMIC. Run `python3 cmfgen_run.py /path/to/model --plan --stage promote` first to review it, then omit `--plan` to execute. It requires fresh LTE and hydro results, extracts the generated radius ratio, synchronizes `lte/VADAT [RMAX]`, copies `ROSSELAND_LTE_TAB`, `RVSIG_COL_NEW`, `RVSIG_COL`, and `VADAT` to the model root, and archives then invalidates incompatible main/restart/radiation state. Promotion checks file integrity and freshness, not scientific suitability; review the reported luminosity and radius ratio before running it. An already-promoted identical result is rejected to protect any newer main solution. Executable resource controls such as `--threads`, `--timeout`, `--memory-mib`, and `--no-core-dumps` do not apply. Backups remain under `.cmfgen-viewer-backups/lte-hydro/`, and the runner records the handoff under `.cmfgen-runs/`.
+- `promote-hydro`: performs the same guarded LTE/hydro handoff as the web UI without launching an executable or requiring CMFDIST/ATOMIC. Run `python3 cmfgen_run.py /path/to/model --plan --stage promote-hydro` first to review it, then omit `--plan` to execute. It requires fresh LTE and hydro results, extracts the generated radius ratio, synchronizes `lte/VADAT [RMAX]`, copies `ROSSELAND_LTE_TAB`, `RVSIG_COL_NEW`, `RVSIG_COL`, and `VADAT` to the model root, and archives then invalidates incompatible main/restart/radiation state. Promotion checks file integrity and freshness, not scientific suitability; review the reported luminosity and radius ratio before running it. An already-promoted identical result is rejected to protect any newer main solution. Executable resource controls such as `--threads`, `--timeout`, `--memory-mib`, and `--no-core-dumps` do not apply. Backups remain under `.cmfgen-viewer-backups/lte-hydro/`, and the runner records the handoff under `.cmfgen-runs/`.
+- `main`: runs `cmfgen_dev.exe` using `IN_ITS`, optionally with a temporary positive `--iterations N` override. Requires fresh `MODEL`, `RVTJ`, and `MOD_SUM`, a native finalization record, valid core vectors, and no nonfinite/overflow tokens in `RVTJ`. It does not automatically launch observer synthesis.
 - `flux`: runs `cmf_flux.exe` in an already prepared `obs/` directory with `IN_FILE` as stdin. Preflight checks the conventional parent `RVTJ` core vectors and depth count, rejecting NaN temperatures/densities before they can cause misleading native line-profile errors. This is not a complete check of populations or scientific suitability. Recreates the reviewed 15, 10, and 20 km/s passes plus continuum from `CMF_FLUX_PARAM_INIT`. Each pass requires a native completion marker and a fresh, complete, finite spectrum before publishing `obs_fin_15`, `obs_fin_10`, `obs_fin_20`, or `obs_cont`. The frequency heading must provide a point count; the intensity heading may omit it, as in native `OBSFRAME`, but its actual vector length must match exactly. Failure stops subsequent passes. Scientific suitability of the parent model and requested wavelength coverage still require review.
 - `cleanup`: performs the viewer's conservative top-level model cleanup without launching an executable or requiring CMFDIST/ATOMIC. Preview with `python3 cmfgen_run.py /path/to/model --plan --stage cleanup`; omit `--plan` to archive every listed candidate, or repeat `--cleanup-file NAME` to select a subset. Candidates are limited to reviewed matrix/scratch/diagnostic names and patterns plus top-level symlinks; subdirectories, checkpoints, main products, and the commented-out `EDDFACTOR*` legacy cleanup commands are excluded. Unlike web cleanup, runner cleanup is recoverable: candidates are atomically moved under the run journal's `removed/` directory. Candidate identity and metadata are rechecked under the shared activity/write guard before anything moves.
+- `test` (zero-iteration startup check): temporarily sets `NUM_ITS=0` and runs `cmfgen_dev.exe`. It checks native startup and writes initial atmosphere/checkpoint outputs; it does not create or configure a model directory. Requires fresh `MODEL` and text `RVTJ`, matching depth count, and complete finite radius, velocity, temperature, and electron-density vectors. Radius, temperature, and electron density must also be positive. Returns **tested**, not a completed solution. Uncomputed auxiliary diagnostics can be nonfinite; no `MOD_SUM` finalization is required. Passing the startup test alone does not establish scientifically valid spectral-synthesis input.
 
 Successful execution is distinct from convergence or scientific acceptance. Every report explicitly leaves scientific acceptance unassessed. A zero exit code alone is insufficient: Fortran `STOP` can return zero after an error. Text `RVTJ` is supported; binary variants are not validated by this version.
 

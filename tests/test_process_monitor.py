@@ -93,3 +93,12 @@ def test_main_monitor_detects_flux_child_workspace(tmp_path, monkeypatch):
     install_processes(monkeypatch, [Process(101, tmp_path / 'obs', name='cmf_flux.exe')])
     runtime = inspect_workflow_runtime(tmp_path, 'main')
     assert runtime['active'] and runtime['phase'] == 'flux'
+
+
+def test_sleeping_native_process_still_counts_as_an_active_run(tmp_path, monkeypatch):
+    install_processes(monkeypatch, [Process(101, tmp_path, name='main_lte.exe',
+                                          status=monitor.psutil.STATUS_SLEEPING)])
+    runtime = inspect_workflow_runtime(tmp_path, 'lte')
+    assert runtime['active'] and runtime['monitoring_available']
+    assert runtime['processes'][0]['state'] == 'sleeping'
+    assert not inspect_model_activity(tmp_path)['safe_to_modify']

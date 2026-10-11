@@ -153,9 +153,9 @@ python3 cmfgen_run.py /path/to/model --stage test
 
 Execution requires an explicit `--stage`. The `test` stage validates startup
 and writes atmosphere/checkpoint outputs; it does not create a model directory.
-Available stages are `test`, `main`, `lte`, `hydro`, `promote`, `flux`, and
-`cleanup`. Repeat `--stage` for an ordered sequence, for example
-`--stage test --stage main`.
+Available stages are `prepare-lte`, `lte`, `hydro`, `promote-hydro`, `main`,
+`flux`, `cleanup`, and `test`. Repeat `--stage` for an ordered sequence, for example
+`--stage prepare-lte --stage lte --stage hydro --stage promote-hydro`.
 
 Main/test runs continue from usable checkpoints automatically. Use
 `--fresh-start` to archive them and start from `*_IN`; `--iterations N`

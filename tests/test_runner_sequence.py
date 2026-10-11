@@ -74,7 +74,7 @@ def test_sequence_build_is_serializable_and_only_preflights_first_stage(
 
     plan = runner.build_sequence_plan(
         model,
-        ["lte", "hydro", "promote", "test", "main"],
+        ["lte", "hydro", "promote-hydro", "test", "main"],
         native_config={
             "cmfgen_root": tmp_path / "cmf",
             "atomic_root": tmp_path / "atomic",
@@ -100,7 +100,7 @@ def test_sequence_rebuilds_each_preflight_after_predecessor_success(
 ) -> None:
     model = tmp_path / "model"
     model.mkdir()
-    stages = ["lte", "hydro", "promote"]
+    stages = ["lte", "hydro", "promote-hydro"]
     built: list[str] = []
     executed: list[str] = []
 
@@ -127,7 +127,7 @@ def test_sequence_rebuilds_each_preflight_after_predecessor_success(
     assert result["remaining_stages"] == []
     assert built == stages
     assert executed == stages
-    assert Path(result["journal"]).joinpath("stage-03-promote-plan.json").is_file()
+    assert Path(result["journal"]).joinpath("stage-03-promote-hydro-plan.json").is_file()
 
 
 @pytest.mark.parametrize("resource_options", [{}, {"memory_mib": 2048, "no_core_dumps": True}])
@@ -193,7 +193,7 @@ def test_real_filesystem_sequence_runs_cleanup_then_promotion(tmp_path: Path) ->
     os.utime(hydro, ns=(latest_input + 2_000_000, latest_input + 2_000_000))
     plan = runner.build_sequence_plan(
         model,
-        ["cleanup", "promote"],
+        ["cleanup", "promote-hydro"],
         native_config={},
         configuration_sources={},
         timeout=None,
@@ -206,7 +206,7 @@ def test_real_filesystem_sequence_runs_cleanup_then_promotion(tmp_path: Path) ->
     result = runner.run_plan(plan)
 
     assert result["status"] == "succeeded"
-    assert result["completed_stages"] == ["cleanup", "promote"]
+    assert result["completed_stages"] == ["cleanup", "promote-hydro"]
     assert result["scientific_acceptance"] == "not applicable"
     assert not (model / "BAMAT").exists()
     assert (model / "RVSIG_COL").is_file()
@@ -272,12 +272,12 @@ def test_sequence_stops_on_just_in_time_preflight_failure(
     monkeypatch.setattr(runner, "_sequence_stage_plan", build)
     monkeypatch.setattr(runner, "run_plan", execute)
 
-    result = runner._run_sequence_plan(_sequence(model, ["lte", "hydro", "promote"]))
+    result = runner._run_sequence_plan(_sequence(model, ["lte", "hydro", "promote-hydro"]))
 
     assert result["status"] == "preflight_failed"
     assert result["failed_stage"] == "hydro"
     assert result["completed_stages"] == ["lte"]
-    assert result["remaining_stages"] == ["promote"]
+    assert result["remaining_stages"] == ["promote-hydro"]
     assert result["stage_results"][1]["problems"] == ["Rosseland table is invalid"]
     assert built == ["lte", "hydro"]
     assert executed == ["lte"]

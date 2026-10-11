@@ -890,3 +890,40 @@ a:focus {
 .workflow-overview > div {
     min-width: 0;
 }
+
+.lte-hydro-workflow .workflow-controls .card-header,
+.lte-hydro-workflow .workflow-controls .card-footer {
+    padding: 0.4rem 0.65rem;
+}
+
+.lte-hydro-workflow .workflow-controls .card-body {
+    padding: 0.65rem;
+}
+
+.lte-hydro-workflow .workflow-controls .card-header code,
+.lte-hydro-workflow .workflow-controls label code,
+.lte-hydro-workflow #hydro-alignment table code {
+    color: inherit;
+}
+
+.runtime-compact {
+    padding: 0.5rem 0.65rem !important;
+    margin-bottom: 0.65rem !important;
+    font-size: 0.875rem;
+}
+
+.runtime-compact > div:first-child {
+    margin-bottom: 0 !important;
+}
+
+.runtime-compact.runtime-idle [data-runtime-processes] {
+    display: none;
+}
+
+.workflow-next-step {
+    font-size: 0.875rem;
+}
+
+.runtime-monitor-help {
+    max-width: 40rem;
+}

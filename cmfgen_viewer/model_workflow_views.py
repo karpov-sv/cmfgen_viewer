@@ -43,12 +43,14 @@ def model_lte_hydro(source_path: str):
         if request.method == "POST":
             action = str(request.form.get("action", "")).strip().lower()
             if action == "prepare":
-                prepare_lte_hydro_workspace(basepath, model_relpath=source_path)
+                prepared = prepare_lte_hydro_workspace(basepath, model_relpath=source_path)
                 return redirect(
                     url_for(
                         "viewer.model_lte_hydro",
                         source_path=source_path,
-                        message="LTE workspace prepared. No calculation was started.",
+                        message=("LTE workspace prepared. HYDRO_PARAMS initialized from VADAT. No calculation was started."
+                                 if prepared["hydro_initialized"] else "LTE workspace prepared. No calculation was started."),
+                        hydro_initialization="skipped" if prepared["hydro_initialization_issues"] else None,
                     )
                 )
             if action == "configure_lte":
@@ -169,6 +171,7 @@ def model_lte_hydro(source_path: str):
         source_path=source_path,
         state=state,
         message=message,
+        hydro_initialization_skipped=request.args.get("hydro_initialization") == "skipped",
         error=error,
         breadcrumb=_breadcrumb(source_path),
     )

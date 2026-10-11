@@ -18,7 +18,9 @@
   {% endif %}
 
   {% include "_model_toolbar.html" %}
-  <div class="workflow-page">
+  {% set awaiting_lte = not state.lte_output.fresh or state.lte_diagnostics.fatal or state.lte_runtime.active %}
+  {% set runtime_compact = true %}
+  <div class="workflow-page lte-hydro-workflow">
     <h2 class="h4 mb-1">LTE / hydro workflow</h2>
     <p class="small text-muted mb-2">Prepare and inspect files here; run commands in your terminal. Process status updates live; results refresh automatically when a run stops.</p>
     <div class="workflow-overview mb-3">
@@ -28,18 +30,36 @@
       <div><span class="badge {{ 'bg-success' if state.promoted else 'bg-warning text-dark' if state.promotion_ready else 'bg-secondary' }}">{{ 'Promoted' if state.promoted else 'Ready to promote' if state.promotion_ready else 'Awaiting results' }}</span></div>
       <a class="small ms-auto" href="{{ url_for('viewer.model_lte_hydro', source_path=source_path) }}">Refresh checks</a>
     </div>
-    <p><a class="small" href="{{ url_for('viewer.model_workflow_plan', scope='lte-hydro', source_path=source_path) }}">Preview LTE / hydro workflow</a></p>
+    <div class="d-flex flex-wrap align-items-center gap-2 mb-3 workflow-next-step">
+      <strong class="small">Next:</strong>
+      {% if not state.prepared %}<a href="#workspace-preparation">Prepare the LTE workspace</a>
+      {% elif state.lte_runtime.active %}<a href="#lte-run">Monitor LTE</a>
+      {% elif state.hydro_runtime.active %}<a href="#hydro-run">Monitor hydro</a>
+      {% elif awaiting_lte %}<a href="#lte-run">{{ 'Run LTE' if state.lte_ready else 'Review LTE inputs' }}</a>
+      {% elif state.hydro_alignment and state.hydro_alignment.has_mismatch %}<a href="#hydro-alignment">Review hydro parameters</a>
+      {% elif not state.hydro_output_ready %}<a href="#hydro-run">{{ 'Run hydro' if state.hydro_ready else 'Review hydro inputs' }}</a>
+      {% elif not state.promoted %}<a href="#result-review">Review and promote results</a>
+      {% elif state.main_ready %}<a href="{{ url_for('viewer.model_main_computation', source_path=source_path) }}">Continue to main computation</a>
+      {% else %}<a href="#main-handoff">Review main computation inputs</a>{% endif %}
+      <a class="small ms-auto" href="{{ url_for('viewer.model_workflow_plan', scope='lte-hydro', source_path=source_path) }}">Preview workflow</a>
+    </div>
     {% if message %}<div class="alert alert-success py-2">{{ message }}</div>{% endif %}
     {% if error %}<div class="alert alert-danger py-2">{{ error }}</div>{% endif %}
+    {% if hydro_initialization_skipped %}
+      <div class="alert alert-warning py-2">
+        <strong>HYDRO_PARAMS retained its template values.</strong> Automatic initialization could not be verified; review hydro parameters before running hydro.
+        {% if state.hydro_alignment and state.hydro_alignment.issues %}<details class="workflow-help small mt-1"><summary>Initialization issues</summary>{% for issue in state.hydro_alignment.issues %}<div>{{ issue }}</div>{% endfor %}</details>{% endif %}
+      </div>
+    {% endif %}
     {% if not state.activity.safe_to_modify %}<div class="alert alert-warning">{{ state.activity.reason }}</div>{% endif %}
 
-    <details class="card workflow-stage mb-3" {% if not state.prepared %}open{% endif %}>
+    <details class="card workflow-stage mb-3" id="workspace-preparation" {% if not state.prepared %}open{% endif %}>
       <summary class="card-header d-flex justify-content-between align-items-center">
         <strong>1. Prepare the LTE workspace</strong>
         {% if state.prepared %}<span class="badge bg-success">Ready</span>{% elif state.prepare_allowed %}<span class="badge bg-warning text-dark">Available</span>{% else %}<span class="badge bg-secondary">Blocked</span>{% endif %}
       </summary>
       <div class="card-body">
-        <p class="small text-muted">Creates <code>lte/</code>, copies the model controls and templates, and preserves the original structure as <code>RVSIG_COL_OLD</code>.</p>
+        <p class="small text-muted">Creates <code>lte/</code>, copies the model controls and templates, initializes <code>HYDRO_PARAMS</code> from <code>VADAT</code> when supported, and preserves the original structure as <code>RVSIG_COL_OLD</code>.</p>
         <div class="row">
           <div class="col-lg-6">
             <h3 class="h6">Model inputs</h3>
@@ -64,7 +84,7 @@
       </div>
     </details>
 
-    <details class="card workflow-stage mb-3" {% if state.lte_runtime.active or (state.prepared and not state.lte_output.fresh) %}open{% endif %}>
+    <details class="card workflow-stage mb-3" id="lte-run" {% if state.lte_runtime.active or (state.prepared and awaiting_lte) %}open{% endif %}>
       <summary class="card-header d-flex justify-content-between align-items-center">
         <strong>2. Configure and run LTE externally</strong>
         {% if state.lte_runtime.active %}<span class="badge bg-success">Running</span>{% elif state.lte_diagnostics.status == 'failed' %}<span class="badge bg-danger">Run failed</span>{% elif state.lte_output.fresh and state.lte_ready %}<span class="badge bg-success">Output ready</span>{% elif state.lte_ready %}<span class="badge bg-warning text-dark">Ready to run</span>{% elif state.prepared %}<span class="badge bg-warning text-dark">Needs configuration</span>{% else %}<span class="badge bg-secondary">Blocked</span>{% endif %}
@@ -80,16 +100,13 @@
         {% set diagnostics_source_path = source_path ~ '/lte' %}
         {% include '_lte_hydro_diagnostics.html' %}
         {% if state.prepared %}
-          <div class="mb-2 d-flex flex-wrap gap-2">
-            {% for name in ['VADAT', 'MODEL_SPEC', 'GRID_PARAMS'] %}<a class="btn btn-sm btn-outline-primary" href="{{ url_for('viewer.model_parameters', source_path=source_path ~ '/lte', file=name) }}">Edit {{ name }}</a>{% endfor %}
-          </div>
-          <div class="row g-3 mb-3">
+          <div class="row g-2 mb-2">
             {% for card in state.lte_quick_control_cards %}
               <div class="col-lg-6">
-                <form method="post" class="card h-100">
+                <form method="post" class="card h-100 workflow-controls">
                   <div class="card-header d-flex justify-content-between align-items-center">
                     <strong>Required controls: <code>{{ card.file_relpath }}</code></strong>
-                    <span class="small text-muted">Quick edit</span>
+                    <a class="small" href="{{ url_for('viewer.model_parameters', source_path=source_path ~ '/lte', file=card.file_relpath) }}">Edit {{ card.file_relpath }}</a>
                   </div>
                   <div class="card-body">
                     <input type="hidden" name="action" value="configure_lte">
@@ -99,7 +116,7 @@
                       {% for field in card.fields %}
                         <div class="{% if card.fields|length == 2 %}col-md-6{% else %}col-md-4{% endif %}">
                           <label class="form-label small fw-semibold mb-1" for="lte-{{ card.file_relpath|lower }}-{{ field.key|lower }}">
-                            {{ field.label }} <code>[{{ field.key }}]</code>
+                            {{ field.label }} <span class="d-block small text-muted"><code>[{{ field.key }}]</code></span>
                           </label>
                           {% if field.kind == 'boolean' %}
                             <select
@@ -127,8 +144,9 @@
                     </div>
                     {% for issue in card.issues %}<div class="alert alert-warning py-1 small mt-2 mb-0">{{ issue }}</div>{% endfor %}
                   </div>
-                  <div class="card-footer">
-                    <button class="btn btn-sm btn-primary" type="submit" {% if not card.can_save %}disabled{% endif %}>Save {{ card.file_relpath }} Controls</button>
+                  <div class="card-footer d-flex flex-wrap align-items-center justify-content-between gap-2">
+                    {% if card.file_relpath == 'MODEL_SPEC' %}<a class="small" href="{{ url_for('viewer.model_parameters', source_path=source_path ~ '/lte', file='GRID_PARAMS') }}">Edit GRID_PARAMS</a>{% endif %}
+                    <button class="btn btn-sm btn-primary ms-auto" type="submit" {% if not card.can_save %}disabled{% endif %}>Save {{ card.file_relpath }} Controls</button>
                   </div>
                 </form>
               </div>
@@ -145,21 +163,22 @@
       </div>
     </details>
 
-    <details class="card workflow-stage mb-3" {% if state.hydro_runtime.active or (state.hydro_alignment and state.hydro_alignment.has_mismatch) or state.hydro_diagnostics.status == 'failed' or (state.prepared and state.lte_output.fresh and not state.hydro_output_ready) %}open{% endif %}>
+    <details class="card workflow-stage mb-3" id="hydro-run" {% if state.hydro_runtime.active or (not awaiting_lte and ((state.hydro_alignment and state.hydro_alignment.has_mismatch) or state.hydro_diagnostics.status == 'failed' or (state.prepared and not state.hydro_output_ready))) %}open{% endif %}>
       <summary class="card-header d-flex justify-content-between align-items-center">
         <strong>3. Configure and run hydro externally</strong>
-        {% if state.hydro_runtime.active %}<span class="badge bg-success">Running</span>{% elif state.hydro_alignment and state.hydro_alignment.has_mismatch %}<span class="badge bg-danger">Parameter mismatch</span>{% elif state.hydro_diagnostics.status == 'failed' %}<span class="badge bg-danger">Run failed</span>{% elif state.hydro_output_ready %}<span class="badge bg-success">Output ready</span>{% elif state.hydro_ready %}<span class="badge bg-warning text-dark">Ready to run</span>{% else %}<span class="badge bg-secondary">Blocked</span>{% endif %}
+        {% if state.hydro_runtime.active %}<span class="badge bg-success">Running</span>{% elif awaiting_lte %}<span class="badge bg-secondary">Waiting for LTE</span>{% if state.hydro_alignment and state.hydro_alignment.has_mismatch %}<span class="badge bg-warning text-dark">Parameter mismatch</span>{% endif %}
+        {% elif state.hydro_alignment and state.hydro_alignment.has_mismatch %}<span class="badge bg-danger">Parameter mismatch</span>{% elif state.hydro_diagnostics.status == 'failed' %}<span class="badge bg-danger">Run failed</span>{% elif state.hydro_output_ready %}<span class="badge bg-success">Output ready</span>{% elif state.hydro_ready %}<span class="badge bg-warning text-dark">Ready to run</span>{% else %}<span class="badge bg-secondary">Blocked</span>{% endif %}
       </summary>
       <div class="card-body">
         {% set runtime = state.hydro_runtime %}
-        {% set preflight = state.hydro_preflight %}{% set preflight_title = "Hydro input validation" %}{% include '_workflow_preflight.html' %}
+        {% set preflight = state.hydro_preflight %}{% set preflight_title = "Hydro input validation" %}{% set preflight_waiting_file = "lte/ROSSELAND_LTE_TAB" if awaiting_lte and not state.lte_output.exists else "" %}{% include '_workflow_preflight.html' %}
         {% set runtime_url = url_for('viewer.model_workflow_runtime', kind='hydro', source_path=source_path) %}
         {% set runtime_source_path = source_path ~ '/lte' %}
         {% include '_model_runtime_status.html' %}
         {% set diagnostics = state.hydro_diagnostics %}
         {% set diagnostics_title = 'Captured wind_hyd diagnostics' %}
         {% set diagnostics_source_path = source_path ~ '/lte' %}
-        {% include '_lte_hydro_diagnostics.html' %}
+        {% if diagnostics.available or state.hydro_output.exists %}{% include '_lte_hydro_diagnostics.html' %}{% endif %}
         {% if state.hydro_alignment %}
           {% set alignment = state.hydro_alignment %}
           <div id="hydro-alignment" class="mb-3">
@@ -168,7 +187,7 @@
             {% endif %}
             <details class="border rounded p-2" {% if alignment.has_mismatch or alignment.issues %}open{% endif %}>
               <summary class="fw-semibold">Use VADAT parameters — preview changes</summary>
-              <p class="small mt-2">The intended values come from <code>lte/VADAT</code>. The reference radius is derived from its luminosity and temperature. The proposed connection radius preserves the current <code>CON_R / REF_R</code> ratio; review its physical suitability. <code>LSTAR</code>, <code>RSTAR</code>, and <code>MASS</code> in HYDRO_PARAMS are ignored by wind_hyd; luminosity and mass depend on <code>REF_R</code>, <code>TEFF</code>, and <code>LOG_G</code>.</p>
+
               {% if alignment.rows %}
                 <div class="table-responsive"><table class="table table-sm align-middle">
                   <thead><tr><th>HYDRO_PARAMS control</th><th>Current</th><th>Proposed</th><th>Source / calculation</th></tr></thead>
@@ -177,6 +196,7 @@
                   {% endfor %}</tbody>
                 </table></div>
               {% endif %}
+
               {% for issue in alignment.issues %}<p class="small text-danger mb-1">{{ issue }}</p>{% endfor %}
               {% if alignment.ready and alignment.has_changes and state.activity.safe_to_modify %}
                 <form method="post">
@@ -186,7 +206,8 @@
                   <button class="btn btn-sm btn-primary" type="submit">Apply VADAT parameters</button>
                   <p class="small text-muted mt-2 mb-0">Saves a recoverable checkpoint. Existing hydro results become stale; LTE results remain usable. No calculation starts.</p>
                 </form>
-              {% elif alignment.ready and not alignment.has_changes %}<p class="small text-success mb-0">HYDRO_PARAMS already uses these VADAT parameters.</p>{% endif %}
+              {% elif alignment.ready and not alignment.has_changes %}<p class="small text-success mb-0">HYDRO_PARAMS already uses these VADAT parameters. Review the connection radius before running hydro.</p>{% endif %}
+              <details class="workflow-help small mt-2 mb-2"><summary>How the proposed values are calculated</summary><p class="mt-2 mb-0">The intended values come from <code>lte/VADAT</code>. The reference radius is derived from its luminosity and temperature. The proposed connection radius preserves the current <code>CON_R / REF_R</code> ratio; review its physical suitability. <code>LSTAR</code>, <code>RSTAR</code>, and <code>MASS</code> in HYDRO_PARAMS are ignored by wind_hyd; luminosity and mass depend on <code>REF_R</code>, <code>TEFF</code>, and <code>LOG_G</code>.</p></details>
             </details>
           </div>
         {% endif %}
@@ -289,14 +310,14 @@
       </div>
     </details>
 
-    <details class="card workflow-stage mb-3" {% if state.main_ready %}open{% endif %}>
+    <details class="card workflow-stage mb-3" id="main-handoff" {% if state.promoted and state.main_ready %}open{% endif %}>
       <summary class="card-header d-flex justify-content-between align-items-center">
         <strong>5. Continue to main model computation</strong>
-        {% if state.main_ready %}<span class="badge bg-success">Handoff ready</span>{% else %}<span class="badge bg-secondary">Blocked</span>{% endif %}
+        {% if state.promoted and state.main_ready %}<span class="badge bg-success">Current results promoted</span>{% elif state.main_ready %}<span class="badge bg-secondary">Existing root structure available</span>{% else %}<span class="badge bg-secondary">Blocked</span>{% endif %}
       </summary>
       <div class="card-body">
         {% if state.main_ready %}
-          <p class="small text-muted">The promoted structure is available in the model root. Continue in the separate workflow responsible for the main CMFGEN run and its results.</p>
+          <p class="small text-muted">{% if state.promoted %}The current LTE/hydro results are promoted to the model root.{% else %}Existing structure files are available in the model root. The current LTE/hydro workspace results have not been promoted; main computation checks their readiness separately.{% endif %}</p>
           <a class="btn btn-primary" href="{{ url_for('viewer.model_main_computation', source_path=source_path) }}">Continue to Main Computation</a>
         {% else %}<p class="text-muted mb-0">The handoff requires regular <code>batch.sh</code>, <code>VADAT</code>, <code>RVSIG_COL</code>, and <code>ROSSELAND_LTE_TAB</code> files in the model root.</p>{% endif %}
       </div>

@@ -1,6 +1,6 @@
 # LTE / Hydro Workflow
 
-Use **Preview LTE / hydro workflow** for a read-only stage plan covering preparation through manual promotion. Stage preflight now checks scripts, executable configuration, dependencies, controls, workspace resources, and activity. Mutations and handoffs are blocked during visible active calculations or uncertain activity; see [Workflow Safety and Dry-Run Plans](/documentation/cmfgen-workflow-plans) for details and limitations.
+Use **Preview workflow** for a read-only stage plan covering preparation through manual promotion. Stage preflight now checks scripts, executable configuration, dependencies, controls, workspace resources, and activity. Mutations and handoffs are blocked during visible active calculations or uncertain activity; see [Workflow Safety and Dry-Run Plans](/documentation/cmfgen-workflow-plans) for details and limitations.
 
 The viewer supports preparation and state tracking for the LTE/hydro sequence used when changing parameters such as `LOGG`. It deliberately does **not** start, stop, or supervise CMFGEN programs. Run every displayed command in a terminal you control; the open workflow page polls read-only run status every five seconds.
 
@@ -16,7 +16,11 @@ Preparation requires these regular files in the model root:
 
 It also requires `GRID_PARAMS`, `ltebat.sh`, and `HYDRO_PARAMS` under the configured model base's `examples/` directory. `GRID_PARAMS` and `ltebat.sh` may be stored in `examples/lte2/`, matching the supplied example layout.
 
-The action creates `lte/` and copies only the required inputs. If the source model has `RVSIG_COL`, it is preserved as `RVSIG_COL_OLD`; models without that optional old structure can still proceed because the hydro stage will generate a new one. An existing incomplete `lte/` path is never merged or overwritten; repair or remove it manually.
+The action creates `lte/` and copies only the required inputs. Before publishing the new workspace, it initializes the copied `HYDRO_PARAMS` from the copied `VADAT`: `LOGG` maps to `LOG_G`, and `TEFF`, `MDOT`, `VINF`, and `BETA` are transferred. `REF_R` is derived from `LSTAR` and `TEFF`; `CON_R` is scaled to preserve the template's `CON_R / REF_R` ratio. Review this connection-radius estimate before running hydro. Template comments, other controls, and file permissions are preserved.
+
+Initialization uses the same validation and calculation as **Use VADAT parameters**. Missing, ambiguous, nonfinite, or unsupported inputs leave the entire copied template unchanged and produce a preparation warning with details. An initialization write failure prevents publication of the workspace. No calculation starts, and the source model and shared templates are not rewritten. Later `VADAT` edits can still be reconciled through the alignment preview.
+
+If the source model has `RVSIG_COL`, it is preserved as `RVSIG_COL_OLD`; models without that optional old structure can still proceed because the hydro stage will generate a new one. An existing incomplete `lte/` path is never merged or overwritten; repair or remove it manually.
 
 ## 2. Run LTE externally
 
@@ -81,3 +85,7 @@ Existing destination files are saved under `.cmfgen-viewer-backups/lte-hydro/<ti
 ## 5. Run the main model externally
 
 The final LTE/hydro card is only a handoff guard. Once `batch.sh`, `VADAT`, `RVSIG_COL`, and `ROSSELAND_LTE_TAB` are available in the model root, it links to the separate **Main Model Computation** workflow. That workflow owns the main-run command, prerequisites, and result freshness checks.
+
+The overview identifies the next stage from the current workspace results. Hydro stays collapsed while waiting for usable LTE output; its header still reports parameter mismatches. Validation lists blockers separately from missing atomic/restart link targets and script/environment warnings, with full target paths available on demand. Existing structure files in the model root are labeled separately from current LTE/hydro results that have been promoted. Main computation performs its own readiness checks.
+
+The **OS state** column reports the operating system's scheduling snapshot, independently of the workflow's **Running now** status. A live calculation can be reported as sleeping; this alone does not establish that it is paused or stalled. CPU-time changes and file progress provide additional evidence of ongoing work.

@@ -101,6 +101,10 @@ def test_preflight_executable_and_atomic_targets(model, tmp_path):
     config = {"cmfgen_root": str(tmp_path / "cmf"), "atomic_root": str(tmp_path / "atomic")}
     result = preflight.inspect_stage_preflight(model, "main", config=config)
     assert {"executable-unavailable", "link-target-not-file"} <= {i["code"] for i in result["issues"]}
+    missing_link = next(i for i in result["issues"] if i["code"] == "link-target-not-file")
+    assert missing_link["severity"] == "error"
+    assert missing_link["detail_path"] in missing_link["message"]
+    assert "HYD_L_DATA" in missing_link["display_message"]
     exe = tmp_path / "cmf/exe/cmfgen_dev.exe"
     exe.parent.mkdir(parents=True)
     exe.write_text("must never run")

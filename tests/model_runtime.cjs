@@ -9,6 +9,8 @@ class Element {
     this.children = [];
     this.textContent = '';
     this.listeners = {};
+    this.classes = new Set();
+    this.classList = {toggle: (name, on) => on ? this.classes.add(name) : this.classes.delete(name)};
   }
   appendChild(child) { this.children.push(child); }
   replaceChildren() { this.children = []; }
@@ -109,3 +111,12 @@ for (const field of [
   assert.equal(editing.reloads, 1, 'Allow manual refresh with unsaved edits');
 }
 console.log('Workflow completion refresh checks passed.');
+
+const compact = setup();
+compact.monitors[0].dataset.runtimeCompact = 'true';
+compact.update(false);
+assert.ok(compact.monitors[0].classes.has('runtime-idle'));
+compact.update(true);
+assert.ok(!compact.monitors[0].classes.has('runtime-idle'));
+compact.update(false, false);
+assert.ok(!compact.monitors[0].classes.has('runtime-idle'), 'Keep unavailable monitoring visible');

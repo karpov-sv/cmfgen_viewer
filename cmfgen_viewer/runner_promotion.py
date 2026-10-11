@@ -74,7 +74,7 @@ def build_promotion_plan(model: Path) -> dict[str, object]:
         "schema_version": 1,
         "profile": "ostar-v1",
         "kind": "filesystem",
-        "stage": "promote",
+        "stage": "promote-hydro",
         "model": str(model),
         "cwd": str(model),
         "inputs": inputs,
@@ -84,7 +84,7 @@ def build_promotion_plan(model: Path) -> dict[str, object]:
         "synchronized_rmax": generated_rmax,
         "synchronized_rstar": generated_rstar,
         "timeout": None,
-        "passes": [{"id": "promote", "overrides": {}}],
+        "passes": [{"id": "promote-hydro", "overrides": {}}],
         "warnings": [
             "Promotion accepts file integrity and freshness only; review the generated "
             "luminosity and radius ratio before running it."

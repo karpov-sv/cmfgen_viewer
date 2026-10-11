@@ -20,6 +20,7 @@ from .native_diagnostics import analyze_main_diagnostics
 from .parsers.common import parse_float_token
 from .runner_config import resolve_runner_config
 from .runner_cleanup import build_cleanup_plan
+from .runner_preparation import build_preparation_plan, run_preparation_plan
 from .runner_promotion import build_promotion_plan
 from .runner_recipe import RunnerError, build_run_plan, override_controls, snapshot
 from .runner_validation import validate_rosseland_table, validate_rvsig_structure, validate_rvtj_core
@@ -29,8 +30,8 @@ from .runner_status import inspect_model_status
 
 
 NATIVE_STAGES = {"test", "main", "lte", "hydro", "flux"}
-FILESYSTEM_STAGES = {"promote", "cleanup"}
-STAGE_CHOICES = ("test", "main", "lte", "hydro", "promote", "flux", "cleanup")
+FILESYSTEM_STAGES = {"prepare-lte", "promote-hydro", "cleanup"}
+STAGE_CHOICES = ("prepare-lte", "lte", "hydro", "promote-hydro", "main", "flux", "cleanup", "test")
 
 
 def _stage_succeeded(stage: str, status: str) -> bool:
@@ -219,11 +220,15 @@ def _build_requested_stage_plan(
     fresh_start: bool,
     cleanup_files: list[str] | None,
     no_core_dumps: bool = False,
+    template_root: Path | None = None,
 ) -> dict[str, object]:
     """Build one stage, applying sequence-wide options only where relevant."""
-    if stage == "promote":
-        plan = build_promotion_plan(model)
+    if stage == "prepare-lte":
+        plan = build_preparation_plan(model, template_root=template_root)
         sources: dict[str, str] = {}
+    elif stage == "promote-hydro":
+        plan = build_promotion_plan(model)
+        sources = {}
     elif stage == "cleanup":
         plan = build_cleanup_plan(model, selected_names=cleanup_files)
         sources = {}
@@ -255,6 +260,7 @@ def build_sequence_plan(
     fresh_start: bool,
     cleanup_files: list[str] | None,
     no_core_dumps: bool = False,
+    template_root: Path | None = None,
 ) -> dict[str, object]:
     """Build the initial preflight and a serializable just-in-time stage recipe."""
     if len(stages) < 2:
@@ -277,6 +283,7 @@ def build_sequence_plan(
         iterations=iterations,
         fresh_start=stages[0] == fresh_start_stage,
         cleanup_files=cleanup_files,
+        template_root=template_root,
     )
     model_path = Path(str(initial["model"]))
     serialized_config = {
@@ -301,6 +308,7 @@ def build_sequence_plan(
             "fresh_start": fresh_start,
             "fresh_start_stage": fresh_start_stage,
             "cleanup_files": cleanup_files,
+            "template_root": str(template_root.expanduser().resolve()) if template_root is not None else None,
         },
         "configuration_sources": configuration_sources,
         "warnings": [
@@ -340,6 +348,7 @@ def _sequence_stage_plan(
         iterations=options.get("iterations"),
         fresh_start=stage == options.get("fresh_start_stage"),
         cleanup_files=options.get("cleanup_files"),
+        template_root=Path(options["template_root"]) if options.get("template_root") else None,
     )
 
 
@@ -348,9 +357,11 @@ def run_plan(plan: dict, emit=None) -> dict:
         return _run_sequence_plan(plan, emit)
     if plan["stage"] not in STAGE_CHOICES:
         raise RunnerError(f"Unsupported stage: {plan['stage']}")
+    if plan["stage"] == "prepare-lte":
+        return run_preparation_plan(plan, emit)
     if plan["stage"] == "cleanup":
         return _run_cleanup_plan(plan, emit)
-    if plan["stage"] == "promote":
+    if plan["stage"] == "promote-hydro":
         return _run_promotion_plan(plan, emit)
     if not plan["ready"]:
         raise RunnerError("Preflight failed: " + "; ".join(plan["errors"]))
@@ -625,10 +636,10 @@ def _run_promotion_plan(plan: dict, emit=None) -> dict:
     journal.mkdir()
     _json(journal / "plan.json", plan)
     started_at = datetime.now(timezone.utc).isoformat()
-    record = {"id": "promote", "status": "running", "problems": []}
+    record = {"id": "promote-hydro", "status": "running", "problems": []}
     result = {
         "run_id": run_id,
-        "stage": "promote",
+        "stage": "promote-hydro",
         "status": "running",
         "journal": str(journal),
         "passes": [record],
@@ -650,7 +661,7 @@ def _run_promotion_plan(plan: dict, emit=None) -> dict:
             emit(item)
 
     _json(journal / "result.json", result)
-    event("stage_started", stage="promote")
+    event("stage_started", stage="promote-hydro")
     try:
         from .model_workflow import ModelWorkflowError, promote_lte_hydro_results
 
@@ -677,11 +688,11 @@ def _run_promotion_plan(plan: dict, emit=None) -> dict:
     _json(journal / "result.json", result)
     event(
         "stage_finished",
-        stage="promote",
+        stage="promote-hydro",
         status=record["status"],
         problems=record["problems"],
     )
-    event("run_finished", stage="promote", status=result["status"], journal=str(journal))
+    event("run_finished", stage="promote-hydro", status=result["status"], journal=str(journal))
     return result
 
 
@@ -993,6 +1004,7 @@ def main(argv=None):
         action="append",
         help="Stage to run; repeat for an ordered multi-stage run (no stage: read-only status; test: zero-iteration startup check)",
     )
+    parser.add_argument("--template-root", type=Path, help="LTE template directory (default: nearest ancestor examples/ directory)")
     parser.add_argument("--cmfgen-root", type=Path, help="Installation root (default: CMFDIST or .cmfgenrc)")
     parser.add_argument("--atomic-root", type=Path, help="Atomic data root (default: ATOMIC or .cmfgenrc)")
     parser.add_argument("--threads", "--nthreads", type=int, help="Thread count override (default: OMP_NUM_THREADS, .cmfgenrc nthreads, or inherited library settings)")
@@ -1055,7 +1067,7 @@ def main(argv=None):
             if inapplicable:
                 stage_label = (
                     "promotion"
-                    if stages == ["promote"]
+                    if stages == ["promote-hydro"]
                     else "cleanup"
                     if stages == ["cleanup"]
                     else "filesystem stages"
@@ -1079,6 +1091,8 @@ def main(argv=None):
             raise RunnerError("--iterations is a positive main-stage override only")
         if args.fresh_start and not any(stage in {"test", "main"} for stage in stages):
             raise RunnerError("--fresh-start applies only to main/test")
+        if args.template_root is not None and "prepare-lte" not in stages:
+            raise RunnerError("--template-root applies only to prepare-lte")
         if args.cleanup_file and "cleanup" not in stages:
             raise RunnerError("--cleanup-file applies only to the cleanup stage")
         if len(stages) == 1:
@@ -1093,6 +1107,7 @@ def main(argv=None):
                 iterations=args.iterations,
                 fresh_start=args.fresh_start,
                 cleanup_files=args.cleanup_file,
+                template_root=args.template_root,
             )
         else:
             plan = build_sequence_plan(
@@ -1106,6 +1121,7 @@ def main(argv=None):
                 iterations=args.iterations,
                 fresh_start=args.fresh_start,
                 cleanup_files=args.cleanup_file,
+                template_root=args.template_root,
             )
         if inspection:
             status_report["preflight"] = plan
