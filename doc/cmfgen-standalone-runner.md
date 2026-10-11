@@ -155,7 +155,7 @@ Every executed runner action creates `.cmfgen-runs/<UTC-time>-<id>/` containing:
 - `before/` copies of selected pre-existing products and moved old logs;
 - `restart-before/` full checkpoint copies for automatic-mode runs, or moved checkpoints for explicit `--fresh-start`.
 
-A promotion journal records its plan, events, final result, synchronized `RMAX`, promoted and invalidated filenames, and the path to the separate full recovery backup. A cleanup journal retains every removed file or symlink under `removed/` and reports that recovery path.
+A promotion journal records its plan, events, final result, synchronized `RMAX` and (when reported) core radius `RSTAR`, promoted and invalidated filenames, and the path to the separate full recovery backup. Synchronizing `RSTAR` preserves the generated hydro structure's radius scale. A cleanup journal retains every removed file or symlink under `removed/` and reports that recovery path.
 
 A multi-stage invocation adds a parent sequence journal containing the requested order, orchestration events, the initial plan, each just-in-time `stage-NN-NAME-plan.json`, and the aggregate result. Every stage that actually starts also retains its normal detailed child journal; the aggregate `stage_results` link those reports. A stage rejected during just-in-time preflight has no child execution journal because nothing was launched.
 

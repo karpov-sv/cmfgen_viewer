@@ -36,7 +36,13 @@ The same panel now gives a retained run summary when the process is absent. It c
 
 ## 3. Run hydro externally
 
-Review `lte/HYDRO_PARAMS`, including `LOGG`, `TEFF`, luminosity, and related model values. The displayed command uses the conventional `cmfdist` environment variable:
+Review `lte/HYDRO_PARAMS`, including `LOG_G`, `TEFF`, and related model values. A red warning highlights disagreement with the intended model in `lte/VADAT`, even when an old template matches the generated hydro output.
+
+Open **Use VADAT parameters — preview changes** to review the proposed values. **Apply VADAT parameters** copies `LOGG` to `LOG_G` and aligns `TEFF`, `MDOT`, `VINF`, and `BETA`. It derives `REF_R` from the intended luminosity and temperature using the same relation as wind_hyd: `REF_R = 6.9599 × sqrt(LSTAR) × (0.5770 / TEFF)²`, with `REF_R` in 10¹⁰ cm and `TEFF` in 10⁴ K. It scales `CON_R` to preserve the existing `CON_R / REF_R` ratio; this is an estimate that you must review for the model.
+
+The action supports the supplied wind mode (`OLD_MOD=F`, `OLD_V=F`, `WIND_PRES=T`). Missing, duplicate, or invalid numeric controls require manual correction first. It checks that neither file changed since the preview, refuses active or uncertain workspaces, and checkpoints `HYDRO_PARAMS` before saving. It leaves VADAT untouched, marks hydro results stale, and starts no calculation. LTE results remain usable. `LSTAR`, `RSTAR`, and `MASS` entries in HYDRO_PARAMS are ignored by wind_hyd: luminosity is derived from temperature and reference radius, and mass from gravity and reference radius.
+
+The displayed command uses the conventional `cmfdist` environment variable:
 
 ```bash
 cd /absolute/path/to/model/lte && set -o pipefail && $cmfdist/exe/wind_hyd.exe 2>&1 | tee WIND_HYD
@@ -50,13 +56,13 @@ For newly captured runs, the panel and parsed `WIND_HYD` view extract fatal runt
 
 For both stages, process presence is authoritative. Output files can survive a completed or failed calculation, so with no matching process any parsed value is labeled **Last recorded progress**. Progress from an older run is hidden when its file predates a newly detected process. Process monitoring uses `psutil` on Linux and macOS. Missing or denied process visibility is shown as unavailable; it does not establish that the workspace is idle.
 
-Inspect `RVSIG_COL_NEW`. If its luminosity does not match the intended value, update `REF_R` in `HYDRO_PARAMS` and rerun. Once the luminosity is correct, promotion automatically writes the reported inner-to-outer radius ratio to `VADAT` as `RMAX`.
+Inspect `RVSIG_COL_NEW`. If its luminosity does not match the intended value, update `REF_R` in `HYDRO_PARAMS` and rerun. Once the luminosity is correct, promotion automatically writes the reported inner-to-outer radius ratio to `VADAT` as `RMAX` and its reported core radius as `RSTAR`. This preserves the generated radius scale instead of allowing the main model to rescale the structure to an old radius. Legacy outputs without a labeled core radius retain the existing RSTAR, which needs manual review.
 
 The result-review panel links directly to `RVSIG_COL_NEW`, `ROSSELAND_LTE_TAB`, `HYDRO_PARAMS`, and `VADAT`. Inline quick controls update `HYDRO_PARAMS [REF_R]` and `VADAT [RMAX]` with recoverable checkpoints. Changing `REF_R` correctly marks the hydro output stale until `wind_hyd` is rerun; changing the post-hydro `RMAX` alone does not invalidate the LTE/hydro outputs. Any manual `RMAX` value is replaced with the generated value during promotion.
 
 Promotion archives and removes old main-run checkpoints and solution products (`POINT1`, `POINT2`, `SCRTEMP`, their `NEW_*` variants, `MODEL`, `RVTJ`, and `MOD_SUM`) together with grid-dependent radiation caches (`EDDFACTOR*`, `ES_J_CONV*`, `J_COMP`, `MEANOPAC`, and `TRANS_INFO`). They describe the previous depth/radius grid and cannot be made compatible by copying the new hydro structure into them. A subsequent fresh main or initialization run regenerates the solution state; all invalidated files remain recoverable in the promotion checkpoint.
 
-When `RVSIG_COL_NEW` is available, its labeled header is summarized directly on the page. Generated luminosity, radius ratio, effective temperature, surface gravity, reference radius, mass, and mass-loss rate are compared with the corresponding `HYDRO_PARAMS` or `VADAT` values. Percentage or absolute differences are highlighted, while core radius, mean atomic mass, Eddington parameter, atom density, and depth-point count are shown as additional diagnostics when present.
+When `RVSIG_COL_NEW` is available, its labeled header is summarized directly on the page. Generated luminosity, radius ratio, core radius, effective temperature, surface gravity, mass, and mass-loss rate are compared with the intended `lte/VADAT` values; reference radius is compared with `HYDRO_PARAMS [REF_R]`. Differences are highlighted with colored rows and a warning. Mean atomic mass, Eddington parameter, atom density, and depth-point count are shown as additional diagnostics when present. Fresh files alone do not establish that the generated structure matches the intended model.
 
 ## 4. Promote reviewed results
 

@@ -145,10 +145,10 @@
       </div>
     </details>
 
-    <details class="card workflow-stage mb-3" {% if state.hydro_runtime.active or (state.prepared and state.lte_output.fresh and not state.hydro_output_ready) %}open{% endif %}>
+    <details class="card workflow-stage mb-3" {% if state.hydro_runtime.active or (state.hydro_alignment and state.hydro_alignment.has_mismatch) or state.hydro_diagnostics.status == 'failed' or (state.prepared and state.lte_output.fresh and not state.hydro_output_ready) %}open{% endif %}>
       <summary class="card-header d-flex justify-content-between align-items-center">
         <strong>3. Configure and run hydro externally</strong>
-        {% if state.hydro_runtime.active %}<span class="badge bg-success">Running</span>{% elif state.hydro_diagnostics.status == 'failed' %}<span class="badge bg-danger">Run failed</span>{% elif state.hydro_output_ready %}<span class="badge bg-success">Output ready</span>{% elif state.hydro_ready %}<span class="badge bg-warning text-dark">Ready to run</span>{% else %}<span class="badge bg-secondary">Blocked</span>{% endif %}
+        {% if state.hydro_runtime.active %}<span class="badge bg-success">Running</span>{% elif state.hydro_alignment and state.hydro_alignment.has_mismatch %}<span class="badge bg-danger">Parameter mismatch</span>{% elif state.hydro_diagnostics.status == 'failed' %}<span class="badge bg-danger">Run failed</span>{% elif state.hydro_output_ready %}<span class="badge bg-success">Output ready</span>{% elif state.hydro_ready %}<span class="badge bg-warning text-dark">Ready to run</span>{% else %}<span class="badge bg-secondary">Blocked</span>{% endif %}
       </summary>
       <div class="card-body">
         {% set runtime = state.hydro_runtime %}
@@ -160,6 +160,36 @@
         {% set diagnostics_title = 'Captured wind_hyd diagnostics' %}
         {% set diagnostics_source_path = source_path ~ '/lte' %}
         {% include '_lte_hydro_diagnostics.html' %}
+        {% if state.hydro_alignment %}
+          {% set alignment = state.hydro_alignment %}
+          <div id="hydro-alignment" class="mb-3">
+            {% if alignment.has_mismatch %}
+              <div class="alert alert-danger py-2"><strong>HYDRO_PARAMS differs from the intended LTE/VADAT model.</strong> Rerunning stages with these inputs can regenerate the wrong structure. Review and align the parameters before running hydro.</div>
+            {% endif %}
+            <details class="border rounded p-2" {% if alignment.has_mismatch or alignment.issues %}open{% endif %}>
+              <summary class="fw-semibold">Use VADAT parameters — preview changes</summary>
+              <p class="small mt-2">The intended values come from <code>lte/VADAT</code>. The reference radius is derived from its luminosity and temperature. The proposed connection radius preserves the current <code>CON_R / REF_R</code> ratio; review its physical suitability. <code>LSTAR</code>, <code>RSTAR</code>, and <code>MASS</code> in HYDRO_PARAMS are ignored by wind_hyd; luminosity and mass depend on <code>REF_R</code>, <code>TEFF</code>, and <code>LOG_G</code>.</p>
+              {% if alignment.rows %}
+                <div class="table-responsive"><table class="table table-sm align-middle">
+                  <thead><tr><th>HYDRO_PARAMS control</th><th>Current</th><th>Proposed</th><th>Source / calculation</th></tr></thead>
+                  <tbody>{% for row in alignment.rows %}
+                    <tr class="{% if row.status == 'danger' %}table-danger{% elif row.status == 'warning' %}table-warning{% endif %}"><th><code>{{ row.label }}</code></th><td><code>{{ row.configured }}</code></td><td><code>{{ row.generated }}</code></td><td class="small">{{ row.configured_source }}</td></tr>
+                  {% endfor %}</tbody>
+                </table></div>
+              {% endif %}
+              {% for issue in alignment.issues %}<p class="small text-danger mb-1">{{ issue }}</p>{% endfor %}
+              {% if alignment.ready and alignment.has_changes and state.activity.safe_to_modify %}
+                <form method="post">
+                  <input type="hidden" name="action" value="align_hydro">
+                  <input type="hidden" name="expected_digest" value="{{ alignment.digest }}">
+                  <label class="small d-block mb-2"><input type="checkbox" name="alignment_checked" value="1" required> I reviewed these values and the connection radius.</label>
+                  <button class="btn btn-sm btn-primary" type="submit">Apply VADAT parameters</button>
+                  <p class="small text-muted mt-2 mb-0">Saves a recoverable checkpoint. Existing hydro results become stale; LTE results remain usable. No calculation starts.</p>
+                </form>
+              {% elif alignment.ready and not alignment.has_changes %}<p class="small text-success mb-0">HYDRO_PARAMS already uses these VADAT parameters.</p>{% endif %}
+            </details>
+          </div>
+        {% endif %}
         {% if state.hydro_ready %}
           <a class="btn btn-sm btn-outline-primary mb-2" href="{{ url_for('viewer.model_parameters', source_path=source_path ~ '/lte', file='HYDRO_PARAMS') }}">Edit HYDRO_PARAMS</a>
           <p class="small mb-1">Verify LOGG, TEFF, luminosity and related values, then run:</p>
@@ -191,6 +221,7 @@
           {% endif %}
         </div>
         {% if state.result_summary %}
+          {% if state.result_summary.has_mismatch %}<div class="alert alert-warning py-2"><strong>Generated structure differs from the configured model.</strong> Compare the quantities below against the intended LTE/VADAT values before promotion. Promotion synchronizes the generated core radius and radius ratio; other differences need review and may require rerunning LTE or hydro.</div>{% endif %}
           {% if state.result_summary.comparisons %}
             <h3 class="h6">Generated quantities and configured values</h3>
             <div class="table-responsive mb-3">
@@ -198,7 +229,7 @@
                 <thead><tr><th>Quantity</th><th>Generated</th><th>Configured / current</th><th>Difference</th></tr></thead>
                 <tbody>
                   {% for row in state.result_summary.comparisons %}
-                    <tr>
+                    <tr class="{% if row.status == 'danger' %}table-danger{% elif row.status == 'warning' %}table-warning{% endif %}">
                       <th>{{ row.label }}</th>
                       <td><code>{{ row.generated }}</code>{% if row.unit %} {{ row.unit }}{% endif %}</td>
                       <td><code>{{ row.configured }}</code>{% if row.unit and row.configured != '—' %} {{ row.unit }}{% endif %}<div class="small text-muted">{{ row.configured_source }}</div></td>
@@ -248,7 +279,7 @@
           </div>
         {% endif %}
         {% if state.promotion_ready %}
-          <p class="small">Promotion synchronizes <code>VADAT [RMAX]</code> from the generated radius ratio, copies <code>ROSSELAND_LTE_TAB</code>, <code>RVSIG_COL_NEW</code>, <code>RVSIG_COL</code>, and <code>VADAT</code> to the model root, and invalidates old main checkpoints and solution files. Everything replaced or invalidated is checkpointed first.</p>
+          <p class="small">Promotion synchronizes <code>VADAT [RMAX]</code> from the generated radius ratio and <code>[RSTAR]</code> from the reported core radius when available, preserving the generated structure's radius scale. It copies <code>ROSSELAND_LTE_TAB</code>, <code>RVSIG_COL_NEW</code>, <code>RVSIG_COL</code>, and <code>VADAT</code> to the model root, and invalidates old main checkpoints and solution files. Everything replaced or invalidated is checkpointed first.</p>
           <form method="post">
             <input type="hidden" name="action" value="promote">
             <div class="form-check mb-2"><input class="form-check-input" id="results-checked" type="checkbox" name="results_checked" value="1"><label class="form-check-label" for="results-checked">I checked the luminosity and radius ratio reported by RVSIG_COL_NEW.</label></div>

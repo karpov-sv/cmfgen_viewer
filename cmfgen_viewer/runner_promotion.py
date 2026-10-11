@@ -31,6 +31,7 @@ def build_promotion_plan(model: Path) -> dict[str, object]:
     lte_dir = model / "lte"
     generated, _metadata = _rvsig_generated_values(lte_dir / HYDRO_OUTPUT)
     generated_rmax = generated.get("radius_ratio")
+    generated_rstar = generated.get("core_radius")
     errors: list[str] = []
     if state["promoted"]:
         errors.append(
@@ -49,6 +50,8 @@ def build_promotion_plan(model: Path) -> dict[str, object]:
         errors.append(
             "lte/RVSIG_COL_NEW does not report a valid inner-to-outer radius ratio."
         )
+    if generated_rstar is not None and generated_rstar <= 0:
+        errors.append("lte/RVSIG_COL_NEW reports an invalid core radius.")
 
     source_names = ("VADAT", LTE_OUTPUT, HYDRO_OUTPUT)
     destination_names = (LTE_OUTPUT, HYDRO_OUTPUT, "RVSIG_COL", "VADAT")
@@ -79,11 +82,13 @@ def build_promotion_plan(model: Path) -> dict[str, object]:
         "destinations": list(destination_names),
         "invalidates": existing_state,
         "synchronized_rmax": generated_rmax,
+        "synchronized_rstar": generated_rstar,
         "timeout": None,
         "passes": [{"id": "promote", "overrides": {}}],
         "warnings": [
             "Promotion accepts file integrity and freshness only; review the generated "
             "luminosity and radius ratio before running it."
+            " VADAT RSTAR is synchronized from the reported core radius when available."
         ],
         "errors": list(dict.fromkeys(errors)),
         "ready": not errors,

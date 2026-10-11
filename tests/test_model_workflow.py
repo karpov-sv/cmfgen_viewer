@@ -11,6 +11,7 @@ from cmfgen_viewer.app import create_app
 from cmfgen_viewer.model_editor import MODEL_INPUT_MODIFIED_MARKER
 from cmfgen_viewer.model_workflow import (
     ModelWorkflowError,
+    align_hydro_parameters,
     inspect_lte_hydro_workflow,
     prepare_lte_hydro_workspace,
     promote_lte_hydro_results,
@@ -307,8 +308,10 @@ def test_result_summary_parses_generated_and_configured_quantities(tmp_path: Pat
         "5.97 [MASS]\n2.0D-08 [MDOT]\n",
         encoding="utf-8",
     )
-    with (lte / "VADAT").open("a", encoding="utf-8") as handle:
-        handle.write("100.0 [RMAX]\n")
+    (lte / "VADAT").write_text(
+        "2.5 [TEFF]\n3.7 [LOGG]\n11500 [LSTAR]\n5.97 [MASS]\n"
+        "2e-8 [MDOT]\n38.92304 [RSTAR]\n100 [RMAX]\n", encoding="utf-8",
+    )
     _make_outputs_fresh(model)
     (lte / "RVSIG_COL_NEW").write_text(
         "! Effective temperature (10^4 K) is: 2.500000E+00\n"
@@ -345,6 +348,152 @@ def test_result_summary_parses_generated_and_configured_quantities(tmp_path: Pat
     assert b"Generated quantities and configured values" in page.data
     assert b"Additional generated diagnostics" in page.data
     assert b"11501.21" in page.data
+
+
+def _write_misaligned_hydro_model(tmp_path: Path) -> Path:
+    model = _write_model(tmp_path)
+    _write_templates(tmp_path)
+    prepare_lte_hydro_workspace(str(tmp_path), model_relpath="model_a")
+    (model / "lte/VADAT").write_text(
+        "2.5D0 [TEFF]\n3.7 [LOGG]\n11500 [LSTAR]\n2D-8 [MDOT]\n"
+        "2277.344 [VINF]\n1 [BETA]\n38.93921809 [RSTAR]\n100 [RMAX]\nF [CHK_NG]\n",
+    )
+    (model / "lte/HYDRO_PARAMS").write_text(
+        "! Keep this comment\n3.9 [TEFF] ! temperature\n3.55 [LOG_G]\n1.8e-6 [MDOT]\n"
+        "2277.344 [VINF]\n1 [BETA]\n127.55 [REF_R]\n135 [CON_R]\n"
+        "F [OLD_MOD]\nF [OLD_V]\nT [WIND_PRES]\n100 [MAX_R]\n700000 [LSTAR]\n",
+    )
+    _make_outputs_fresh(model)
+    return model
+
+
+def test_hydro_alignment_preview_and_apply_with_backup(tmp_path):
+    model = _write_misaligned_hydro_model(tmp_path)
+    hydro = model / "lte/HYDRO_PARAMS"
+    original = hydro.read_bytes()
+    vadat = (model / "lte/VADAT").read_bytes()
+    root_vadat = (model / "VADAT").read_bytes()
+    state = inspect_lte_hydro_workflow(str(tmp_path), model_relpath="model_a")
+    preview = state["hydro_alignment"]
+    assert preview["ready"] and preview["has_mismatch"]
+    rows = {row["label"]: row for row in preview["rows"]}
+    reference = float(preview["values"]["REF_R"])
+    assert reference == pytest.approx(39.757908, abs=0.00001)
+    assert (reference / 6.9599) ** 2 * (2.5 / 0.5770) ** 4 == pytest.approx(11500)
+    assert float(preview["values"]["CON_R"]) / reference == pytest.approx(135 / 127.55)
+    assert rows["MDOT"]["status"] == "danger"
+    assert hydro.read_bytes() == original
+
+    app = create_app(basepath=str(tmp_path), read_write_enabled=True, secret_key="test")
+    client = app.test_client()
+    page = client.get("/model-actions/lte-hydro/model_a")
+    assert b"HYDRO_PARAMS differs from the intended LTE/VADAT model" in page.data
+    assert b"Use VADAT parameters" in page.data
+    payload = {"action": "align_hydro", "expected_digest": preview["digest"]}
+    denied = client.post("/model-actions/lte-hydro/model_a", data=payload)
+    assert b"Review the proposed hydro parameters" in denied.data
+    assert hydro.read_bytes() == original
+    payload["alignment_checked"] = "1"
+    response = client.post("/model-actions/lte-hydro/model_a", data=payload, follow_redirects=True)
+    assert b"HYDRO_PARAMS aligned with LTE/VADAT" in response.data
+    values = model_workflow._control_numeric_values(hydro)
+    assert values["LOG_G"] == 3.7 and values["TEFF"] == 2.5
+    assert values["MDOT"] == 2e-8
+    assert values["REF_R"] == pytest.approx(reference)
+    assert values["LSTAR"] == 700000  # ignored metadata is preserved
+    assert "! Keep this comment" in hydro.read_text() and "! temperature" in hydro.read_text()
+    assert (model / "lte/VADAT").read_bytes() == vadat
+    assert (model / "VADAT").read_bytes() == root_vadat
+    backups = list((model / ".cmfgen-viewer-backups/hydro-alignment").glob("*/HYDRO_PARAMS"))
+    assert len(backups) == 1 and backups[0].read_bytes() == original
+    state = inspect_lte_hydro_workflow(str(tmp_path), model_relpath="model_a")
+    assert state["lte_output"]["fresh"] and state["hydro_output"]["stale"]
+    assert not state["promotion_ready"]
+
+
+@pytest.mark.parametrize("changed_file", ["VADAT", "HYDRO_PARAMS"])
+def test_hydro_alignment_rejects_changed_source_or_target(tmp_path, changed_file):
+    model = _write_misaligned_hydro_model(tmp_path)
+    preview = inspect_lte_hydro_workflow(str(tmp_path), model_relpath="model_a")["hydro_alignment"]
+    path = model / "lte" / changed_file
+    path.write_text(path.read_text() + "! An external edit\n")
+    current = (model / "lte/HYDRO_PARAMS").read_bytes()
+    with pytest.raises(ModelWorkflowError, match="changed since the preview"):
+        align_hydro_parameters(str(tmp_path), model_relpath="model_a", expected_digest=preview["digest"])
+    assert (model / "lte/HYDRO_PARAMS").read_bytes() == current
+
+
+@pytest.mark.parametrize("activity", ["active", "unknown"])
+def test_hydro_alignment_refuses_non_idle_workspaces(tmp_path, monkeypatch, activity):
+    model = _write_misaligned_hydro_model(tmp_path)
+    preview = inspect_lte_hydro_workflow(str(tmp_path), model_relpath="model_a")["hydro_alignment"]
+    current = (model / "lte/HYDRO_PARAMS").read_bytes()
+    monkeypatch.setattr(model_activity, "inspect_model_activity", lambda _: {"safe_to_modify": False, "reason": activity})
+    with pytest.raises(ModelWorkflowError, match=activity):
+        align_hydro_parameters(str(tmp_path), model_relpath="model_a", expected_digest=preview["digest"])
+    assert (model / "lte/HYDRO_PARAMS").read_bytes() == current
+
+
+def test_hydro_alignment_route_refuses_read_only_mode(tmp_path):
+    model = _write_misaligned_hydro_model(tmp_path)
+    current = (model / "lte/HYDRO_PARAMS").read_bytes()
+    app = create_app(basepath=str(tmp_path), read_write_enabled=False, secret_key="test")
+    response = app.test_client().post("/model-actions/lte-hydro/model_a", data={"action": "align_hydro", "alignment_checked": "1"})
+    assert response.status_code == 403
+    assert (model / "lte/HYDRO_PARAMS").read_bytes() == current
+
+
+@pytest.mark.parametrize("filename,old,new", [
+    ("VADAT", "11500 [LSTAR]", "NaN [LSTAR]"),
+    ("VADAT", "11500 [LSTAR]", "-1 [LSTAR]"),
+    ("VADAT", "11500 [LSTAR]", "11500 [LSTAR]\n12 [LSTAR]"),
+    ("HYDRO_PARAMS", "127.55 [REF_R]", "0 [REF_R]"),
+    ("HYDRO_PARAMS", "F [OLD_V]", "T [OLD_V]"),
+    ("HYDRO_PARAMS", "135 [CON_R]", "135 [CON_R]\n140 [CON_R]"),
+])
+def test_hydro_alignment_requires_unambiguous_supported_inputs(tmp_path, filename, old, new):
+    model = _write_misaligned_hydro_model(tmp_path)
+    path = model / "lte" / filename
+    path.write_text(path.read_text().replace(old, new))
+    preview = inspect_lte_hydro_workflow(str(tmp_path), model_relpath="model_a")["hydro_alignment"]
+    assert not preview["ready"] and preview["issues"]
+    with pytest.raises(ModelWorkflowError):
+        align_hydro_parameters(str(tmp_path), model_relpath="model_a", expected_digest=preview["digest"])
+
+
+def test_generated_summary_compares_to_vadat_despite_matching_hydro_template(tmp_path):
+    model = _write_misaligned_hydro_model(tmp_path)
+    result = model / "lte/RVSIG_COL_NEW"
+    result.write_text(GENERATED_RVSIG + "! Effective temperature (10^4 K) is: 3.9\n"
+                      "! Log surface gravity (cgs) is: 3.55\n"
+                      "! Luminosity (Lsun) is: 700000\n"
+                      "! Mass loss rate (Msun/yr) is: 1.8e-6\n")
+    summary = inspect_lte_hydro_workflow(str(tmp_path), model_relpath="model_a")["result_summary"]
+    rows = {row["label"]: row for row in summary["comparisons"]}
+    assert summary["has_mismatch"]
+    assert rows["Luminosity"]["configured"] == "11500"
+    assert rows["Luminosity"]["status"] == "danger"
+    assert rows["Effective temperature"]["configured_source"] == "VADAT [TEFF]"
+
+
+def test_promotion_preserves_generated_core_radius_and_lte_freshness(tmp_path):
+    model = _write_misaligned_hydro_model(tmp_path)
+    output = model / "lte/RVSIG_COL_NEW"
+    output.write_text(GENERATED_RVSIG + "! Core radius (10^10 cm) is: 38.92304\n")
+    rosseland_mtime = (model / "lte/ROSSELAND_LTE_TAB").stat().st_mtime_ns
+    os.utime(output, ns=(rosseland_mtime + 1_000_000, rosseland_mtime + 1_000_000))
+    vadat = model / "lte/VADAT"
+    previous = vadat.read_bytes()
+    mtime = vadat.stat().st_mtime_ns
+    result = promote_lte_hydro_results(str(tmp_path), model_relpath="model_a")
+    assert result["synchronized_rstar"] == 38.92304
+    assert result["synchronized_rmax"] == 2
+    assert vadat.stat().st_mtime_ns == mtime
+    assert result["promotion_ready"] and result["promoted"]
+    for path in (vadat, model / "VADAT"):
+        values = model_workflow._control_numeric_values(path)
+        assert values["RSTAR"] == 38.92304 and values["RMAX"] == 2
+    assert (model / result["backup_relpath"] / "lte/VADAT").read_bytes() == previous
 
 
 def test_lte_and_captured_hydro_diagnostics_render_and_guard_failures(tmp_path: Path) -> None:

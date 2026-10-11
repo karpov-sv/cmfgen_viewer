@@ -654,6 +654,7 @@ def _run_promotion_plan(plan: dict, emit=None) -> dict:
             "backup_path": str(model / promotion["backup_relpath"]),
             "invalidated_files": promotion["invalidated_files"],
             "synchronized_rmax": promotion["synchronized_rmax"],
+            "synchronized_rstar": promotion["synchronized_rstar"],
             "promoted_files": ["ROSSELAND_LTE_TAB", "RVSIG_COL_NEW", "RVSIG_COL", "VADAT"],
         }
         record["status"] = result["status"] = "succeeded"

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import math
 import os
 import re
 import shutil
@@ -283,6 +284,9 @@ def _comparison_row(
             difference = f"{percentage:+.4g}%"
             absolute_percentage = abs(percentage)
             status = "success" if absolute_percentage <= 0.5 else "warning" if absolute_percentage <= 2 else "danger"
+        else:
+            difference = f"{generated - configured:+.5g}"
+            status = "success" if generated == configured else "danger"
     return {
         "label": label,
         "generated": _format_workflow_number(generated),
@@ -327,13 +331,14 @@ def _rvsig_result_summary(lte_dir: Path) -> dict[str, object] | None:
     vadat = _control_numeric_values(lte_dir / "VADAT")
     comparisons: list[dict[str, object]] = []
     comparison_specs = (
-        ("luminosity", hydro.get("LSTAR"), "HYDRO_PARAMS [LSTAR]", "percent"),
+        ("luminosity", vadat.get("LSTAR"), "VADAT [LSTAR]", "percent"),
         ("radius_ratio", vadat.get("RMAX"), "VADAT [RMAX]", "percent"),
-        ("teff", hydro.get("TEFF"), "HYDRO_PARAMS [TEFF]", "percent"),
-        ("logg", hydro.get("LOG_G"), "HYDRO_PARAMS [LOG_G]", "absolute"),
+        ("core_radius", vadat.get("RSTAR"), "VADAT [RSTAR]", "percent"),
+        ("teff", vadat.get("TEFF"), "VADAT [TEFF]", "percent"),
+        ("logg", vadat.get("LOGG"), "VADAT [LOGG]", "absolute"),
         ("reference_radius", hydro.get("REF_R"), "HYDRO_PARAMS [REF_R]", "percent"),
-        ("mass", hydro.get("MASS"), "HYDRO_PARAMS [MASS]", "percent"),
-        ("mass_loss", hydro.get("MDOT"), "HYDRO_PARAMS [MDOT]", "percent"),
+        ("mass", vadat.get("MASS"), "VADAT [MASS]", "percent"),
+        ("mass_loss", vadat.get("MDOT"), "VADAT [MDOT]", "percent"),
     )
     compared_keys: set[str] = set()
     for key, configured, source, difference_kind in comparison_specs:
@@ -362,7 +367,122 @@ def _rvsig_result_summary(lte_dir: Path) -> dict[str, object] | None:
     ]
     if not comparisons and not diagnostics:
         return None
-    return {"comparisons": comparisons, "diagnostics": diagnostics}
+    return {
+        "comparisons": comparisons,
+        "diagnostics": diagnostics,
+        "has_mismatch": any(row["status"] in {"warning", "danger"} for row in comparisons),
+    }
+
+
+def _hydro_parameter_alignment(basepath: str, model_relpath: str) -> dict[str, object]:
+    """Preview actual wind_hyd inputs against the intended LTE/VADAT model."""
+    preview: dict[str, object] = {"rows": [], "issues": [], "ready": False, "has_mismatch": False}
+    try:
+        records = {
+            name: load_model_parameter_file(
+                basepath, model_relpath=f"{model_relpath}/lte", file_relpath=name,
+            )
+            for name in ("VADAT", "HYDRO_PARAMS")
+        }
+    except ModelEditorError as exc:
+        preview["issues"] = [str(exc)]
+        return preview
+    issues = preview["issues"]
+    occurrences = {name: _control_occurrences(str(record["contents"])) for name, record in records.items()}
+
+    def number(filename: str, key: str, *, positive: bool = True) -> float | None:
+        matches = occurrences[filename].get(key, [])
+        value = parse_float_token(str(matches[0]["value"])) if len(matches) == 1 else None
+        if value is None or not math.isfinite(value) or (positive and value <= 0):
+            issues.append(f"{filename} [{key}] requires one finite {'positive ' if positive else ''}number.")
+            return None
+        return value
+
+    values: dict[str, str] = {}
+
+    def add(key: str, proposed: float, source: str, *, absolute: bool = False) -> None:
+        current = number("HYDRO_PARAMS", key, positive=key not in {"LOG_G", "MDOT"})
+        row = _comparison_row(
+            label=key, generated=proposed, configured=current,
+            configured_source=source, unit="", difference_kind="absolute" if absolute else "percent",
+        )
+        row["changed"] = current is None or not math.isclose(current, proposed, rel_tol=1e-9, abs_tol=1e-12)
+        preview["rows"].append(row)
+        values[key] = f"{proposed:.12g}"
+
+    for target, source in (("LOG_G", "LOGG"), ("TEFF", "TEFF"), ("MDOT", "MDOT"), ("VINF", "VINF"), ("BETA", "BETA")):
+        value = number("VADAT", source, positive=source not in {"LOGG", "MDOT"})
+        if value is not None:
+            if source == "MDOT" and value < 0:
+                issues.append("VADAT [MDOT] cannot be negative.")
+            add(target, value, f"VADAT [{source}]", absolute=source == "LOGG")
+
+    luminosity = number("VADAT", "LSTAR")
+    teff = number("VADAT", "TEFF")
+    old_reference = number("HYDRO_PARAMS", "REF_R")
+    connection = number("HYDRO_PARAMS", "CON_R")
+    if luminosity is not None and teff is not None:
+        # Invert the luminosity expression used in wind_hyd's output header.
+        try:
+            reference = 6.9599 * math.sqrt(luminosity) * (0.5770 / teff) ** 2
+            scaled_connection = connection * (reference / old_reference) if connection is not None and old_reference is not None else None
+            if not math.isfinite(reference) or reference <= 0 or (scaled_connection is not None and (not math.isfinite(scaled_connection) or scaled_connection <= 0)):
+                raise ValueError
+        except (OverflowError, ValueError, ZeroDivisionError):
+            issues.append("LSTAR and TEFF do not yield a finite positive reference radius.")
+        else:
+            add("REF_R", reference, "Derived from VADAT [LSTAR] and [TEFF]")
+            if scaled_connection is not None:
+                add("CON_R", scaled_connection, "Preserve the current CON_R / REF_R ratio; review this estimate")
+
+    for key, expected in (("OLD_MOD", "F"), ("OLD_V", "F"), ("WIND_PRES", "T")):
+        matches = occurrences["HYDRO_PARAMS"].get(key, [])
+        if len(matches) != 1 or str(matches[0]["value"]).upper() != expected:
+            issues.append(f"Automatic alignment supports HYDRO_PARAMS [{key}] = {expected}; review other hydro modes manually.")
+    preview.update({
+        "values": values,
+        "digest": hashlib.sha256((str(records["VADAT"]["digest"]) + str(records["HYDRO_PARAMS"]["digest"])).encode()).hexdigest(),
+        "file_digests": {name: record["digest"] for name, record in records.items()},
+        "has_changes": any(row["changed"] for row in preview["rows"]),
+        "has_mismatch": any(row["status"] in {"warning", "danger"} for row in preview["rows"]),
+        "ready": not issues,
+    })
+    return preview
+
+
+def align_hydro_parameters(basepath: str, *, model_relpath: str, expected_digest: str) -> dict[str, object]:
+    """Apply a reviewed preview, checking both source and target under the model lock."""
+    normalized, model_dir = _resolve_model(basepath, model_relpath)
+    with MODEL_WRITE_LOCK, model_mutation_guard(model_dir, ModelWorkflowError):
+        preview = _hydro_parameter_alignment(basepath, normalized)
+        if not preview["ready"]:
+            raise ModelWorkflowError(" ".join(preview["issues"]))
+        if not expected_digest or preview["digest"] != expected_digest:
+            raise ModelWorkflowError("VADAT or HYDRO_PARAMS changed since the preview. Reload and review the new values.")
+        if not preview["has_changes"]:
+            raise ModelWorkflowError("HYDRO_PARAMS already uses the proposed VADAT parameters.")
+        try:
+            record = load_model_parameter_file(basepath, model_relpath=f"{normalized}/lte", file_relpath="HYDRO_PARAMS")
+            values = preview["values"]
+            definitions = {"HYDRO_PARAMS": tuple({"key": key, "comment": "Aligned with LTE/VADAT"} for key in values)}
+            updated = _updated_control_contents(
+                str(record["contents"]), "HYDRO_PARAMS", values,
+                definitions_by_file=definitions, marker_label="VADAT alignment",
+            )
+            target = Path(str(record["path"]))
+            for name, digest in preview["file_digests"].items():
+                if hashlib.sha256((target.parent / name).read_bytes()).hexdigest() != digest:
+                    raise ModelWorkflowError("VADAT or HYDRO_PARAMS changed while saving. Reload and review the new values.")
+            info = target.stat()
+            backup_dir = model_dir / MODEL_EDITOR_BACKUP_DIR / "hydro-alignment" / datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+            backup_dir.mkdir(parents=True, exist_ok=False)
+            shutil.copy2(target, backup_dir / "HYDRO_PARAMS")
+            _atomic_write(target, updated.encode("utf-8"), stat.S_IMODE(info.st_mode))
+            backup_relpath = backup_dir.relative_to(model_dir).as_posix()
+            mark_model_inputs_modified(model_dir, file_relpath="lte/HYDRO_PARAMS", backup_relpath=backup_relpath)
+        except (ModelEditorError, OSError) as exc:
+            raise ModelWorkflowError(f"Could not align HYDRO_PARAMS: {exc}") from exc
+    return {"backup_relpath": backup_relpath}
 
 
 def _quick_control_cards(
@@ -710,6 +830,7 @@ def inspect_lte_hydro_workflow(basepath: str, *, model_relpath: str, config: dic
             _result_quick_control_cards(basepath, normalized) if prepared and hydro_output["exists"] else []
         ),
         "result_summary": _rvsig_result_summary(lte_dir),
+        "hydro_alignment": _hydro_parameter_alignment(basepath, normalized) if prepared else None,
         "lte_runtime": lte_runtime,
         "hydro_runtime": hydro_runtime,
     }
@@ -817,11 +938,17 @@ def promote_lte_hydro_results(basepath: str, *, model_relpath: str) -> dict[str,
             lte_vadat_info = lte_vadat.stat()
         except (OSError, UnicodeError) as exc:
             raise ModelWorkflowError(f"Could not read lte/VADAT before promotion: {exc}") from exc
+        radius_values = {"RMAX": f"{generated_rmax:.12g}"}
+        generated_rstar = generated.get("core_radius")
+        if generated_rstar is not None:
+            if generated_rstar <= 0:
+                raise ModelWorkflowError("RVSIG_COL_NEW reports an invalid core radius.")
+            radius_values["RSTAR"] = f"{generated_rstar:.12g}"
         synchronized_vadat = _updated_control_contents(
             lte_vadat_contents,
             "VADAT",
-            {"RMAX": f"{generated_rmax:.12g}"},
-            definitions_by_file=RESULT_QUICK_CONTROLS,
+            radius_values,
+            definitions_by_file={"VADAT": tuple({"key": key, "comment": "Radius from the generated hydro structure"} for key in radius_values)},
             marker_label="hydro result promotion",
         ).encode("utf-8")
         sources = {
@@ -904,4 +1031,5 @@ def promote_lte_hydro_results(basepath: str, *, model_relpath: str) -> dict[str,
     result["backup_relpath"] = backup_relpath
     result["invalidated_files"] = invalidated_names
     result["synchronized_rmax"] = generated_rmax
+    result["synchronized_rstar"] = generated_rstar
     return result

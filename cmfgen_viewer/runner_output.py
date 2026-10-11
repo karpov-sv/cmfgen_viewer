@@ -219,6 +219,8 @@ class TerminalOutput:
             self.line("INFO", "Filesystem handoff only; no native executable will be launched")
             if plan.get("synchronized_rmax") is not None:
                 self.line("INFO", f"VADAT RMAX will be synchronized to {plan['synchronized_rmax']:.12g}")
+            if plan.get("synchronized_rstar") is not None:
+                self.line("INFO", f"VADAT RSTAR will be synchronized to {plan['synchronized_rstar']:.12g}")
             if plan.get("invalidates"):
                 self.line(
                     "INFO",
@@ -335,6 +337,8 @@ class TerminalOutput:
         if status == "succeeded" and result.get("promotion"):
             promotion = result["promotion"]
             self.line("OK", f"Promoted LTE/hydro results with RMAX={promotion['synchronized_rmax']:.12g}")
+            if promotion.get("synchronized_rstar") is not None:
+                self.line("INFO", f"VADAT RSTAR synchronized to {promotion['synchronized_rstar']:.12g}")
             self.line("INFO", f"Backup: {promotion['backup_path']}")
             invalidated = promotion.get("invalidated_files", [])
             if invalidated:

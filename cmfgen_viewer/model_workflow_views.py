@@ -9,6 +9,7 @@ from .model_workflow import (
     LTE_QUICK_CONTROLS,
     RESULT_QUICK_CONTROLS,
     ModelWorkflowError,
+    align_hydro_parameters,
     inspect_lte_hydro_workflow,
     prepare_lte_hydro_workspace,
     promote_lte_hydro_results,
@@ -76,6 +77,17 @@ def model_lte_hydro(source_path: str):
                         ),
                     )
                 )
+            if action == "align_hydro":
+                if request.form.get("alignment_checked") != "1":
+                    raise ModelWorkflowError("Review the proposed hydro parameters, including the connection radius, before applying them.")
+                saved = align_hydro_parameters(
+                    basepath, model_relpath=source_path,
+                    expected_digest=str(request.form.get("expected_digest", "")),
+                )
+                return redirect(url_for(
+                    "viewer.model_lte_hydro", source_path=source_path, _anchor="hydro-alignment",
+                    message=f"HYDRO_PARAMS aligned with LTE/VADAT; rerun hydro. Checkpoint: {saved['backup_relpath']}.",
+                ))
             if action == "configure_results":
                 submitted_filename = str(request.form.get("control_file", "")).strip().upper()
                 submitted_card_key = "result_quick_control_cards"

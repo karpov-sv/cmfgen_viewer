@@ -69,6 +69,30 @@ def test_promotion_plan_needs_no_executable_configuration(promotable_model: Path
     assert "executable" not in plan
 
 
+def test_runner_reports_and_synchronizes_generated_core_radius(promotable_model):
+    output = promotable_model / "lte/RVSIG_COL_NEW"
+    contents = output.read_text()
+    mtime = output.stat().st_mtime_ns
+    output.write_text(contents + "! Core radius (10^10 cm) is: 38.92304\n")
+    os.utime(output, ns=(mtime, mtime))
+    plan = build_promotion_plan(promotable_model)
+    assert plan["ready"] and plan["synchronized_rstar"] == 38.92304
+    result = run_plan(plan)
+    assert result["status"] == "succeeded"
+    assert result["promotion"]["synchronized_rstar"] == 38.92304
+    assert "38.92304" in (promotable_model / "VADAT").read_text()
+
+
+def test_promotion_plan_rejects_invalid_reported_core_radius(promotable_model):
+    output = promotable_model / "lte/RVSIG_COL_NEW"
+    mtime = output.stat().st_mtime_ns
+    output.write_text(output.read_text() + "! Core radius (10^10 cm) is: 0\n")
+    os.utime(output, ns=(mtime, mtime))
+    plan = build_promotion_plan(promotable_model)
+    assert not plan["ready"]
+    assert any("invalid core radius" in error for error in plan["errors"])
+
+
 def test_runner_promotes_with_backup_and_invalidates_old_main_state(
     promotable_model: Path,
 ) -> None:

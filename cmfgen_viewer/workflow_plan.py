@@ -163,7 +163,9 @@ def build_workflow_plan(basepath: str, *, model_relpath: str, scope: str, config
                       "changes": [{"action": "backup_then_atomic_copy", "source": f"lte/{source}", "destination": target}
                                   for source, target in (("ROSSELAND_LTE_TAB", "ROSSELAND_LTE_TAB"),
                                                          ("RVSIG_COL_NEW", "RVSIG_COL_NEW"), ("RVSIG_COL_NEW", "RVSIG_COL"), ("VADAT", "VADAT"))]
-                                 + [{"action": "mark_solution_stale_and_invalidate_summary"}], "command": None, "issues": []})
+                                 + [{"action": "synchronize_generated_radii", "file": "lte/VADAT",
+                                     "controls": ["RMAX", "RSTAR (when reported)"]},
+                                    {"action": "mark_solution_stale_and_invalidate_summary"}], "command": None, "issues": []})
     return {"schema_version": 1, "scope": scope, "model_path": str(model_dir),
             "model_relpath": model_relpath, "execution_available": False, "steps": steps,
             "limitations": ["Read-only preview: no programs, shell scripts, or filesystem actions are executed.",
