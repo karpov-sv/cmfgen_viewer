@@ -86,7 +86,9 @@
       return;
     }
     if (runtime.progress) {
-      renderProgressBlock(container, runtime.progress, "Estimated progress:", runtime.active);
+      const heading = runtime.active ? "Estimated progress:"
+        : runtime.kind === "lte" ? "Last logged LTE frequency counter:" : "Last recorded progress:";
+      renderProgressBlock(container, runtime.progress, heading, runtime.active);
     } else if (runtime.active) {
       append(container, "p", "small text-muted mb-0", "The process is running, but no progress marker from this run is available yet.");
     }
@@ -208,8 +210,14 @@
     renderProcesses(monitor.querySelector("[data-runtime-processes]"), runtime.processes || [], runtime.monitoring_available);
     document.querySelectorAll("[data-workflow-runtime-summary]").forEach(element => {
       if (element.dataset.workflowRuntimeSummary !== monitor.dataset.runtimeKey) return;
-      element.textContent = badge.textContent;
-      element.className = badge.className;
+      // Output freshness comes from the workflow checks. Runtime updates only
+      // report activity; the completion refresh reruns those checks.
+      const outputReady = element.dataset.workflowOutputReady === "true";
+      element.textContent = !runtime.active && outputReady
+        ? `Output ready · ${runtime.monitoring_available ? "not running" : "monitoring unavailable"}`
+        : badge.textContent;
+      element.className = !runtime.active && outputReady && runtime.monitoring_available
+        ? "badge bg-success" : badge.className;
     });
     const stage = monitor.closest("details.workflow-stage");
     if (stage && runtime.active && monitor.dataset.runtimeActive !== "true") stage.open = true;

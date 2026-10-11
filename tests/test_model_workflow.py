@@ -245,7 +245,6 @@ def test_result_review_links_and_quick_controls_preserve_workflow_state(tmp_path
     _make_outputs_fresh(model)
     state = inspect_lte_hydro_workflow(str(tmp_path), model_relpath="model_a")
     assert state["promotion_ready"] is True
-    vadat_mtime = (model / "lte" / "VADAT").stat().st_mtime_ns
 
     app = create_app(basepath=str(tmp_path), read_write_enabled=True, secret_key="test")
     app.testing = True
@@ -255,28 +254,7 @@ def test_result_review_links_and_quick_controls_preserve_workflow_state(tmp_path
     assert b"Open RVSIG_COL_NEW" in page.data
     assert b"Open ROSSELAND_LTE_TAB" in page.data
     assert b"Save REF_R" in page.data
-    assert b"Save RMAX" in page.data
-
-    vadat_card = next(
-        item
-        for item in state["result_quick_control_cards"]
-        if item["file_relpath"] == "VADAT"
-    )
-    saved_rmax = client.post(
-        "/model-actions/lte-hydro/model_a",
-        data={
-            "action": "configure_results",
-            "control_file": "VADAT",
-            "expected_digest": vadat_card["digest"],
-            "result_value:RMAX": "109.7956",
-        },
-        follow_redirects=True,
-    )
-    assert saved_rmax.status_code == 200
-    assert b"Saved result-review control in VADAT" in saved_rmax.data
-    assert (model / "lte" / "VADAT").stat().st_mtime_ns == vadat_mtime
-    state = inspect_lte_hydro_workflow(str(tmp_path), model_relpath="model_a")
-    assert state["promotion_ready"] is True
+    assert b"Save RMAX" not in page.data
 
     hydro_card = next(
         item
@@ -561,6 +539,12 @@ def test_stale_outputs_are_blocked_and_fresh_results_are_promoted_with_backups(t
         (model / name).write_text(contents, encoding="utf-8")
     promoted = promote_lte_hydro_results(str(tmp_path), model_relpath="model_a")
     assert promoted["promoted"] is True
+    page = create_app(basepath=str(tmp_path), read_write_enabled=True).test_client().get(
+        '/model-actions/lte-hydro/model_a').get_data(as_text=True)
+    assert 'Awaiting promotion' not in page
+    assert 'Continue to Main Computation</a>' in page
+    assert 'The current results have been promoted' in page
+    assert 'Promote Results</button>' not in page
     assert promoted["synchronized_rmax"] == 2.0
     assert set(promoted["invalidated_files"]) == set(stale_state)
     assert (model / "ROSSELAND_LTE_TAB").read_text(encoding="utf-8") == "rosseland new\n"
@@ -664,9 +648,9 @@ def test_prepared_workflow_focuses_next_stage_and_distinguishes_existing_root(tm
     assert '>Run LTE</a>' in page
     assert 'Waiting for LTE' in page
     assert 'Parameter mismatch' in page
-    assert 'Existing root structure available' in page
+    assert 'Awaiting promotion' in page
     assert 'Handoff ready' not in page
-    assert 'The current LTE/hydro workspace results have not been promoted' in page
+    assert 'Review and promote the current LTE/hydro results first' in page
     assert 'No blockers' in page and '1 warning' in page
     assert '1 missing atomic / restart link target' in page
     assert 'Full target path' in page
@@ -758,3 +742,38 @@ def test_prepare_does_not_publish_workspace_if_hydro_initialization_write_fails(
     assert not (model / 'lte').exists()
     assert not (model / 'RVSIG_COL_OLD').exists()
     assert not list(model.glob('.cmfgen-lte-*'))
+
+
+def test_result_review_distinguishes_synchronized_radii_from_parameter_mismatches(tmp_path):
+    model = _write_initializable_workspace_inputs(tmp_path)
+    prepare_lte_hydro_workspace(str(tmp_path), model_relpath=model.name)
+    _make_outputs_fresh(model)
+    rvsig = model / 'lte/RVSIG_COL_NEW'
+    header = ('! Luminosity (Lsun) is: 11500\n'
+              '! Effective temperature (10^4 K) is: 2.5\n'
+              '! Log surface gravity (cgs) is: 3.7\n'
+              '! Core radius (10^10 cm) is: 40\n')
+    rvsig.write_text(header + rvsig.read_text())
+    state = inspect_lte_hydro_workflow(str(tmp_path), model_relpath=model.name)
+    summary = state['result_summary']
+    radii = [row for row in summary['comparisons'] if row['synchronized_on_promotion']]
+    assert len(radii) == 2 and all(row['status'] == 'info' for row in radii)
+    assert not summary['has_mismatch']
+    assert state['promotion_ready']
+    app = create_app(basepath=str(tmp_path), read_write_enabled=True)
+    page = app.test_client().get('/model-actions/lte-hydro/model_a').get_data(as_text=True)
+    assert page.count('Output ready · not running') == 2
+    assert 'Generated structure differs' not in page
+    assert 'Will be synchronized during promotion' in page
+    assert 'no manual radius edit is needed' in page
+    assert 'Awaiting promotion' in page
+    assert 'Continue to Main Computation</a>' not in page
+    assert re.search(r'id="result-corrections"\s*>', page)
+    assert page.index('Promote Results</button>') < page.index('Adjust parameters and rerun')
+    assert 'Save RMAX' not in page
+    rvsig.write_text(rvsig.read_text().replace('11500', '20000'))
+    state = inspect_lte_hydro_workflow(str(tmp_path), model_relpath=model.name)
+    assert state['result_summary']['has_mismatch']
+    page = app.test_client().get('/model-actions/lte-hydro/model_a').get_data(as_text=True)
+    assert 'Generated structure differs' in page
+    assert 'no manual radius edit is needed' not in page

@@ -25,8 +25,8 @@
     <p class="small text-muted mb-2">Prepare and inspect files here; run commands in your terminal. Process status updates live; results refresh automatically when a run stops.</p>
     <div class="workflow-overview mb-3">
       <div><span class="small text-muted me-2">Workspace</span><span class="badge {{ 'bg-success' if state.prepared else 'bg-secondary' }}">{{ 'Prepared' if state.prepared else 'Needs preparation' }}</span></div>
-      <div><span class="small text-muted me-2">LTE</span>{{ runtime_badge(state.lte_runtime, source_path) }}</div>
-      <div><span class="small text-muted me-2">Hydro</span>{{ runtime_badge(state.hydro_runtime, source_path) }}</div>
+      <div><span class="small text-muted me-2">LTE</span>{{ runtime_badge(state.lte_runtime, source_path, output_ready=not awaiting_lte) }}</div>
+      <div><span class="small text-muted me-2">Hydro</span>{{ runtime_badge(state.hydro_runtime, source_path, output_ready=state.hydro_output_ready) }}</div>
       <div><span class="badge {{ 'bg-success' if state.promoted else 'bg-warning text-dark' if state.promotion_ready else 'bg-secondary' }}">{{ 'Promoted' if state.promoted else 'Ready to promote' if state.promotion_ready else 'Awaiting results' }}</span></div>
       <a class="small ms-auto" href="{{ url_for('viewer.model_lte_hydro', source_path=source_path) }}">Refresh checks</a>
     </div>
@@ -236,13 +236,10 @@
           {% if state.lte_output.exists %}
             <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('viewer.view', path=source_path ~ '/lte/ROSSELAND_LTE_TAB') }}">Open ROSSELAND_LTE_TAB</a>
           {% endif %}
-          {% if state.prepared %}
-            <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('viewer.model_parameters', source_path=source_path ~ '/lte', file='HYDRO_PARAMS') }}">Edit HYDRO_PARAMS</a>
-            <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('viewer.model_parameters', source_path=source_path ~ '/lte', file='VADAT') }}">Edit VADAT</a>
-          {% endif %}
         </div>
         {% if state.result_summary %}
           {% if state.result_summary.has_mismatch %}<div class="alert alert-warning py-2"><strong>Generated structure differs from the configured model.</strong> Compare the quantities below against the intended LTE/VADAT values before promotion. Promotion synchronizes the generated core radius and radius ratio; other differences need review and may require rerunning LTE or hydro.</div>{% endif %}
+          {% if state.promotion_ready and not state.promoted and not state.result_summary.has_mismatch %}<div class="alert alert-info py-2">Review the generated model quantities below. Promotion will synchronize <code>VADAT [RMAX]</code> and <code>[RSTAR]</code> with the generated structure; no manual radius edit is needed. Check the run warnings, then promote.</div>{% endif %}
           {% if state.result_summary.comparisons %}
             <h3 class="h6">Generated quantities and configured values</h3>
             <div class="table-responsive mb-3">
@@ -254,7 +251,7 @@
                       <th>{{ row.label }}</th>
                       <td><code>{{ row.generated }}</code>{% if row.unit %} {{ row.unit }}{% endif %}</td>
                       <td><code>{{ row.configured }}</code>{% if row.unit and row.configured != '—' %} {{ row.unit }}{% endif %}<div class="small text-muted">{{ row.configured_source }}</div></td>
-                      <td class="{% if row.status == 'success' %}text-success{% elif row.status == 'warning' %}text-warning-emphasis{% elif row.status == 'danger' %}text-danger{% endif %}"><code>{{ row.difference }}</code></td>
+                      <td class="{% if row.status == 'success' %}text-success{% elif row.status == 'warning' %}text-warning-emphasis{% elif row.status == 'danger' %}text-danger{% elif row.status == 'info' %}text-info-emphasis{% endif %}"><code>{{ row.difference }}</code>{% if row.synchronized_on_promotion %}<div class="small text-info-emphasis">{{ 'Synchronized during promotion' if state.promoted else 'Will be synchronized during promotion' }}</div>{% endif %}</td>
                     </tr>
                   {% endfor %}
                 </tbody>
@@ -270,36 +267,9 @@
             </div>
           {% endif %}
         {% endif %}
-        {% if state.result_quick_control_cards %}
-          <div class="row g-3 mb-3">
-            {% for card in state.result_quick_control_cards %}
-              {% set field = card.fields[0] %}
-              <div class="col-lg-6">
-                <form method="post" class="card h-100">
-                  <div class="card-header"><strong>{{ field.label }} <code>[{{ field.key }}]</code></strong> in <code>{{ card.file_relpath }}</code></div>
-                  <div class="card-body">
-                    <input type="hidden" name="action" value="configure_results">
-                    <input type="hidden" name="control_file" value="{{ card.file_relpath }}">
-                    <input type="hidden" name="expected_digest" value="{{ card.digest }}">
-                    <input
-                      class="form-control form-control-sm font-monospace"
-                      name="{{ field.field_name }}"
-                      value="{{ field.value }}"
-                      inputmode="decimal"
-                      autocomplete="off"
-                      required
-                    >
-                    {% if field.help %}<div class="form-text">{{ field.help }}</div>{% endif %}
-                    {% if not field.exists %}<div class="form-text text-warning-emphasis">Not present; it will be added.</div>{% endif %}
-                    {% for issue in card.issues %}<div class="alert alert-warning py-1 small mt-2 mb-0">{{ issue }}</div>{% endfor %}
-                  </div>
-                  <div class="card-footer"><button class="btn btn-sm btn-primary" type="submit" {% if not card.can_save %}disabled{% endif %}>Save {{ field.key }}</button></div>
-                </form>
-              </div>
-            {% endfor %}
-          </div>
-        {% endif %}
-        {% if state.promotion_ready %}
+        {% if state.promoted %}
+          <p class="small text-success mb-0">The current results have been promoted. Continue to main model computation below.</p>
+        {% elif state.promotion_ready %}
           <p class="small">Promotion synchronizes <code>VADAT [RMAX]</code> from the generated radius ratio and <code>[RSTAR]</code> from the reported core radius when available, preserving the generated structure's radius scale. It copies <code>ROSSELAND_LTE_TAB</code>, <code>RVSIG_COL_NEW</code>, <code>RVSIG_COL</code>, and <code>VADAT</code> to the model root, and invalidates old main checkpoints and solution files. Everything replaced or invalidated is checkpointed first.</p>
           <form method="post">
             <input type="hidden" name="action" value="promote">
@@ -307,17 +277,58 @@
             <button class="btn btn-danger" type="submit">Promote Results</button>
           </form>
         {% else %}<p class="text-muted mb-0">Fresh LTE and hydro outputs are required. Files are considered stale when older than their relevant inputs.</p>{% endif %}
+        {% if state.prepared %}
+          <details class="workflow-help mt-3" id="result-corrections">
+            <summary>Adjust parameters and rerun</summary>
+            <p class="small text-muted mt-2">Use these controls if the generated quantities need correction. Changing <code>REF_R</code> requires rerunning hydro. Other changes to VADAT require rerunning LTE and hydro. Promotion synchronizes RMAX and RSTAR automatically.</p>
+            <div class="d-flex flex-wrap gap-2 mb-3">
+              <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('viewer.model_parameters', source_path=source_path ~ '/lte', file='HYDRO_PARAMS') }}">Edit HYDRO_PARAMS</a>
+              <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('viewer.model_parameters', source_path=source_path ~ '/lte', file='VADAT') }}">Edit VADAT</a>
+            </div>
+            {% if state.result_quick_control_cards %}
+              <div class="row g-3 mb-3">
+                {% for card in state.result_quick_control_cards %}
+                  {% set field = card.fields[0] %}
+                  <div class="col-lg-6">
+                    <form method="post" class="card h-100">
+                      <div class="card-header"><strong>{{ field.label }} <code>[{{ field.key }}]</code></strong> in <code>{{ card.file_relpath }}</code></div>
+                      <div class="card-body">
+                        <input type="hidden" name="action" value="configure_results">
+                        <input type="hidden" name="control_file" value="{{ card.file_relpath }}">
+                        <input type="hidden" name="expected_digest" value="{{ card.digest }}">
+                        <input
+                          class="form-control form-control-sm font-monospace"
+                          name="{{ field.field_name }}"
+                          value="{{ field.value }}"
+                          inputmode="decimal"
+                          autocomplete="off"
+                          required
+                        >
+                        {% if field.help %}<div class="form-text">{{ field.help }}</div>{% endif %}
+                        {% if not field.exists %}<div class="form-text text-warning-emphasis">Not present; it will be added.</div>{% endif %}
+                        {% for issue in card.issues %}<div class="alert alert-warning py-1 small mt-2 mb-0">{{ issue }}</div>{% endfor %}
+                      </div>
+                      <div class="card-footer"><button class="btn btn-sm btn-primary" type="submit" {% if not card.can_save %}disabled{% endif %}>Save {{ field.key }}</button></div>
+                    </form>
+                  </div>
+                {% endfor %}
+              </div>
+            {% endif %}
+          </details>
+        {% endif %}
       </div>
     </details>
 
     <details class="card workflow-stage mb-3" id="main-handoff" {% if state.promoted and state.main_ready %}open{% endif %}>
       <summary class="card-header d-flex justify-content-between align-items-center">
         <strong>5. Continue to main model computation</strong>
-        {% if state.promoted and state.main_ready %}<span class="badge bg-success">Current results promoted</span>{% elif state.main_ready %}<span class="badge bg-secondary">Existing root structure available</span>{% else %}<span class="badge bg-secondary">Blocked</span>{% endif %}
+        {% if state.promoted and state.main_ready %}<span class="badge bg-success">Current results promoted</span>{% elif not state.promoted %}<span class="badge bg-secondary">Awaiting promotion</span>{% else %}<span class="badge bg-secondary">Blocked</span>{% endif %}
       </summary>
       <div class="card-body">
-        {% if state.main_ready %}
-          <p class="small text-muted">{% if state.promoted %}The current LTE/hydro results are promoted to the model root.{% else %}Existing structure files are available in the model root. The current LTE/hydro workspace results have not been promoted; main computation checks their readiness separately.{% endif %}</p>
+        {% if not state.promoted %}
+          <p class="small text-muted mb-0">Review and promote the current LTE/hydro results first. Existing model-root files belong to the previous structure; main computation checks the handoff after promotion.</p>
+        {% elif state.main_ready %}
+          <p class="small text-muted">The current LTE/hydro results are promoted to the model root.</p>
           <a class="btn btn-primary" href="{{ url_for('viewer.model_main_computation', source_path=source_path) }}">Continue to Main Computation</a>
         {% else %}<p class="text-muted mb-0">The handoff requires regular <code>batch.sh</code>, <code>VADAT</code>, <code>RVSIG_COL</code>, and <code>ROSSELAND_LTE_TAB</code> files in the model root.</p>{% endif %}
       </div>

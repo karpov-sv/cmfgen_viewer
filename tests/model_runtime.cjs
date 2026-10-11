@@ -6,12 +6,14 @@ const source = fs.readFileSync('cmfgen_viewer/static/model_runtime.js', 'utf8');
 class Element {
   constructor() {
     this.dataset = {};
+    this.style = {};
     this.children = [];
     this.textContent = '';
     this.listeners = {};
     this.classes = new Set();
     this.classList = {toggle: (name, on) => on ? this.classes.add(name) : this.classes.delete(name)};
   }
+  append(...children) { this.children.push(...children); }
   appendChild(child) { this.children.push(child); }
   replaceChildren() { this.children = []; }
   setAttribute() {}
@@ -23,7 +25,7 @@ class Element {
   }
 }
 
-function setup(initiallyActive = [false], fields = []) {
+function setup(initiallyActive = [false], fields = [], summaries = []) {
   const monitors = initiallyActive.map((active, index) => {
     const monitor = new Element();
     monitor.dataset = {runtimeActive: String(active), runtimeKey: String(index)};
@@ -35,6 +37,7 @@ function setup(initiallyActive = [false], fields = []) {
   vm.runInNewContext(source, {
     document: {
       querySelectorAll: selector => selector === '[data-model-runtime-url]' ? monitors
+        : selector === '[data-workflow-runtime-summary]' ? summaries
         : selector.startsWith('.workflow-page form') ? fields : [],
       createElement: () => new Element(),
       createTextNode: text => ({textContent: text}),
@@ -51,8 +54,8 @@ function setup(initiallyActive = [false], fields = []) {
   });
   return {
     monitors,
-    update(active, available = true, index = 0, phase = 'CMFGEN') {
-      subscriptions.get('runtime:' + index)({active, monitoring_available: available, phase_label: phase});
+    update(active, available = true, index = 0, phase = 'CMFGEN', diagnostics, extra = {}) {
+      subscriptions.get('runtime:' + index)({active, monitoring_available: available, phase_label: phase, diagnostics, ...extra});
     },
     flush() { while (timers.length) timers.shift()(); },
     get pending() { return timers.length; },
@@ -120,3 +123,26 @@ compact.update(true);
 assert.ok(!compact.monitors[0].classes.has('runtime-idle'));
 compact.update(false, false);
 assert.ok(!compact.monitors[0].classes.has('runtime-idle'), 'Keep unavailable monitoring visible');
+
+const summary = new Element();
+summary.dataset = {workflowRuntimeSummary: '0', workflowOutputReady: 'true'};
+const output = setup([false], [], [summary]);
+output.update(false, true, 0, 'LTE', []);
+assert.equal(summary.textContent, 'Output ready · not running');
+assert.equal(summary.className, 'badge bg-success');
+output.update(true, true, 0, 'LTE', [{status: 'running'}]);
+assert.equal(summary.textContent, 'Running now · LTE');
+output.update(false, false, 0, 'LTE', []);
+assert.equal(summary.textContent, 'Output ready · monitoring unavailable');
+assert.equal(summary.className, 'badge bg-secondary');
+summary.dataset.workflowOutputReady = 'false';
+output.update(false, true, 0, 'LTE', []);
+assert.equal(summary.textContent, 'Not running');
+
+const counter = setup();
+counter.update(false, true, 0, 'LTE', [{status: 'ready'}], {
+  kind: 'lte', progress: {label: 'LTE frequency integration', percent: 99.3,
+    detail: 'Frequency 118,000 of 118,866', metrics: []},
+});
+const heading = counter.monitors[0].parts['[data-runtime-progress]'].children[0].children[0].children[0];
+assert.equal(heading.textContent, 'Last logged LTE frequency counter: ');

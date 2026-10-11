@@ -175,8 +175,11 @@ def inspect_lte_diagnostics(lte_dir: Path, *, active: bool = False) -> dict[str,
             if percent is not None
             else "No ML progress counter was recorded."
         )
+        if status == "ready":
+            progress_detail += " The current Rosseland result is available; this counter is not a completion percentage."
         cards.append(
-            {"label": "Frequency integration", "value": progress_value, "detail": progress_detail}
+            {"label": "Frequency integration" if active else "Last logged frequency counter",
+             "value": progress_value, "detail": progress_detail}
         )
     delta_ed = _last_float(text, rf"DELTA_ED\s*=\s*{NUMBER_RE}")
     delta_t = _last_float(text, rf"DELTA_T\s*=\s*{NUMBER_RE}")

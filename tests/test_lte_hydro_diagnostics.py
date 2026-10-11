@@ -57,7 +57,8 @@ def test_lte_summary_combines_progress_results_timing_and_diagnostics(tmp_path: 
     assert state["delta_ed"] == 0.75
     assert state["delta_t"] == 0.125
     cards = {card["label"]: card for card in state["cards"]}
-    assert cards["Frequency integration"]["value"] == "1,500 / 2,000"
+    assert cards["Last logged frequency counter"]["value"] == "1,500 / 2,000"
+    assert "not a completion percentage" in cards["Last logged frequency counter"]["detail"]
     assert cards["Batch markers"]["value"] == "Finished"
     assert cards["Recorded LTE timing"]["value"] == "120 s elapsed"
     diagnostics = {item["label"]: item for item in state["diagnostics"]}

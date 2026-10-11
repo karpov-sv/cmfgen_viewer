@@ -8,6 +8,6 @@
     <span class="small text-muted" data-copy-status role="status"></span>
   </div>
 {% endmacro %}
-{% macro runtime_badge(runtime, source_path) %}
-  <span class="badge {{ 'bg-success' if runtime.active else 'bg-secondary' }}" {% if runtime.workspace_available %}data-workflow-runtime-summary="{{ runtime.kind }}:{{ source_path }}"{% endif %}>{% if not runtime.workspace_available %}Workspace not prepared{% elif runtime.active %}Running now · {{ runtime.phase_label }}{% elif not runtime.monitoring_available %}Monitoring unavailable{% else %}Not running{% endif %}</span>
+{% macro runtime_badge(runtime, source_path, output_ready=none) %}
+  <span class="badge {{ 'bg-success' if runtime.active or (output_ready and runtime.monitoring_available) else 'bg-secondary' }}" {% if runtime.workspace_available %}data-workflow-runtime-summary="{{ runtime.kind }}:{{ source_path }}"{% if output_ready is not none %} data-workflow-output-ready="{{ 'true' if output_ready else 'false' }}"{% endif %}{% endif %}>{% if not runtime.workspace_available %}Workspace not prepared{% elif runtime.active %}Running now · {{ runtime.phase_label }}{% elif output_ready %}Output ready · {{ 'not running' if runtime.monitoring_available else 'monitoring unavailable' }}{% elif not runtime.monitoring_available %}Monitoring unavailable{% else %}Not running{% endif %}</span>
 {% endmacro %}

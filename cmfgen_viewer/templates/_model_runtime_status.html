@@ -74,7 +74,8 @@
         </div>
       {% endfor %}
     {% elif runtime.progress %}
-      {{ render_runtime_progress(runtime.progress, 'Estimated progress:', runtime.active) }}
+      {% set progress_heading = 'Estimated progress:' if runtime.active else 'Last logged LTE frequency counter:' if runtime.kind == 'lte' else 'Last recorded progress:' %}
+      {{ render_runtime_progress(runtime.progress, progress_heading, runtime.active) }}
     {% elif runtime.active %}
       <p class="small text-muted mb-0">The process is running, but no progress marker from this run is available yet.</p>
     {% endif %}

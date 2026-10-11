@@ -111,15 +111,6 @@ RESULT_QUICK_CONTROLS: dict[str, tuple[dict[str, str], ...]] = {
             "help": "Adjust when the generated luminosity is wrong, then rerun wind_hyd.",
         },
     ),
-    "VADAT": (
-        {
-            "key": "RMAX",
-            "label": "Outer radius ratio",
-            "kind": "float",
-            "comment": "Ratio of inner to outer radius from the hydro result",
-            "help": "Use the final radius ratio reported after luminosity is correct.",
-        },
-    ),
 }
 RVSIG_SUMMARY_PATTERNS: tuple[tuple[str, str, str, str], ...] = (
     (
@@ -349,16 +340,18 @@ def _rvsig_result_summary(lte_dir: Path) -> dict[str, object] | None:
         if key not in generated:
             continue
         label, unit = metadata[key]
-        comparisons.append(
-            _comparison_row(
-                label=label,
-                generated=generated[key],
-                configured=configured,
-                configured_source=source,
-                unit=unit,
-                difference_kind=difference_kind,
-            )
+        row = _comparison_row(
+            label=label,
+            generated=generated[key],
+            configured=configured,
+            configured_source=source,
+            unit=unit,
+            difference_kind=difference_kind,
         )
+        row["synchronized_on_promotion"] = key in {"radius_ratio", "core_radius"}
+        if row["synchronized_on_promotion"]:
+            row["status"] = "info"
+        comparisons.append(row)
         compared_keys.add(key)
     diagnostics = [
         {
@@ -672,7 +665,6 @@ def save_result_quick_controls(
         values=values,
         definitions_by_file=RESULT_QUICK_CONTROLS,
         marker_label="LTE/hydro result review",
-        preserve_modified_time=str(filename).strip().upper() == "VADAT",
     )
 
 
@@ -685,7 +677,6 @@ def _save_workflow_quick_controls(
     values: dict[str, object],
     definitions_by_file: dict[str, tuple[dict[str, str], ...]],
     marker_label: str,
-    preserve_modified_time: bool = False,
 ) -> dict[str, object]:
     normalized_filename = str(filename).strip().upper()
     normalized_values = _validate_quick_values(
@@ -713,7 +704,6 @@ def _save_workflow_quick_controls(
             file_relpath=normalized_filename,
             expected_digest=expected_digest,
             contents=updated,
-            preserve_modified_time=preserve_modified_time,
         )
     except ModelEditorError as exc:
         raise ModelWorkflowError(str(exc)) from exc

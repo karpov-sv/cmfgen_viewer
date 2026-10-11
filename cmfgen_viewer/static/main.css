@@ -902,7 +902,8 @@ a:focus {
 
 .lte-hydro-workflow .workflow-controls .card-header code,
 .lte-hydro-workflow .workflow-controls label code,
-.lte-hydro-workflow #hydro-alignment table code {
+.lte-hydro-workflow #hydro-alignment table code,
+.lte-hydro-workflow #result-review code {
     color: inherit;
 }
 
