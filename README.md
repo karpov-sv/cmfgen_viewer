@@ -167,9 +167,9 @@ plans, or results, and executed actions retain logs under `.cmfgen-runs/`.
 
 Workflow templates mirror the model layout under `templates/`, including
 `lte/` and `obs/`. Both the viewer and runner accept `--template-root`; missing
-setup files fall back to the [packaged defaults](doc/cmfgen-workflow-templates.md).
+setup files fall back to the [packaged defaults](doc/templates-and-configuration.md).
 
-See the [standalone runner guide](doc/cmfgen-standalone-runner.md) for stage
+See the [standalone runner guide](doc/command-line-runner.md) for stage
 requirements, configuration precedence, resource controls, journals, recovery,
 and exit codes. Execution checks do not establish scientific convergence.
 
@@ -194,7 +194,7 @@ and exit codes. Execution checks do not establish scientific convergence.
 - Final spectrum tools:
   - toggleable common spectral line markers (hydrogen, helium, metals), optional labels,
     air/vacuum conventions, and positions following model redshift; also available on
-    uploaded spectra and parsed wavelength plots ([usage and sources](doc/spectral-line-overlay.md)),
+    uploaded spectra and parsed wavelength plots ([usage and sources](doc/spectrum-viewer.md)),
   - quick wavelength zoom presets for each reference line (±150 Å), the optical
     range (3800–7500 Å), and the whole visible spectrum, with vertical scaling
     to the displayed wavelength region,
@@ -269,7 +269,7 @@ and exit codes. Execution checks do not establish scientific convergence.
     unpromoted LTE/hydro results; blocking errors and advisory findings link to the relevant editor or file.
 - Configurable wavelength window for all displayed spectra:
   - `--lambda-min` / `--lambda-max` bounds applied to both model spectra and uploaded overlays.
-- Documentation section with top-nav dropdown populated from `doc/*.md`, rendered as markdown with code highlighting.
+- Documentation section with seven ordered user guides, linked technical references, and markdown/code highlighting.
 - Standalone runner with read-only status by default, explicit execution stages, continuation/fresh-start
   controls, output validation, and recoverable run journals; see [Command-line Runner](#command-line-runner).
 
@@ -322,7 +322,7 @@ and exit codes. Execution checks do not establish scientific convergence.
   - `syntax.py`: syntax highlighting and CMFGEN input lexer.
   - `parsers/`: parsed-view implementations for core and diagnostic file families.
   - `templates/`, `static/`: Jinja templates, client-side JS, and CSS.
-- `doc/`: markdown docs surfaced in the Documentation menu.
+- `doc/`: user guides in the Documentation menu; `doc/reference/` holds linked technical investigations and `doc/developer/` holds implementation notes and test history.
 - `CMFGEN_*_investigation_*.txt`: source investigation logs.
 
 ## Notes
@@ -353,7 +353,7 @@ shared components rather than copied into a page adapter.
 
 - The UI is optimized for local analysis workflows and iterative parser development.
 - Large-file parsing is guarded (`MAX_PARSE_FILE_BYTES`) to avoid heavy accidental loads.
-- Documentation pages are generated from repository markdown; update files in `doc/` to extend in-app docs.
+- Documentation pages are generated from repository markdown. Menu order is defined in `cmfgen_viewer/documentation.py`; technical references are linked through `doc/file-reference.md`. Developer notes are not served in the app.
 - Upload grid fitting requires a populated summary cache database (`model_summary_cache.sqlite`). Visiting a model folder that contains both `VADAT` and `MOD_SUM` automatically adds it to the cache, or refreshes its entry when either file has changed. The folder-level `Summarize` workflow remains available for adding multiple selected models at once; cache maintenance refreshes stale entries already known to the cache but does not discover new models.
 - Folder-level `Summarize` starts a background job and redirects immediately to
   a bookmarkable result page. It shows progress, the current folder, elapsed

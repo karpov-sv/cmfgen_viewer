@@ -105,6 +105,7 @@ def inject_docs_nav():
                 "title": str(item["title"]),
             }
             for item in docs
+            if item["in_menu"]
         ]
     }
 
@@ -115,7 +116,7 @@ def index():
 
 
 @bp.route("/documentation/", defaults={"slug": None})
-@bp.route("/documentation/<slug>")
+@bp.route("/documentation/<path:slug>")
 def documentation(slug: str | None):
     docs = _discover_docs()
     if not docs:

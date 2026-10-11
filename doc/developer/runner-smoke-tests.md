@@ -1,0 +1,15 @@
+# Runner smoke-test history
+
+The original immediate crash was a depth mismatch: `MODEL_SPEC` requested 11 points while `RVSIG_COL` still contained 115. The test model now uses 11 depth points, 3 core rays, only H/He ions, coarse frequency controls, disabled hydro/clumping/X-rays, and one iteration. `RVSIG_COL` was reduced consistently to 11 points. Original `MODEL_SPEC`, `VADAT`, `IN_ITS`, and `RVSIG_COL` are preserved in `.runner-smoke-original/` inside the model directory.
+
+An important control detail: `ISF` contains important-variable, superlevel, and full-level counts. Setting only the first count to zero does not disable an ion. The unused ion declarations were commented out for this smoke test.
+
+With one thread and a 2 GiB address-space limit, initialization completed in approximately 0.25 seconds. A full iteration finished in approximately 2.2 seconds but produced nonfinite `RVTJ` values and was correctly rejected as `invalid_output`, despite its zero exit code and finalization marker. This configuration exercises fast startup and failure reporting; it is intentionally not physically meaningful or a converged atmosphere.
+
+The observer workflow was subsequently exercised against the real disposable model. A parent atmosphere containing NaN temperatures and electron densities reproduced the reported `INS_LINE` failure. Regenerating finite startup data with `test` removed that crash. The observer template was also coarsened for testing (frequency/profile spacing and spatial interpolation), preserving the original in `.runner-smoke-original/CMF_FLUX_PARAM_INIT`.
+
+All four flux passes then completed and validated in approximately 31.5 seconds total, using one thread, a 60-second shared budget, and a 2 GiB address-space limit. Run `20260907T100701Z-f8af40d8` retains the successful report and individual products. Outputs from this deliberately unconverged initialization are for workflow testing only, not physical interpretation.
+
+The real LTE-to-hydro handoff was subsequently exercised after generating `lte/ROSSELAND_LTE_TAB`. The standalone hydro stage completed in approximately 0.11 seconds and produced a structurally valid 30-point `lte/RVSIG_COL_NEW`, matching the prepared LTE workspace's `MODEL_SPEC`; run `20260907T141011Z-db0d5c4d` retains its generated stdin, captured `WIND_HYD`, and output grid. The native code reported underflow/denormal flags and its outer-opacity extrapolation warning. This verifies runner mechanics only: the deliberately reduced grid and generated structure are not scientifically accepted or automatically promoted.
+
+A subsequent native zero-iteration run (`20260907T102452Z-dd49ff5a`) exercised automatic checkpoint startup in approximately 0.15 seconds, preserved the existing checkpoint bytes, and passed core-output validation. It has no explicit native iteration marker, so its report correctly leaves `startup_observed` unconfirmed. Automated main-stage tests cover incremented iteration evidence and native fresh-start fallback reporting.

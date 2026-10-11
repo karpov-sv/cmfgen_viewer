@@ -1,6 +1,6 @@
-# Main Model Computation
+# Main computation
 
-Use **Preview main workflow** or **Preview spectra only** for read-only HTML/JSON stage plans. The workflow now adds executable, dependency, workspace, disk, and activity checks to structural preflight. See [Workflow Safety and Dry-Run Plans](/documentation/cmfgen-workflow-plans) for configuration, mutation guards, and the limits of legacy-script inspection.
+Use **Preview main workflow** or **Preview spectra only** for read-only HTML/JSON stage plans. The workflow now adds executable, dependency, workspace, disk, and activity checks to structural preflight. See [Templates and configuration](/documentation/templates-and-configuration) for configuration, mutation guards, and the limits of legacy-script inspection.
 
 Main CMFGEN computation is intentionally separate from LTE/hydro structure preparation. Open **Main Computation** from a model's workflow actions, or continue there from the final LTE/hydro handoff guard.
 
@@ -31,7 +31,7 @@ The same monitor follows the spectral phase when `batch.sh` changes into the mod
 
 When no process is active, the panel retains separate **Last recorded CMFGEN progress** and **Last recorded CMF_FLUX progress** blocks when their logs are available. This keeps the completed spectral stage visible without replacing the iteration history of the main solution.
 
-The same live panel classifies the latest recorded result for each branch as **Running**, **Succeeded**, **Failed**, **Incomplete**, or **Unknown**. Failure detection uses strong process-level signatures such as a Fortran runtime error, error termination, a fatal signal, segmentation fault, or core dump, plus specific native messages for insufficient inner optical depth and major inner luminosity discrepancies. These scientific safeguards can execute Fortran `STOP` with exit code zero, so a zero exit alone does not prove success. The panel shows the native evidence, relevant current settings, suggested next steps, and links to the diagnostic files. A failed run opens the run panel automatically, including when a live poll first observes the failure.
+The same live panel classifies the latest recorded result for each branch as **Running**, **Succeeded**, **Failed**, **Incomplete**, or **Unknown**. Failure detection uses strong process-level signatures such as a Fortran runtime error, error termination, a fatal signal, segmentation fault, or core dump, plus specific native messages for insufficient inner optical depth and major inner luminosity discrepancies. These scientific safeguards can execute Fortran `STOP` with exit code zero, so a zero exit alone does not prove success. The panel shows the native evidence, relevant current settings, suggested next steps, and links to the diagnostic files. A failed run opens the run panel automatically, including when a live status update first reports the failure.
 
 For insufficient optical depth, review `MEANOPAC`, the LTE/hydro parameters, and the promoted radius scale; the native code checks for depth below 30 and recommends at least 50, preferably 100. For a luminosity consistency discrepancy, inspect the normalized check in `OBSFLUX`, initial temperature refinement (`IT_ON_T`, `GREY_TAU`), starting estimates, and grid resolution. The suggestions do not edit inputs or assess convergence. Values are read from current inputs and may have changed since the recorded failure.
 

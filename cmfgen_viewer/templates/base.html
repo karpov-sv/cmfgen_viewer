@@ -69,7 +69,7 @@
               {% if docs_nav %}
                 {% for doc in docs_nav %}
                   <li>
-                    <a class="dropdown-item {% if current_doc_slug == doc.slug %}active{% endif %}" href="{{ url_for('viewer.documentation', slug=doc.slug) }}">
+                    <a class="dropdown-item {% if current_doc_slug == doc.slug or (doc.slug == 'file-reference' and current_doc_slug.startswith('reference/')) %}active{% endif %}" href="{{ url_for('viewer.documentation', slug=doc.slug) }}">
                       {{ doc.title }}
                     </a>
                   </li>

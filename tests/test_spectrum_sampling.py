@@ -178,6 +178,6 @@ def test_spectral_pages_render_native_payloads_and_valid_inline_scripts(tmp_path
             elif code.strip() and node:
                 result = subprocess.run([node, "--check"], input=code, text=True, capture_output=True)
                 assert result.returncode == 0, result.stderr
-    for url in ["/view/", "/view/model_a/RVTJ", "/view/model_a/MOD_SUM", "/documentation/spectral-line-overlay"]:
+    for url in ["/view/", "/view/model_a/RVTJ", "/view/model_a/MOD_SUM", "/documentation/spectrum-viewer"]:
         response = client.get(url)
         assert response.status_code == 200

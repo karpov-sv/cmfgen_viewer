@@ -1,4 +1,4 @@
-/* Common reference lines, in Angstroms. See doc/spectral-line-overlay.md for
+/* Common reference lines, in Angstroms. See doc/spectrum-viewer.md for
  * sources and conventions. Multiplets use representative positions. */
 (function () {
   "use strict";

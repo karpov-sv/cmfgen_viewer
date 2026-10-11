@@ -16,6 +16,15 @@ except ModuleNotFoundError:  # pragma: no cover - optional dependency fallback
 
 
 DOCS_DIR = Path(__file__).resolve().parent.parent / "doc"
+MENU_ORDER = (
+    "getting-started",
+    "lte-hydro",
+    "main-computation",
+    "command-line-runner",
+    "templates-and-configuration",
+    "spectrum-viewer",
+    "file-reference",
+)
 
 _MD_FENCE_RE = re.compile(r"^\s*```")
 _MD_LIST_RE = re.compile(r"^(\s*)(?:[-*+]\s+|\d+[.)]\s+)")
@@ -80,13 +89,17 @@ def discover_docs(docs_dir: Path = DOCS_DIR) -> list[dict[str, object]]:
     if not docs_dir.is_dir():
         return []
 
+    paths = [docs_dir / f"{slug}.md" for slug in MENU_ORDER if (docs_dir / f"{slug}.md").is_file()]
+    paths += list((docs_dir / "reference").glob("*.md"))
+    order = {slug: index for index, slug in enumerate(MENU_ORDER)}
     return [
         {
-            "slug": path.stem,
+            "slug": path.relative_to(docs_dir).with_suffix("").as_posix(),
             "title": _doc_title(path),
             "path": path,
+            "in_menu": path.parent == docs_dir,
         }
-        for path in sorted(docs_dir.glob("*.md"))
+        for path in sorted(paths, key=lambda path: (order.get(path.stem, len(order)), path.as_posix()))
     ]
 
 
@@ -101,7 +114,7 @@ def render_document(path: Path) -> tuple[Markup, str]:
     if md is not None:
         html = md.markdown(
             normalize_markdown_lists(source),
-            extensions=["fenced_code", "tables", "sane_lists", "codehilite"],
+            extensions=["fenced_code", "tables", "sane_lists", "codehilite", "toc"],
             extension_configs={
                 "codehilite": {
                     "guess_lang": False,

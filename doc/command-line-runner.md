@@ -1,4 +1,4 @@
-# Standalone CMFGEN Runner
+# Command-line runner
 
 `cmfgen_run.py` runs a reviewed subset of the ostar workflows directly in Python. It never executes `batch.sh`, `batobs.sh`, sourced setup scripts, or arbitrary shell commands. This is a standalone command, not an in-app execution feature.
 
@@ -13,13 +13,13 @@ python3 cmfgen_run.py /path/to/model --json
 
 No stage means read-only inspection, including when `--plan` is supplied. Model information remains available if installation configuration or preflight is incomplete. Exit status reflects main-stage preflight readiness (`0` ready, `2` blocked), independently of whether a previous run failed. A saved checkpoint iteration count and the latest logged iteration are shown separately: an attempted iteration can fail before saving a checkpoint. Recorded execution success does not establish convergence.
 
-Preview the disposable smoke-test model without changing it:
+Preview a startup check without changing the model:
 
 ```bash
-python3 cmfgen_run.py models/ostar/model_Bstar1060_new --plan \
+python3 cmfgen_run.py /path/to/model --plan \
   --stage test --fresh-start \
-  --cmfgen-root /home/karpov/CMFGEN2023/cur_cmf \
-  --atomic-root /home/karpov/CMFGEN2023/atomic \
+  --cmfgen-root /path/to/cur_cmf \
+  --atomic-root /path/to/atomic \
   --threads 1 --timeout 60 --memory-mib 2048
 ```
 
@@ -49,34 +49,9 @@ After execution, `startup_observed` distinguishes native evidence from preflight
 
 The installation roots must be supplied by CLI options, environment, or configuration; shell setup is not sourced. Planning checks executable availability, required inputs, dimensions, active-ion atomic dependencies, workspace safety, process activity, and free disk space. An unreviewed script hash or nonliteral command in the atomic-link manifest blocks execution instead of falling back to the shell. Extending support to another script variant requires reviewing and implementing its operations first.
 
-## Configuration defaults
+## Configuration
 
-The runner reads `~/.cmfgenrc`, then `.cmfgenrc` in the invoking current directory (not the model directory, unless that is your current directory). Both are optional. Use plain `key = value` entries without a section header:
-
-```ini
-cmfgen_root = ~/CMFGEN2023/cur_cmf
-atomic_root = ~/CMFGEN2023/atomic
-# Optional: override native/library thread defaults.
-# nthreads = 1
-```
-
-Settings are merged individually with precedence, highest first:
-
-1. Explicit `--cmfgen-root`, `--atomic-root`, and `--threads` (alias `--nthreads`).
-2. Nonempty environment variables `CMFDIST`, `ATOMIC`, and `OMP_NUM_THREADS`, respectively.
-3. Current-directory `.cmfgenrc`.
-4. Home-directory `~/.cmfgenrc`.
-5. Inherited native/library thread settings; there are no built-in installation/data paths.
-
-Config keys are case-insensitive; `CMFDIST` and `ATOMIC` are also accepted as file-key aliases, as is `threads` for `nthreads`. Thread counts must be positive integers. Use `#` comments and quote paths containing spaces. `~` is expanded, and relative paths in a config are relative to that config's directory. Relative CLI/environment paths are relative to the invoking directory. Shell commands, `export` statements, and `$VARIABLE` substitution are not supported. Malformed, unreadable, unknown-key, or duplicate-key config entries are errors; config files are never sourced or executed.
-
-With roots configured, a preview becomes simply:
-
-```bash
-python3 cmfgen_run.py models/ostar/model_Bstar1060_new --plan --stage main --fresh-start
-```
-
-The human-readable plan shows effective settings; `--verbose` also shows their sources. The JSON plan (`--json`) records `configuration_sources` for programmatic inspection. These defaults apply to the standalone runner; the viewer's existing JSON/TOML configuration is unchanged.
+See [Templates and configuration](/documentation/templates-and-configuration) for installation roots, thread defaults, configuration precedence, and template lookup. The runner reads settings without sourcing shell scripts. Human-readable plans show effective settings; `--verbose` shows their sources, and JSON plans include `configuration_sources`.
 
 ## Preparing the LTE workspace
 
@@ -94,7 +69,7 @@ python3 cmfgen_run.py /path/to/model --stage prepare-lte \
 lives at `clean.sh`. Each file is selected independently from the source
 model, the explicit directory, model-tree `templates/` directories (nearest
 first), then `cmfgen_viewer/data/templates/`. See
-[workflow templates](cmfgen-workflow-templates.md) for the shared layout and
+[workflow templates](/documentation/templates-and-configuration) for the shared layout and
 packaged defaults. There is no `examples/` or `lte2/` compatibility lookup.
 Preparation alone requires no native executable or atomic-data configuration. It uses the
 same guarded, atomic preparation as the viewer and records a runner journal.
@@ -203,18 +178,3 @@ Executable stages retain installed atomic links and other native scratch/diagnos
 
 Inputs and the executable are rechecked under the viewer's shared advisory lock before mutation. Files up to 2 MiB use SHA-256 plus metadata; larger files use metadata only. Atomic data content is not comprehensively hashed or scientifically validated. External scripts do not honor this lock and must not be launched concurrently. Journals are retained for inspection, not cryptographically immutable provenance.
 
-## Disposable Bstar smoke test
-
-The original immediate crash was a depth mismatch: `MODEL_SPEC` requested 11 points while `RVSIG_COL` still contained 115. The test model now uses 11 depth points, 3 core rays, only H/He ions, coarse frequency controls, disabled hydro/clumping/X-rays, and one iteration. `RVSIG_COL` was reduced consistently to 11 points. Original `MODEL_SPEC`, `VADAT`, `IN_ITS`, and `RVSIG_COL` are preserved in `.runner-smoke-original/` inside the model directory.
-
-An important control detail: `ISF` contains important-variable, superlevel, and full-level counts. Setting only the first count to zero does not disable an ion. The unused ion declarations were commented out for this smoke test.
-
-With one thread and a 2 GiB address-space limit, initialization completed in approximately 0.25 seconds. A full iteration finished in approximately 2.2 seconds but produced nonfinite `RVTJ` values and was correctly rejected as `invalid_output`, despite its zero exit code and finalization marker. This configuration exercises fast startup and failure reporting; it is intentionally not physically meaningful or a converged atmosphere.
-
-The observer workflow was subsequently exercised against the real disposable model. A parent atmosphere containing NaN temperatures and electron densities reproduced the reported `INS_LINE` failure. Regenerating finite startup data with `test` removed that crash. The observer template was also coarsened for testing (frequency/profile spacing and spatial interpolation), preserving the original in `.runner-smoke-original/CMF_FLUX_PARAM_INIT`.
-
-All four flux passes then completed and validated in approximately 31.5 seconds total, using one thread, a 60-second shared budget, and a 2 GiB address-space limit. Run `20260907T100701Z-f8af40d8` retains the successful report and individual products. Outputs from this deliberately unconverged initialization are for workflow testing only, not physical interpretation.
-
-The real LTE-to-hydro handoff was subsequently exercised after generating `lte/ROSSELAND_LTE_TAB`. The standalone hydro stage completed in approximately 0.11 seconds and produced a structurally valid 30-point `lte/RVSIG_COL_NEW`, matching the prepared LTE workspace's `MODEL_SPEC`; run `20260907T141011Z-db0d5c4d` retains its generated stdin, captured `WIND_HYD`, and output grid. The native code reported underflow/denormal flags and its outer-opacity extrapolation warning. This verifies runner mechanics only: the deliberately reduced grid and generated structure are not scientifically accepted or automatically promoted.
-
-A subsequent native zero-iteration run (`20260907T102452Z-dd49ff5a`) exercised automatic checkpoint startup in approximately 0.15 seconds, preserved the existing checkpoint bytes, and passed core-output validation. It has no explicit native iteration marker, so its report correctly leaves `startup_observed` unconfirmed. Automated main-stage tests cover incremented iteration evidence and native fresh-start fallback reporting.

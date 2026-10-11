@@ -1,4 +1,20 @@
-# Spectral line overlay
+# Spectrum viewer
+
+The single-model, model-comparison, uploaded-data, and parsed wavelength viewers share zoom, axis, and reference-line controls. Available spectra and overlays depend on the page and files in the model.
+
+## Choose a spectrum and view
+
+On a model's final spectrum page, choose an available `obs_fin` spectrum and a spectrum type. Select the continuum or other available overlays to compare curves on the same axes. Missing products must be generated before they can be displayed.
+
+Use the wavelength and flux scale selectors to switch between linear and logarithmic axes. Logarithmic axes require positive values. Drag to zoom, use **Zoom to** for a preset or reference line, and double-click the plot to reset the view. Use the plot legend to show or hide curves.
+
+## Model transformations
+
+Expand **Model transformations** to adjust redshift or radial velocity, velocity dispersion, E(B-V), and distance. Redshift and radial velocity represent the same shift and stay synchronized. **Reset transformations** restores the defaults. Transformations apply to the model curves; check the wavelength convention and units of uploaded observations when comparing them.
+
+Transformation and line/display settings remain available in expandable groups so the main controls stay compact. Display sampling changes the drawn curve; it does not change the data used for fitting or export.
+
+## Spectral line overlay
 
 Enable **Spectral lines** above a single-model, bulk-model, or uploaded-spectrum
 plot to show dotted reference positions. The overlay starts disabled. It is also

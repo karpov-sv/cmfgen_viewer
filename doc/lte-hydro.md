@@ -1,8 +1,8 @@
-# LTE / Hydro Workflow
+# LTE / Hydro
 
-Use **Preview workflow** for a read-only stage plan covering preparation through manual promotion. Stage preflight now checks scripts, executable configuration, dependencies, controls, workspace resources, and activity. Mutations and handoffs are blocked during visible active calculations or uncertain activity; see [Workflow Safety and Dry-Run Plans](/documentation/cmfgen-workflow-plans) for details and limitations.
+Use **Preview workflow** for a read-only stage plan covering preparation through manual promotion. Stage preflight now checks scripts, executable configuration, dependencies, controls, workspace resources, and activity. Mutations and handoffs are blocked during visible active calculations or uncertain activity; see [Templates and configuration](/documentation/templates-and-configuration#activity-and-write-protection) for shared settings and write protection.
 
-The viewer supports preparation and state tracking for the LTE/hydro sequence used when changing parameters such as `LOGG`. It deliberately does **not** start, stop, or supervise CMFGEN programs. Run every displayed command in a terminal you control; the open workflow page polls read-only run status every five seconds.
+The viewer supports preparation and state tracking for the LTE/hydro sequence used when changing parameters such as `LOGG`. It deliberately does **not** start, stop, or supervise CMFGEN programs. Run every displayed command in a terminal you control; the open workflow page receives server-sent status updates. The server checks process and file status every five seconds while subscribed.
 
 Open a concrete, non-SN model and choose **LTE / Hydro** under **Model actions**. Read-write mode must have been enabled at startup.
 
@@ -14,7 +14,7 @@ Preparation requires these regular files in the model root:
 - `MODEL_SPEC`
 
 `GRID_PARAMS`, `ltebat.sh`, `HYDRO_PARAMS`, and `clean.sh` use the shared
-[workflow template resolver](cmfgen-workflow-templates.md). It prefers the source
+[workflow template resolver](/documentation/templates-and-configuration). It prefers the source
 model, an explicit `--template-root`, model-tree `templates/` directories, then
 packaged defaults. Template paths mirror the model layout: `lte/` for LTE
 files and `clean.sh` for cleanup. Each selected source is shown on the page.
@@ -61,7 +61,7 @@ The supplied free-form instructions give the interactive answers `/null`, `e`, `
 
 The hydro panel similarly identifies `wind_hyd` by process name and exact `lte/` working directory and reports its runtime statistics. Hydro does not expose a comparably reliable inner-loop counter. If `RVSIG_COL_NEW` is visible while it is being written, the last output-grid index is compared with its declared depth-point count; otherwise the monitor shows the process without inventing a percentage.
 
-For newly captured runs, the panel and parsed `WIND_HYD` view extract fatal runtime messages, warnings, transition radius and velocity, effective temperature, Eddington parameter, stellar mass, and the final generated-versus-desired reference-radius difference. `RVSIG_COL_NEW` remains the authoritative result. Existing model workspaces without `WIND_HYD` continue to work and are labeled as legacy uncaptured runs.
+For newly captured runs, the panel and parsed `WIND_HYD` view extract fatal runtime messages, warnings, transition radius and velocity, effective temperature, Eddington parameter, stellar mass, and the final generated-versus-desired reference-radius difference. `RVSIG_COL_NEW` remains the authoritative result. Workspaces without `WIND_HYD` can still be reviewed using the generated structure, but captured hydro diagnostics are unavailable.
 
 When a monitored LTE or hydro run stops, the workflow page refreshes automatically to update outputs, diagnostics, and promotion readiness. Unsaved control edits defer the reload and show a **Refresh results** button.
 
@@ -73,7 +73,7 @@ The result-review panel shows the generated quantities and promotion action firs
 
 Promotion archives and removes old main-run checkpoints and solution products (`POINT1`, `POINT2`, `SCRTEMP`, their `NEW_*` variants, `MODEL`, `RVTJ`, and `MOD_SUM`) together with grid-dependent radiation caches (`EDDFACTOR*`, `ES_J_CONV*`, `J_COMP`, `MEANOPAC`, and `TRANS_INFO`). They describe the previous depth/radius grid and cannot be made compatible by copying the new hydro structure into them. A subsequent fresh main or initialization run regenerates the solution state; all invalidated files remain recoverable in the promotion checkpoint.
 
-When `RVSIG_COL_NEW` is available, its labeled header is summarized directly on the page. Generated luminosity, radius ratio, core radius, effective temperature, surface gravity, mass, and mass-loss rate are compared with the intended `lte/VADAT` values; reference radius is compared with `HYDRO_PARAMS [REF_R]`. Differences are highlighted with colored rows and a warning. Mean atomic mass, Eddington parameter, atom density, and depth-point count are shown as additional diagnostics when present. Fresh files alone do not establish that the generated structure matches the intended model.
+When `RVSIG_COL_NEW` is available, its labeled header is summarized directly on the page. Generated luminosity, radius ratio, core radius, effective temperature, surface gravity, mass, and mass-loss rate are compared with the intended `lte/VADAT` values; reference radius is compared with `HYDRO_PARAMS [REF_R]`. Parameter mismatches are highlighted with colored rows and a warning; radius changes are marked for synchronization during promotion. Mean atomic mass, Eddington parameter, atom density, and depth-point count are shown as additional diagnostics when present. Fresh files alone do not establish that the generated structure matches the intended model.
 
 ## 4. Promote reviewed results
 
@@ -89,7 +89,7 @@ Existing destination files are saved under `.cmfgen-viewer-backups/lte-hydro/<ti
 
 ## 5. Run the main model externally
 
-The final LTE/hydro card is only a handoff guard. Once `batch.sh`, `VADAT`, `RVSIG_COL`, and `ROSSELAND_LTE_TAB` are available in the model root, it links to the separate **Main Model Computation** workflow. That workflow owns the main-run command, prerequisites, and result freshness checks.
+The final LTE/hydro card is only a handoff guard. After the current results have been promoted and `batch.sh`, `VADAT`, `RVSIG_COL`, and `ROSSELAND_LTE_TAB` are available in the model root, it links to the separate **Main Model Computation** workflow. That workflow owns the main-run command, prerequisites, and result freshness checks.
 
 The overview identifies the next stage from the current workspace results. Hydro stays collapsed while waiting for usable LTE output; its header still reports parameter mismatches. Validation lists blockers separately from missing atomic/restart link targets and script/environment warnings, with full target paths available on demand. The overview distinguishes available output from idle process status. Until the current results are promoted, the main-computation handoff says **Awaiting promotion** and directs the user back to result review. After promotion, main computation performs its own readiness checks.
 

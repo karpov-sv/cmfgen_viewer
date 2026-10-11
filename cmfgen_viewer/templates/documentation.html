@@ -7,6 +7,9 @@
     <style>{{ doc_highlight_css }}</style>
   {% endif %}
   {% if active_doc %}
+    {% if not active_doc.in_menu %}
+      <p class="small"><a href="{{ url_for('viewer.documentation', slug='file-reference') }}">← File reference</a></p>
+    {% endif %}
     <div class="doc-content">{{ doc_html | safe }}</div>
   {% else %}
     <p class="text-muted mb-0">
