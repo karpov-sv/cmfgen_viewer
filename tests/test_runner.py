@@ -174,12 +174,17 @@ def test_default_children_preserve_inherited_limits_and_thread_settings(workspac
     monkeypatch.setenv("MKL_NUM_THREADS", "5")
     limits = {}
     for name, requested in (("RLIMIT_AS", 512*1024**2), ("RLIMIT_CORE", 128*1024**2)):
-        _, hard = resource.getrlimit(getattr(resource, name))
-        limits[name] = (requested if hard == resource.RLIM_INFINITY else min(requested, hard), hard)
+        inherited = resource.getrlimit(getattr(resource, name))
+        _, hard = inherited
+        # macOS rejects address-space cap changes; test inheritance without
+        # requiring that unrelated optional limit to be supported.
+        limits[name] = (inherited if sys.platform == "darwin" and name == "RLIMIT_AS" else
+                        (requested if hard == resource.RLIM_INFINITY else min(requested, hard), hard))
     # Set inherited limits in an intermediate process, without altering pytest's limits.
     bootstrap = "import os, resource, sys\n"
     for name, limit in limits.items():
-        bootstrap += f"resource.setrlimit(resource.{name}, {limit!r})\n"
+        if limit != resource.getrlimit(getattr(resource, name)):
+            bootstrap += f"resource.setrlimit(resource.{name}, {limit!r})\n"
     bootstrap += "os.execv(sys.argv[1], sys.argv[1:])\n"
     original_popen = runner.subprocess.Popen
 
@@ -187,15 +192,18 @@ def test_default_children_preserve_inherited_limits_and_thread_settings(workspac
         return original_popen([sys.executable, "-c", bootstrap, *command], **kwargs)
 
     monkeypatch.setattr(runner.subprocess, "Popen", launch)
-    code = "import os, resource\n"
+    code = "import os, resource, sys\n"
     for name, limit in limits.items():
         code += f"assert resource.getrlimit(resource.{name}) == {limit!r}\n"
+    if sys.platform == "darwin":
+        code += f"assert resource.getrlimit(resource.RLIMIT_STACK) == {resource.getrlimit(resource.RLIMIT_STACK)!r}\n"
     code += """
 assert 'OMP_NUM_THREADS' not in os.environ
 assert os.environ['OPENBLAS_NUM_THREADS'] == '3'
 assert os.environ['MKL_NUM_THREADS'] == '5'
 soft, hard = resource.getrlimit(resource.RLIMIT_STACK)
-assert soft == hard
+if sys.platform != 'darwin':
+    assert soft == hard
 """ + SUCCESS
     result = run_plan(make_plan(code))
     assert result["status"] == "tested", result

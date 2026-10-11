@@ -5,6 +5,17 @@ Kept separate to avoid preexec_fn in a future multithreaded app worker.
 import argparse
 import os
 import resource
+import sys
+
+
+def _raise_stack_limit():
+    # macOS reserves the main-thread stack at link time (-Wl,-stack_size,...).
+    # Raising RLIMIT_STACK from Python can fail even at the reported hard limit.
+    if sys.platform == "darwin":
+        return
+    soft, hard = resource.getrlimit(resource.RLIMIT_STACK)
+    if soft != hard:
+        resource.setrlimit(resource.RLIMIT_STACK, (hard, hard))
 
 
 def main():
@@ -18,8 +29,7 @@ def main():
         resource.setrlimit(resource.RLIMIT_AS, (limit, limit))
     if args.no_core_dumps:
         resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
-    _, hard = resource.getrlimit(resource.RLIMIT_STACK)
-    resource.setrlimit(resource.RLIMIT_STACK, (hard, hard))
+    _raise_stack_limit()
     os.execv(args.executable, [args.executable])
 
 

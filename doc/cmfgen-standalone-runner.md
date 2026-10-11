@@ -110,7 +110,7 @@ Observer templates may omit `SOB_EW_LAM_BEG` and `SOB_EW_LAM_END`. The continuum
 
 ## Resources and progress
 
-Execution resource controls are opt-in. By default, the runner adds no memory or time limit, inherits the host's core-dump policy, and preserves native/library thread settings. Existing OS, shell, container, or scheduler limits still apply. The runner continues to raise the child stack limit to its permitted hard limit because CMFGEN requires a larger stack.
+Execution resource controls are opt-in. By default, the runner adds no memory or time limit, inherits the host's core-dump policy, and preserves native/library thread settings. Existing OS, shell, container, or scheduler limits still apply. On Linux, the runner raises the child stack limit to its permitted hard limit because CMFGEN requires a larger stack. On macOS, it preserves the inherited stack limits: raising them from Python can fail even at the reported hard limit. Build the macOS executable with a larger main-thread stack, for example `-Wl,-stack_size,0x4000000` (64 MiB) in `F90` and `F90nomp` in `Makefile_definitions`, then relink it. Increasing shell limits alone does not replace this linker setting.
 
 - `--memory-mib MIB` applies a per-child POSIX `RLIMIT_AS` virtual-address-space cap, not an RSS cap (minimum 128 MiB). Without it, both inherited address-space limits are preserved. Large models can require substantially more than 4 GiB.
 - `--threads N` (or `--nthreads N`), `OMP_NUM_THREADS`, or a `.cmfgenrc` thread setting explicitly selects a positive thread count. When configured, the runner sets OpenMP/OpenBLAS/MKL thread environment variables to that count; otherwise those variables remain as inherited.
