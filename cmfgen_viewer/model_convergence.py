@@ -135,7 +135,7 @@ def _parse_iteration_records(run_text: str) -> list[dict[str, object]]:
             continue
         if pending_spectrum_values:
             values = parse_numeric_tokens(line.strip())
-            if current is not None and values:
+            if current is not None and values and all(math.isfinite(value) for value in values):
                 current["spectrum_change_history_percent"] = values[:5]
                 current["spectrum_latest_change_percent"] = values[0]
             if line.strip():
@@ -665,6 +665,10 @@ def inspect_model_convergence(
     records = _parse_iteration_records(run_text)
     started_epoch = _parse_run_started_epoch(started_at)
     requested = _requested_iterations(model_dir)
+    correction = _correction_summary(model_dir, started_epoch)
+    from .model_quality import inspect_quality
+
+    quality = inspect_quality(model_dir, records, run_text, started_epoch, requested, correction)
     return {
         "available": True,
         "has_iterations": bool(records),
@@ -676,11 +680,12 @@ def inspect_model_convergence(
         "iterations": records,
         "cards": _summary_cards(model_dir, records, requested, started_epoch),
         "plots": _convergence_plots(records),
-        "correction_summary": _correction_summary(model_dir, started_epoch),
+        "correction_summary": correction,
+        "quality": quality,
         "warnings": _warning_summary(model_dir, run_text, started_epoch),
         "diagnostic_links": [
             name
-            for name in ("OUTGEN", "CORRECTION_SUM", "WARNINGS", "TIMING")
+            for name in ("OUTGEN", "CORRECTION_SUM", "WARNINGS", "TIMING", "J_COMP", "HYDRO", "OBSFLUX", "MEANOPAC")
             if (model_dir / name).is_file()
         ],
         "message": (

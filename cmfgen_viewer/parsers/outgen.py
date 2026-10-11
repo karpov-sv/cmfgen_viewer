@@ -125,6 +125,15 @@ def parse_outgen(path: Path) -> dict[str, object]:
             }
         )
 
+    quality = state.get("quality", {}).get("checks", [])
+    if quality:
+        tables.append({
+            "title": "Convergence and numerical quality checks (advisory)",
+            "columns": ["Level", "Check", "Measurement", "Suggested review", "Source"],
+            "rows": [[item[key] for key in ("level", "label", "detail", "action", "path")]
+                     for item in quality],
+        })
+
     diagnostics = state.get("warnings", [])
     if diagnostics:
         tables.append(

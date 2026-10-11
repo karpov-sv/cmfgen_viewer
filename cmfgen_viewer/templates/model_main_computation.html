@@ -130,6 +130,32 @@
               <script id="model-convergence-plots" type="application/json">{{ state.convergence.plots | tojson }}</script>
             {% endif %}
 
+            {% if state.convergence.quality %}
+              {% set quality = state.convergence.quality %}
+              <div class="alert {{ 'alert-warning' if quality.needs_review else 'alert-secondary' }} py-2">
+                <strong>{{ 'Results need review' if quality.needs_review else 'Quality screening' }}</strong>
+                <div class="small">Successful execution does not establish scientific convergence.
+                  {% if quality.incomplete %}Some checks have no usable current measurement.{% endif %}
+                  Screening thresholds below are advisory; passing them does not establish convergence.
+                </div>
+              </div>
+              <details class="workflow-help border rounded p-2 mb-3" {% if quality.needs_review %}open{% endif %}>
+                <summary>Convergence and numerical quality checks</summary>
+                <div class="list-group list-group-flush mt-1">
+                  {% for check in quality.checks %}
+                    <div class="list-group-item px-0 py-2 d-flex align-items-start gap-2">
+                      <span class="badge {{ 'text-bg-warning' if check.level == 'warning' else 'text-bg-secondary' if check.level == 'unknown' else 'text-bg-info' }}">{{ 'Review' if check.level == 'warning' else 'Unassessed' if check.level == 'unknown' else 'Info' }}</span>
+                      <div class="small flex-grow-1">
+                        <strong>{{ check.label }}</strong> — {{ check.detail }}
+                        <div class="text-muted">{{ check.action }}</div>
+                        <a href="{{ url_for('viewer.view', path=source_path ~ '/' ~ check.path) }}">Open {{ check.path }}</a>
+                      </div>
+                    </div>
+                  {% endfor %}
+                </div>
+              </details>
+            {% endif %}
+
             {% set correction = state.convergence.correction_summary %}
             {% if correction.available %}
               <details class="workflow-help border-top pt-2 mt-2">
