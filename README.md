@@ -165,6 +165,10 @@ configured thread settings); host limits still apply. Terminal progress bars
 appear when an estimate is available. `--json` returns structured status,
 plans, or results, and executed actions retain logs under `.cmfgen-runs/`.
 
+Workflow templates mirror the model layout under `templates/`, including
+`lte/` and `obs/`. Both the viewer and runner accept `--template-root`; missing
+setup files fall back to the [packaged defaults](doc/cmfgen-workflow-templates.md).
+
 See the [standalone runner guide](doc/cmfgen-standalone-runner.md) for stage
 requirements, configuration precedence, resource controls, journals, recovery,
 and exit codes. Execution checks do not establish scientific convergence.

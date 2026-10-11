@@ -1,0 +1,310 @@
+121.16733  [RSTAR]            !Rp 125
+109.7956   [RMAX]             !Rmax/Rp
+T            [DO_HYDRO]         !
+
+7            [VEL_LAW]          !Velocity Law
+RVSIG_COL    [VEL_OPT]
+2.277344E+03 [VINF]             !Terminal (km\s)
+1.0          [BETA]             !Gamma (i.e. Beta=speed of velocity law)
+1.8000E-06   [MDOT]             !Mass loss rate
+7.0E+05      [LSTAR]            !Luminosity (Lo)
+3.900D0      [TEFF]
+3.5500       [LOGG]
+48.7339703   [MASS]             !Stars Mass (Mo)
+
+T            [DO_CL]		!Allow for clumping in the model?
+EXPO         [CL_LAW]		!Law to evaluate clumping factors.
+2            [N_CL_PAR]		!Number of clumping parameters
+0.04         [CL_PAR_1]		!1st clumping  parameter (X at Vinf)
+30	     [CL_PAR_2]
+
+1.000        [HYD/X]            !H/X abundance (by number)
+0.1500       [HE/X]             !He/X abundance (by number)
+1.225E-05    [CARB/X]           !C/X  abundance (by number) = C_sol
+8.392E-04    [NIT/X]            !N/X  abundance (by number) = N_sol
+6.760E-05    [OXY/X]            !O/X  abundance (by number) = O_sol
+3.39E-05     [MAG/X]
+6.92E-05     [NEON/X]
+1.51E-06     [ARG/X]
+-6.4200E-04   [SIL/X]            !Sk/X abundance (by number) = Sk_sol
+-3.1300E-04   [SUL/X]            !S/X abundance  (by number) = S_sol
+2.500E-7      [PHOS/X]
+-1.1104E-03   [IRON/X]           !Fe/X abundance (by number) = Fe_sol
+1.70E-06      [NICK/X]
+
+F            [RD_CF_FILE]       !Read in continuum frequencies from file
+3.49897D-3   [MIN_CF]           !Minimum continuum frequency if calculating NU
+1000.000D0   [MAX_CF]           !Maximum continuum frequency if calculating NU
+1.10D0       [FRAC_SP]          !Fractional spacing for small frequencies
+1.05D0       [AMP_FAC]          !Amplification factor for large frequency ranges
+0.10D0       [MAX_BF]           !Maximum frequency spacing close to bf edge
+
+T            [DO_DIS]		!Allow for level dissolution
+200.0D0      [dV_LEV]           !Spacing in km/s on low side of bf edge.
+1.4          [AMP_DIS]          !Amplification factor on low side of bf edge.
+0.1          [MIN_DIS]          !Minimum frequency for level disolution.
+
+3000.0D0     [SIG_GAU_KMS]      !Sigma of Gaussian used to smooth phot. cross-se
+
+F            [CROSS]
+750.0        [V_CROSS]
+0.5          [EXT_LINE_VAR]     !Extent of variation region beyond resonance zon
+0.01         [ZNET_VAR_LIM]     !Iterate on net rates when ABS(ZNET-1) < ZNET_VA
+T            [WNET]             !Iterate on net rates for weak lines.
+0.10         [WK_LIM]           !Weak line opacity limit
+
+T            [DIF]              !Diffusion approx.
+T            [COH_ES]           !Assume coherent electorn scattering?
+F            [OLD_J]
+F            [MIX_COH]          !Mix coherencies in variation of J
+0.1          [ES_FAC]           !How close RJ and RJ_ES to use COH
+
+LOGMON       [METHOD]           !Use log interp to compute chi.LOGLOG
+N_ON_J       [N_TYPE]           !How to handle N in MOM_J_CMF
+20000.0D0    [VFRAC_FG]         !Maximum velocity spacing along ray in FG_J_CMF_
+20000.0D0    [VFRAC_MOM]        !Maximum velocity spacing along ray in MOM_J_CMF
+INT/INS      [FG_OPT]		!Solution options for FG
+T            [THK_CONT]         !Thick boundary condition for continuum ?
+T            [TRAP_J]           !Use trapazoidal wights to compute J ?
+
+2.0D0        [TDOP]             !Temperature for Doppler profile
+4.0D0        [AMASS_DOP]        !Atomic mass for Doppler profile
+15.0D0       [VTURB]            !Turbulent Velocity
+
+6.0          [MAX_DOP]          !Max. half-width of resonace zone
+1.0D0        [FRAC_DOP]         !Spacing in CMF resonace zone [in Doppler widths
+200.0        [dV_CMF_PROF]      !Spacing (in km/s) across CMF profile.
+400.0        [dV_CMF_WING]      !Spacing in e.s. line wings of CMF profile.
+2500.0       [ES_WING_EXT]      !Ext. of non-coh e.s. wings beyond res. zone (in
+3.0          [R_CMF_WING_EXT]   !Ext. of coh. e.s. wings beyond res. zone (in Vi
+
+1.1          [OBS_EXT_RAT]      !Half-Width of Observed profile in Vinf (>= 1.0)
+30.0         [dV_OBS_PROF]      !Spacing (in km/s) across observed profile (km/s
+200.0        [dV_OBS_WING]      !Spacing in e.s. line wings (km/s).
+2000.0       [dV_OBS_BIG]       !Spacing between lines (km/s).
+
+F            [USE_FIXED_J]      !Use fixed J
+F            [FLUX_CAL_ONLY]    !Do a flux calculation only?
+F            [EXT_FRM_SOL]	!Extend formal solutiona factor of 10 in R
+T            [INS_F_FRM_SOL]    !Insert extra frequencies in the formal sol?
+INT          [FRM_OPT]
+F            [DO_SOB_LINES]     !Compute rates for SObolev transitions in flux m
+F            [SOB_FREQ_IN_OBS]  !
+
+BLANK        [GLOBAL_LINE]      !Global line switch (BLANK, SOB, CMF, NONE)
+F            [LAM_SET]          !Swith to SOB for long wavelengths?
+0.0E+03      [F_LAM_BEG]        !Lambda to begin flux calculation.
+7.0E+03      [F_LAM_END]        !Lambda to end flux calculation.
+1.0D-3       [GF_CUT]           !Omit lines with gf < GFCUT and lower level
+9            [GF_LEV_CUT]       !> GF_LEV_CUT
+10           [AT_CUT]
+10           [MIN_TRANS]	!Minimum # of trans from level before cut.
+
+T            [THK_LINE]         !Thk line boundary condition ?
+T            [CHK_L_POS]        !Check for negative line opacity?
+SRCE_CHK     [NEG_OPAC_OPT]     !Negative opacity option
+F            [He2_RES=0]        !Set rates in He2 resonance lines to zero?
+
+F            [ALLOW_OL]         !Include line overlap?
+50.0         [OL_DIF]           !Max velocity dif for overlap (km/s)?
+
+F            [INC_CHG] 		!Include charge exchange reactions
+F            [INC_TWO]  	!Include two photon transitions
+F            [INC_RAY]          !include Rayleigh scattering
+F            [INC_AD] 		!Include adiabatic cooling
+F            [INC_ADV]          !Include advection terms in SE equilibrium equat
+T            [SCL_LN]           !Scale line cooling/heating rates
+0.5          [SCL_LN_FAC]       !
+
+T            [INC_XRAYS]
+F            [FF_XRAYS]
+T            [X_SM_WIND]
+1000         [VS_XRAYS]
+1.5D-02      [FIL_FAC_1]
+300          [T_SHOCK_1]
+500          [V_SHOCK_1]
+1.0D-10      [FIL_FAC_2]
+300.0D0      [T_SHOCK_2]
+500          [V_SHOCK_2]
+
+F            [XSLOW]
+5.0D-09      [XFI1_BEG]
+1.0D-09      [XFI2_BEG]
+100.0D0      [XSCL_FAC]
+
+T            [RD_IN_R_GRID]     !Read in a predetermined R grid ?
+T            [LIN_INT]          !Regrid pops (set F if NEW model) (T=>no Temp it
+T            [POP_SCALE]        !Scale pops to satisfy abundance Eq.
+T            [IT_ON_T]          !Iterate on initial T distribution ?
+2.0          [T_INIT_TAU]       !For INIT_TEMP guess
+0.2          [GREY_TAU]         !Set T to TGREY for tau > ?
+
+F            [DIE_AS_LINE]      !Treat dielectronic as non-overlapping lines
+1000.0D0     [VSM_DIE]          !Smoothing velocity (km/s)
+
+
+F,F          [DIE_HI]           !Include LTDR for HI (Use WI calcs?)
+F,F          [DIE_HeI]          !Include LTDR for HeI (Use WI calcs?)
+F,F          [DIE_He2]          !Include LTDR for He2 (Use WI calcs?)
+
+T,F          [DIE_CI]           !Include LTDR for CI (Use WI calcs?)
+F,F          [DIE_C2]           !Include LTDR for CIII (Use WI calcs?)
+F,T          [DIE_CIII]         !Include LTDR for CIII (Use WI calcs?)
+F,F          [DIE_CIV]          !Include LTDR for CIV (Use WI calcs?)
+F,F          [DIE_CV]           !Include LTDR for CV (Use WI calcs?)
+F,F          [DIE_CSIX]         !Include LTDR for CSIX (Use WI calcs?)
+
+F,F          [DIE_NI]           !Include LTDR for NI (Use WI calcs?)
+F,F          [DIE_N2]           !Include LTDR for N2 (Use WI calcs?)
+F,F          [DIE_NIII]         !Include LTDR for NIII (Use WI calcs?)
+F,T          [DIE_NIV]          !Include LTDR for NIV (Use WI calcs?)
+F,F          [DIE_NV]           !Include LTDR for NV (Use WI calcs?)
+F,F          [DIE_NSIX]         !Include LTDR for NSIX (Use WI calcs?)
+F,F          [DIE_NSEV]         !Include LTDR for NSEV (Use WI calcs?)
+
+T,F          [DIE_OI]           !Include LTDR for OI (Use WI calcs?)
+F,F          [DIE_O2]           !Include LTDR for O2 (Use WI calcs?)
+F,F          [DIE_OIII]         !Include LTDR for OIII (Use WI calcs?)
+F,F          [DIE_OIV]          !Include LTDR for OIV (Use WI calcs?)
+F,T          [DIE_OV]           !Include LTDR for OV (Use WI calcs?)
+F,F          [DIE_OSIX]         !Include LTDR for OSIX (Use WI calcs?)
+
+F,F          [DIE_Ne2]           !Include LTDR for Ne2 (Use WI calcs?)
+F,F          [DIE_NeIII]         !Include LTDR for NeIII (Use WI calcs?)
+F,F          [DIE_NeIV]          !Include LTDR for NeIV (Use WI calcs?)
+F,F          [DIE_NeV]           !Include LTDR for NeV (Use WI calcs?)
+F,F          [DIE_NeSIX]         !Include LTDR for NeSIX (Use WI calcs?)
+F,F          [DIE_NeSEV]         !Include LTDR for NeSEV (Use WI calcs?)
+F,F          [DIE_NeVIII]        !Include LTDR for NeVIII (Use WI calcs?)
+
+F,F          [DIE_Mg2]           !Include LTDR for Mg2 (Use WI calcs?)
+F,F          [DIE_MgIII]         !Include LTDR for MgIII (Use WI calcs?)
+F,F          [DIE_MgIV]          !Include LTDR for MgIV (Use WI calcs?)
+
+F,F          [DIE_Al2]         !Include LTDR for Al2 (Use WI calcs?)
+F,F          [DIE_AlIII]        !Include LTDR for AlIII (Use WI calcs?)
+
+F,F          [DIE_SkI]        !Include LTDR for SkI (Use WI calcs?)
+F,F          [DIE_Sk2]        !Include LTDR for SkIII (Use WI calcs?)
+F,F          [DIE_SkIII]        !Include LTDR for SkIII (Use WI calcs?)
+F,F          [DIE_SkIV]         !Include LTDR for SkIV (Use WI calcs?)
+F,F          [DIE_SkV]         !Include LTDR for SkV (Use WI calcs?)
+
+F,F          [DIE_P2]           !Include LTDR for P2 (Use WI calcs?)
+F,F          [DIE_PIII]         !Include LTDR for PIII (Use WI calcs?)
+F,F          [DIE_PIV]          !Include LTDR for PIV (Use WI calcs?)
+F,F          [DIE_PV]           !Include LTDR for PV (Use WI calcs?)
+F,F          [DIE_PPIX]         !Include LTDR for PPIX (Use WI calcs?)
+
+F,F          [DIE_S2]           !Include LTDR for S2 (Use WI calcs?)
+F,F          [DIE_SIII]         !Include LTDR for SIII (Use WI calcs?)
+F,F          [DIE_SIV]          !Include LTDR for SIV (Use WI calcs?)
+F,F          [DIE_SV]           !Include LTDR for SV (Use WI calcs?)
+F,F          [DIE_SSIX]         !Include LTDR for SSIX (Use WI calcs?)
+
+F,F          [DIE_ClIII]         !Include LTDR for ClIII (Use WI calcs?)
+F,F          [DIE_ClIV]          !Include LTDR for ClIV  (Use WI calcs?)
+F,F          [DIE_ClV]           !Include LTDR for ClV   (Use WI calcs?)
+F,F          [DIE_ClSIX]         !Include LTDR for ClSIX (Use WI calcs?)
+F,F          [DIE_ClSEV]         !Include LTDR for ClSEV (Use WI calcs?)
+F,F          [DIE_ClVIII]        !Include LTDR for ClVIII (Use WI calcs?)
+
+F,F          [DIE_ArIII]         !Include LTDR for ArIII (Use WI calcs?)
+F,F          [DIE_ArIV]          !Include LTDR for ArIV  (Use WI calcs?)
+F,F          [DIE_ArV]           !Include LTDR for ArV   (Use WI calcs?)
+F,F          [DIE_ArSIX]         !Include LTDR for ArSIX (Use WI calcs?)
+F,F          [DIE_ArSEV]         !Include LTDR for ArSEV (Use WI calcs?)
+F,F          [DIE_ArVIII]        !Include LTDR for ArVIII (Use WI calcs?)
+
+F,F          [DIE_Ca2]           !Include LTDR for CaIII (Use WI calcs?)
+F,F          [DIE_CaIII]         !Include LTDR for CaIII (Use WI calcs?)
+F,F          [DIE_CaIV]          !Include LTDR for CaIV (Use WI calcs?)
+F,F          [DIE_CaV]           !Include LTDR for CaV (Use WI calcs?)
+F,F          [DIE_CaSIX]         !Include LTDR for CaSIX (Use WI calcs?)
+F,F          [DIE_CaSEV]         !Include LTDR for CaSEV (Use WI calcs?)
+F,F          [DIE_CaVIII]        !Include LTDR for CaVIII (Use WI calcs?)
+
+F,F          [DIE_Mn2]           !Include LTDR for MnIII (Use WI calcs?)
+F,F          [DIE_MnIII]         !Include LTDR for MnIII (Use WI calcs?)
+F,F          [DIE_MnIV]          !Include LTDR for MnIV (Use WI calcs?)
+F,F          [DIE_MnV]           !Include LTDR for MnV (Use WI calcs?)
+F,F          [DIE_MnSIX]         !Include LTDR for MnSIX (Use WI calcs?)
+F,F          [DIE_MnSEV]         !Include LTDR for MnSEV (Use WI calcs?)
+F,F          [DIE_MnVIII]        !Include LTDR for MnVIII (Use WI calcs?)
+
+F,F          [DIE_Cr2]           !Include LTDR for CrIII (Use WI calcs?)
+F,F          [DIE_CrIII]         !Include LTDR for CrIII (Use WI calcs?)
+F,F          [DIE_CrIV]          !Include LTDR for CrIV (Use WI calcs?)
+F,F          [DIE_CrV]           !Include LTDR for CrV (Use WI calcs?)
+F,F          [DIE_CrSIX]         !Include LTDR for CrSIX (Use WI calcs?)
+F,F          [DIE_CrSEV]         !Include LTDR for CrSEV (Use WI calcs?)
+F,F          [DIE_CrVIII]        !Include LTDR for CrVIII (Use WI calcs?)
+
+F,F          [DIE_Fe2]         !Include LTDR for Fe2 (Use WI calcs?)
+F,F          [DIE_FeIII]         !Include LTDR for FeIII (Use WI calcs?)
+F,F          [DIE_FeIV]          !Include LTDR for FeIV (Use WI calcs?)
+F,F          [DIE_FeV]           !Include LTDR for FeV (Use WI calcs?)
+F,F          [DIE_FeSIX]         !Include LTDR for FeSIX (Use WI calcs?)
+F,F          [DIE_FeSEV]         !Include LTDR for FeSEV (Use WI calcs?)
+F,F          [DIE_FeVIII]        !Include LTDR for FeVIII (Use WI calcs?)
+F,F          [DIE_FeIX]        !Include LTDR for FeVIII (Use WI calcs?)
+F,F          [DIE_FeX]        !Include LTDR for FeVIII (Use WI calcs?)
+
+F,F          [DIE_Nk2]         !Include LTDR for Nk2 (Use WI calcs?)
+F,F          [DIE_NkIII]         !Include LTDR for NkIII (Use WI calcs?)
+F,F          [DIE_NkIV]          !Include LTDR for NkIV (Use WI calcs?)
+F,F          [DIE_NkV]           !Include LTDR for NkV (Use WI calcs?)
+F,F          [DIE_NkSIX]         !Include LTDR for NkSIX (Use WI calcs?)
+F,F          [DIE_NkSEV]         !Include LTDR for NkSEV (Use WI calcs?)
+F,F          [DIE_NkVIII]        !Include LTDR for NkVIII (Use WI calcs?)
+F,F          [DIE_NkIX]        !Include LTDR for NkVIII (Use WI calcs?)
+F,F          [DIE_NkX]        !Include LTDR for NkVIII (Use WI calcs?)
+
+
+F            [FIX_NE]           !Fixed Electron density ?
+F            [FIX_IMP]          !Fix impurity species automatically ?
+F            [FIX_T]            !Fixed T ?
+F            [FIX_T_AUTO]       !Automatic variable T
+0.0          [TAU_SCL_T]        !Fix T for this optical depth. 1.0?
+TRIDIAG      [SOL_METH]         !Msol (bmgsit)
+MAJOR        [SCALE_OPT]        !Scaling option (MAJOR, LOCAL, NONE, or GLOBAL)
+2.0D-02      [EPS_TERM]         !Terminate when %frac change smaller
+10.0D0       [MAX_LIN]		!Maximum fractional change allowed for linearization.
+1.0D+4      [MAX_LAM]		!Maximum fractional change allowed for LAMBDA iteration.
+1.0D+100     [MAX_CHNG]         !Terminate with error if %frac change > MAX_CHNG
+
+T            [COMP_BA]          !Compute BA matrix
+T            [STORE_BA_INV]     !Write BA matrix out
+T            [WR_PRT_INV]       !Write BA matrix out
+2            [N_FIX_BA]         !Number of iterations to hold BA fixed:
+T            [STORE_BA]         !Write BA matrix out
+1.0D-03      [BA_CHK_FAC]       !<< 1 (Values close to 1 reduce BA compuattion)
+10.0D0       [FIX_BA]           !Fix BA if %change smaller
+
+800.0D0      [LAM_VAL]          !Do LAMBDA iterations if %change >.
+1            [NUM_LAM]          !Number of Lambda iteration per full linearizati
+
+F            [RD_SOL]           !Read in solution matrix
+T            [JC_W_EDD]         !Use Eddington factors to compute continuum J
+T            [JBAR_W_EDD]       !Use Eddington factors to compute JBAR for lines
+F            [INC_GRID]         !Do an error calculation ?
+2            [N_INS]            !NPINS
+F            [ALL_FREQ]         !
+3.19         [ACC_END]          !
+
+1            [ST_INT]           !Interpolate from 1 to ?
+30           [END_INT]          !Interpolate from 1 to ?
+50           [ND_QUAD]          !Quadratic interpolation from 50 to ND
+LOG          [INTERP_TYPE]      !LOG or LIN plane
+
+5000         [N_PAR]            !Rate of BA incremantation by BA_PAR.
+
+F            [COMP_F]           !Compute new Continuum f values ?
+1.0D-04      [ACC_F]            !Convergence accuracy for F
+
+T            [DO_NG]            !Use NG acceleration
+F            [CHK_NG]
+10.0D0       [BEG_NG]           !Start  NG when percentage change <
+25           [IBEG_NG]
+10           [BW_NG]
+20           [ITS/NG]           !Number of iterations per NG aceleration

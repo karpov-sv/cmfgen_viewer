@@ -34,6 +34,7 @@ CONFIG_KEY_ALIASES: dict[str, str] = {
     "auth_user": "auth_user",
     "auth_password": "auth_password",
     "auth_realm": "auth_realm",
+    "template_root": "template_root",
     "cmfgen_root": "cmfgen_root",
     "atomic_root": "atomic_root",
 }
@@ -169,7 +170,7 @@ def _load_config_defaults(config_path: str) -> dict[str, object]:
             normalized_defaults[key] = _parse_int_config_value(key, value)
         elif key in {"lambda_min", "lambda_max"}:
             normalized_defaults[key] = _parse_float_config_value(key, value)
-        elif key in {"basepath", "host", "auth_realm", "upload_root", "cmfgen_root", "atomic_root"}:
+        elif key in {"basepath", "host", "auth_realm", "upload_root", "template_root", "cmfgen_root", "atomic_root"}:
             normalized_defaults[key] = str(value)
         elif key in {"secret", "auth_user", "auth_password"}:
             normalized_defaults[key] = None if value is None else str(value)
@@ -259,6 +260,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Disable operations that modify model directories (the default; overrides config)",
     )
     parser.set_defaults(read_write=False)
+    parser.add_argument("--template-root", default=None, help="Workflow template root containing lte/ and obs/ (default: model-tree templates, then packaged defaults)")
     parser.add_argument(
         "--cmfgen-root",
         default=None,
@@ -384,6 +386,7 @@ def main(argv: list[str] | None = None) -> None:
         auth_username=auth_user,
         auth_password=auth_password,
         auth_realm=str(args.auth_realm or "CMFGEN Viewer"),
+        template_root=args.template_root,
         cmfgen_root=str(cmfgen_settings["cmfgen_root"])
         if "cmfgen_root" in cmfgen_settings
         else None,

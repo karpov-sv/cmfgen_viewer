@@ -12,9 +12,14 @@ Preparation requires these regular files in the model root:
 
 - `VADAT`
 - `MODEL_SPEC`
-- `clean.sh`
 
-It also requires `GRID_PARAMS`, `ltebat.sh`, and `HYDRO_PARAMS` under the configured model base's `examples/` directory. `GRID_PARAMS` and `ltebat.sh` may be stored in `examples/lte2/`, matching the supplied example layout.
+`GRID_PARAMS`, `ltebat.sh`, `HYDRO_PARAMS`, and `clean.sh` use the shared
+[workflow template resolver](cmfgen-workflow-templates.md). It prefers the source
+model, an explicit `--template-root`, model-tree `templates/` directories, then
+packaged defaults. Template paths mirror the model layout: `lte/` for LTE
+files and `clean.sh` for cleanup. Each selected source is shown on the page.
+A model without a local template collection can therefore prepare LTE using the
+bundled files. Physical model inputs remain mandatory.
 
 The action creates `lte/` and copies only the required inputs. Before publishing the new workspace, it initializes the copied `HYDRO_PARAMS` from the copied `VADAT`: `LOGG` maps to `LOG_G`, and `TEFF`, `MDOT`, `VINF`, and `BETA` are transferred. `REF_R` is derived from `LSTAR` and `TEFF`; `CON_R` is scaled to preserve the template's `CON_R / REF_R` ratio. Review this connection-radius estimate before running hydro. Template comments, other controls, and file permissions are preserved.
 

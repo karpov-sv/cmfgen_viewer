@@ -83,7 +83,7 @@
                 {% for item in plan.entries %}
                   <tr>
                     <td>{{ item.category }}</td>
-                    <td><code>{{ item.source_name }}</code></td>
+                    <td><code title="{{ item.source_path }}">{{ item.source_name }}</code>{% if item.origin is defined and item.origin != 'source model' %} <span class="small text-muted">({{ item.origin }})</span>{% endif %}</td>
                     <td>
                       <code>{{ item.destination_name }}</code>
                       {% if item.renamed %}<span class="badge text-bg-secondary">renamed</span>{% endif %}

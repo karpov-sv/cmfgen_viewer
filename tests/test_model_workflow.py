@@ -42,12 +42,12 @@ def _write_model(root: Path, name: str = "model_a") -> Path:
 
 
 def _write_templates(root: Path) -> None:
-    examples = root / "examples"
-    (examples / "lte2").mkdir(parents=True)
-    (examples / "lte2" / "GRID_PARAMS").write_text("grid\n", encoding="utf-8")
-    (examples / "lte2" / "ltebat.sh").write_text("#!/bin/sh\n", encoding="utf-8")
-    (examples / "lte2" / "ltebat.sh").chmod(0o755)
-    (examples / "HYDRO_PARAMS").write_text("hydro\n", encoding="utf-8")
+    templates = root / "templates" / "lte"
+    templates.mkdir(parents=True)
+    (templates / "GRID_PARAMS").write_text("grid\n", encoding="utf-8")
+    (templates / "ltebat.sh").write_text("#!/bin/sh\n", encoding="utf-8")
+    (templates / "ltebat.sh").chmod(0o755)
+    (templates / "HYDRO_PARAMS").write_text("hydro\n", encoding="utf-8")
 
 
 def test_unprepared_workspace_does_not_subscribe_to_runtime(tmp_path):
@@ -688,7 +688,7 @@ def _write_initializable_workspace_inputs(tmp_path):
         '2.5D0 [TEFF]\n3.7 [LOGG]\n11500 [LSTAR]\n2D-8 [MDOT]\n'
         '1800 [VINF]\n2 [BETA]\nF [CHK_NG]\n',
     )
-    (tmp_path / 'examples/HYDRO_PARAMS').write_text(
+    (tmp_path / 'templates/lte/HYDRO_PARAMS').write_text(
         '! Keep template comment\n3.9 [TEFF] ! temperature\n3.55 [LOG_G]\n'
         '1.8e-6 [MDOT]\n2277.344 [VINF]\n1 [BETA]\n127.55 [REF_R]\n135 [CON_R]\n'
         'F [OLD_MOD]\nF [OLD_V]\nT [WIND_PRES]\n100 [MAX_R]\n',
@@ -698,7 +698,7 @@ def _write_initializable_workspace_inputs(tmp_path):
 
 def test_prepare_initializes_hydro_and_preserves_sources(tmp_path):
     model = _write_initializable_workspace_inputs(tmp_path)
-    template = tmp_path / 'examples/HYDRO_PARAMS'
+    template = tmp_path / 'templates/lte/HYDRO_PARAMS'
     template.chmod(0o640)
     original_template = template.read_bytes()
     original_vadat = (model / 'VADAT').read_bytes()
@@ -736,9 +736,9 @@ def test_prepare_initializes_hydro_and_preserves_sources(tmp_path):
 ])
 def test_prepare_reports_unsupported_hydro_initialization_without_partial_changes(tmp_path, filename, old, new):
     model = _write_initializable_workspace_inputs(tmp_path)
-    target = model / filename if filename == 'VADAT' else tmp_path / 'examples/HYDRO_PARAMS'
+    target = model / filename if filename == 'VADAT' else tmp_path / 'templates/lte/HYDRO_PARAMS'
     target.write_text(target.read_text().replace(old, new))
-    original = (tmp_path / 'examples/HYDRO_PARAMS').read_bytes()
+    original = (tmp_path / 'templates/lte/HYDRO_PARAMS').read_bytes()
     app = create_app(basepath=str(tmp_path), read_write_enabled=True, secret_key='test')
     response = app.test_client().post('/model-actions/lte-hydro/model_a',
                                       data={'action': 'prepare'}, follow_redirects=True)

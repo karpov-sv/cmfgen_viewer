@@ -21,6 +21,7 @@ def create_app(
     auth_username: str | None = None,
     auth_password: str | None = None,
     auth_realm: str = "CMFGEN Viewer",
+    template_root: str | None = None,
     cmfgen_root: str | None = None,
     atomic_root: str | None = None,
     cmfgen_runner_threads: int | None = None,
@@ -56,6 +57,7 @@ def create_app(
 
     app.config["CMFGEN_VIEWER"] = {
         "basepath": str(Path(basepath).expanduser().resolve()),
+        "template_root": str(Path(template_root).expanduser().resolve()) if template_root else None,
         "show_all": bool(show_all),
         "lambda_min_angstrom": float(lambda_min_angstrom),
         "lambda_max_angstrom": float(lambda_max_angstrom),

@@ -43,7 +43,7 @@ def model_lte_hydro(source_path: str):
         if request.method == "POST":
             action = str(request.form.get("action", "")).strip().lower()
             if action == "prepare":
-                prepared = prepare_lte_hydro_workspace(basepath, model_relpath=source_path)
+                prepared = prepare_lte_hydro_workspace(basepath, model_relpath=source_path, template_root=config.get("template_root"))
                 return redirect(
                     url_for(
                         "viewer.model_lte_hydro",

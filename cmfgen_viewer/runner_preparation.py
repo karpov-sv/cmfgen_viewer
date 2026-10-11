@@ -19,27 +19,24 @@ def build_preparation_plan(model: Path, *, template_root: Path | None = None) ->
     model = model.expanduser().resolve()
     if not model.is_dir():
         raise RunnerError("Not a model workspace")
-    if template_root is None:
-        template_root = next((parent / "examples" for parent in model.parents
-                              if (parent / "examples").is_dir()), model.parent / "examples")
-    template_root = template_root.expanduser().resolve()
+    template_root = template_root.expanduser().resolve() if template_root is not None else None
     try:
         state = inspect_lte_hydro_workflow(
-            str(model.parent), model_relpath=model.name, template_root=str(template_root),
+            str(model.parent), model_relpath=model.name, template_root=str(template_root) if template_root is not None else None,
         )
     except ModelWorkflowError as exc:
         raise RunnerError(str(exc)) from exc
     errors = [] if state["prepare_allowed"] else [state["prepare_reason"]]
     if (model / ".cmfgen-runs").is_symlink():
         errors.append("Refusing symlinked run archive")
-    sources = [model / name for name in ("VADAT", "MODEL_SPEC", "clean.sh", "RVSIG_COL", "RVSIG_COL_OLD")]
+    sources = [model / name for name in ("VADAT", "MODEL_SPEC", "RVSIG_COL", "RVSIG_COL_OLD")]
     copies = [{"source": str(model / name), "destination": str(model / "lte" / name)}
-              for name in ("VADAT", "MODEL_SPEC", "clean.sh")]
+              for name in ("VADAT", "MODEL_SPEC")]
     for item in state["template_files"]:
         if item["exists"]:
             source = Path(item["path"])
             sources.append(source)
-            copies.append({"source": str(source), "destination": str(model / "lte" / item["name"])})
+            copies.append({"source": str(source), "destination": str(model / "lte" / item["name"]), "origin": item["origin"]})
     digests = {str(path): hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
                for path in sources}
     warnings = ["Review CON_R before running hydro; preparation preserves the template CON_R / REF_R ratio."]
@@ -59,7 +56,7 @@ def build_preparation_plan(model: Path, *, template_root: Path | None = None) ->
     return {
         "schema_version": 1, "profile": "ostar-v1", "kind": "filesystem",
         "stage": "prepare-lte", "model": str(model), "cwd": str(model),
-        "template_root": str(template_root), "copies": copies, "expected_digests": digests,
+        "template_root": str(template_root) if template_root is not None else None, "copies": copies, "expected_digests": digests,
         "hydro_alignment": alignment,
         "backs_up_rvsig": (model / "RVSIG_COL").is_file() and not (model / "RVSIG_COL_OLD").exists(),
         "activity": state["activity"], "timeout": None,

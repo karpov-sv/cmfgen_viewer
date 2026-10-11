@@ -28,7 +28,7 @@ REVIEWED_SCRIPTS = {
                  "28c5fa0de471edbaaae5ab61527bd74193f40e7e124c56203d403131e338f5d9"},
     "obs/batobs.sh": {"82ba5a0d6000438e3a9d2574237a71bd5c79f0eab01735c7de9bb87c0acc55de"},
     "obs/bat_ins.sh": {"95c167e47d7e3419b045832f0743237e4aae8bdf8121f3bfefc4dfa60fafb40f"},
-    "lte/ltebat.sh": {"0591cd72fd414cc1835547e20c283f07287c41ed7a75bdef9e545cd63a4c9fad"},
+    "lte/ltebat.sh": {"e7955be7aea0b040c135bf960574cd8bfacd05bd174e4e1db11ffa0d2e3d1422", "0591cd72fd414cc1835547e20c283f07287c41ed7a75bdef9e545cd63a4c9fad"},
 }
 PROGRAMS = {"main": "cmfgen_dev.exe", "test": "cmfgen_dev.exe", "lte": "main_lte.exe",
             "hydro": "wind_hyd.exe", "flux": "cmf_flux.exe"}

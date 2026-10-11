@@ -1004,7 +1004,7 @@ def main(argv=None):
         action="append",
         help="Stage to run; repeat for an ordered multi-stage run (no stage: read-only status; test: zero-iteration startup check)",
     )
-    parser.add_argument("--template-root", type=Path, help="LTE template directory (default: nearest ancestor examples/ directory)")
+    parser.add_argument("--template-root", type=Path, help="Template root with lte/ files (default: model-tree templates, then packaged defaults)")
     parser.add_argument("--cmfgen-root", type=Path, help="Installation root (default: CMFDIST or .cmfgenrc)")
     parser.add_argument("--atomic-root", type=Path, help="Atomic data root (default: ATOMIC or .cmfgenrc)")
     parser.add_argument("--threads", "--nthreads", type=int, help="Thread count override (default: OMP_NUM_THREADS, .cmfgenrc nthreads, or inherited library settings)")

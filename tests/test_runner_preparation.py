@@ -32,7 +32,7 @@ def test_preparation_plan_and_execution(tmp_path, capsys):
 def test_preparation_rejects_changed_sources(tmp_path, changed):
     model = _write_initializable_workspace_inputs(tmp_path)
     plan = build_preparation_plan(model)
-    source = model / 'VADAT' if changed == 'VADAT' else tmp_path / 'examples/HYDRO_PARAMS'
+    source = model / 'VADAT' if changed == 'VADAT' else tmp_path / 'templates/lte/HYDRO_PARAMS'
     source.write_text(source.read_text() + '! changed\n')
     result = runner.run_plan(plan)
     assert result['status'] == 'failed'
@@ -43,9 +43,9 @@ def test_preparation_rejects_changed_sources(tmp_path, changed):
 
 def test_preparation_custom_templates_and_unsupported_inputs(tmp_path, capsys):
     model = _write_initializable_workspace_inputs(tmp_path)
-    templates = tmp_path / 'templates'
-    (tmp_path / 'examples').rename(templates)
-    hydro = templates / 'HYDRO_PARAMS'
+    templates = tmp_path / 'custom-templates'
+    (tmp_path / 'templates').rename(templates)
+    hydro = templates / 'lte/HYDRO_PARAMS'
     hydro.write_text(hydro.read_text().replace('F [OLD_V]', 'T [OLD_V]'))
     assert runner.main([str(model), '--stage', 'prepare-lte', '--template-root', str(templates), '--json']) == 0
     result = json.loads(capsys.readouterr().out)
@@ -56,7 +56,7 @@ def test_preparation_custom_templates_and_unsupported_inputs(tmp_path, capsys):
 
 def test_preparation_sequence_rebuilds_lte_after_preparation(tmp_path, monkeypatch):
     model = _write_initializable_workspace_inputs(tmp_path)
-    templates = tmp_path / 'examples'
+    templates = tmp_path / 'templates'
     plan = runner.build_sequence_plan(model, ['prepare-lte', 'lte'], native_config={},
         configuration_sources={}, timeout=None, iterations=None, fresh_start=False,
         cleanup_files=None, template_root=templates)
@@ -87,23 +87,26 @@ def test_template_option_requires_preparation_stage(tmp_path, capsys):
 def test_preparation_rejects_changed_template_selection(tmp_path):
     model = _write_initializable_workspace_inputs(tmp_path)
     plan = build_preparation_plan(model)
-    (tmp_path / 'examples/GRID_PARAMS').write_text('new preferred template\n')
+    (model / 'templates/lte').mkdir(parents=True)
+    (model / 'templates/lte/GRID_PARAMS').write_text('new preferred template\n')
     result = runner.run_plan(plan)
     assert result['status'] == 'failed'
     assert 'Template selection changed' in result['passes'][0]['problems'][0]
     assert not (model / 'lte').exists()
 
 
-def test_preparation_human_plan_and_missing_templates(tmp_path, capsys):
+def test_preparation_human_plan_and_packaged_fallback(tmp_path, capsys):
     model = _write_initializable_workspace_inputs(tmp_path)
     assert runner.main([str(model), '--stage', 'prepare-lte', '--plan', '--color', 'never']) == 0
     output = capsys.readouterr().out
     assert 'Initialize HYDRO_PARAMS from VADAT:' in output
     assert 'CON_R=' in output and 'Preparation preflight passed' in output
-    (tmp_path / 'examples/HYDRO_PARAMS').unlink()
-    assert runner.main([str(model), '--stage', 'prepare-lte', '--plan', '--json']) == 2
+    (tmp_path / 'templates/lte/HYDRO_PARAMS').unlink()
+    assert runner.main([str(model), '--stage', 'prepare-lte', '--plan', '--json']) == 0
     plan = json.loads(capsys.readouterr().out)
-    assert not plan['ready'] and 'HYDRO_PARAMS' in plan['errors'][0]
+    assert plan['ready']
+    hydro = next(item for item in plan['copies'] if Path(item['destination']).name == 'HYDRO_PARAMS')
+    assert hydro['origin'] == 'packaged templates'
     assert not (model / 'lte').exists() and not (model / '.cmfgen-runs').exists()
 
 

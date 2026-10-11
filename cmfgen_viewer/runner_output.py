@@ -182,9 +182,10 @@ class TerminalOutput:
             return
         if plan["stage"] == "prepare-lte":
             self.line("INFO", f"CMFGEN LTE workspace preparation — {plan['model']}")
-            self.line("INFO", f"Templates: {plan['template_root']}")
+            if plan.get("template_root"):
+                self.line("INFO", f"Explicit templates: {plan['template_root']}")
             for item in plan["copies"]:
-                self.line("INFO", f"Copy {item['source']} → {item['destination']}")
+                self.line("INFO", f"Copy {item['source']} → {item['destination']} ({item.get('origin', 'source model')})")
             if plan.get("backs_up_rvsig"):
                 self.line("INFO", "Preserve RVSIG_COL as RVSIG_COL_OLD")
             alignment = plan.get("hydro_alignment")

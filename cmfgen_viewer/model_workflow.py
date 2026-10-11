@@ -24,6 +24,7 @@ from .model_editor import (
 )
 from .model_runtime import inspect_workflow_runtime
 from .model_activity import inspect_model_activity, model_mutation_guard
+from .model_templates import resolve_model_template
 from .workflow_preflight import inspect_stage_preflight
 from .workflow_plan import external_stage_command
 from .model_staging import MODEL_WRITE_LOCK, is_sn_model_directory
@@ -34,8 +35,8 @@ class ModelWorkflowError(ValueError):
     """Raised when an LTE/hydro workflow action is unavailable or unsafe."""
 
 
-ROOT_REQUIRED_INPUTS = ("VADAT", "MODEL_SPEC", "clean.sh")
-ROOT_OPTIONAL_INPUTS = ("RVSIG_COL",)
+ROOT_REQUIRED_INPUTS = ("VADAT", "MODEL_SPEC")
+ROOT_OPTIONAL_INPUTS = ("clean.sh", "RVSIG_COL")
 LTE_INPUTS = ("VADAT", "MODEL_SPEC", "clean.sh", "GRID_PARAMS", "ltebat.sh", "HYDRO_PARAMS")
 LTE_OUTPUT = "ROSSELAND_LTE_TAB"
 HYDRO_OUTPUT = "RVSIG_COL_NEW"
@@ -207,13 +208,16 @@ def _file_state(path: Path, *, dependencies: tuple[Path, ...] = ()) -> dict[str,
     }
 
 
-def _template_paths(basepath: str, template_root: str | None = None) -> dict[str, Path | None]:
-    root = Path(template_root).expanduser().resolve() if template_root is not None else Path(basepath).expanduser().resolve() / "examples"
-    result: dict[str, Path | None] = {}
-    for name in ("GRID_PARAMS", "ltebat.sh", "HYDRO_PARAMS"):
-        candidates = (root / name, root / "lte2" / name)
-        result[name] = next((path for path in candidates if _regular_file(path)), None)
-    return result
+def _preparation_templates(model_dir: Path, template_root=None) -> list[dict]:
+    return [
+        {"name": name, **resolve_model_template(
+            model_dir, relative, template_root=template_root,
+        )}
+        for name, relative in (("GRID_PARAMS", "lte/GRID_PARAMS"),
+                               ("ltebat.sh", "lte/ltebat.sh"),
+                               ("HYDRO_PARAMS", "lte/HYDRO_PARAMS"),
+                               ("clean.sh", "clean.sh"))
+    ]
 
 
 def _same_contents(left: Path, right: Path) -> bool:
@@ -719,19 +723,11 @@ def inspect_lte_hydro_workflow(basepath: str, *, model_relpath: str, config: dic
     normalized, model_dir = _resolve_model(basepath, model_relpath)
     activity = inspect_model_activity(model_dir)
     lte_dir = model_dir / "lte"
-    templates = _template_paths(basepath, template_root)
     root_files = [
         {**_file_state(model_dir / name), "required": name in ROOT_REQUIRED_INPUTS}
         for name in (*ROOT_REQUIRED_INPUTS, *ROOT_OPTIONAL_INPUTS)
     ]
-    template_files = [
-        {
-            "name": name,
-            "path": str(path) if path is not None else "",
-            "exists": path is not None,
-        }
-        for name, path in templates.items()
-    ]
+    template_files = _preparation_templates(model_dir, template_root or (config or {}).get("template_root"))
     lte_files = [_file_state(lte_dir / name) for name in LTE_INPUTS]
     lte_exists = lte_dir.exists() or lte_dir.is_symlink()
     prepared = lte_dir.is_dir() and not lte_dir.is_symlink() and all(
@@ -748,7 +744,7 @@ def inspect_lte_hydro_workflow(basepath: str, *, model_relpath: str, config: dic
     elif missing_root:
         prepare_reason = f"Missing model input(s): {', '.join(missing_root)}."
     elif missing_templates:
-        prepare_reason = f"Missing template(s) under {template_root or Path(basepath).resolve() / 'examples'}: {', '.join(missing_templates)}."
+        prepare_reason = f"Missing workflow template(s): {', '.join(missing_templates)}."
     elif prepared:
         prepare_reason = "The LTE workspace is prepared."
     else:
@@ -808,7 +804,7 @@ def inspect_lte_hydro_workflow(basepath: str, *, model_relpath: str, config: dic
         "hydro_preflight": hydro_preflight,
         "model_path": str(model_dir),
         "lte_path": str(lte_dir),
-        "template_root": str(Path(template_root).expanduser().resolve() if template_root is not None else Path(basepath).expanduser().resolve() / "examples"),
+        "template_root": str(Path(template_root).expanduser().resolve()) if template_root is not None else None,
         "root_files": root_files,
         "template_files": template_files,
         "lte_files": lte_files,
@@ -881,10 +877,10 @@ def prepare_lte_hydro_workspace(basepath: str, *, model_relpath: str, template_r
             raise ModelWorkflowError(str(state["prepare_reason"] or "LTE workspace cannot be prepared."))
         model_dir = Path(str(state["model_path"]))
         lte_dir = model_dir / "lte"
-        templates = _template_paths(basepath, template_root)
+        templates = state["template_files"]
         if expected_digests is not None and any(
-            source is not None and str(source) not in expected_digests
-            for source in templates.values()
+            item["exists"] and item["path"] not in expected_digests
+            for item in templates
         ):
             raise ModelWorkflowError("Template selection changed since preflight; rebuild the plan.")
         for path, expected in (expected_digests or {}).items():
@@ -895,12 +891,12 @@ def prepare_lte_hydro_workspace(basepath: str, *, model_relpath: str, template_r
         staging = Path(tempfile.mkdtemp(prefix=".cmfgen-lte-", dir=str(model_dir)))
         created_rvsig_backup = False
         try:
-            for name in ("VADAT", "MODEL_SPEC", "clean.sh"):
+            for name in ROOT_REQUIRED_INPUTS:
                 _copy_regular(model_dir / name, staging / name)
-            for name, source in templates.items():
-                if source is None:
-                    raise ModelWorkflowError(f"Required workflow template is unavailable: {name}")
-                _copy_regular(source, staging / name)
+            for item in templates:
+                if not item["exists"]:
+                    raise ModelWorkflowError(f"Required workflow template is unavailable: {item['name']}")
+                _copy_regular(Path(item["path"]), staging / item["name"])
             hydro_initialization = _initialize_hydro_parameters(staging)
             if _regular_file(model_dir / "RVSIG_COL") and not (model_dir / "RVSIG_COL_OLD").exists():
                 _copy_regular(model_dir / "RVSIG_COL", model_dir / "RVSIG_COL_OLD")

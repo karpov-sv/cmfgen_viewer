@@ -86,12 +86,14 @@ def model_create_from_solution(source_path: str):
                 basepath,
                 source_relpath=source_path,
                 destination_relpath=destination_relpath,
+                template_root=config.get("template_root"),
             )
             if request.method == "POST" and action == "create":
                 created = create_model_from_solution(
                     basepath,
                     source_relpath=source_path,
                     destination_relpath=destination_relpath,
+                    template_root=config.get("template_root"),
                 )
                 created_relpath = str(created["destination_relpath"])
                 try:

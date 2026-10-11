@@ -12,6 +12,7 @@ from threading import Lock
 
 from .browser import is_model_directory, resolve_path
 from .model_activity import model_mutation_guard
+from .model_templates import resolve_model_template
 
 
 MODEL_CREATE_REQUIRED_FILES = ("batch.sh", "IN_ITS", "VADAT", "MODEL_SPEC", "GAMMAS")
@@ -161,6 +162,7 @@ def _copy_entry(
     source_label = source_name or source.name
     return {
         "source_name": source_label,
+        "source_path": str(source),
         "destination_name": destination_name,
         "category": category,
         "size": int(file_stat.st_size),
@@ -174,6 +176,7 @@ def plan_model_from_solution(
     *,
     source_relpath: str,
     destination_relpath: str,
+    template_root: str | None = None,
 ) -> dict[str, object]:
     source_relpath, source = _model_source(basepath, source_relpath)
     destination_relpath, destination = _model_destination(
@@ -187,13 +190,33 @@ def plan_model_from_solution(
     warnings: list[str] = []
     destination_names: set[str] = set()
 
+    reusable = {"batch.sh", "batch_ins.sh", "clean.sh", "IN_ITS",
+                "HYDRO_DEFAULTS", "ADJUST_R_DEFAULTS", "IT_SPECIFIER", "obs/clean.sh"}
+    reusable.update(f"obs/{name}" for name in (
+        *MODEL_CREATE_OBSERVER_REQUIRED_FILES, *MODEL_CREATE_OBSERVER_OPTIONAL_FILES,
+    ) if name != "MODEL_SPEC")
+
+    def setup_file(relative: str) -> tuple[Path | None, str]:
+        path = source / relative
+        if path.is_file():
+            return path, "source model"
+        if relative in reusable:
+            resolved = resolve_model_template(source, relative, template_root=template_root)
+            if resolved["exists"]:
+                return Path(resolved["path"]), resolved["origin"]
+        return None, ""
+
+    def setup_entry(path: Path, relative: str, destination: str, category: str, origin: str):
+        return {**_copy_entry(path, source_name=relative, destination_name=destination,
+                             category=category), "origin": origin}
+
     for name in MODEL_CREATE_REQUIRED_FILES:
-        source_file = source / name
-        if not source_file.is_file():
+        source_file, origin = setup_file(name)
+        if source_file is None:
             missing_required.append(name)
             continue
         destination_name = "GAMMAS_IN" if name == "GAMMAS" else name
-        entry = _copy_entry(source_file, destination_name=destination_name, category="Required")
+        entry = setup_entry(source_file, name, destination_name, "Required", origin)
         entries.append(entry)
         destination_names.add(destination_name)
 
@@ -216,63 +239,42 @@ def plan_model_from_solution(
         destination_names.add(destination_name)
 
     for name in MODEL_CREATE_OPTIONAL_FILES:
-        source_file = source / name
-        if not source_file.is_file():
+        source_file, origin = setup_file(name)
+        if source_file is None:
             continue
         if name in destination_names:
             raise ModelStagingError(f"Multiple source files would create '{name}'.")
-        entries.append(_copy_entry(source_file, destination_name=name, category="Optional support"))
+        entries.append(setup_entry(source_file, name, name, "Optional support", origin))
         destination_names.add(name)
 
     observer_dir = source / "obs"
-    observer_setup = observer_dir.is_dir()
+    observer_files = {
+        name: setup_file(f"obs/{name}")
+        for name in (*MODEL_CREATE_OBSERVER_REQUIRED_FILES, *MODEL_CREATE_OBSERVER_OPTIONAL_FILES)
+    }
+    observer_setup = observer_dir.is_dir() or any(
+        observer_files[name][0] is not None for name in MODEL_CREATE_OBSERVER_REQUIRED_FILES
+    )
     if observer_setup:
-        for name in (*MODEL_CREATE_OBSERVER_REQUIRED_FILES, *MODEL_CREATE_OBSERVER_OPTIONAL_FILES):
-            source_file = observer_dir / name
-            if not source_file.is_file():
+        for name, (source_file, origin) in observer_files.items():
+            if source_file is None:
                 if name in MODEL_CREATE_OBSERVER_REQUIRED_FILES:
                     warnings.append(f"Observer setup is missing obs/{name}.")
                 continue
-            destination_name = f"obs/{name}"
-            entries.append(
-                _copy_entry(
-                    source_file,
-                    source_name=f"obs/{name}",
-                    destination_name=destination_name,
-                    category="Observer setup",
-                )
-            )
-            destination_names.add(destination_name)
-
-        observer_clean = observer_dir / "clean.sh"
-        root_clean = source / "clean.sh"
-        if observer_clean.is_file():
-            entries.append(
-                _copy_entry(
-                    observer_clean,
-                    source_name="obs/clean.sh",
-                    destination_name="obs/clean.sh",
-                    category="Observer setup",
-                )
-            )
-            destination_names.add("obs/clean.sh")
-        elif root_clean.is_file():
-            entries.append(
-                _copy_entry(
-                    root_clean,
-                    source_name="clean.sh",
-                    destination_name="obs/clean.sh",
-                    category="Observer setup",
-                )
-            )
-            destination_names.add("obs/clean.sh")
+            entries.append(setup_entry(source_file, f"obs/{name}", f"obs/{name}",
+                                       "Observer setup", origin))
+        observer_clean, origin = setup_file("obs/clean.sh")
+        relative = "obs/clean.sh"
+        if observer_clean is None:
+            observer_clean, origin = setup_file("clean.sh")
+            relative = "clean.sh"
+        if observer_clean is not None:
+            entries.append(setup_entry(observer_clean, relative, "obs/clean.sh",
+                                       "Observer setup", origin))
         else:
             warnings.append("Observer setup has no clean.sh in obs/ or the model root.")
     else:
-        warnings.append("Source model has no obs/ directory; observer-run setup will not be created.")
-
-    if not (source / "clean.sh").is_file():
-        warnings.append("Source model has no top-level clean.sh.")
+        warnings.append("Source model has no obs/ directory or observer templates; observer-run setup will not be created.")
 
     category_order = {
         "Required": 0,
@@ -309,12 +311,14 @@ def create_model_from_solution(
     *,
     source_relpath: str,
     destination_relpath: str,
+    template_root: str | None = None,
 ) -> dict[str, object]:
     with MODEL_WRITE_LOCK, model_mutation_guard(_model_source(basepath, source_relpath)[1], ModelStagingError):
         plan = plan_model_from_solution(
             basepath,
             source_relpath=source_relpath,
             destination_relpath=destination_relpath,
+            template_root=template_root,
         )
         missing = plan.get("missing_required")
         if isinstance(missing, list) and missing:
@@ -333,11 +337,11 @@ def create_model_from_solution(
                 observer_source = source / "obs"
                 observer_destination = staging_path / "obs"
                 observer_destination.mkdir()
-                observer_destination.chmod(stat.S_IMODE(observer_source.stat().st_mode))
+                observer_destination.chmod(stat.S_IMODE(observer_source.stat().st_mode) if observer_source.is_dir() else 0o755)
             for entry in entries:
                 if not isinstance(entry, dict):
                     raise ModelStagingError("Model copy plan contains an invalid entry.")
-                source_file = source.joinpath(*Path(str(entry["source_name"])).parts)
+                source_file = Path(str(entry["source_path"]))
                 destination_file = staging_path.joinpath(*Path(str(entry["destination_name"])).parts)
                 destination_file.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(source_file, destination_file, follow_symlinks=True)

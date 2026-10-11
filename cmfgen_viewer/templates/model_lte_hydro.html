@@ -68,9 +68,9 @@
             </ul>
           </div>
           <div class="col-lg-6">
-            <h3 class="h6">Templates <span class="small text-muted" title="{{ state.template_root }}">(examples)</span></h3>
+            <h3 class="h6">Workflow templates</h3>
             <ul class="list-unstyled small">
-              {% for file in state.template_files %}<li>{% if file.exists %}<span class="text-success">✓</span>{% else %}<span class="text-danger">✗</span>{% endif %} <code>{{ file.name }}</code>{% if file.path %} <span class="text-muted" title="{{ file.path }}">(template)</span>{% endif %}</li>{% endfor %}
+              {% for file in state.template_files %}<li>{% if file.exists %}<span class="text-success">✓</span>{% else %}<span class="text-danger">✗</span>{% endif %} <code>{{ file.name }}</code>{% if file.path %} <span class="text-muted" title="{{ file.path }}">({{ file.origin }})</span>{% endif %}</li>{% endfor %}
             </ul>
           </div>
         </div>

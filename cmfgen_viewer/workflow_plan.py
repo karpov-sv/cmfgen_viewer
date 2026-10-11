@@ -85,7 +85,7 @@ def build_workflow_plan(basepath: str, *, model_relpath: str, scope: str, config
                       "ready": state["prepare_allowed"] or state["prepared"], "approval_required": False,
                       "note": state["prepare_reason"],
                       "changes": [{"action": "create_workspace", "destination": "lte/", "policy": "never merge or overwrite"},
-                                  {"action": "copy", "sources": ["VADAT", "MODEL_SPEC", "clean.sh"], "destination": "lte/"},
+                                  {"action": "copy", "sources": ["VADAT", "MODEL_SPEC"], "destination": "lte/"},
                                   {"action": "copy_templates", "sources": state["template_files"], "destination": "lte/"},
                                   {"action": "checkpoint_if_present", "source": "RVSIG_COL", "destination": "RVSIG_COL_OLD", "policy": "preserve an existing checkpoint"}],
                       "command": None, "issues": []})

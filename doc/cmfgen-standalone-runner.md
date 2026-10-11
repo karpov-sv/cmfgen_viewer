@@ -84,20 +84,24 @@ Use the explicit filesystem stage before the first LTE calculation:
 
 ```bash
 python3 cmfgen_run.py /path/to/model --plan --stage prepare-lte \
-  --template-root /path/to/examples
+  --template-root /path/to/templates
 python3 cmfgen_run.py /path/to/model --stage prepare-lte \
-  --template-root /path/to/examples
+  --template-root /path/to/templates
 ```
 
-`--template-root` names a directory containing `GRID_PARAMS`, `ltebat.sh`, and
-`HYDRO_PARAMS`; each file may also live in its `lte2/` subdirectory. Without the
-option, the runner uses the nearest ancestor's `examples/` directory. Preparation
-alone requires no native executable or atomic-data configuration. It uses the
+`--template-root` names a directory with `lte/GRID_PARAMS`,
+`lte/ltebat.sh`, and `lte/HYDRO_PARAMS`; an optional cleanup script
+lives at `clean.sh`. Each file is selected independently from the source
+model, the explicit directory, model-tree `templates/` directories (nearest
+first), then `cmfgen_viewer/data/templates/`. See
+[workflow templates](cmfgen-workflow-templates.md) for the shared layout and
+packaged defaults. There is no `examples/` or `lte2/` compatibility lookup.
+Preparation alone requires no native executable or atomic-data configuration. It uses the
 same guarded, atomic preparation as the viewer and records a runner journal.
 An existing or incomplete `lte/` path is rejected without overwriting it.
 
 The plan lists copies and proposed HYDRO_PARAMS values. Preparation copies the
-model's VADAT, MODEL_SPEC, and clean.sh, copies the three templates, and preserves
+model's VADAT and MODEL_SPEC, resolves the LTE templates and clean.sh, and preserves
 RVSIG_COL as RVSIG_COL_OLD when needed. HYDRO_PARAMS is initialized from VADAT,
 including derived REF_R and CON_R. Unsupported inputs retain the template values
 with a warning; review them before hydro. CON_R retains the template's radius

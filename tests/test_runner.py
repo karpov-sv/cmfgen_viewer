@@ -766,3 +766,23 @@ def test_link_manifest_still_rejects_nonlink_continuations(workspace):
     assert not plan["ready"]
     assert any("Cannot parse" in error or "Unsupported command" in error for error in plan["errors"])
     assert not (model / "NEVER_RUN").exists()
+
+
+def test_packaged_lte_recipe_runs_after_preparation(workspace):
+    from cmfgen_viewer.model_workflow import prepare_lte_hydro_workspace
+
+    model, make_plan = workspace
+    (model / 'VADAT').write_text(
+        '2.5 [TEFF]\n3.7 [LOGG]\nF [CHK_NG]\n11500 [LSTAR]\n'
+        '2e-8 [MDOT]\n1800 [VINF]\n2 [BETA]\n',
+    )
+    prepared = prepare_lte_hydro_workspace(str(model.parent), model_relpath=model.name)
+    assert prepared['hydro_initialized']
+    code = """
+from pathlib import Path
+Path('ROSSELAND_LTE_TAB').write_text('1 !Number of temperatures\\n1 !Number of densities\\n1 2 3 4 5 6 7 8\\n')
+"""
+    plan = make_plan(code, stage='lte')
+    assert plan['ready'], plan['errors']
+    result = run_plan(plan)
+    assert result['status'] == 'succeeded', result
