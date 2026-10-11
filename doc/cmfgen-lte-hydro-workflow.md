@@ -54,6 +54,8 @@ The hydro panel similarly identifies `wind_hyd` by process name and exact `lte/`
 
 For newly captured runs, the panel and parsed `WIND_HYD` view extract fatal runtime messages, warnings, transition radius and velocity, effective temperature, Eddington parameter, stellar mass, and the final generated-versus-desired reference-radius difference. `RVSIG_COL_NEW` remains the authoritative result. Existing model workspaces without `WIND_HYD` continue to work and are labeled as legacy uncaptured runs.
 
+When a monitored LTE or hydro run stops, the workflow page refreshes automatically to update outputs, diagnostics, and promotion readiness. Unsaved control edits defer the reload and show a **Refresh results** button.
+
 For both stages, process presence is authoritative. Output files can survive a completed or failed calculation, so with no matching process any parsed value is labeled **Last recorded progress**. Progress from an older run is hidden when its file predates a newly detected process. Process monitoring uses `psutil` on Linux and macOS. Missing or denied process visibility is shown as unavailable; it does not establish that the workspace is idle.
 
 Inspect `RVSIG_COL_NEW`. If its luminosity does not match the intended value, update `REF_R` in `HYDRO_PARAMS` and rerun. Once the luminosity is correct, promotion automatically writes the reported inner-to-outer radius ratio to `VADAT` as `RMAX` and its reported core radius as `RSTAR`. This preserves the generated radius scale instead of allowing the main model to rescale the structure to an old radius. Legacy outputs without a labeled core radius retain the existing RSTAR, which needs manual review.

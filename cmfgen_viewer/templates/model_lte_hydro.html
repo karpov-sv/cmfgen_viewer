@@ -20,7 +20,7 @@
   {% include "_model_toolbar.html" %}
   <div class="workflow-page">
     <h2 class="h4 mb-1">LTE / hydro workflow</h2>
-    <p class="small text-muted mb-2">Prepare and inspect files here; run commands in your terminal. Process status updates live; refresh to recheck results.</p>
+    <p class="small text-muted mb-2">Prepare and inspect files here; run commands in your terminal. Process status updates live; results refresh automatically when a run stops.</p>
     <div class="workflow-overview mb-3">
       <div><span class="small text-muted me-2">Workspace</span><span class="badge {{ 'bg-success' if state.prepared else 'bg-secondary' }}">{{ 'Prepared' if state.prepared else 'Needs preparation' }}</span></div>
       <div><span class="small text-muted me-2">LTE</span>{{ runtime_badge(state.lte_runtime, source_path) }}</div>

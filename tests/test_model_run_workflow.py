@@ -140,6 +140,7 @@ def test_main_computation_page_is_external_only_and_read_write_gated(tmp_path: P
     assert b"CMF_FLUX \xc2\xb7 Unknown" in page.data
     assert b'/model-actions/runtime/main/model_a' in page.data
     assert b"model_runtime.js" in page.data
+    assert b'data-runtime-active="false"' in page.data
 
     runtime = client.get("/model-actions/runtime/main/model_a")
     assert runtime.status_code == 200

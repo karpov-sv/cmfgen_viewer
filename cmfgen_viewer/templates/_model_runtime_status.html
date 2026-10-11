@@ -21,6 +21,7 @@
   class="model-runtime-monitor border rounded p-3 mb-3"
   {% if runtime.workspace_available %}
     data-runtime-key="{{ runtime.kind }}:{{ source_path }}"
+    data-runtime-active="{{ 'true' if runtime.active else 'false' }}"
     data-model-runtime-url="{{ runtime_url }}"
   {% endif %}
   data-runtime-view-prefix="{{ url_for('viewer.view', path=runtime_source_path) }}"

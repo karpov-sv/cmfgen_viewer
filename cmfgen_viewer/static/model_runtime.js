@@ -161,6 +161,38 @@
     });
   };
 
+  let reloadTimer = null;
+  let refreshNotice = null;
+
+  const formFields = Array.from(document.querySelectorAll(
+    '.workflow-page form input:not([type="hidden"]):not([type="submit"]), .workflow-page form select, .workflow-page form textarea',
+  ));
+  const fieldValue = field => field.type === "checkbox" || field.type === "radio"
+    ? field.checked : field.tagName === "SELECT"
+      ? JSON.stringify(Array.from(field.options).map(option => option.selected)) : field.value;
+  const initialValues = new Map(formFields.map(field => [field, fieldValue(field)]));
+  const hasUnsavedChanges = () => formFields.some(field => fieldValue(field) !== initialValues.get(field));
+
+  // Navigate with GET even if this page was rendered after a failed form POST.
+  const reloadPage = () => window.location.replace(window.location.href);
+
+  const refreshResults = (monitor) => {
+    if (reloadTimer !== null || refreshNotice) return;
+    // Coalesce simultaneous LTE/hydro updates and allow final outputs to settle.
+    reloadTimer = window.setTimeout(() => {
+      reloadTimer = null;
+      if (!hasUnsavedChanges()) {
+        reloadPage();
+        return;
+      }
+      refreshNotice = append(monitor, "div", "small border-top pt-2 mt-2");
+      append(refreshNotice, "span", "me-2", "Run stopped. This page has unsaved changes.");
+      const button = append(refreshNotice, "button", "btn btn-sm btn-outline-primary", "Refresh results");
+      button.type = "button";
+      button.addEventListener("click", reloadPage);
+    }, 1000);
+  };
+
   const render = (monitor, runtime) => {
     const badge = monitor.querySelector("[data-runtime-state]");
     badge.className = `badge ${runtime.active ? "bg-success" : "bg-secondary"}`;
@@ -175,7 +207,13 @@
     });
     const stage = monitor.closest("details.workflow-stage");
     if (stage && runtime.active && monitor.dataset.runtimeActive !== "true") stage.open = true;
-    monitor.dataset.runtimeActive = String(runtime.active);
+    const runStopped = monitor.dataset.runtimeActive === "true" &&
+      !runtime.active && runtime.monitoring_available === true;
+    // A denied read is not evidence of completion; keep the last known activity.
+    if (runtime.active || runtime.monitoring_available === true) {
+      monitor.dataset.runtimeActive = String(runtime.active);
+    }
+    if (runStopped) refreshResults(monitor);
     const stageBadge = stage?.querySelector(":scope > summary .badge");
     if (stageBadge) {
       if (!stageBadge.dataset.idleLabel) {

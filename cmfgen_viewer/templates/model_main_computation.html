@@ -20,7 +20,7 @@
   {% include "_model_toolbar.html" %}
 
   <h2 class="h4 mb-1">Main model computation</h2>
-  <p class="small text-muted mb-2">Run commands in your terminal. Process status updates live; refresh to recheck inputs and results.</p>
+  <p class="small text-muted mb-2">Run commands in your terminal. Process status updates live; results refresh automatically when a run stops.</p>
   <div class="workflow-overview mb-3">
     <div><span class="small text-muted me-2">Next run</span><span class="badge {{ 'bg-success' if state.ready else 'bg-secondary' }}">{{ 'Ready' if state.ready else 'Blocked' }}</span></div>
     <div><span class="small text-muted me-2">Process</span>{{ runtime_badge(state.runtime, source_path) }}</div>
