@@ -19,8 +19,10 @@
 
 <div
   class="model-runtime-monitor border rounded p-3 mb-3"
-  data-runtime-key="{{ runtime.kind }}:{{ source_path }}"
-  data-model-runtime-url="{{ runtime_url }}"
+  {% if runtime.workspace_available %}
+    data-runtime-key="{{ runtime.kind }}:{{ source_path }}"
+    data-model-runtime-url="{{ runtime_url }}"
+  {% endif %}
   data-runtime-view-prefix="{{ url_for('viewer.view', path=runtime_source_path) }}"
   aria-live="polite"
 >
@@ -28,7 +30,7 @@
     <strong>Process and progress</strong>
     <div>
       <span class="badge {% if runtime.active %}bg-success{% else %}bg-secondary{% endif %}" data-runtime-state>
-        {% if runtime.active %}Running now · {{ runtime.phase_label }}{% else %}Not running{% endif %}
+        {% if not runtime.workspace_available %}Workspace not prepared{% elif runtime.active %}Running now · {{ runtime.phase_label }}{% elif not runtime.monitoring_available %}Monitoring unavailable{% else %}Not running{% endif %}
       </span>
       <span class="small text-muted ms-1" data-runtime-checked>Checked {{ runtime.checked_at }}</span>
     </div>
@@ -53,7 +55,7 @@
         </table>
       </div>
     {% else %}
-      <p class="small text-muted mb-2">No matching external process detected.</p>
+      <p class="small text-muted mb-2">{% if not runtime.workspace_available %}Prepare the LTE workspace to enable monitoring.{% elif not runtime.monitoring_available %}Live process detection is unavailable on this system. Recorded file progress remains available.{% else %}No matching external process detected.{% endif %}</p>
     {% endif %}
   </div>
 
@@ -103,7 +105,8 @@
     {% endif %}
   </div>
 
-  <div class="small text-muted mt-2">
+  <details class="workflow-help small text-muted mt-2">
+    <summary>About process monitoring</summary>
     Running state is matched by process name and exact working directory. File-derived progress is an estimate and may update in batches. Diagnostics use explicit fatal signatures and current result files; benign numerical warnings are not treated as failures.
-  </div>
+  </details>
 </div>

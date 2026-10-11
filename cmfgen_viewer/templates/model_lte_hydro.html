@@ -2,6 +2,8 @@
 
 {% block title %}LTE / Hydro - {{ source_path }}{% endblock %}
 
+{% from "_workflow_ui.html" import command_box, runtime_badge %}
+
 {% block body %}
   {% if breadcrumb %}
     <nav aria-label="breadcrumb">
@@ -16,23 +18,26 @@
   {% endif %}
 
   {% include "_model_toolbar.html" %}
-  <div class="container-fluid py-3">
+  <div class="workflow-page">
     <h2 class="h4 mb-1">LTE / hydro workflow</h2>
-    <p class="text-muted mb-3"><code>{{ state.model_path }}</code></p>
-    <p><a class="btn btn-sm btn-outline-primary" href="{{ url_for('viewer.model_workflow_plan', scope='lte-hydro', source_path=source_path) }}">Preview LTE / hydro workflow</a></p>
-
-    <div class="alert alert-info py-2">
-      This page only prepares and inspects files. It never starts a CMFGEN process; run the shown commands in your own terminal and refresh this page afterward.
+    <p class="small text-muted mb-2">Prepare and inspect files here; run commands in your terminal. Process status updates live; refresh to recheck results.</p>
+    <div class="workflow-overview mb-3">
+      <div><span class="small text-muted me-2">Workspace</span><span class="badge {{ 'bg-success' if state.prepared else 'bg-secondary' }}">{{ 'Prepared' if state.prepared else 'Needs preparation' }}</span></div>
+      <div><span class="small text-muted me-2">LTE</span>{{ runtime_badge(state.lte_runtime, source_path) }}</div>
+      <div><span class="small text-muted me-2">Hydro</span>{{ runtime_badge(state.hydro_runtime, source_path) }}</div>
+      <div><span class="badge {{ 'bg-success' if state.promoted else 'bg-warning text-dark' if state.promotion_ready else 'bg-secondary' }}">{{ 'Promoted' if state.promoted else 'Ready to promote' if state.promotion_ready else 'Awaiting results' }}</span></div>
+      <a class="small ms-auto" href="{{ url_for('viewer.model_lte_hydro', source_path=source_path) }}">Refresh checks</a>
     </div>
+    <p><a class="small" href="{{ url_for('viewer.model_workflow_plan', scope='lte-hydro', source_path=source_path) }}">Preview LTE / hydro workflow</a></p>
     {% if message %}<div class="alert alert-success py-2">{{ message }}</div>{% endif %}
     {% if error %}<div class="alert alert-danger py-2">{{ error }}</div>{% endif %}
     {% if not state.activity.safe_to_modify %}<div class="alert alert-warning">{{ state.activity.reason }}</div>{% endif %}
 
-    <div class="card mb-3">
-      <div class="card-header d-flex justify-content-between align-items-center">
+    <details class="card workflow-stage mb-3" {% if not state.prepared %}open{% endif %}>
+      <summary class="card-header d-flex justify-content-between align-items-center">
         <strong>1. Prepare the LTE workspace</strong>
         {% if state.prepared %}<span class="badge bg-success">Ready</span>{% elif state.prepare_allowed %}<span class="badge bg-warning text-dark">Available</span>{% else %}<span class="badge bg-secondary">Blocked</span>{% endif %}
-      </div>
+      </summary>
       <div class="card-body">
         <p class="small text-muted">Creates <code>lte/</code>, copies the model controls and templates, and preserves the original structure as <code>RVSIG_COL_OLD</code>.</p>
         <div class="row">
@@ -43,34 +48,34 @@
             </ul>
           </div>
           <div class="col-lg-6">
-            <h3 class="h6">Templates from <code>{{ state.template_root }}</code></h3>
+            <h3 class="h6">Templates <span class="small text-muted" title="{{ state.template_root }}">(examples)</span></h3>
             <ul class="list-unstyled small">
-              {% for file in state.template_files %}<li>{% if file.exists %}<span class="text-success">✓</span>{% else %}<span class="text-danger">✗</span>{% endif %} <code>{{ file.name }}</code>{% if file.path %} <span class="text-muted">— {{ file.path }}</span>{% endif %}</li>{% endfor %}
+              {% for file in state.template_files %}<li>{% if file.exists %}<span class="text-success">✓</span>{% else %}<span class="text-danger">✗</span>{% endif %} <code>{{ file.name }}</code>{% if file.path %} <span class="text-muted" title="{{ file.path }}">(template)</span>{% endif %}</li>{% endfor %}
             </ul>
           </div>
         </div>
         {% if state.prepare_allowed %}
           <form method="post"><input type="hidden" name="action" value="prepare"><button class="btn btn-primary" type="submit">Prepare LTE Workspace</button></form>
         {% elif state.prepare_reason %}
-          <p class="mb-1 text-muted">{{ state.prepare_reason }}</p>
+          {% if state.prepare_reason != state.activity.reason %}<p class="mb-1 text-muted">{{ state.prepare_reason }}</p>{% endif %}
           {% if state.missing_lte %}<p class="small text-muted mb-1">Missing from <code>lte/</code>: <code>{{ state.missing_lte | join(', ') }}</code></p>{% endif %}
           {% if state.rvsig_backup_exists %}<p class="small text-success mb-0"><code>RVSIG_COL_OLD</code> checkpoint detected.</p>{% endif %}
         {% endif %}
       </div>
-    </div>
+    </details>
 
-    <div class="card mb-3">
-      <div class="card-header d-flex justify-content-between align-items-center">
+    <details class="card workflow-stage mb-3" {% if state.lte_runtime.active or (state.prepared and not state.lte_output.fresh) %}open{% endif %}>
+      <summary class="card-header d-flex justify-content-between align-items-center">
         <strong>2. Configure and run LTE externally</strong>
         {% if state.lte_runtime.active %}<span class="badge bg-success">Running</span>{% elif state.lte_diagnostics.status == 'failed' %}<span class="badge bg-danger">Run failed</span>{% elif state.lte_output.fresh and state.lte_ready %}<span class="badge bg-success">Output ready</span>{% elif state.lte_ready %}<span class="badge bg-warning text-dark">Ready to run</span>{% elif state.prepared %}<span class="badge bg-warning text-dark">Needs configuration</span>{% else %}<span class="badge bg-secondary">Blocked</span>{% endif %}
-      </div>
+      </summary>
       <div class="card-body">
         {% set runtime = state.lte_runtime %}
         {% set runtime_url = url_for('viewer.model_workflow_runtime', kind='lte', source_path=source_path) %}
         {% set runtime_source_path = source_path ~ '/lte' %}
         {% include '_model_runtime_status.html' %}
         {% set diagnostics = state.lte_diagnostics %}
-        {% set preflight = state.lte_preflight %}{% include '_workflow_preflight.html' %}
+        {% set preflight = state.lte_preflight %}{% set preflight_title = "LTE input validation" %}{% include '_workflow_preflight.html' %}
         {% set diagnostics_title = 'LTE run diagnostics' %}
         {% set diagnostics_source_path = source_path ~ '/lte' %}
         {% include '_lte_hydro_diagnostics.html' %}
@@ -133,21 +138,21 @@
             <div class="alert alert-warning py-2 mb-0">Add the required LTE controls before running: <code>{{ state.missing_lte_control_keys | join(', ') }}</code>.</div>
           {% else %}
             <p class="small mb-1">After reviewing TEFF/LOGG and the ND/NC/NP grid, run:</p>
-            <pre class="bg-light border rounded p-2"><code>{{ state.commands.lte }}</code></pre>
+            {{ command_box(state.commands.lte, "lte-command") }}
             {% if state.lte_output.stale %}<div class="alert alert-warning py-2 mb-0"><code>ROSSELAND_LTE_TAB</code> is older than an LTE input; rerun LTE.</div>{% elif not state.lte_output.exists %}<p class="text-muted mb-0">Waiting for <code>lte/ROSSELAND_LTE_TAB</code>.</p>{% endif %}
           {% endif %}
         {% else %}<p class="text-muted mb-0">Complete workspace preparation first.</p>{% endif %}
       </div>
-    </div>
+    </details>
 
-    <div class="card mb-3">
-      <div class="card-header d-flex justify-content-between align-items-center">
+    <details class="card workflow-stage mb-3" {% if state.hydro_runtime.active or (state.prepared and state.lte_output.fresh and not state.hydro_output_ready) %}open{% endif %}>
+      <summary class="card-header d-flex justify-content-between align-items-center">
         <strong>3. Configure and run hydro externally</strong>
         {% if state.hydro_runtime.active %}<span class="badge bg-success">Running</span>{% elif state.hydro_diagnostics.status == 'failed' %}<span class="badge bg-danger">Run failed</span>{% elif state.hydro_output_ready %}<span class="badge bg-success">Output ready</span>{% elif state.hydro_ready %}<span class="badge bg-warning text-dark">Ready to run</span>{% else %}<span class="badge bg-secondary">Blocked</span>{% endif %}
-      </div>
+      </summary>
       <div class="card-body">
         {% set runtime = state.hydro_runtime %}
-        {% set preflight = state.hydro_preflight %}{% include '_workflow_preflight.html' %}
+        {% set preflight = state.hydro_preflight %}{% set preflight_title = "Hydro input validation" %}{% include '_workflow_preflight.html' %}
         {% set runtime_url = url_for('viewer.model_workflow_runtime', kind='hydro', source_path=source_path) %}
         {% set runtime_source_path = source_path ~ '/lte' %}
         {% include '_model_runtime_status.html' %}
@@ -158,20 +163,20 @@
         {% if state.hydro_ready %}
           <a class="btn btn-sm btn-outline-primary mb-2" href="{{ url_for('viewer.model_parameters', source_path=source_path ~ '/lte', file='HYDRO_PARAMS') }}">Edit HYDRO_PARAMS</a>
           <p class="small mb-1">Verify LOGG, TEFF, luminosity and related values, then run:</p>
-          <pre class="bg-light border rounded p-2"><code>{{ state.commands.hydro }}</code></pre>
-          <p class="small text-muted">The pipeline preserves interactive input, writes stdout and stderr to <code>WIND_HYD</code>, and retains the executable exit status through <code>pipefail</code>.</p>
+          {{ command_box(state.commands.hydro, "hydro-command") }}
+          <details class="workflow-help small mb-2"><summary>Hydro interactive instructions</summary><p class="text-muted">The pipeline preserves interactive input, writes stdout and stderr to <code>WIND_HYD</code>, and retains the executable exit status through <code>pipefail</code>.</p>
           <p class="small mb-1">Interactive answers from the supplied instructions:</p>
-          <ol class="small">{% for answer in state.hydro_answers %}<li><code>{{ answer }}</code></li>{% endfor %}</ol>
+          <ol class="small">{% for answer in state.hydro_answers %}<li><code>{{ answer }}</code></li>{% endfor %}</ol></details>
           {% if state.hydro_output.stale %}<div class="alert alert-warning py-2 mb-0"><code>RVSIG_COL_NEW</code> is older than its inputs; rerun wind_hyd.</div>{% elif not state.hydro_output.exists %}<p class="text-muted mb-0">Waiting for <code>lte/RVSIG_COL_NEW</code>.</p>{% endif %}
         {% else %}<p class="text-muted mb-0">A fresh <code>lte/ROSSELAND_LTE_TAB</code> is required first{% if state.hydro_output.exists %}; the existing hydro output cannot be accepted while its upstream LTE result is stale{% endif %}.</p>{% endif %}
       </div>
-    </div>
+    </details>
 
-    <div class="card mb-3" id="result-review">
-      <div class="card-header d-flex justify-content-between align-items-center">
+    <details class="card workflow-stage mb-3" id="result-review" {% if state.promotion_ready or state.hydro_output.exists or state.promoted %}open{% endif %}>
+      <summary class="card-header d-flex justify-content-between align-items-center">
         <strong>4. Review and promote results</strong>
         {% if state.promoted %}<span class="badge bg-success">Promoted</span>{% elif state.promotion_ready %}<span class="badge bg-warning text-dark">Ready to promote</span>{% else %}<span class="badge bg-secondary">Blocked</span>{% endif %}
-      </div>
+      </summary>
       <div class="card-body">
         <div class="mb-3 d-flex flex-wrap gap-2">
           {% if state.hydro_output.exists %}
@@ -251,20 +256,21 @@
           </form>
         {% else %}<p class="text-muted mb-0">Fresh LTE and hydro outputs are required. Files are considered stale when older than their relevant inputs.</p>{% endif %}
       </div>
-    </div>
+    </details>
 
-    <div class="card mb-3">
-      <div class="card-header d-flex justify-content-between align-items-center">
+    <details class="card workflow-stage mb-3" {% if state.main_ready %}open{% endif %}>
+      <summary class="card-header d-flex justify-content-between align-items-center">
         <strong>5. Continue to main model computation</strong>
         {% if state.main_ready %}<span class="badge bg-success">Handoff ready</span>{% else %}<span class="badge bg-secondary">Blocked</span>{% endif %}
-      </div>
+      </summary>
       <div class="card-body">
         {% if state.main_ready %}
           <p class="small text-muted">The promoted structure is available in the model root. Continue in the separate workflow responsible for the main CMFGEN run and its results.</p>
           <a class="btn btn-primary" href="{{ url_for('viewer.model_main_computation', source_path=source_path) }}">Continue to Main Computation</a>
         {% else %}<p class="text-muted mb-0">The handoff requires regular <code>batch.sh</code>, <code>VADAT</code>, <code>RVSIG_COL</code>, and <code>ROSSELAND_LTE_TAB</code> files in the model root.</p>{% endif %}
       </div>
-    </div>
+    </details>
   </div>
   <script src="{{ url_for('static', filename='model_runtime.js') }}" defer></script>
+  <script src="{{ url_for('static', filename='workflow_ui.js') }}" defer></script>
 {% endblock %}

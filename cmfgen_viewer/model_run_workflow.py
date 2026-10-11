@@ -69,6 +69,7 @@ def inspect_main_model_workflow(basepath: str, *, model_relpath: str, config: di
     prerequisites.append(
         {
             "name": "GAMMAS_IN or GAMMAS",
+            "filename": gamma_input.name if gamma_input is not None else "",
             "path": " / ".join(str(path) for path in gamma_candidates),
             "exists": gamma_ready,
             "modified_ns": gamma_input.stat().st_mtime_ns if gamma_input is not None else 0,
@@ -84,7 +85,12 @@ def inspect_main_model_workflow(basepath: str, *, model_relpath: str, config: di
     files_ready = not missing
     preflight = inspect_model_preflight(model_dir)
     stage_preflight = inspect_stage_preflight(model_dir, "main", config=config)
-    preflight["issues"].extend(stage_preflight["issues"])
+    script_errors = {issue.get("file") for issue in preflight["issues"]
+                     if issue["code"] == "script-not-executable"}
+    preflight["issues"].extend(
+        issue for issue in stage_preflight["issues"]
+        if not (issue["code"] == "stage-script-not-executable" and issue.get("file") in script_errors)
+    )
     preflight["counts"] = {level: sum(i["severity"] == level for i in preflight["issues"])
                            for level in ("error", "warning", "info")}
     preflight["blocking"] = bool(preflight["counts"]["error"])

@@ -20,6 +20,16 @@ def _write_model(root: Path) -> Path:
     return model
 
 
+def test_non_executable_script_has_one_preflight_blocker(tmp_path):
+    model = _write_model(tmp_path)
+    (model / "batch.sh").chmod(0o644)
+    state = inspect_main_model_workflow(str(tmp_path), model_relpath="model_a")
+    script_errors = [issue for issue in state["preflight"]["issues"]
+                     if issue["file"] == "batch.sh" and "not executable" in issue["message"]]
+    assert len(script_errors) == 1
+    assert not state["ready"]
+
+
 def test_main_computation_state_tracks_missing_stale_and_current_results(tmp_path: Path) -> None:
     model = _write_model(tmp_path)
     state = inspect_main_model_workflow(str(tmp_path), model_relpath="model_a")
@@ -92,11 +102,11 @@ def test_main_computation_page_is_external_only_and_read_write_gated(tmp_path: P
     page = client.get("/model-actions/main-computation/model_a")
     assert page.status_code == 200
     assert b"Main model computation" in page.data
-    assert b"never starts CMFGEN" in page.data
+    assert b"Run commands in your terminal." in page.data
     assert b"./batch.sh" in page.data
     assert b"Waiting for" in page.data
     assert b"Process and progress" in page.data
-    assert b"Preflight validation" in page.data
+    assert b"Input validation" in page.data
     assert b"Preview main workflow" in page.data
     assert b"Latest run diagnostics" in page.data
     assert b"CMFGEN \xc2\xb7 Unknown" in page.data
@@ -132,8 +142,8 @@ def test_main_computation_page_blocks_on_preflight_error_and_links_editor(
 
     assert page.status_code == 200
     assert b"at least ND + NC = 3 impact parameters are required" in page.data
-    assert b"Resolve the blocking preflight errors" in page.data
-    assert b"Edit file" in page.data
+    assert b"Resolve the blockers in Input validation above" in page.data
+    assert b"Edit MODEL_SPEC" in page.data
     assert b"/model-actions/edit/model_a?file=MODEL_SPEC" in page.data
 
 

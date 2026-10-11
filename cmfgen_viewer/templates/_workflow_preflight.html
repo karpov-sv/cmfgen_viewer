@@ -1,6 +1,29 @@
-<div class="border rounded p-2 my-2">
-  <strong>{{ preflight.stage|capitalize }} preflight</strong>
-  {% for issue in preflight.issues %}
-    <div class="small mt-1"><span class="badge {% if issue.severity == 'error' %}text-bg-danger{% else %}text-bg-warning{% endif %}">{{ issue.severity }}</span> {{ issue.message }}</div>
-  {% else %}<div class="small text-success">Stage checks passed.</div>{% endfor %}
+{% macro issue_row(issue) %}
+  <div class="workflow-issue small">
+    <span class="badge {{ 'text-bg-danger' if issue.severity == 'error' else 'text-bg-warning' if issue.severity == 'warning' else 'text-bg-info' }}">{{ issue.severity|capitalize }}</span>
+    <div>
+      {{ issue.message }}
+      {% if issue.file %}
+        {% if issue.editable %}<a class="ms-1" href="{{ url_for('viewer.model_parameters', source_path=source_path, file=issue.file) }}">Edit {{ issue.file }}</a>
+        {% elif issue.available %}<a class="ms-1" href="{{ url_for('viewer.view', path=source_path ~ '/' ~ issue.file) }}">Open {{ issue.file }}</a>{% endif %}
+        {% if issue.line %}<span class="text-muted"> (line {{ issue.line }})</span>{% endif %}
+      {% endif %}
+    </div>
+  </div>
+{% endmacro %}
+{% set errors = preflight.issues | selectattr('severity', 'equalto', 'error') | list %}
+{% set notices = preflight.issues | rejectattr('severity', 'equalto', 'error') | list %}
+<div class="workflow-preflight mb-3">
+  <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
+    <strong class="small">{{ preflight_title | default('Input validation') }}</strong>
+    {% if errors %}<span class="badge text-bg-danger">{{ errors|length }} blocker{% if errors|length != 1 %}s{% endif %}</span>
+    {% else %}<span class="badge text-bg-success">Passed</span>{% endif %}
+  </div>
+  {% for issue in errors %}{{ issue_row(issue) }}{% endfor %}
+  {% if notices %}
+    <details class="workflow-help small mt-2">
+      <summary>{{ notices|length }} warning{% if notices|length != 1 %}s{% endif %} / notes</summary>
+      {% for issue in notices %}{{ issue_row(issue) }}{% endfor %}
+    </details>
+  {% endif %}
 </div>

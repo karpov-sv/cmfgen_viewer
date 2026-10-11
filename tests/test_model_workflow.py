@@ -48,6 +48,25 @@ def _write_templates(root: Path) -> None:
     (examples / "HYDRO_PARAMS").write_text("hydro\n", encoding="utf-8")
 
 
+def test_unprepared_workspace_does_not_subscribe_to_runtime(tmp_path):
+    model = _write_model(tmp_path)
+    _write_templates(tmp_path)
+    app = create_app(basepath=str(tmp_path), read_write_enabled=True,
+                     upload_root=str(tmp_path / "uploads"))
+    client = app.test_client()
+    page = client.get("/model-actions/lte-hydro/model_a")
+    assert page.status_code == 200
+    assert b"Workspace not prepared" in page.data
+    assert b"data-model-runtime-url" not in page.data
+    assert b"data-runtime-key" not in page.data
+    (model / "lte").mkdir()
+    page = client.get("/model-actions/lte-hydro/model_a")
+    assert page.status_code == 200
+    assert page.data.count(b"data-model-runtime-url") == 2
+    assert client.get("/model-actions/runtime/lte/model_a").status_code == 200
+    assert client.get("/model-actions/runtime/hydro/model_a").status_code == 200
+
+
 def _make_outputs_fresh(model: Path) -> None:
     lte = model / "lte"
     latest_input = max(
@@ -440,7 +459,7 @@ def test_workflow_page_never_runs_processes_and_guards_read_only_mode(
     monkeypatch.setattr(os, "system", forbidden)
     page = client.get("/model-actions/lte-hydro/model_a")
     assert page.status_code == 200
-    assert b"never starts a CMFGEN process" in page.data
+    assert b"run commands in your terminal" in page.data
     assert b"Prepare LTE Workspace" in page.data
     response = client.post(
         "/model-actions/lte-hydro/model_a", data={"action": "prepare"}, follow_redirects=True

@@ -481,6 +481,13 @@ def inspect_workflow_runtime(
     proc_root: Path = Path("/proc"),
     now_epoch: float | None = None,
 ) -> dict[str, object]:
+    monitoring_available = _proc_uptime(proc_root) > 0
+    if monitoring_available:
+        try:
+            with os.scandir(proc_root):
+                pass
+        except OSError:
+            monitoring_available = False
     processes = find_workflow_processes(
         target_dir,
         kind,
@@ -572,6 +579,8 @@ def inspect_workflow_runtime(
         "phase": phase,
         "phase_label": PROCESS_LABELS.get(phase, phase),
         "active": bool(processes),
+        "monitoring_available": bool(processes) or monitoring_available,
+        "workspace_available": target_dir.is_dir(),
         "processes": processes,
         "progress": progress,
         "recorded_progress": recorded_progress,

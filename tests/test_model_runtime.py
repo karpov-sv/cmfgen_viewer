@@ -15,6 +15,18 @@ def _empty_proc(root: Path) -> Path:
     return proc_root
 
 
+def test_runtime_distinguishes_unavailable_monitoring_from_idle(tmp_path):
+    model = tmp_path / "model"
+    model.mkdir()
+    unavailable = inspect_workflow_runtime(model, "main", proc_root=tmp_path / "missing-proc")
+    assert not unavailable["active"]
+    assert not unavailable["monitoring_available"]
+    assert unavailable["workspace_available"]
+    idle = inspect_workflow_runtime(model, "main", proc_root=_empty_proc(tmp_path))
+    assert not idle["active"]
+    assert idle["monitoring_available"]
+
+
 def _write_fake_process(
     proc_root: Path,
     pid: int,

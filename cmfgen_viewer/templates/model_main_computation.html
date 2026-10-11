@@ -2,6 +2,8 @@
 
 {% block title %}Main Model Computation - {{ source_path }}{% endblock %}
 
+{% from "_workflow_ui.html" import command_box, runtime_badge %}
+
 {% block body %}
   {% if breadcrumb %}
     <nav aria-label="breadcrumb">
@@ -18,94 +20,66 @@
   {% include "_model_toolbar.html" %}
 
   <h2 class="h4 mb-1">Main model computation</h2>
-  <p class="text-muted mb-3"><code>{{ state.model_path }}</code></p>
-  <div class="alert alert-info py-2">
-    This workflow inspects inputs and results but never starts CMFGEN or CMF_FLUX. Run the displayed command in your own terminal; process status updates automatically, while result guards require a page refresh.
+  <p class="small text-muted mb-2">Run commands in your terminal. Process status updates live; refresh to recheck inputs and results.</p>
+  <div class="workflow-overview mb-3">
+    <div><span class="small text-muted me-2">Next run</span><span class="badge {{ 'bg-success' if state.ready else 'bg-secondary' }}">{{ 'Ready' if state.ready else 'Blocked' }}</span></div>
+    <div><span class="small text-muted me-2">Process</span>{{ runtime_badge(state.runtime, source_path) }}</div>
+    <div><span class="small text-muted me-2">Latest result</span><span class="badge {{ 'bg-success' if state.result_status == 'current' else 'bg-warning text-dark' if state.result_status == 'stale' else 'bg-secondary' }}">{{ 'Current' if state.result_status == 'current' else 'Stale' if state.result_status == 'stale' else 'Not available' }}</span></div>
+    {% for diagnostic in state.runtime.diagnostics %}
+      <div><span class="small text-muted me-2">Latest {{ diagnostic.phase_label }} run</span><span data-workflow-diagnostic-summary="main:{{ source_path }}" data-phase="{{ diagnostic.phase_label }}" class="badge {{ 'bg-success' if diagnostic.status == 'succeeded' else 'bg-danger' if diagnostic.status == 'failed' else 'bg-primary' if diagnostic.status == 'running' else 'bg-secondary' }}">{{ diagnostic.status_label }}</span></div>
+    {% endfor %}
+    <a class="small ms-auto" href="{{ url_for('viewer.model_main_computation', source_path=source_path) }}">Refresh checks</a>
   </div>
+  {% set preflight = state.preflight %}{% include '_workflow_preflight.html' %}
 
-  <div class="card mb-3">
-    <div class="card-header d-flex justify-content-between align-items-center">
+  <details class="card workflow-stage mb-3" {% if state.result_status == 'missing' and not state.runtime.active %}open{% endif %}>
+    <summary class="card-header d-flex justify-content-between align-items-center">
       <strong>1. Check model inputs</strong>
       {% if state.ready and state.preflight.counts.warning %}<span class="badge bg-warning text-dark">Ready with warnings</span>{% elif state.ready %}<span class="badge bg-success">Ready</span>{% else %}<span class="badge bg-secondary">Blocked</span>{% endif %}
-    </div>
+    </summary>
     <div class="card-body">
-      <div class="table-responsive">
-        <table class="table table-sm mb-2">
-          <thead><tr><th>Input</th><th>Status</th><th>Path</th></tr></thead>
-          <tbody>
-            {% for file in state.prerequisites %}
-              <tr><th><code>{{ file.name }}</code></th><td>{% if file.exists %}<span class="text-success">Ready</span>{% else %}<span class="text-danger">Missing</span>{% endif %}</td><td class="small text-muted">{{ file.path }}</td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-      <div class="border rounded p-3 mb-3">
-        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
-          <strong>Preflight validation</strong>
-          <div class="d-flex flex-wrap gap-1">
-            {% if state.preflight.counts.error %}<span class="badge text-bg-danger">{{ state.preflight.counts.error }} error{% if state.preflight.counts.error != 1 %}s{% endif %}</span>{% endif %}
-            {% if state.preflight.counts.warning %}<span class="badge text-bg-warning">{{ state.preflight.counts.warning }} warning{% if state.preflight.counts.warning != 1 %}s{% endif %}</span>{% endif %}
-            {% if state.preflight.counts.info %}<span class="badge text-bg-info">{{ state.preflight.counts.info }} info</span>{% endif %}
-            {% if not state.preflight.issues %}<span class="badge text-bg-success">Passed</span>{% endif %}
-          </div>
-        </div>
-        {% if state.preflight.issues %}
-          <div class="list-group list-group-flush">
-            {% for issue in state.preflight.issues %}
-              <div class="list-group-item px-0 py-2 d-flex flex-wrap align-items-start gap-2">
-                <span class="badge {% if issue.severity == 'error' %}text-bg-danger{% elif issue.severity == 'warning' %}text-bg-warning{% else %}text-bg-info{% endif %}">{{ issue.severity|capitalize }}</span>
-                <div class="small flex-grow-1">
-                  <div>{{ issue.message }}</div>
-                  {% if issue.file %}
-                    <div class="mt-1">
-                      <code>{{ issue.file }}</code>{% if issue.line %}<span class="text-muted">, line {{ issue.line }}</span>{% endif %}
-                      {% if issue.editable %}
-                        <a class="ms-2" href="{{ url_for('viewer.model_parameters', source_path=source_path, file=issue.file) }}">Edit file</a>
-                      {% elif issue.available %}
-                        <a class="ms-2" href="{{ url_for('viewer.view', path=source_path ~ '/' ~ issue.file) }}">Open file</a>
-                      {% endif %}
-                    </div>
-                  {% endif %}
-                </div>
-              </div>
-            {% endfor %}
-          </div>
-        {% else %}
-          <p class="small text-success mb-0">No structural or cross-file problems were detected.</p>
-        {% endif %}
+      <div class="workflow-inputs mb-3">
+        {% for file in state.prerequisites %}
+          <span>
+            <span class="{{ 'text-success' if file.exists else 'text-danger' }}">{{ '✓' if file.exists else '✗' }}</span>
+            {% if file.exists %}<a href="{{ url_for('viewer.view', path=source_path ~ '/' ~ (file.filename | default(file.name))) }}" title="{{ file.path }}">{{ file.name }}</a>
+            {% else %}<span title="{{ file.path }}">{{ file.name }}</span>{% endif %}
+            <span class="small text-muted">{{ 'Present' if file.exists else 'Missing' }}</span>
+          </span>
+        {% endfor %}
       </div>
       <div class="d-flex flex-wrap gap-2">
         <a class="btn btn-sm btn-outline-primary" href="{{ url_for('viewer.model_workflow_plan', scope='main', source_path=source_path) }}">Preview main workflow</a>
         <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('viewer.model_workflow_plan', scope='flux', source_path=source_path) }}">Preview spectra only</a>
       </div>
     </div>
-  </div>
+  </details>
 
-  <div class="card mb-3">
-    <div class="card-header d-flex justify-content-between align-items-center">
+  <details class="card workflow-stage mb-3" {% if state.runtime.active or state.result_status == 'missing' %}open{% endif %}>
+    <summary class="card-header d-flex justify-content-between align-items-center">
       <strong>2. Run CMFGEN / CMF_FLUX externally</strong>
       {% if state.runtime.active %}<span class="badge bg-success">Running</span>{% elif state.ready %}<span class="badge bg-warning text-dark">Ready to run</span>{% else %}<span class="badge bg-secondary">Blocked</span>{% endif %}
-    </div>
+    </summary>
     <div class="card-body">
       {% set runtime = state.runtime %}
       {% set runtime_url = url_for('viewer.model_workflow_runtime', kind='main', source_path=source_path) %}
       {% set runtime_source_path = source_path %}
       {% include '_model_runtime_status.html' %}
       {% if state.ready %}
-        <pre class="bg-light border rounded p-2 mb-0"><code>{{ state.command }}</code></pre>
+        {{ command_box(state.command, "main-command") }}
       {% elif state.missing %}
         <p class="text-muted mb-0">Supply the missing inputs first: <code>{{ state.missing | join(', ') }}</code>.</p>
       {% else %}
-        <p class="text-muted mb-0">Resolve the blocking preflight errors in step 1 before running the model.</p>
+        <p class="text-muted mb-0">Resolve the blockers in Input validation above before running the model.</p>
       {% endif %}
     </div>
-  </div>
+  </details>
 
-  <div class="card mb-3">
-    <div class="card-header d-flex justify-content-between align-items-center">
+  <details class="card workflow-stage mb-3" {% if state.result_status != 'missing' %}open{% endif %}>
+    <summary class="card-header d-flex justify-content-between align-items-center">
       <strong>3. Inspect run results</strong>
       {% if state.result_status == 'current' %}<span class="badge bg-success">Current result</span>{% elif state.result_status == 'stale' %}<span class="badge bg-warning text-dark">Stale result</span>{% else %}<span class="badge bg-secondary">Waiting for result</span>{% endif %}
-    </div>
+    </summary>
     <div class="card-body">
       {% if state.convergence.available %}
         <div class="border rounded p-3 mb-3">
@@ -130,8 +104,8 @@
                   <div class="col">
                     <div class="border rounded p-2 h-100">
                       <div class="small text-muted">{{ card.label }}</div>
-                      <div class="fs-5"><code>{{ card.value }}</code></div>
-                      <div class="small">{{ card.detail }}</div>
+                      <div class="fw-semibold font-monospace">{{ card.value }}</div>
+                      <div class="small text-muted">{{ card.detail }}</div>
                     </div>
                   </div>
                 {% endfor %}
@@ -157,11 +131,8 @@
 
             {% set correction = state.convergence.correction_summary %}
             {% if correction.available %}
-              <div class="border-top pt-3 mt-2">
-                <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
-                  <strong class="small">Final correction distribution</strong>
-                  <a class="small" href="{{ url_for('viewer.view', path=source_path ~ '/CORRECTION_SUM') }}">Open CORRECTION_SUM</a>
-                </div>
+              <details class="workflow-help border-top pt-2 mt-2">
+                <summary>Final correction distribution</summary>
                 {% if not correction.current %}
                   <p class="small text-warning-emphasis mb-0"><code>CORRECTION_SUM</code> predates the latest recorded run.</p>
                 {% elif correction.thresholds %}
@@ -179,12 +150,12 @@
                 {% else %}
                   <p class="small text-muted mb-0">The current file could not be reduced to the expected threshold table.</p>
                 {% endif %}
-              </div>
+              </details>
             {% endif %}
 
             {% if state.convergence.warnings %}
-              <div class="border-top pt-3 mt-3">
-                <strong class="small">Grouped run diagnostics</strong>
+              <details class="workflow-help border-top pt-2 mt-2">
+                <summary>Run diagnostics ({{ state.convergence.warnings|length }} groups)</summary>
                 <div class="list-group list-group-flush mt-1">
                   {% for warning in state.convergence.warnings %}
                     <div class="list-group-item px-0 py-2 d-flex align-items-start gap-2">
@@ -196,21 +167,17 @@
                     </div>
                   {% endfor %}
                 </div>
-              </div>
+              </details>
             {% endif %}
 
-            <p class="small text-muted mt-3 mb-0">
+            <details class="workflow-help small text-muted mt-2"><summary>About convergence metrics</summary><p class="mb-0">
               These values describe reported changes and recent direction; they are not a universal converged/not-converged verdict. Lambda and other special iterations may intentionally interrupt a smooth trend.
-            </p>
+            </p></details>
           {% else %}
             <p class="small text-muted mb-0">{{ state.convergence.message }}</p>
           {% endif %}
 
-          <div class="d-flex flex-wrap gap-2 mt-3">
-            {% for name in state.convergence.diagnostic_links %}
-              <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('viewer.view', path=source_path ~ '/' ~ name) }}">Open {{ name }}</a>
-            {% endfor %}
-          </div>
+
         </div>
       {% endif %}
       {% if state.result_status == 'stale' %}
@@ -219,12 +186,18 @@
         <p class="text-muted">Waiting for <code>MOD_SUM</code>.</p>
       {% endif %}
       <div class="d-flex flex-wrap gap-2">
+        {% set linked = [] %}
         {% for file in state.results %}
+          {% if file.exists %}{% set _ = linked.append(file.name) %}{% endif %}
           {% if file.exists %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('viewer.view', path=source_path ~ '/' ~ file.name) }}">Open {{ file.name }}</a>{% endif %}
+        {% endfor %}
+        {% for name in state.convergence.diagnostic_links %}
+          {% if name not in linked %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('viewer.view', path=source_path ~ '/' ~ name) }}">Open {{ name }}</a>{% endif %}
         {% endfor %}
       </div>
     </div>
-  </div>
+  </details>
   <script src="{{ url_for('static', filename='model_convergence.js') }}" defer></script>
   <script src="{{ url_for('static', filename='model_runtime.js') }}" defer></script>
+  <script src="{{ url_for('static', filename='workflow_ui.js') }}" defer></script>
 {% endblock %}

@@ -18,10 +18,12 @@
     return element;
   };
 
-  const renderProcesses = (container, processes) => {
+  const renderProcesses = (container, processes, available) => {
     container.replaceChildren();
     if (!processes.length) {
-      append(container, "p", "small text-muted mb-2", "No matching external process detected.");
+      append(container, "p", "small text-muted mb-2", available
+        ? "No matching external process detected."
+        : "Live process detection is unavailable on this system. Recorded file progress remains available.");
       return;
     }
 
@@ -146,9 +148,36 @@
   const render = (monitor, runtime) => {
     const badge = monitor.querySelector("[data-runtime-state]");
     badge.className = `badge ${runtime.active ? "bg-success" : "bg-secondary"}`;
-    badge.textContent = runtime.active ? `Running now · ${runtime.phase_label}` : "Not running";
+    badge.textContent = runtime.active ? `Running now · ${runtime.phase_label}`
+      : runtime.monitoring_available ? "Not running" : "Monitoring unavailable";
     monitor.querySelector("[data-runtime-checked]").textContent = `Checked ${runtime.checked_at}`;
-    renderProcesses(monitor.querySelector("[data-runtime-processes]"), runtime.processes || []);
+    renderProcesses(monitor.querySelector("[data-runtime-processes]"), runtime.processes || [], runtime.monitoring_available);
+    document.querySelectorAll("[data-workflow-runtime-summary]").forEach(element => {
+      if (element.dataset.workflowRuntimeSummary !== monitor.dataset.runtimeKey) return;
+      element.textContent = badge.textContent;
+      element.className = badge.className;
+    });
+    const stage = monitor.closest("details.workflow-stage");
+    if (stage && runtime.active && monitor.dataset.runtimeActive !== "true") stage.open = true;
+    monitor.dataset.runtimeActive = String(runtime.active);
+    const stageBadge = stage?.querySelector(":scope > summary .badge");
+    if (stageBadge) {
+      if (!stageBadge.dataset.idleLabel) {
+        stageBadge.dataset.idleLabel = stageBadge.textContent.trim() === "Running"
+          ? "Run stopped · refresh checks" : stageBadge.textContent.trim();
+        stageBadge.dataset.idleClass = stageBadge.textContent.trim() === "Running"
+          ? "badge bg-secondary" : stageBadge.className;
+      }
+      stageBadge.textContent = runtime.active ? "Running" : stageBadge.dataset.idleLabel;
+      stageBadge.className = runtime.active ? "badge bg-success" : stageBadge.dataset.idleClass;
+    }
+    document.querySelectorAll("[data-workflow-diagnostic-summary]").forEach(element => {
+      if (element.dataset.workflowDiagnosticSummary !== monitor.dataset.runtimeKey) return;
+      const diagnostic = (runtime.diagnostics || []).find(item => item.phase_label === element.dataset.phase);
+      if (!diagnostic) return;
+      element.textContent = diagnostic.status_label;
+      element.className = `badge ${diagnosticBadgeClass(diagnostic.status)}`;
+    });
     renderProgress(monitor.querySelector("[data-runtime-progress]"), runtime);
     renderDiagnostics(
       monitor,
