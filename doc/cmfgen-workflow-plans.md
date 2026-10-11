@@ -8,7 +8,7 @@ Control edits (including quick editors), model cloning, moving, cleanup, LTE pre
 
 Viewer writers share an advisory lock, `.cmfgen-viewer-write.lock`, across the model and its `lte/` and `obs/` workspaces. The lock is acquired without waiting, and process activity is checked again after acquisition. The file remains after use; its presence alone does not mean a calculation or write is active. Do not delete it while a viewer writer might hold it. Symlinked or hard-linked lock files are refused.
 
-This is cooperative protection, not a process supervisor. External scripts do not honor the viewer lock and can start after an activity check. Detection relies on recognizable command names and Linux `/proc` visibility; jobs hidden by another host or PID namespace cannot be reliably excluded. Do not mutate a shared model from multiple hosts or launch an external calculation concurrently with viewer edits. Non-POSIX locking or unavailable process visibility causes writes to fail closed.
+This is cooperative protection, not a process supervisor. External scripts do not honor the viewer lock and can start after an activity check. Detection relies on recognizable executable/script names and native process visibility through `psutil` on Linux and macOS; jobs hidden by another host or PID namespace cannot be reliably excluded. Do not mutate a shared model from multiple hosts or launch an external calculation concurrently with viewer edits. Non-POSIX locking or unavailable process visibility causes writes to fail closed.
 
 ## Stage preflight
 

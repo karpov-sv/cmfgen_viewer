@@ -86,9 +86,9 @@ def test_runtime_stream_uses_output_progress_and_final_diagnostics(app, monkeypa
     model = Path(app.config["CMFGEN_VIEWER"]["basepath"]) / "model_a"
     (model / "IN_ITS").write_text("10 [NUM_ITS]\n")
     active = [False]
-    monkeypatch.setattr("cmfgen_viewer.model_runtime.find_workflow_processes",
-                        lambda target, kind, **kw: [{"pid": 123, "start_epoch": 1}]
-                        if active[0] and kind == "main" else [])
+    monkeypatch.setattr("cmfgen_viewer.model_runtime._native_workflow_processes",
+                        lambda target, kind, now_epoch=None: (
+                            [{"pid": 123, "start_epoch": 1}] if active[0] and kind == "main" else [], []))
     monkeypatch.setattr("cmfgen_viewer.live_event_views.inspect_workflow_runtime",
                         inspect_workflow_runtime)
     response = app.test_client().get("/tasks/events?runtime=main:model_a", buffered=False)

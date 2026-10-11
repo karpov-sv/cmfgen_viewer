@@ -327,13 +327,13 @@ Task navigation and model runtime panels share one `/tasks/events` connection pe
 page. Each connection starts with current snapshots, including after a reload or reconnect.
 Job-store changes push task updates, coalesced to at most once per second. While a runtime
 panel is open, the server checks its external processes and output files every five seconds
-and pushes changed status, progress, and completion diagnostics. Linux `/proc` remains the
-source of process detection, including runs started outside the viewer. Idle task streams
+and pushes changed status, progress, and completion diagnostics. The shared `psutil` detector supports Linux and macOS, including runs started outside
+the viewer. Processes are matched by executable/script name and working directory. Idle task streams
 wait for notifications and send only a keepalive every 15 seconds.
 
 Hidden pages close the stream and resynchronize when visible. The existing JSON status
 endpoints provide a polling fallback if SSE is unavailable. Individual fit/summary job pages
-retain their own job-specific progress polling. No new dependencies are needed. As with the
+retain their own job-specific progress polling. Install the `psutil` dependency from `requirements.txt` for native process monitoring. As with the
 in-memory job stores, notification delivery assumes a single server process; deploying
 multiple worker processes would require a shared job store and notification service.
 

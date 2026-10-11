@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 import time
 
+from .process_monitor import scan_model_processes
 from .parsers.common import parse_float_token
 from .model_run_diagnostics import diagnose_flux_run, diagnose_main_run
 
@@ -164,13 +165,35 @@ def _process_record(
     }
 
 
+def _native_workflow_processes(target_dir, kind, now_epoch=None):
+    tokens = PROCESS_TOKENS.get(kind)
+    if tokens is None:
+        return [], []
+    records, uncertainties = scan_model_processes(target_dir, tokens=tokens, now_epoch=now_epoch)
+    for record in records:
+        elapsed, cpu, start = record["elapsed_seconds"], record["cpu_seconds"], record["start_epoch"]
+        record.update({
+            "state_code": record["state"],
+            "elapsed": _format_duration(elapsed) if elapsed is not None else "—",
+            "cpu_time": _format_duration(cpu) if cpu is not None else "—",
+            "cpu_percent": round(100 * cpu / elapsed, 1) if elapsed and cpu is not None else "—",
+            "rss": _format_memory(record["rss_bytes"]) if record["rss_bytes"] is not None else "—",
+            "threads": record["threads"] if record["threads"] is not None else "—",
+            "started_at": datetime.fromtimestamp(start).astimezone().strftime("%Y-%m-%d %H:%M:%S %Z") if start else "—",
+        })
+    records.sort(key=lambda item: (".exe" not in str(item["command"]).lower(), int(item["pid"])))
+    return records, uncertainties
+
+
 def find_workflow_processes(
     target_dir: Path,
     kind: str,
     *,
-    proc_root: Path = Path("/proc"),
+    proc_root: Path | None = None,
     now_epoch: float | None = None,
 ) -> list[dict[str, object]]:
+    if proc_root is None:
+        return _native_workflow_processes(target_dir, kind, now_epoch)[0]
     tokens = PROCESS_TOKENS.get(kind)
     if tokens is None:
         return []
@@ -478,38 +501,35 @@ def inspect_workflow_runtime(
     target_dir: Path,
     kind: str,
     *,
-    proc_root: Path = Path("/proc"),
+    proc_root: Path | None = None,
     now_epoch: float | None = None,
 ) -> dict[str, object]:
-    monitoring_available = _proc_uptime(proc_root) > 0
-    if monitoring_available:
-        try:
-            with os.scandir(proc_root):
-                pass
-        except OSError:
-            monitoring_available = False
-    processes = find_workflow_processes(
-        target_dir,
-        kind,
-        proc_root=proc_root,
-        now_epoch=now_epoch,
-    )
+    uncertainties = []
+    if proc_root is None:
+        processes, uncertainties = _native_workflow_processes(target_dir, kind, now_epoch)
+        monitoring_available = not uncertainties
+    else:
+        monitoring_available = _proc_uptime(proc_root) > 0
+        if monitoring_available:
+            try:
+                with os.scandir(proc_root):
+                    pass
+            except OSError:
+                monitoring_available = False
+        processes = find_workflow_processes(target_dir, kind, proc_root=proc_root, now_epoch=now_epoch)
     main_processes_active = bool(processes)
     flux_processes: list[dict[str, object]] = []
     phase = kind
     progress_target = target_dir
     if kind == "main":
         flux_dir = target_dir / "obs"
-        flux_processes = (
-            find_workflow_processes(
-                flux_dir,
-                "flux",
-                proc_root=proc_root,
-                now_epoch=now_epoch,
-            )
-            if flux_dir.is_dir()
-            else []
-        )
+        if flux_dir.is_dir():
+            if proc_root is None:
+                flux_processes, flux_uncertainties = _native_workflow_processes(flux_dir, "flux", now_epoch)
+                uncertainties.extend(flux_uncertainties)
+                monitoring_available = not uncertainties
+            else:
+                flux_processes = find_workflow_processes(flux_dir, "flux", proc_root=proc_root, now_epoch=now_epoch)
         if flux_processes:
             processes.extend(flux_processes)
             processes.sort(key=lambda item: int(item["pid"]))
@@ -539,8 +559,9 @@ def inspect_workflow_runtime(
             source_mtime = progress_source.stat().st_mtime
         except OSError:
             source_mtime = 0.0
-        earliest_start = min(float(item["start_epoch"]) for item in processes)
-        if source_mtime < earliest_start:
+        starts = [item["start_epoch"] for item in processes]
+        earliest_start = min(starts) if all(start is not None for start in starts) else None
+        if earliest_start is None or source_mtime < earliest_start:
             progress = None
     recorded_progress: list[dict[str, object]] = []
     if kind == "main" and not processes:
@@ -579,7 +600,8 @@ def inspect_workflow_runtime(
         "phase": phase,
         "phase_label": PROCESS_LABELS.get(phase, phase),
         "active": bool(processes),
-        "monitoring_available": bool(processes) or monitoring_available,
+        "monitoring_available": monitoring_available,
+        "monitoring_uncertainties": list(dict.fromkeys(uncertainties)),
         "workspace_available": target_dir.is_dir(),
         "processes": processes,
         "progress": progress,

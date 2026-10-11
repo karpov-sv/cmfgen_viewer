@@ -119,7 +119,7 @@ Execution resource controls are opt-in. By default, the runner adds no memory or
 
 These settings apply to each native child in single-stage and multi-stage runs and are recorded in the JSON plans. Unset memory, timeout, and thread overrides are represented by `null`; `no_core_dumps` defaults to `false`.
 
-Each child has an owned process group. Timeout, Ctrl-C, and SIGTERM stop that group; the inherited workspace lock remains held while the native executable is alive. This requires a POSIX environment and usable Linux process visibility. Run on the same host/PID namespace as other model jobs: hidden external jobs cannot be reliably excluded.
+Each child has an owned process group. Timeout, Ctrl-C, and SIGTERM stop that group; the inherited workspace lock remains held while the native executable is alive. This requires a POSIX environment and usable native process visibility through `psutil` (Linux or macOS). Run on the same host/PID namespace as other model jobs: hidden external jobs cannot be reliably excluded.
 
 Default output is human-readable: a preflight summary, stage updates, and a final result with elapsed time, pass counts, diagnostics, saved spectrum paths, and the run-report location. `[OK]`, `[WARN]`, and `[ERROR]` distinguish success, warnings, and failures. Colors are enabled automatically on terminals; redirected output stays plain. `--color never` disables colors, `--color always` forces them, and automatic mode respects `NO_COLOR` and `TERM=dumb`.
 

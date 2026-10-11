@@ -7,8 +7,9 @@ claim that launching an external process concurrently can be made race-free.
 from contextlib import contextmanager
 import os
 from pathlib import Path
-import re
 import stat
+
+from .process_monitor import PROGRAM_RE, scan_model_processes
 
 try:
     import fcntl
@@ -16,8 +17,6 @@ except ImportError:  # pragma: no cover - non-POSIX systems fail closed for writ
     fcntl = None
 
 LOCK_NAME = ".cmfgen-viewer-write.lock"
-PROGRAM_RE = re.compile(r"^(?:cmfgen[\w.-]*|cmf_flux[\w.-]*|main_lte[\w.-]*|wind_hyd[\w.-]*|"
-                        r"(?:batch|batch_ins|batobs|bat_ins|ltebat)\.sh)$", re.I)
 
 
 def model_workspace_root(path: Path) -> Path:
@@ -28,8 +27,11 @@ def model_workspace_root(path: Path) -> Path:
     return root
 
 
-def inspect_model_activity(model_dir: Path, *, proc_root: Path = Path("/proc")) -> dict:
+def inspect_model_activity(model_dir: Path, *, proc_root: Path | None = None) -> dict:
     root = model_workspace_root(model_dir)
+    if proc_root is None:
+        processes, uncertainties = scan_model_processes(root, recursive=True)
+        return _activity_payload(root, processes, uncertainties)
     processes, uncertainties = [], []
     try:
         # A missing/hidden procfs must not become a false "idle" result.
@@ -59,6 +61,10 @@ def inspect_model_activity(model_dir: Path, *, proc_root: Path = Path("/proc")) 
             uncertainties.append(f"Cannot inspect process {entry.name}; model activity is uncertain.")
         except (OSError, ValueError, IndexError):
             uncertainties.append(f"Incomplete process information for PID {entry.name}.")
+    return _activity_payload(root, processes, uncertainties)
+
+
+def _activity_payload(root, processes, uncertainties):
     state = "active" if processes else "unknown" if uncertainties else "idle"
     reason = ("A model calculation is active; wait for it to finish before changing this workspace."
               if processes else " ".join(uncertainties))

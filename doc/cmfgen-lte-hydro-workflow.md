@@ -30,7 +30,7 @@ cd /absolute/path/to/model/lte && ./ltebat.sh
 
 The next stage remains blocked until `lte/ROSSELAND_LTE_TAB` exists and is at least as new as its relevant LTE inputs. Editing an input after a run marks the output stale.
 
-The LTE run panel recognizes `main_lte`/`ltebat` processes only when their `/proc` working directory exactly matches the model's `lte/` directory. It displays PID, state, elapsed and accumulated CPU time, average CPU use, memory, and thread count. The latest integer in `ML_COUNTER` is compared with the `Number of frequencies` reported by `OUTLTE` to give an estimated frequency-integration percentage. The counter may be written in batches, so it need not change on every poll.
+The LTE run panel recognizes `main_lte`/`ltebat` processes only when their native working directory exactly matches the model's `lte/` directory. It displays PID, state, elapsed and accumulated CPU time, average CPU use, memory, and thread count. The latest integer in `ML_COUNTER` is compared with the `Number of frequencies` reported by `OUTLTE` to give an estimated frequency-integration percentage. The counter may be written in batches, so it need not change on every status update.
 
 The same panel now gives a retained run summary when the process is absent. It combines bounded head/tail parsing of `OUTLTE` with `ML_COUNTER`, `ltebat.log`, `TIMING`, and the freshness of `ROSSELAND_LTE_TAB`. It reports frequency progress, `DELTA_ED`/`DELTA_T`, batch start/finish markers, accumulated timing, and grouped runtime, atomic-data, frequency-grid, and floating-point diagnostics. Fatal diagnostics in a current `OUTLTE` block the hydro handoff even if an older Rosseland result still exists. Opening `OUTLTE` in **Parsed** mode exposes the same analysis. Large logs are not rejected by the generic parser size limit.
 
@@ -48,7 +48,7 @@ The hydro panel similarly identifies `wind_hyd` by process name and exact `lte/`
 
 For newly captured runs, the panel and parsed `WIND_HYD` view extract fatal runtime messages, warnings, transition radius and velocity, effective temperature, Eddington parameter, stellar mass, and the final generated-versus-desired reference-radius difference. `RVSIG_COL_NEW` remains the authoritative result. Existing model workspaces without `WIND_HYD` continue to work and are labeled as legacy uncaptured runs.
 
-For both stages, process presence is authoritative. Output files can survive a completed or failed calculation, so with no matching process any parsed value is labeled **Last recorded progress**. Progress from an older run is hidden when its file predates a newly detected process. Process monitoring is Linux-specific and degrades to file status when `/proc` is unavailable.
+For both stages, process presence is authoritative. Output files can survive a completed or failed calculation, so with no matching process any parsed value is labeled **Last recorded progress**. Progress from an older run is hidden when its file predates a newly detected process. Process monitoring uses `psutil` on Linux and macOS. Missing or denied process visibility is shown as unavailable; it does not establish that the workspace is idle.
 
 Inspect `RVSIG_COL_NEW`. If its luminosity does not match the intended value, update `REF_R` in `HYDRO_PARAMS` and rerun. Once the luminosity is correct, promotion automatically writes the reported inner-to-outer radius ratio to `VADAT` as `RMAX`.
 
