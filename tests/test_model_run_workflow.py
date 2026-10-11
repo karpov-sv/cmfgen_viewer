@@ -20,6 +20,33 @@ def _write_model(root: Path) -> Path:
     return model
 
 
+def test_main_failure_guidance_renders_in_page_and_runtime_api(tmp_path):
+    model = _write_model(tmp_path)
+    (model / "VADAT").write_text("1 [RSTAR]\nF [IT_ON_T]\n")
+    (model / "OBSFLUX").write_text("Normalized luminosity check\n")
+    (model / "OUTGEN").write_text(
+        "Some normalized luminosities are out by a factor of 2\n"
+        "You should check OBSFLUX <script>alert(1)</script>\n",
+    )
+    app = create_app(basepath=str(tmp_path), read_write_enabled=True, secret_key="test")
+    client = app.test_client()
+    page = client.get("/model-actions/main-computation/model_a")
+    assert page.status_code == 200
+    assert b"Inner luminosity consistency check failed" in page.data
+    assert b"IT_ON_T=T" in page.data and b"Suggested next steps" in page.data
+    assert b'Open <code>OBSFLUX</code>' in page.data
+    assert b"&lt;script&gt;alert(1)&lt;/script&gt;" in page.data
+    assert b"<script>alert(1)</script>" not in page.data
+    runtime = client.get("/model-actions/runtime/main/model_a").get_json()
+    diagnosis = runtime["diagnostics"][0]
+    assert diagnosis["status"] == "failed"
+    assert diagnosis["findings"][0]["code"] == "inner_flux_accuracy"
+    # A later wrapperless invocation replaces the failure shown on refresh.
+    (model / "OUTGEN").write_text("Model started; no safeguard message\n")
+    refreshed = client.get("/model-actions/runtime/main/model_a").get_json()
+    assert refreshed["diagnostics"][0]["findings"] == []
+
+
 def test_non_executable_script_has_one_preflight_blocker(tmp_path):
     model = _write_model(tmp_path)
     (model / "batch.sh").chmod(0o644)

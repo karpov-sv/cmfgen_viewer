@@ -83,6 +83,34 @@ def test_failed_and_zero_exit_runs_are_not_success(workspace, code, expected):
     assert (model / "IN_ITS").read_text() == "2 [NUM_ITS]\n"
 
 
+@pytest.mark.parametrize("message,code", [
+    ("This model does not extend sufficiently deeply to guarantee the accuracy of", "inner_optical_depth"),
+    ("Some normalized luminosities are out by a factor of 2", "inner_flux_accuracy"),
+])
+def test_zero_exit_safeguards_report_cause_before_missing_outputs(workspace, message, code):
+    model, make_plan = workspace
+    native = "from pathlib import Path\nPath('OUTGEN').write_text(" + repr(message + "\n" + "Later bookkeeping\n" * 30) + ")\n"
+    events = []
+    result = run_plan(make_plan(native, stage="main"), events.append)
+    step = result["passes"][0]
+    assert result["status"] == "invalid_output" and step["returncode"] == 0
+    finding = step["diagnostic_findings"][0]
+    assert finding["code"] == code and finding["severity"] == "error"
+    assert step["problems"][0].startswith(finding["title"])
+    saved = json.loads((Path(result["journal"]) / "result.json").read_text())
+    assert saved["passes"][0]["diagnostic_findings"] == step["diagnostic_findings"]
+    event = next(item for item in events if item["event"] == "stage_finished")
+    assert event["diagnostic_findings"] == step["diagnostic_findings"]
+
+
+def test_completed_native_major_warning_is_not_a_false_failure(workspace):
+    _model, make_plan = workspace
+    code = SUCCESS + "\n(p/'OUTGEN').write_text('Some normalized luminosities are out by a factor of 2\\n')\n"
+    result = run_plan(make_plan(code, stage="main"))
+    assert result["status"] == "succeeded"
+    assert result["passes"][0]["diagnostic_findings"][0]["severity"] == "warning"
+
+
 def test_timeout_is_bounded_and_restores_controls(workspace):
     model, make_plan = workspace
     result = run_plan(make_plan("import time; time.sleep(20)", timeout=0.3))

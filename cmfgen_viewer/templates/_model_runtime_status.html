@@ -84,6 +84,18 @@
             </span>
             <div class="small flex-grow-1">
               <div>{{ diagnostic.summary }}</div>
+              {% for finding in diagnostic.findings|default([]) %}
+                <div class="alert {{ 'alert-danger' if finding.severity == 'error' else 'alert-warning' }} py-2 mt-2 mb-2">
+                  <strong>{{ finding.title }}</strong>
+                  <p class="mt-1 mb-2">{{ finding.message }}</p>
+                  <div class="small">Native evidence (<code>{{ finding.path }}</code>):</div>
+                  <pre class="small text-wrap mb-2">{{ finding.evidence }}</pre>
+                  <strong>Suggested next steps</strong>
+                  <ul class="mb-2 ps-3">{% for suggestion in finding.suggestions %}<li>{{ suggestion }}</li>{% endfor %}</ul>
+                  <div class="d-flex flex-wrap gap-2">{% for path in finding.links %}<a href="{{ url_for('viewer.view', path=runtime_source_path ~ '/' ~ path) }}">Open <code>{{ path }}</code></a>{% endfor %}</div>
+                  <p class="small text-muted mt-2 mb-0">Settings shown are from current inputs and may differ from the failed invocation. Suggestions require model review.</p>
+                </div>
+              {% endfor %}
               {% if diagnostic.details %}
                 <ul class="mb-0 ps-3">
                   {% for detail in diagnostic.details %}

@@ -16,6 +16,7 @@ import time
 import uuid
 
 from .model_activity import model_mutation_guard
+from .native_diagnostics import analyze_main_diagnostics
 from .parsers.common import parse_float_token
 from .runner_config import resolve_runner_config
 from .runner_cleanup import build_cleanup_plan
@@ -519,7 +520,15 @@ def run_plan(plan: dict, emit=None) -> dict:
                 if stage == "hydro":
                     _publish(pass_dir / "process.log", cwd / "WIND_HYD")
                 problems = _validate(stage, cwd, before)
-                diagnostic = "\n".join(_tail(cwd / name, 64*1024) for name in logs) + "\n" + _tail(pass_dir / "process.log", 64*1024)
+                diagnostic_sources = {name: _tail(cwd / name, 64*1024) for name in logs}
+                diagnostic_sources["process.log"] = _tail(pass_dir / "process.log", 64*1024)
+                diagnostic = "\n".join(diagnostic_sources.values())
+                findings = analyze_main_diagnostics(
+                    cwd, diagnostic_sources,
+                    completed=not problems and record["returncode"] == 0,
+                ) if stage in {"main", "test"} else []
+                record["diagnostic_findings"] = findings
+                problems[:0] = [f"{finding['title']}: {finding['message']}" for finding in findings if finding["severity"] == "error"]
                 startup_warnings = []
                 if plan.get("restart"):
                     record["startup_observed"] = observe_startup(plan["restart"], (cwd / "OUTGEN", pass_dir / "process.log"))
@@ -549,7 +558,7 @@ def run_plan(plan: dict, emit=None) -> dict:
                     final_progress = _progress(stage, cwd)
                     if final_progress.get("total") is not None:
                         event("progress", stage=step["id"], **final_progress)
-                event("stage_finished", stage=step["id"], status=record["status"], returncode=record["returncode"], problems=problems)
+                event("stage_finished", stage=step["id"], status=record["status"], returncode=record["returncode"], problems=problems, diagnostic_findings=findings)
                 if record["status"] != "succeeded":
                     result["status"] = record["status"]
                     break

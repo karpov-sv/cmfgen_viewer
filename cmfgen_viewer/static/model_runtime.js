@@ -120,6 +120,22 @@
       );
       const body = append(row, "div", "small flex-grow-1");
       append(body, "div", "", diagnostic.summary);
+      (diagnostic.findings || []).forEach((finding) => {
+        const alert = append(body, "div", `alert ${finding.severity === "error" ? "alert-danger" : "alert-warning"} py-2 mt-2 mb-2`);
+        append(alert, "strong", "", finding.title);
+        append(alert, "p", "mt-1 mb-2", finding.message);
+        append(alert, "div", "small", `Native evidence (${finding.path}):`);
+        append(alert, "pre", "small text-wrap mb-2", finding.evidence);
+        append(alert, "strong", "", "Suggested next steps");
+        const suggestions = append(alert, "ul", "mb-2 ps-3");
+        (finding.suggestions || []).forEach((suggestion) => append(suggestions, "li", "", suggestion));
+        const links = append(alert, "div", "d-flex flex-wrap gap-2");
+        (finding.links || []).forEach((path) => {
+          const link = append(links, "a", "", `Open ${path}`);
+          link.href = diagnosticHref(monitor, path);
+        });
+        append(alert, "p", "small text-muted mt-2 mb-0", "Settings shown are from current inputs and may differ from the failed invocation. Suggestions require model review.");
+      });
       if (diagnostic.details && diagnostic.details.length) {
         const list = append(body, "ul", "mb-0 ps-3");
         diagnostic.details.forEach((detail) => {
@@ -184,6 +200,13 @@
       monitor.querySelector("[data-runtime-diagnostics]"),
       runtime.diagnostics || [],
     );
+    const diagnosisKey = (runtime.diagnostics || []).map(item => item.status).join(":");
+    if (monitor.dataset.diagnosisKey && monitor.dataset.diagnosisKey !== diagnosisKey &&
+        (runtime.diagnostics || []).some(item => item.status === "failed")) {
+      const stage = monitor.closest("details.workflow-stage");
+      if (stage) stage.open = true;
+    }
+    monitor.dataset.diagnosisKey = diagnosisKey;
   };
 
   let streamConnected = false;

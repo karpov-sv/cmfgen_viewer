@@ -153,6 +153,7 @@ class TerminalOutput:
             self.line("INFO", f"Run report: {latest['journal']}/result.json")
         main_result = state["main_result"]
         self.line("INFO", f"Main solution: {main_result['status_label']} — {main_result['summary']}")
+        self.findings(main_result.get("findings", []))
         if self.verbose:
             for detail in main_result.get("details", []):
                 self.line("INFO", detail["message"])
@@ -356,7 +357,9 @@ class TerminalOutput:
         for step in passes:
             if step.get("returncode") not in {None, 0}:
                 self.line("ERROR", f"{step['id']}: exit status {step['returncode']}")
-            self.details("ERROR", [f"{step['id']}: {problem}" for problem in step.get("problems", [])])
+            self.findings(step.get("diagnostic_findings", []), prefix=f"{step['id']}: ")
+            explained = tuple(f"{finding['title']}:" for finding in step.get("diagnostic_findings", []))
+            self.details("ERROR", [f"{step['id']}: {problem}" for problem in step.get("problems", []) if not explained or not problem.startswith(explained)])
             if step.get("output"):
                 self.line("OK", f"Saved spectrum: {step['output']}")
             if step["status"] != "succeeded" and step.get("log"):
@@ -378,6 +381,17 @@ class TerminalOutput:
             self.line("INFO", "Startup mode has no explicit native confirmation; see the saved report.")
         if result.get("journal"):
             self.line("INFO", f"Run report: {result['journal']}/result.json")
+
+    def findings(self, findings, *, prefix=""):
+        """Show causes and recovery guidance without requiring --verbose."""
+        for finding in findings:
+            self.line("ERROR" if finding["severity"] == "error" else "WARN", prefix + finding["title"])
+            self.line("INFO", finding["message"])
+            self.line("INFO", f"Evidence ({finding['path']}): {finding['evidence']}")
+            for suggestion in finding.get("suggestions", []):
+                self.line("INFO", "Next: " + suggestion)
+            if finding.get("links"):
+                self.line("INFO", "Inspect: " + ", ".join(finding["links"]))
 
     def _sequence_result(self, result):
         status = result["status"]

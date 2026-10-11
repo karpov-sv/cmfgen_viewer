@@ -13,6 +13,7 @@ from pathlib import Path
 import re
 
 from .model_editor import model_inputs_modified_since_solution
+from .native_diagnostics import analyze_main_diagnostics, latest_main_log
 from .spectrum_io import load_obs_spectrum
 
 
@@ -78,6 +79,7 @@ def _record(
     status: str,
     summary: str,
     details: list[dict[str, object]] | None = None,
+    findings: list[dict[str, object]] | None = None,
 ) -> dict[str, object]:
     return {
         "phase": phase,
@@ -86,6 +88,7 @@ def _record(
         "status_label": STATUS_LABELS[status],
         "summary": summary,
         "details": details or [],
+        "findings": findings or [],
     }
 
 
@@ -208,9 +211,9 @@ def _main_input_anchor(model_dir: Path) -> float | None:
 def diagnose_main_run(model_dir: Path, *, active: bool = False) -> dict[str, object]:
     """Classify the latest CMFGEN result without mistaking warnings for failures."""
     log_path = model_dir / "batch.log"
-    log = _read_text(log_path)
+    log = latest_main_log(_read_text(log_path))
     outgen = model_dir / "OUTGEN"
-    outgen_text = _read_text(outgen)
+    outgen_text = latest_main_log(_read_text(outgen))
     try:
         # OUTGEN is native and is replaced for every invocation.  If it is
         # newer, batch.log belongs to an older wrapper-driven run.
@@ -220,6 +223,18 @@ def diagnose_main_run(model_dir: Path, *, active: bool = False) -> dict[str, obj
         pass
     if active:
         return _record("main", "running", "A CMFGEN process is currently active.")
+    mod_sum = model_dir / "MOD_SUM"
+    rvtj = model_dir / "RVTJ"
+    completed = (
+        mod_sum.is_file() and rvtj.is_file()
+        and (_mtime(mod_sum) or 0) >= (_mtime(outgen) or 0)
+        and (_mtime(rvtj) or 0) >= (_mtime(outgen) or 0)
+        and bool(re.search(r"^Model Finalized on:", _read_head(mod_sum), re.MULTILINE))
+    )
+    findings = analyze_main_diagnostics(model_dir, {"OUTGEN": outgen_text, "batch.log": log}, completed=completed)
+    safeguards = [finding for finding in findings if finding["severity"] == "error"]
+    if safeguards:
+        return _record("main", "failed", str(safeguards[0]["title"]), findings=findings)
     fatal = _fatal_details(log, path="batch.log")
     fatal.extend(_fatal_details(outgen_text, path="OUTGEN"))
     if fatal:
@@ -228,9 +243,8 @@ def diagnose_main_run(model_dir: Path, *, active: bool = False) -> dict[str, obj
             "failed",
             "The current CMFGEN output contains a fatal runtime signature.",
             fatal[:3],
+            findings=findings,
         )
-    mod_sum = model_dir / "MOD_SUM"
-    rvtj = model_dir / "RVTJ"
     if not log and not any(path.is_file() for path in (mod_sum, rvtj, outgen)):
         return _record("main", "unknown", "No CMFGEN run result has been recorded yet.")
 
@@ -279,11 +293,13 @@ def diagnose_main_run(model_dir: Path, *, active: bool = False) -> dict[str, obj
             "incomplete",
             "The latest CMFGEN run has no complete, current solution result.",
             details,
+            findings=findings,
         )
     return _record(
         "main",
         "succeeded",
         "The latest CMFGEN run produced current MOD_SUM and RVTJ results.",
+        findings=findings,
     )
 
 

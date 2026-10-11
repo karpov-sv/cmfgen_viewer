@@ -55,10 +55,11 @@
     </div>
   </details>
 
-  <details class="card workflow-stage mb-3" {% if state.runtime.active or state.result_status == 'missing' %}open{% endif %}>
+  {% set has_failed_run = state.runtime.diagnostics|selectattr('status', 'equalto', 'failed')|list %}
+  <details class="card workflow-stage mb-3" {% if state.runtime.active or state.result_status == 'missing' or has_failed_run %}open{% endif %}>
     <summary class="card-header d-flex justify-content-between align-items-center">
       <strong>2. Run CMFGEN / CMF_FLUX externally</strong>
-      {% if state.runtime.active %}<span class="badge bg-success">Running</span>{% elif state.ready %}<span class="badge bg-warning text-dark">Ready to run</span>{% else %}<span class="badge bg-secondary">Blocked</span>{% endif %}
+      {% if state.runtime.active %}<span class="badge bg-success">Running</span>{% elif has_failed_run %}<span class="badge bg-danger">Run failed</span>{% elif state.ready %}<span class="badge bg-warning text-dark">Ready to run</span>{% else %}<span class="badge bg-secondary">Blocked</span>{% endif %}
     </summary>
     <div class="card-body">
       {% set runtime = state.runtime %}

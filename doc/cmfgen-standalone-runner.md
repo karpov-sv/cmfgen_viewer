@@ -147,6 +147,10 @@ Exit codes: `0` tested/succeeded (or ready read-only preflight), `1` execution o
 
 ## Evidence and recovery
 
+Known CMFGEN safeguard failures are explained in the normal terminal summary and read-only status output without requiring `--verbose`. The runner recognizes the insufficient-inner-optical-depth and factor-of-two inner luminosity messages, including Fortran `STOP` with exit code zero. It prints the native evidence and suggested recovery steps before generic missing-output problems. Optical-depth guidance points to `MEANOPAC` and LTE/hydro alignment; flux-accuracy guidance points to `OBSFLUX`, initial temperature refinement (`IT_ON_T`, `GREY_TAU`), starting estimates, and grid resolution. Suggestions do not change inputs or guarantee convergence.
+
+Each pass stores structured `diagnostic_findings` in `result.json` and its `stage_finished` event, with a stable code, severity, explanation, evidence, current controls, suggestions, and diagnostic file links. A major message is a failure when completion is absent and `STOP_IF_MW` is enabled (the native default); completed runs or disabled/ambiguous safeguards retain it as a warning. The 25% luminosity message remains a warning. Appended logs are limited to the latest invocation, and current control values are labeled because they may differ from those used in an older failed run. The web UI uses the same analyzer for its page and live diagnostics API.
+
 Every executed runner action creates `.cmfgen-runs/<UTC-time>-<id>/` containing:
 
 - `plan.json`, updated `result.json`, and timestamped `events.jsonl`;

@@ -63,6 +63,21 @@ def test_readable_preflight_shows_inherited_resources(plan):
     assert "None" not in text
 
 
+def test_rich_failure_guidance_is_visible_without_verbose(result, tmp_path):
+    from cmfgen_viewer.native_diagnostics import analyze_main_diagnostics
+    (tmp_path / "VADAT").write_text("F [IT_ON_T]\n")
+    result["status"] = result["passes"][0]["status"] = "invalid_output"
+    result["passes"][0]["diagnostic_findings"] = analyze_main_diagnostics(
+        tmp_path, {"OUTGEN": "Some normalized luminosities are out by a factor of 2\n"},
+    )
+    stream = io.StringIO()
+    TerminalOutput(stream, verbose=False).result(result)
+    output = stream.getvalue()
+    assert "Inner luminosity consistency check failed" in output
+    assert "exit code 0" in output and "IT_ON_T=T" in output
+    assert "Evidence (OUTGEN)" in output and "Inspect: VADAT" in output
+
+
 def test_sequence_plan_and_result_are_presented_in_order(plan, result):
     sequence_plan = {
         "kind": "sequence",
