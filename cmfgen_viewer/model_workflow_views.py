@@ -10,6 +10,7 @@ from .model_workflow import (
     RESULT_QUICK_CONTROLS,
     ModelWorkflowError,
     align_hydro_parameters,
+    align_hydro_lte_composition,
     inspect_lte_hydro_workflow,
     prepare_lte_hydro_workspace,
     promote_lte_hydro_results,
@@ -42,6 +43,11 @@ def model_lte_hydro(source_path: str):
     try:
         if request.method == "POST":
             action = str(request.form.get("action", "")).strip().lower()
+            if action == "align_lte_composition":
+                saved = align_hydro_lte_composition(basepath, model_relpath=source_path,
+                    expected_digest=str(request.form.get("expected_digest", "")))
+                return redirect(url_for("viewer.model_lte_hydro", source_path=source_path,
+                    _anchor="lte-composition", message=f"MU_ATOM aligned with LTE ({saved['value']}); rerun hydro."))
             if action == "prepare":
                 prepared = prepare_lte_hydro_workspace(basepath, model_relpath=source_path, template_root=config.get("template_root"))
                 return redirect(

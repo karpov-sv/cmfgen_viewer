@@ -14,6 +14,7 @@ from pathlib import Path
 
 from .browser import is_model_directory, resolve_path
 from .control_files import control_occurrences as _control_occurrences
+from .hydro_lte_alignment import preview_lte_hydro_alignment, apply_lte_hydro_alignment
 from .lte_hydro_diagnostics import inspect_lte_diagnostics, inspect_wind_hyd_diagnostics
 from .model_editor import (
     MODEL_EDITOR_BACKUP_DIR,
@@ -488,6 +489,15 @@ def align_hydro_parameters(basepath: str, *, model_relpath: str, expected_digest
     return {"backup_relpath": backup_relpath}
 
 
+def align_hydro_lte_composition(basepath: str, *, model_relpath: str, expected_digest: str) -> dict:
+    _, model_dir = _resolve_model(basepath, model_relpath)
+    with MODEL_WRITE_LOCK, model_mutation_guard(model_dir, ModelWorkflowError):
+        try:
+            return apply_lte_hydro_alignment(model_dir, expected_digest)
+        except (ValueError, OSError) as exc:
+            raise ModelWorkflowError(str(exc)) from exc
+
+
 def _quick_control_cards(
     basepath: str,
     model_relpath: str,
@@ -768,9 +778,11 @@ def inspect_lte_hydro_workflow(basepath: str, *, model_relpath: str, config: dic
         active=bool(hydro_runtime["active"]),
     )
     lte_result_usable = bool(lte_output["fresh"] and not lte_diagnostics.get("fatal") and not lte_runtime["active"])
-    hydro_ready = bool(lte_configured and lte_result_usable and not hydro_preflight["blocking"] and not hydro_runtime["active"])
+    lte_composition = preview_lte_hydro_alignment(model_dir)
+    composition_ready = lte_composition["ready"] and not lte_composition["changed"]
+    hydro_ready = bool(composition_ready and lte_configured and lte_result_usable and not hydro_preflight["blocking"] and not hydro_runtime["active"])
     hydro_output_ready = bool(
-        lte_configured and activity["safe_to_modify"] and lte_result_usable
+        composition_ready and lte_configured and activity["safe_to_modify"] and lte_result_usable
         and hydro_output["fresh"] and not hydro_diagnostics.get("fatal") and not hydro_runtime["active"]
     )
     promotion_ready = hydro_output_ready
@@ -822,6 +834,7 @@ def inspect_lte_hydro_workflow(basepath: str, *, model_relpath: str, config: dic
             _result_quick_control_cards(basepath, normalized) if prepared and hydro_output["exists"] else []
         ),
         "result_summary": _rvsig_result_summary(lte_dir),
+        "lte_composition_alignment": lte_composition,
         "hydro_alignment": _hydro_parameter_alignment(basepath, normalized) if prepared else None,
         "lte_runtime": lte_runtime,
         "hydro_runtime": hydro_runtime,
@@ -953,6 +966,9 @@ def promote_lte_hydro_results(basepath: str, *, model_relpath: str) -> dict[str,
     with MODEL_WRITE_LOCK, model_mutation_guard(_resolve_model(basepath, model_relpath)[1], ModelWorkflowError):
         state = inspect_lte_hydro_workflow(basepath, model_relpath=model_relpath)
         if not state["promotion_ready"]:
+            composition = state["lte_composition_alignment"]
+            if composition["ready"] and composition["changed"]:
+                raise ModelWorkflowError("Apply LTE parameters to align MU_ATOM, then rerun hydro before promotion.")
             raise ModelWorkflowError(
                 "Fresh ROSSELAND_LTE_TAB and RVSIG_COL_NEW outputs are required before promotion."
             )

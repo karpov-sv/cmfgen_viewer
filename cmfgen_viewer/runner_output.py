@@ -301,6 +301,9 @@ class TerminalOutput:
                 f"{stage}: sequence stopped ({item['status']}); later stages will not run",
             )
             self.details("ERROR", item.get("problems", []))
+        elif kind == "lte_composition_aligned":
+            self.line("INFO", f"Hydro MU_ATOM = {item['value']} from ROSSELAND_LTE_TAB" +
+                      (f"; checkpoint: {item['backup_relpath']}" if item.get("changed") else " (already aligned)"))
         elif kind == "startup":
             return  # Already shown by the preflight summary.
         if kind == "startup_fallback":

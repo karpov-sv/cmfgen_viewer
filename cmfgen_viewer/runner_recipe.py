@@ -15,6 +15,7 @@ from .control_files import control_occurrences
 from .model_activity import inspect_model_activity
 from .model_preflight import inspect_model_preflight
 from .parsers.common import parse_float_token
+from .hydro_lte_alignment import preview_lte_hydro_alignment
 from .runner_validation import validate_rosseland_table, validate_rvtj_core
 from .runner_restart import RESTART_FILES, inspect_restart
 
@@ -325,7 +326,15 @@ def build_run_plan(model: Path, *, stage: str, cmfgen_root: Path, atomic_root: P
     if stage == "flux":
         paths.update(model.glob("POP*"))
         paths.update(cwd / name for name in FLUX_CACHE_FILES if (cwd / name).exists())
-    return {"schema_version": 1, "profile": "ostar-v1", "stage": stage, "model": str(model), "cwd": str(cwd),
+    lte_alignment = preview_lte_hydro_alignment(model) if stage == "hydro" and not old_model else None
+    if lte_alignment:
+        if not lte_alignment["ready"]:
+            errors.extend(lte_alignment["issues"])
+        else:
+            paths.update(Path(name) for name in lte_alignment["file_digests"])
+            if lte_alignment["changed"]:
+                warnings.append(f"Before hydro, align MU_ATOM with LTE: {lte_alignment['current']} -> {lte_alignment['proposed']}")
+    return {"lte_composition_alignment": lte_alignment, "schema_version": 1, "profile": "ostar-v1", "stage": stage, "model": str(model), "cwd": str(cwd),
             "executable": str(exe), "executable_snapshot": snapshot(exe), "links": kept, "passes": passes,
             "inputs": [snapshot(path) for path in sorted(paths)], "threads": threads, "timeout": timeout,
             "memory_mib": memory_mib, "no_core_dumps": no_core_dumps, "errors": errors, "warnings": warnings,

@@ -43,13 +43,13 @@ def promotable_model(tmp_path: Path) -> Path:
         "clean.sh": root_files["clean.sh"],
         "GRID_PARAMS": "grid\n",
         "ltebat.sh": "#!/bin/sh\n",
-        "HYDRO_PARAMS": "hydro\n",
+        "HYDRO_PARAMS": "1.30563 [MU_ATOM]\n",
     }
     for name, contents in lte_files.items():
         (lte / name).write_text(contents, encoding="utf-8")
     latest_input = max((lte / name).stat().st_mtime_ns for name in lte_files)
     rosseland = lte / "ROSSELAND_LTE_TAB"
-    rosseland.write_text("rosseland output\n", encoding="utf-8")
+    rosseland.write_text("! Mean atomic weight (atoms/ions only) 1.30563\n1 !Number of temperatures\n1 !Number of densities\n1 2 3 4 5 6 7 8\n", encoding="utf-8")
     os.utime(rosseland, ns=(latest_input + 1_000_000, latest_input + 1_000_000))
     hydro = lte / "RVSIG_COL_NEW"
     hydro.write_text(GENERATED_RVSIG, encoding="utf-8")

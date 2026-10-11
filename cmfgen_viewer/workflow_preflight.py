@@ -244,6 +244,13 @@ def inspect_stage_preflight(model_dir: Path, stage: str, *, config: dict | None 
                     valid = False
                 if not valid:
                     issue("error", "lte-grid", "LTE requires positive ND, nonnegative NC, and NP = ND + NC.", "lte/MODEL_SPEC")
+    if stage == "hydro":
+        from .hydro_lte_alignment import preview_lte_hydro_alignment
+        alignment = preview_lte_hydro_alignment(model_dir)
+        if not alignment["ready"]:
+            issue("error", "lte-composition", " ".join(alignment["issues"]), "lte/ROSSELAND_LTE_TAB")
+        elif alignment["changed"]:
+            issue("error", "lte-composition", "Apply LTE parameters to align HYDRO_PARAMS [MU_ATOM] before hydro.", "lte/HYDRO_PARAMS")
     for warning in dependencies["warnings"]:
         issue("warning", "script-review", warning)
     counts = {level: sum(i["severity"] == level for i in issues) for level in ("error", "warning", "info")}

@@ -71,14 +71,17 @@ def test_unprepared_workspace_does_not_subscribe_to_runtime(tmp_path):
 
 def _make_outputs_fresh(model: Path) -> None:
     lte = model / "lte"
+    hydro = lte / "HYDRO_PARAMS"
+    if "[MU_ATOM]" not in hydro.read_text():
+        hydro.write_text(hydro.read_text() + "\n1.30563 [MU_ATOM]\n")
     latest_input = max(
         (lte / name).stat().st_mtime_ns
         for name in ("VADAT", "MODEL_SPEC", "GRID_PARAMS", "ltebat.sh", "HYDRO_PARAMS")
     )
-    (lte / "ROSSELAND_LTE_TAB").write_text("rosseland new\n", encoding="utf-8")
-    os.utime(lte / "ROSSELAND_LTE_TAB", ns=(latest_input + 1_000_000, latest_input + 1_000_000))
+    (lte / "ROSSELAND_LTE_TAB").write_text("! Mean atomic weight (atoms/ions only) 1.30563\n1 !Number of temperatures\n1 !Number of densities\n1 2 3 4 5 6 7 8\n", encoding="utf-8")
+    os.utime(lte / "ROSSELAND_LTE_TAB", ns=(latest_input, latest_input))
     (lte / "RVSIG_COL_NEW").write_text(GENERATED_RVSIG, encoding="utf-8")
-    os.utime(lte / "RVSIG_COL_NEW", ns=(latest_input + 2_000_000, latest_input + 2_000_000))
+    os.utime(lte / "RVSIG_COL_NEW", ns=(latest_input, latest_input))
 
 
 @pytest.mark.parametrize("state", ["active", "unknown"])
@@ -547,7 +550,7 @@ def test_stale_outputs_are_blocked_and_fresh_results_are_promoted_with_backups(t
     assert 'Promote Results</button>' not in page
     assert promoted["synchronized_rmax"] == 2.0
     assert set(promoted["invalidated_files"]) == set(stale_state)
-    assert (model / "ROSSELAND_LTE_TAB").read_text(encoding="utf-8") == "rosseland new\n"
+    assert (model / "ROSSELAND_LTE_TAB").read_text(encoding="utf-8") == (lte / "ROSSELAND_LTE_TAB").read_text(encoding="utf-8")
     assert (model / "RVSIG_COL").read_text(encoding="utf-8") == GENERATED_RVSIG
     assert (model / "RVSIG_COL_NEW").read_text(encoding="utf-8") == GENERATED_RVSIG
     assert "2" in (model / "VADAT").read_text(encoding="utf-8").split("[RMAX]")[0].splitlines()[-1]

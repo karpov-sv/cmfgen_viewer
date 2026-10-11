@@ -41,6 +41,8 @@ def build_promotion_plan(model: Path) -> dict[str, object]:
         activity = state.get("activity", {})
         if isinstance(activity, dict) and not activity.get("safe_to_modify", False):
             errors.append(str(activity.get("reason") or "Model activity is uncertain."))
+        elif state["lte_composition_alignment"]["ready"] and state["lte_composition_alignment"]["changed"]:
+            errors.append("Apply LTE parameters to align MU_ATOM, then rerun hydro before promotion.")
         else:
             errors.append(
                 "Fresh lte/ROSSELAND_LTE_TAB and lte/RVSIG_COL_NEW outputs "

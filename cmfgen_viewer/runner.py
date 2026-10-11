@@ -410,6 +410,14 @@ def run_plan(plan: dict, emit=None) -> dict:
                     target = inputs_dir / path.relative_to(model)
                     target.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(path, target)
+            if stage == "hydro" and plan.get("lte_composition_alignment"):
+                from .hydro_lte_alignment import apply_lte_hydro_alignment
+                alignment = apply_lte_hydro_alignment(model, plan["lte_composition_alignment"]["digest"])
+                result["lte_composition_alignment"] = alignment
+                effective = journal / "effective"
+                effective.mkdir()
+                shutil.copy2(cwd / "HYDRO_PARAMS", effective / "HYDRO_PARAMS")
+                event("lte_composition_aligned", **alignment)
             if stage in {"main", "test"} and plan.get("restart", {}).get("present_files"):
                 restart_backup = journal / "restart-before"
                 restart_backup.mkdir()

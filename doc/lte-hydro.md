@@ -45,6 +45,10 @@ The same panel now gives a retained run summary when the process is absent. It c
 
 ## 3. Run hydro externally
 
+After LTE completes, align `HYDRO_PARAMS [MU_ATOM]` with the mean atomic weight reported in the fresh `ROSSELAND_LTE_TAB` header. Preparation leaves this value awaiting the LTE result. If it differs, the hydro panel shows the current and proposed values and offers **Apply LTE parameters**. Applying saves a recovery checkpoint and makes existing hydro output stale; rerun hydro afterwards. Viewing the page does not change files.
+
+Hydro readiness and promotion require this agreement. Missing, duplicate, nonfinite, or nonpositive LTE metadata, a stale opacity table, or fatal LTE diagnostics blocks alignment. The preview is rechecked under the model write guard when applied. LTE output itself is preserved.
+
 Review `lte/HYDRO_PARAMS`, including `LOG_G`, `TEFF`, and related model values. A red warning highlights disagreement with the intended model in `lte/VADAT`, even when an old template matches the generated hydro output.
 
 Open **Use VADAT parameters — preview changes** to review the proposed values. **Apply VADAT parameters** copies `LOGG` to `LOG_G` and aligns `TEFF`, `MDOT`, `VINF`, and `BETA`. It derives `REF_R` from the intended luminosity and temperature using the same relation as wind_hyd: `REF_R = 6.9599 × sqrt(LSTAR) × (0.5770 / TEFF)²`, with `REF_R` in 10¹⁰ cm and `TEFF` in 10⁴ K. It scales `CON_R` to preserve the existing `CON_R / REF_R` ratio; this is an estimate that you must review for the model.

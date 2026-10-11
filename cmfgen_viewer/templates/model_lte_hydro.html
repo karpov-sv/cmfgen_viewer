@@ -36,6 +36,7 @@
       {% elif state.lte_runtime.active %}<a href="#lte-run">Monitor LTE</a>
       {% elif state.hydro_runtime.active %}<a href="#hydro-run">Monitor hydro</a>
       {% elif awaiting_lte %}<a href="#lte-run">{{ 'Run LTE' if state.lte_ready else 'Review LTE inputs' }}</a>
+      {% elif state.lte_composition_alignment.ready and state.lte_composition_alignment.changed %}<a href="#lte-composition">Apply LTE parameters</a>
       {% elif state.hydro_alignment and state.hydro_alignment.has_mismatch %}<a href="#hydro-alignment">Review hydro parameters</a>
       {% elif not state.hydro_output_ready %}<a href="#hydro-run">{{ 'Run hydro' if state.hydro_ready else 'Review hydro inputs' }}</a>
       {% elif not state.promoted %}<a href="#result-review">Review and promote results</a>
@@ -179,6 +180,26 @@
         {% set diagnostics_title = 'Captured wind_hyd diagnostics' %}
         {% set diagnostics_source_path = source_path ~ '/lte' %}
         {% if diagnostics.available or state.hydro_output.exists %}{% include '_lte_hydro_diagnostics.html' %}{% endif %}
+        {% set composition = state.lte_composition_alignment %}
+        <div id="lte-composition" class="mb-3">
+          {% if composition.uses_rvtj %}
+            <p class="small text-muted">With OLD_MOD=T, native hydro derives mean atomic mass from RVTJ.</p>
+          {% elif awaiting_lte %}
+            <p class="small text-muted">MU_ATOM will be aligned from the fresh LTE opacity table before hydro.</p>
+          {% elif composition.ready and composition.changed %}
+            <div class="alert alert-warning py-2">Align <code>HYDRO_PARAMS [MU_ATOM]</code> with the LTE composition before running hydro. Current: {{ composition.current if composition.current is not none else 'missing or invalid' }}; LTE: <strong>{{ composition.proposed }}</strong>.</div>
+            <form method="post">
+              <input type="hidden" name="action" value="align_lte_composition">
+              <input type="hidden" name="expected_digest" value="{{ composition.digest }}">
+              <button class="btn btn-sm btn-primary" {% if not state.activity.safe_to_modify %}disabled{% endif %}>Apply LTE parameters</button>
+              <span class="small text-muted ms-2">Source: ROSSELAND_LTE_TAB. Saves a checkpoint; rerun hydro afterwards.</span>
+            </form>
+          {% elif composition.ready %}
+            <p class="small text-success">MU_ATOM = {{ composition.proposed }} matches the LTE opacity table.</p>
+          {% else %}
+            <div class="alert alert-warning py-2">LTE composition could not be verified. {% for issue in composition.issues %}{{ issue }} {% endfor %}</div>
+          {% endif %}
+        </div>
         {% if state.hydro_alignment %}
           {% set alignment = state.hydro_alignment %}
           <div id="hydro-alignment" class="mb-3">
@@ -219,7 +240,9 @@
           <p class="small mb-1">Interactive answers from the supplied instructions:</p>
           <ol class="small">{% for answer in state.hydro_answers %}<li><code>{{ answer }}</code></li>{% endfor %}</ol></details>
           {% if state.hydro_output.stale %}<div class="alert alert-warning py-2 mb-0"><code>RVSIG_COL_NEW</code> is older than its inputs; rerun wind_hyd.</div>{% elif not state.hydro_output.exists %}<p class="text-muted mb-0">Waiting for <code>lte/RVSIG_COL_NEW</code>.</p>{% endif %}
-        {% else %}<p class="text-muted mb-0">A fresh <code>lte/ROSSELAND_LTE_TAB</code> is required first{% if state.hydro_output.exists %}; the existing hydro output cannot be accepted while its upstream LTE result is stale{% endif %}.</p>{% endif %}
+        {% elif composition.ready and composition.changed %}<p class="text-muted mb-0">Apply LTE parameters above, then rerun hydro before reviewing and promoting its results.</p>
+        {% elif awaiting_lte %}<p class="text-muted mb-0">A fresh, usable <code>lte/ROSSELAND_LTE_TAB</code> is required before hydro.</p>
+        {% else %}<p class="text-muted mb-0">Resolve the hydro input validation issues above before running.</p>{% endif %}
       </div>
     </details>
 

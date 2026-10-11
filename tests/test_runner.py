@@ -587,13 +587,14 @@ def test_hydro_runs_after_lte_with_generated_noninteractive_input(workspace):
     (lte / "MODEL_SPEC").write_text("2 [ND]\n1 [NC]\n3 [NP]\n")
     (lte / "HYDRO_PARAMS").write_text("F [OLD_MOD]\n")
     (lte / "ROSSELAND_LTE_TAB").write_text(
-        "1 !Number of temperatures\n1 !Number of densities\n1 2 3 4 5 6 7 8\n"
+        "! Mean atomic weight (atoms/ions only) 1.30563\n1 !Number of temperatures\n1 !Number of densities\n1 2 3 4 5 6 7 8\n"
     )
     (lte / "inherited_atomic").symlink_to(model.parent / "atomic/test.dat")
     code = """
 from pathlib import Path
 import sys
 assert sys.stdin.read().splitlines() == ['/null', 'e', '2', '']
+assert '1.30563' in Path('HYDRO_PARAMS').read_text()
 Path('RVSIG_COL_NEW').write_text('''2 !Number of depth points
 2.0 20.0 -0.5 0.1 1
 1.0 10.0 0.5 100.0 2
@@ -608,6 +609,9 @@ print('hydro completed')
     result = run_plan(plan)
     assert result["status"] == "succeeded", result
     assert (lte / "WIND_HYD").read_text().strip() == "hydro completed"
+    assert result["lte_composition_alignment"]["value"] == 1.30563
+    assert result["lte_composition_alignment"]["changed"]
+    assert (Path(result["journal"]) / "effective/HYDRO_PARAMS").is_file()
     archive = Path(result["journal"]) / "hydro"
     assert (archive / "stdin.txt").read_text() == "/null\ne\n2\n\n"
     assert (archive / "RVSIG_COL_NEW").is_file()
@@ -637,7 +641,7 @@ def test_hydro_old_model_requires_and_selects_lte_rvtj(workspace):
     (lte / "MODEL_SPEC").write_text("2 [ND]\n")
     (lte / "HYDRO_PARAMS").write_text("T [OLD_MOD]\n")
     (lte / "ROSSELAND_LTE_TAB").write_text(
-        "1 !Number of temperatures\n1 !Number of densities\n1 2 3 4 5 6 7 8\n"
+        "! Mean atomic weight (atoms/ions only) 1.30563\n1 !Number of temperatures\n1 !Number of densities\n1 2 3 4 5 6 7 8\n"
     )
     missing = make_plan(stage="hydro")
     assert not missing["ready"]
@@ -657,7 +661,7 @@ def test_hydro_rejects_unrelated_or_output_symlinks(workspace, tmp_path):
     (lte / "MODEL_SPEC").write_text("2 [ND]\n")
     (lte / "HYDRO_PARAMS").write_text("F [OLD_MOD]\n")
     (lte / "ROSSELAND_LTE_TAB").write_text(
-        "1 !Number of temperatures\n1 !Number of densities\n1 2 3 4 5 6 7 8\n"
+        "! Mean atomic weight (atoms/ions only) 1.30563\n1 !Number of temperatures\n1 !Number of densities\n1 2 3 4 5 6 7 8\n"
     )
     external = tmp_path / "external"
     external.write_text("keep")
