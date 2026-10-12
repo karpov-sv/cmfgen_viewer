@@ -10,6 +10,26 @@ The viewer never starts, stops, or supervises CMFGEN. It checks the model inputs
 cd /absolute/path/to/model && ./batch.sh
 ```
 
+## Continuation and iteration counts
+
+Main computation can continue an existing model from its saved checkpoints. Native CMFGEN tries `POINT1`, then `POINT2`, with `SCRTEMP` supplying the saved state. The command displayed by the viewer follows that native behavior. The standalone runner checks checkpoint availability and compatibility before execution and continues automatically when a usable checkpoint exists; no resume flag is needed.
+
+```bash
+python cmfgen_run.py /path/to/model --stage main
+```
+
+Without `--iterations`, the runner uses `IN_ITS [NUM_ITS]`. This is the number of iterations requested **for this invocation**, including when continuing a model. For example, `NUM_ITS=20` requests **20 additional iterations** from the saved checkpoint, regardless of how many iterations the model has already completed. CMFGEN may stop earlier if its native stopping conditions are met.
+
+To request five additional iterations while preserving the saved IN_ITS settings, use a temporary runner override:
+
+```bash
+python cmfgen_run.py /path/to/model --stage main --iterations 5
+```
+
+The runner backs up existing checkpoints before updating them. Add `--plan` to inspect the detected startup mode and readiness without launching a calculation. Use `--fresh-start` explicitly to archive checkpoints and start from the initial inputs. Promoting new LTE/hydro results also archives and removes incompatible old checkpoints, so the next main run starts fresh. See [Command-line runner](/documentation/command-line-runner#continuation-and-fresh-starts) for checkpoint checks, recovery, and native fallback reporting.
+
+## Input checks and monitoring
+
 The initial guard checks for `batch.sh`, `VADAT`, `MODEL_SPEC`, `IN_ITS`, and either `GAMMAS_IN` or `GAMMAS`. When both gamma files exist, `GAMMAS_IN` is the input freshness dependency and the generated `GAMMAS` is an output; `GAMMAS` is treated as an input only as a fallback when `GAMMAS_IN` is absent. LTE/hydro-derived models are handed off only after `RVSIG_COL` and `ROSSELAND_LTE_TAB` have been promoted to the model root.
 
 Before displaying the external command, the page also performs a read-only preflight validation. **Errors** block the command, **warnings** remain advisory, and **information** records intentional-but-notable configuration such as additional impact rays. The initial conservative checks cover:
