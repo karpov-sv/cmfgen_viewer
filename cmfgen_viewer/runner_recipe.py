@@ -27,7 +27,11 @@ class RunnerError(ValueError):
 REVIEWED_SCRIPTS = {
     "batch.sh": {"df872ab82a353d16e8a42489b6ad8b0eb0ad3ea2c4a78e911bb4f7fbb77e3585",
                  "28c5fa0de471edbaaae5ab61527bd74193f40e7e124c56203d403131e338f5d9"},
-    "obs/batobs.sh": {"82ba5a0d6000438e3a9d2574237a71bd5c79f0eab01735c7de9bb87c0acc55de"},
+    # Both variants use the same flux/continuum recipe. The poems504 version
+    # requests ten shell threads and omits final root cleanup; the runner owns
+    # thread settings and exposes cleanup as a separate stage.
+    "obs/batobs.sh": {"82ba5a0d6000438e3a9d2574237a71bd5c79f0eab01735c7de9bb87c0acc55de",
+                      "a50f33c5948737808dcac3b1a015e00c57a226c90fba14031361dbfbff75b778"},
     "obs/bat_ins.sh": {"95c167e47d7e3419b045832f0743237e4aae8bdf8121f3bfefc4dfa60fafb40f"},
     "lte/ltebat.sh": {"e7955be7aea0b040c135bf960574cd8bfacd05bd174e4e1db11ffa0d2e3d1422", "0591cd72fd414cc1835547e20c283f07287c41ed7a75bdef9e545cd63a4c9fad"},
 }
