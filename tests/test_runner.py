@@ -1,4 +1,3 @@
-import hashlib
 import json
 import resource
 from pathlib import Path
@@ -34,7 +33,6 @@ def workspace(tmp_path, monkeypatch):
     for name, text in files.items():
         (model / name).write_text(text)
     (model / "batch.sh").chmod(0o755)
-    monkeypatch.setitem(runner_recipe.REVIEWED_SCRIPTS, "batch.sh", {hashlib.sha256(files["batch.sh"].encode()).hexdigest()})
     (tmp_path / "atomic").mkdir()
     (tmp_path / "atomic/test.dat").write_text("data")
     (tmp_path / "cmf/exe").mkdir(parents=True)
@@ -159,15 +157,15 @@ def test_changed_inputs_fail_before_mutation(workspace):
     assert not (model / ".cmfgen-runs").exists()
 
 
-def test_unreviewed_scripts_and_arbitrary_manifest_commands_are_blocked(workspace):
+def test_shell_commands_are_ignored_and_never_executed(workspace):
     model, make_plan = workspace
     (model / "batch_ins.sh").write_text("touch NEVER_RUN\n")
     plan = make_plan()
-    assert not plan["ready"]
-    assert any("Unsupported command" in error for error in plan["errors"])
+    assert plan["ready"], plan["errors"]
+    assert run_plan(plan)["status"] == "tested"
     assert not (model / "NEVER_RUN").exists()
     (model / "batch.sh").write_text("malicious shell content")
-    assert any("Unreviewed" in error for error in make_plan()["errors"])
+    assert make_plan()["ready"]
 
 
 def test_unsafe_outputs_do_not_overwrite_symlink_target(workspace, tmp_path):
@@ -565,7 +563,6 @@ def test_lte_executes_in_its_workspace_and_checks_its_controls(workspace, monkey
     lte.mkdir()
     script = "# reviewed LTE fixture\n"
     (lte / "ltebat.sh").write_text(script)
-    monkeypatch.setitem(runner_recipe.REVIEWED_SCRIPTS, "lte/ltebat.sh", {hashlib.sha256(script.encode()).hexdigest()})
     (lte / "MODEL_SPEC").write_text("2 [ND]\n1 [NC]\n3 [NP]\n")
     (lte / "VADAT").write_text("4 [TEFF]\n3 [LOGG]\nF [CHK_NG]\n")
     (lte / "GRID_PARAMS").write_text("fixture grid")
@@ -701,7 +698,6 @@ def test_flux_passes_and_fail_fast(workspace, monkeypatch, fail_first, ew_contro
         if name == "batobs.sh":
             text += 'ln -sf $atomic/test.dat OBS_ATOMIC\nsed -e "s/old/new/" \\\n    -e "s/other/value/" TEMPLATE > OUTPUT\n'
         (obs / name).write_text(text)
-        monkeypatch.setitem(runner_recipe.REVIEWED_SCRIPTS, "obs/"+name, {hashlib.sha256(text.encode()).hexdigest()})
     (model / "RVTJ").write_text(RVTJ_CORE)
     (model / "MODEL").write_text("input")
     exe = model.parent / "cmf/exe/cmf_flux.exe"
@@ -764,12 +760,11 @@ Path('OBSFRAME').write_text('Continuum Frequencies (2)\\n1 2\\nObserved intensit
         assert sorted((model / ".cmfgen-runs").iterdir()) == before
 
 
-def test_link_manifest_still_rejects_nonlink_continuations(workspace):
+def test_atomic_extraction_ignores_nonlink_continuations(workspace):
     model, make_plan = workspace
     (model / "batch_ins.sh").write_text('sed -e "s/old/new/" \\\n    INPUT > NEVER_RUN\n')
     plan = make_plan()
-    assert not plan["ready"]
-    assert any("Cannot parse" in error or "Unsupported command" in error for error in plan["errors"])
+    assert plan["ready"], plan["errors"]
     assert not (model / "NEVER_RUN").exists()
 
 
@@ -799,3 +794,39 @@ def test_native_signal_is_reported_even_without_output(workspace):
     assert result['status'] == 'failed'
     assert result['passes'][0]['returncode'] == -15
     assert 'terminated by SIGTERM' in result['passes'][0]['problems'][0]
+
+
+@pytest.mark.parametrize('launcher', ['missing', 'nonexecutable', 'wrong_paths'])
+def test_native_runner_does_not_require_shell_launcher(workspace, launcher):
+    model, make_plan = workspace
+    (model / 'atomic_links.json').write_text(json.dumps({
+        'base': {'HYD_L_DATA': 'test.dat'}, 'ions': {}, 'obs': {}}))
+    (model / 'batch_ins.sh').unlink()
+    batch = model / 'batch.sh'
+    if launcher == 'missing':
+        batch.unlink()
+    else:
+        batch.write_text('#!/no/interpreter\nsource /missing/setup.sh\ntouch NEVER_RUN\n')
+        batch.chmod(0o644 if launcher == 'nonexecutable' else 0o755)
+    plan = make_plan("from pathlib import Path\nassert Path('HYD_L_DATA').read_text() == 'data'\n" + SUCCESS)
+    assert plan['ready'], plan['errors']
+    assert run_plan(plan)['status'] == 'tested'
+    assert not (model / 'NEVER_RUN').exists()
+
+
+def test_missing_scripts_use_packaged_atomic_data_declarations(workspace):
+    model, make_plan = workspace
+    (model / 'batch.sh').unlink()
+    (model / 'batch_ins.sh').unlink()
+    plan = make_plan()
+    assert any('packaged templates' in note for note in plan['warnings'])
+    assert all(error.startswith('Atomic target is not a readable file:') for error in plan['errors'])
+    assert any('HYD_L_DATA' in error for error in plan['errors']), 'Missing real atomic data must remain a blocker'
+
+
+def test_explicit_atomic_manifest_rejects_unsafe_targets(workspace):
+    model, make_plan = workspace
+    (model / 'atomic_links.json').write_text(json.dumps({'base': {'HYD_L_DATA': '../escape'}}))
+    plan = make_plan()
+    assert not plan['ready']
+    assert any('Unsafe atomic declaration' in error for error in plan['errors'])

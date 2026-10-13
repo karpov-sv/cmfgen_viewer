@@ -1,4 +1,4 @@
-"""Stage-specific, read-only checks for externally executed workflows.
+"""Stage-specific native checks with advisory terminal-script diagnostics.
 
 Only literal shell link/source declarations are inspected. Never source a
 script or evaluate shell expressions to discover configuration.
@@ -16,10 +16,10 @@ from .model_activity import inspect_model_activity
 from .parsers.common import parse_float_token
 
 STAGE_INPUTS = {
-    "main": ("batch.sh", "VADAT", "MODEL_SPEC", "IN_ITS"),
-    "lte": ("ltebat.sh", "VADAT", "MODEL_SPEC", "GRID_PARAMS"),
+    "main": ("VADAT", "MODEL_SPEC", "IN_ITS"),
+    "lte": ("VADAT", "MODEL_SPEC", "GRID_PARAMS"),
     "hydro": ("HYDRO_PARAMS", "ROSSELAND_LTE_TAB"),
-    "flux": ("batobs.sh", "CMF_FLUX_PARAM_INIT", "IN_FILE", "../MODEL", "../RVTJ"),
+    "flux": ("CMF_FLUX_PARAM_INIT", "IN_FILE", "../MODEL", "../RVTJ"),
 }
 STAGE_PROGRAMS = {"main": "cmfgen_dev.exe", "lte": "main_lte.exe", "hydro": "wind_hyd.exe", "flux": "cmf_flux.exe"}
 REQUIRED_ATOMIC_LINKS = {"HYD_L_DATA", "GBF_N_DATA", "HI_F_OSCDAT", "He2_F_OSCDAT"}
@@ -143,19 +143,22 @@ def inspect_stage_preflight(model_dir: Path, stage: str, *, config: dict | None 
             readable = False
         if not readable:
             issue("error", "stage-input", f"{stage}: required input is missing, empty, or unreadable: {path}", str(path.relative_to(model_dir)))
-        elif name.endswith(".sh") and not os.access(path, os.X_OK):
-            issue("error", "stage-script-not-executable", f"{path} is not executable.", str(path.relative_to(model_dir)))
-        elif name.endswith(".sh"):
+    if stage != "hydro":
+        launcher = cwd / {"main": "batch.sh", "lte": "ltebat.sh", "flux": "batobs.sh"}[stage]
+        relative = str(launcher.relative_to(model_dir))
+        if not launcher.is_file():
+            issue("warning", "terminal-script-missing", f"Run in terminal needs {relative}; the native runner does not execute this launcher.", relative)
+        elif not os.access(launcher, os.X_OK):
+            issue("warning", "stage-script-not-executable", f"{relative} is not executable; this affects Run in terminal only.", relative)
+        else:
             try:
-                with path.open() as handle:
-                    first_line = handle.readline(4096).strip()
-                interpreter = shlex.split(first_line[2:]) if first_line.startswith("#!") else []
+                with launcher.open() as stream:
+                    line = stream.readline(4096).strip()
+                interpreter = shlex.split(line[2:]) if line.startswith("#!") else []
                 if interpreter and (not Path(interpreter[0]).is_file() or not os.access(interpreter[0], os.X_OK)):
-                    issue("error", "script-interpreter", f"Script interpreter is unavailable: {interpreter[0]}")
-                elif not interpreter or Path(interpreter[0]).name == "env":
-                    issue("warning", "script-interpreter-unresolved", f"Interpreter selection needs external-shell review: {path}")
+                    issue("warning", "script-interpreter", f"Terminal script interpreter is unavailable: {interpreter[0]}. The native runner does not use it.", relative)
             except (OSError, UnicodeError, ValueError):
-                issue("error", "script-unreadable", f"Cannot read script header: {path}")
+                issue("warning", "script-unreadable", f"Cannot read terminal launcher: {relative}. The native runner does not execute it.", relative)
     if not cwd.is_dir() or not os.access(cwd, os.W_OK | os.X_OK):
         issue("error", "workspace-not-writable", f"Stage workspace is not writable/searchable: {cwd}")
     free = None
@@ -180,16 +183,16 @@ def inspect_stage_preflight(model_dir: Path, stage: str, *, config: dict | None 
             "warning",
             "executable-unresolved",
             "CMFDIST is not configured. Use --cmfgen-root, the CMFDIST "
-            "environment variable, or cmfgen_root in .cmfgenrc. Executable "
-            "resolution in the external shell is unverified.",
+            "environment variable, or cmfgen_root in .cmfgenrc. The native runner "
+            "must resolve an executable before launching.",
         )
     if not environment["ATOMIC"] and stage != "hydro":
         issue(
             "warning",
             "atomic-root-unresolved",
             "Atomic-data root is not configured. Use --atomic-root, the ATOMIC "
-            "environment variable, or atomic_root in .cmfgenrc; shell-resolved "
-            "data targets cannot be verified.",
+            "environment variable, or atomic_root in .cmfgenrc; atomic "
+            "data targets cannot be verified until the runner resolves that root.",
         )
 
     script = cwd / ("ltebat.sh" if stage == "lte" else "batobs.sh" if stage == "flux" else "batch.sh")
@@ -202,24 +205,33 @@ def inspect_stage_preflight(model_dir: Path, stage: str, *, config: dict | None 
         if "../batch.sh" in text:
             parent_script = model_dir / "batch.sh"
             if not parent_script.is_file() or not os.access(parent_script, os.X_OK):
-                issue("error", "parent-link-script", "This stage calls ../batch.sh for atomic links, but that script is unavailable or non-executable.", "batch.sh")
+                issue("warning", "parent-link-script", "This stage calls ../batch.sh for atomic links, but that script is unavailable or non-executable.", "batch.sh")
             parent = inspect_script_dependencies(parent_script, cwd, environment)
             for key in ("links", "sources", "warnings", "effects"):
                 dependencies[key].extend(parent[key])
     for source in dependencies["sources"]:
         if source["exists"] is False:
-            issue("error", "sourced-file-missing", f"Required sourced script is missing: {source['path']}")
+            issue("warning", "sourced-file-missing", f"Terminal setup script is missing: {source['path']}")
         elif source["exists"] is None:
             issue("warning", "sourced-file-unresolved", f"Cannot resolve sourced script statically: {source['expression']}")
-    bad_links = [link for link in dependencies["links"] if link["target_is_file"] is False]
-    for link in bad_links:
-        name = Path(link["destination_expression"]).name
-        level = "error" if name in REQUIRED_ATOMIC_LINKS else "warning"
-        issue(level, "link-target-not-file", f"Link {name} targets a missing file or a directory: {link['target']}. Check whether this ion is enabled.",
-              display_message=f"{name}: target missing or not a file. Check whether this ion is enabled.",
-              detail_path=link["target"])
-    if any(link["target"] is None for link in dependencies["links"]):
-        issue("warning", "link-target-unresolved", "Some atomic/restart link targets depend on unresolved shell expressions; review the script dependencies.")
+    if stage != "hydro" and environment["ATOMIC"]:
+        from .runner_recipe import resolve_atomic_links
+        try:
+            links, _, notes = resolve_atomic_links(model_dir, stage, Path(environment["ATOMIC"]).expanduser().resolve())
+            for link in links:
+                target = Path(link["target"])
+                if target.is_file() and os.access(target, os.R_OK):
+                    continue
+                name = link["name"]
+                level = "error" if name in REQUIRED_ATOMIC_LINKS else "warning"
+                issue(level, "link-target-not-file", f"Native atomic link {name} targets a missing or unreadable file: {target}.",
+                      display_message=f"{name}: target missing or unreadable.", detail_path=str(target))
+            for note in notes:
+                issue("info", "atomic-recipe", note)
+        except (OSError, ValueError) as exc:
+            issue("error", "atomic-recipe", str(exc))
+    elif any(link["target"] is None for link in dependencies["links"]):
+        issue("warning", "link-target-unresolved", "Atomic targets cannot be checked until the runner's atomic root is configured.")
     if stage == "lte":
         for filename, keys in {"VADAT": ("TEFF", "LOGG", "CHK_NG"), "MODEL_SPEC": ("ND", "NC", "NP")}.items():
             try:

@@ -15,8 +15,10 @@ from .model_activity import model_mutation_guard
 from .model_templates import resolve_model_template
 
 
-MODEL_CREATE_REQUIRED_FILES = ("batch.sh", "IN_ITS", "VADAT", "MODEL_SPEC", "GAMMAS")
+MODEL_CREATE_REQUIRED_FILES = ("IN_ITS", "VADAT", "MODEL_SPEC", "GAMMAS")
 MODEL_CREATE_OPTIONAL_FILES = (
+    "batch.sh",
+    "atomic_links.json",
     "batch_ins.sh",
     "clean.sh",
     "RVSIG_COL",
@@ -28,10 +30,10 @@ MODEL_CREATE_OPTIONAL_FILES = (
     "arnaud_rothenflug.dat",
 )
 MODEL_CREATE_OBSERVER_REQUIRED_FILES = (
-    "batobs.sh",
     "CMF_FLUX_PARAM_INIT",
 )
 MODEL_CREATE_OBSERVER_OPTIONAL_FILES = (
+    "batobs.sh",
     "bat_ins.sh",
     "IN_FILE",
     "CFDAT_IN",

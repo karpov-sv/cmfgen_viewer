@@ -126,6 +126,7 @@ RESTART_INTERNAL_FILES = {
 }
 
 INPUT_CONTROL_FILES = {
+    "atomic_links.json",
     "MODEL",
     "MODEL_SPEC",
     "VADAT",

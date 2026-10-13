@@ -18,7 +18,7 @@ def preview_lte_hydro_alignment(model: Path) -> dict:
     preview = {"ready": False, "changed": False, "issues": [], "current": None, "proposed": None}
     try:
         sources = [workspace / name for name in ("ROSSELAND_LTE_TAB", "HYDRO_PARAMS")]
-        dependencies = [workspace / name for name in ("VADAT", "MODEL_SPEC", "GRID_PARAMS", "ltebat.sh")
+        dependencies = [workspace / name for name in ("VADAT", "MODEL_SPEC", "GRID_PARAMS")
                         if (workspace / name).exists()]
         for path in sources + dependencies:
             if path.is_symlink() or not path.is_file() or path.stat().st_nlink != 1:

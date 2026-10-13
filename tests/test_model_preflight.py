@@ -177,13 +177,13 @@ def test_only_newer_fresh_unpromoted_lte_results_block_preflight(tmp_path: Path)
     assert "unpromoted-lte-result" not in _codes(newer_root)
 
 
-def test_displayed_batch_command_requires_executable_script(tmp_path: Path) -> None:
+def test_terminal_batch_permission_is_advisory(tmp_path: Path) -> None:
     model = _write_valid_model(tmp_path)
     (model / "batch.sh").chmod(0o644)
 
     report = inspect_model_preflight(model)
 
-    assert report["blocking"] is True
+    assert report["blocking"] is False
     assert "script-not-executable" in _codes(report)
 
 

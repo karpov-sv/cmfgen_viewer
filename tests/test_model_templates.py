@@ -8,7 +8,6 @@ from cmfgen_viewer.model_staging import create_model_from_solution, plan_model_f
 from cmfgen_viewer.model_templates import resolve_model_template
 from cmfgen_viewer.runner_preparation import build_preparation_plan
 from cmfgen_viewer.runner import run_plan
-from cmfgen_viewer.runner_recipe import REVIEWED_SCRIPTS
 from test_model_staging import _write_solution
 from test_model_workflow import _write_initializable_workspace_inputs
 
@@ -70,8 +69,7 @@ def test_packaged_preparation_without_tree_templates_or_cleanup(tmp_path):
     for name in ('GRID_PARAMS', 'ltebat.sh', 'HYDRO_PARAMS', 'clean.sh'):
         assert (model / 'lte' / name).is_file()
     assert not (model / 'clean.sh').exists()
-    import hashlib
-    assert hashlib.sha256((model / 'lte/ltebat.sh').read_bytes()).hexdigest() in REVIEWED_SCRIPTS['lte/ltebat.sh']
+    assert (model / 'lte/ltebat.sh').is_file()
     assert (model / 'lte/ltebat.sh').stat().st_mode & 0o111
 
 

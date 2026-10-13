@@ -124,14 +124,14 @@ def test_running_stage_blocks_fresh_output_handoff(tmp_path, monkeypatch, runnin
         assert not result["hydro_ready"]
 
 
-def test_nonexecutable_lte_script_blocks_run_but_not_finished_output_promotion(tmp_path):
+def test_nonexecutable_lte_script_does_not_block_native_run_or_promotion(tmp_path):
     model = _write_model(tmp_path)
     _write_templates(tmp_path)
     prepare_lte_hydro_workspace(str(tmp_path), model_relpath="model_a")
     _make_outputs_fresh(model)
     (model / "lte/ltebat.sh").chmod(0o644)
     state = inspect_lte_hydro_workflow(str(tmp_path), model_relpath="model_a")
-    assert not state["lte_ready"]
+    assert state["lte_ready"]
     assert state["promotion_ready"]
 
 
@@ -596,7 +596,7 @@ def test_workflow_page_never_runs_processes_and_guards_read_only_mode(
     monkeypatch.setattr(os, "system", forbidden)
     page = client.get("/model-actions/lte-hydro/model_a")
     assert page.status_code == 200
-    assert b"run commands in your terminal" in page.data
+    assert b"Prepare, run, and inspect stages here" in page.data
     assert b"Prepare LTE Workspace" in page.data
     response = client.post(
         "/model-actions/lte-hydro/model_a", data={"action": "prepare"}, follow_redirects=True
@@ -655,9 +655,9 @@ def test_prepared_workflow_focuses_next_stage_and_distinguishes_existing_root(tm
     assert 'Handoff ready' not in page
     assert 'Review and promote the current LTE/hydro results first' in page
     assert 'No blockers' in page and '1 warning' in page
-    assert '1 missing atomic / restart link target' in page
-    assert 'Full target path' in page
-    assert '/missing/atomic/oxygen.dat' in page
+    assert '1 missing atomic / restart link target' not in page
+    assert 'Full target path' not in page
+    assert '/missing/atomic/oxygen.dat' not in page
     state = inspect_lte_hydro_workflow(str(tmp_path), model_relpath="model_a")
     assert state['hydro_preflight']['blocking']
     assert not state['hydro_ready']
@@ -780,3 +780,31 @@ def test_result_review_distinguishes_synchronized_radii_from_parameter_mismatche
     page = app.test_client().get('/model-actions/lte-hydro/model_a').get_data(as_text=True)
     assert 'Generated structure differs' in page
     assert 'no manual radius edit is needed' not in page
+
+
+def test_missing_launchers_do_not_block_lte_hydro_workspace(tmp_path):
+    model = _write_model(tmp_path)
+    _write_templates(tmp_path)
+    prepare_lte_hydro_workspace(str(tmp_path), model_relpath='model_a')
+    _make_outputs_fresh(model)
+    before = inspect_lte_hydro_workflow(str(tmp_path), model_relpath='model_a')
+    for name in ['batch.sh', 'clean.sh', 'lte/ltebat.sh', 'lte/clean.sh']:
+        (model / name).unlink(missing_ok=True)
+    state = inspect_lte_hydro_workflow(str(tmp_path), model_relpath='model_a')
+    assert state['prepared'] and state['lte_ready']
+    assert state['lte_output']['fresh']
+    assert state['hydro_ready'] == before['hydro_ready']
+    assert state['promotion_ready'] == before['promotion_ready']
+    assert not any(i['severity'] == 'error' and i.get('file', '').endswith('.sh') for i in state['lte_preflight']['issues'] if i.get('file'))
+
+
+def test_launcher_edits_do_not_stale_lte_result(tmp_path):
+    model = _write_model(tmp_path)
+    _write_templates(tmp_path)
+    prepare_lte_hydro_workspace(str(tmp_path), model_relpath='model_a')
+    _make_outputs_fresh(model)
+    script = model / 'lte/ltebat.sh'
+    script.write_text('#!/missing/interpreter\nsource /missing/setup\n')
+    state = inspect_lte_hydro_workflow(str(tmp_path), model_relpath='model_a')
+    assert state['lte_output']['fresh']
+    assert state['lte_composition_alignment']['ready']

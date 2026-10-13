@@ -1,4 +1,4 @@
-"""Preparation and result handling for externally run LTE/hydro calculations."""
+"""Preparation, readiness, and result handling for LTE/hydro calculations."""
 
 from __future__ import annotations
 
@@ -38,7 +38,7 @@ class ModelWorkflowError(ValueError):
 
 ROOT_REQUIRED_INPUTS = ("VADAT", "MODEL_SPEC")
 ROOT_OPTIONAL_INPUTS = ("clean.sh", "RVSIG_COL")
-LTE_INPUTS = ("VADAT", "MODEL_SPEC", "clean.sh", "GRID_PARAMS", "ltebat.sh", "HYDRO_PARAMS")
+LTE_INPUTS = ("VADAT", "MODEL_SPEC", "GRID_PARAMS")
 LTE_OUTPUT = "ROSSELAND_LTE_TAB"
 HYDRO_OUTPUT = "RVSIG_COL_NEW"
 MAIN_STATE_FILES = (
@@ -752,7 +752,7 @@ def inspect_lte_hydro_workflow(basepath: str, *, model_relpath: str, config: dic
     if not activity["safe_to_modify"]:
         prepare_reason = activity["reason"]
 
-    lte_dependencies = tuple(lte_dir / name for name in ("VADAT", "MODEL_SPEC", "GRID_PARAMS", "ltebat.sh"))
+    lte_dependencies = tuple(lte_dir / name for name in ("VADAT", "MODEL_SPEC", "GRID_PARAMS"))
     lte_output = _file_state(lte_dir / LTE_OUTPUT, dependencies=lte_dependencies)
     hydro_dependencies = (lte_dir / LTE_OUTPUT, lte_dir / "HYDRO_PARAMS")
     hydro_output = _file_state(lte_dir / HYDRO_OUTPUT, dependencies=hydro_dependencies)
@@ -794,9 +794,7 @@ def inspect_lte_hydro_workflow(basepath: str, *, model_relpath: str, config: dic
         and _same_contents(lte_dir / "VADAT", model_dir / "VADAT")
     )
     main_dependencies = tuple(model_dir / name for name in ("VADAT", "RVSIG_COL", LTE_OUTPUT))
-    main_ready = activity["safe_to_modify"] and all(_regular_file(path) for path in main_dependencies) and _regular_file(
-        model_dir / "batch.sh"
-    )
+    main_ready = activity["safe_to_modify"] and all(_regular_file(path) for path in main_dependencies)
     lte_command = external_stage_command(model_dir, "lte")
     hydro_command = external_stage_command(model_dir, "hydro")
     return {

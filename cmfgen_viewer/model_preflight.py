@@ -1,4 +1,4 @@
-"""Conservative, read-only validation before an external CMFGEN run."""
+"""Read-only physical-input validation before a CMFGEN run."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from .model_editor import EDITABLE_MODEL_FILES
 from .parsers.common import parse_float_token
 
 SEVERITIES = ("error", "warning", "info")
-REQUIRED_FILES = ("batch.sh", "VADAT", "MODEL_SPEC", "IN_ITS")
+REQUIRED_FILES = ("VADAT", "MODEL_SPEC", "IN_ITS")
 BOOLEAN_CONTROLS = {
     "VADAT": ("DO_CL", "DO_HYDRO", "RD_IN_R_GRID", "LIN_INT", "POP_SCALE", "IT_ON_T"),
     "IN_ITS": ("DO_LAM_IT", "DO_LAM_AUTO", "DO_T_AUTO", "DO_GT_AUTO"),
@@ -280,16 +280,16 @@ def _validate_required_files(model_dir: Path, issues: list[dict[str, object]]) -
         if batch_empty:
             issues.append(
                 _issue(
-                    "error",
+                    "warning",
                     "empty-script",
-                    "batch.sh is empty or unreadable.",
+                    "Terminal launcher batch.sh is empty or unreadable; the native runner does not execute it.",
                     file="batch.sh",
                 )
             )
         if not os.access(batch, os.X_OK):
             issues.append(
                 _issue(
-                    "error",
+                    "warning",
                     "script-not-executable",
                     "batch.sh is not executable, so the displayed ./batch.sh command cannot run.",
                     file="batch.sh",

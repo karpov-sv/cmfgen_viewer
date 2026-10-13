@@ -122,13 +122,15 @@ def test_lte_preflight_checks_controls_script_and_parent(model):
     (model / "lte/VADAT").write_text("-1 [TEFF]\n1e999 [LOGG]\nmaybe [CHK_NG]\n")
     (model / "lte/MODEL_SPEC").write_text("2 [ND]\n1 [NC]\n9 [NP]\n")
     codes = {i["code"] for i in preflight.inspect_stage_preflight(model, "lte")["issues"]}
-    assert {"lte-control-value", "lte-grid", "stage-script-not-executable", "parent-link-script"} <= codes
+    assert {"lte-control-value", "lte-grid", "parent-link-script"} <= codes
+    assert all(i["severity"] == "warning" for i in preflight.inspect_stage_preflight(model, "lte")["issues"] if i["code"] == "stage-script-not-executable")
 
 
 def test_preflight_missing_source_and_interpreter(model):
     (model / "batch.sh").write_text("#!/no/such/interpreter\nsource missing.sh\n")
     codes = {i["code"] for i in preflight.inspect_stage_preflight(model, "main")["issues"]}
     assert {"script-interpreter", "sourced-file-missing"} <= codes
+    assert not preflight.inspect_stage_preflight(model, "main")["blocking"]
 
 
 def test_unknown_environment_and_dynamic_shell_are_explicit(model):

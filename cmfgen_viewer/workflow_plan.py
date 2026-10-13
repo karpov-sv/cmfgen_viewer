@@ -30,7 +30,7 @@ CONTRACTS = {
                           ("MOD_SUM", "RVTJ", "MODEL", "*OUT", "GAMMAS", "OUTGEN", "batch.log"),
                           ("No active process", "No fatal diagnostics", "Current MOD_SUM finalization marker and RVTJ",
                            "Scientific convergence review remains separate")),
-    "lte": StageContract("lte", "lte", STAGE_INPUTS["lte"] + ("../batch.sh", "parent atomic-link includes"),
+    "lte": StageContract("lte", "lte", STAGE_INPUTS["lte"],
                          ("ROSSELAND_LTE_TAB", "OUTLTE", "ltebat.log"),
                          ("No active LTE process", "Fresh Rosseland output", "No current fatal LTE diagnostics")),
     "hydro": StageContract("hydro", "lte", STAGE_INPUTS["hydro"], ("RVSIG_COL_NEW", "WIND_HYD"),

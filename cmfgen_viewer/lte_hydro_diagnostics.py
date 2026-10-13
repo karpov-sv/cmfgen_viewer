@@ -135,7 +135,7 @@ def inspect_lte_diagnostics(lte_dir: Path, *, active: bool = False) -> dict[str,
     )
 
     dependencies = tuple(
-        lte_dir / name for name in ("VADAT", "MODEL_SPEC", "GRID_PARAMS", "ltebat.sh")
+        lte_dir / name for name in ("VADAT", "MODEL_SPEC", "GRID_PARAMS")
     )
     log_current = _file_is_current(outlte, dependencies)
     result_path = lte_dir / "ROSSELAND_LTE_TAB"

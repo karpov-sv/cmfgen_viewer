@@ -47,14 +47,15 @@ def test_main_failure_guidance_renders_in_page_and_runtime_api(tmp_path):
     assert refreshed["diagnostics"][0]["findings"] == []
 
 
-def test_non_executable_script_has_one_preflight_blocker(tmp_path):
+def test_non_executable_script_is_advisory_for_native_runner(tmp_path):
     model = _write_model(tmp_path)
     (model / "batch.sh").chmod(0o644)
     state = inspect_main_model_workflow(str(tmp_path), model_relpath="model_a")
     script_errors = [issue for issue in state["preflight"]["issues"]
                      if issue["file"] == "batch.sh" and "not executable" in issue["message"]]
     assert len(script_errors) == 1
-    assert not state["ready"]
+    assert state["ready"]
+    assert script_errors[0]["severity"] == "warning"
 
 
 def test_main_computation_state_tracks_missing_stale_and_current_results(tmp_path: Path) -> None:
@@ -76,7 +77,7 @@ def test_main_computation_state_tracks_missing_stale_and_current_results(tmp_pat
 
     (model / "batch.sh").chmod(0o644)
     blocked_rerun = inspect_main_model_workflow(str(tmp_path), model_relpath="model_a")
-    assert blocked_rerun["ready"] is False
+    assert blocked_rerun["ready"] is True
     assert blocked_rerun["result_status"] == "current"
 
 

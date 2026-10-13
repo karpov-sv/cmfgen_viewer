@@ -42,7 +42,7 @@ Viewer and runner writers share the advisory `.cmfgen-viewer-write.lock` across 
 
 Use **Preview workflow**, **Preview main workflow**, or **Preview spectra only** on the corresponding workflow page. Previews are read-only: they do not prepare a workspace or start a calculation. They show stage dependencies, commands, inputs/outputs, selected templates, executable checks, and completion criteria. Errors block readiness; warnings identify checks that remain incomplete or need review.
 
-Preflight checks required files, dimensions and controls, workspace permissions, configured executables, and available disk space. Less than 100 MiB free blocks readiness; less than 1 GiB produces a warning. These thresholds do not estimate a model's full scratch requirements. Literal atomic links and script includes can be checked, but shell substitutions and dynamic setup cannot be fully verified without execution. Missing core hydrogen/helium targets are errors; other missing ion targets are warnings.
+Preflight checks required files, dimensions and controls, workspace permissions, configured executables, and available disk space. Less than 100 MiB free blocks readiness; less than 1 GiB produces a warning. These thresholds do not estimate a model's full scratch requirements. The runner reads atomic declarations as data and never executes shell launchers. Missing shell scripts, interpreter permissions, and sourced setup paths are advisory terminal-only diagnostics and do not block native readiness. Missing core hydrogen/helium targets are errors; other missing ion targets are warnings.
 
 Previews are also available as JSON by adding `?format=json` to the plan URL. In read-write mode, the routes are:
 
@@ -104,9 +104,9 @@ The initial bundled set contains `clean.sh` and these LTE files:
   and `ATOMIC`, assigning links through the parent model's `batch.sh ass`, then
   running `main_lte.exe` into `ltebat.log`.
 
-The standalone runner recognizes the packaged LTE recipe and launches the
-native executable directly; it does not execute the shell script. Parent model
-scripts and atomic-link manifests still have to pass its existing recipe review.
+The standalone runner launches the native executable directly; it does not
+require the LTE or parent shell launchers. Its atomic declarations are validated
+as data independently of shell setup.
 The packaged cleanup script retains main products and checkpoints; the runner's
 `cleanup` stage also retains a recovery archive and is preferable for that use.
 No script is executed during preparation or model copying.
@@ -126,10 +126,34 @@ is copied only from the source model. Copy plans show each external template's
 origin and retain its permissions. A new copy does not contain an LTE workspace:
 prepare it explicitly after configuring the copied model.
 
-Only the LTE set and cleanup script are bundled initially. Model-specific atomic
-link scripts, iteration settings, wavelength coverage, and observer support files
-come from the source model or reviewed local templates. `obs/` is reserved
+The LTE set, cleanup script, and ostar atomic link defaults are bundled.
+Iteration settings, wavelength coverage, and observer control files
+come from the source model or local templates. `obs/` is reserved
 for adding reviewed packaged observer defaults later.
 
 The historical preparation notes, shell recipe, and sample VADAT are retained in
 `doc/workflow-reference/` as reference material; they are not template inputs.
+
+## Native atomic link declarations
+
+`atomic_links.json` is a data-only map with `base`, `ions`, and `obs` groups.
+Each group maps a destination filename to a path relative to the configured
+atomic-data root. An explicit model or template manifest replaces shell-derived
+atomic setup; omitted groups are empty. For example:
+
+```json
+{"base": {"HYD_L_DATA": "HYD/I/5dec96/hyd_l_data.dat"}, "ions": {}, "obs": {}}
+```
+
+This abbreviated example is not a complete production atomic dataset. Use the
+packaged manifest as a starting point, then retain the declarations required by
+your model and chosen atomic-data versions. Without an explicit manifest, the
+runner reads literal atomic links from existing `batch.sh`, `batch_ins.sh`, and
+(for spectra) `obs/batobs.sh`. Missing or unusable declarations fall back to the
+corresponding packaged ostar group. Other shell text is never executed or used
+to select executable paths, environment, or thread counts.
+
+Manifest sources are included in plan snapshots and rechecked before launch.
+Targets must stay within the configured atomic root; missing required atomic
+data, duplicate destinations, and unsafe workspace links remain blockers.
+Changing terminal launcher files alone does not invalidate LTE output freshness.

@@ -21,6 +21,7 @@ bp = Blueprint("viewer", __name__)
 QUICK_LINK_FILES = (
     "VADAT",
     "MODEL_SPEC",
+    "atomic_links.json",
     "IN_ITS",
     "MOD_SUM",
     "RVTJ",

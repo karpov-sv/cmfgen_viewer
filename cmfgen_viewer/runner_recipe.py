@@ -1,10 +1,10 @@
 """Explicit first-generation ostar recipes; legacy scripts are never executed.
 
-Only reviewed shell entry points are recognized. Atomic include files may vary,
-but must consist solely of literal atomic link declarations.
+Atomic declarations are read as data; shell launchers are never executed.
 """
 
 import hashlib
+import json
 import math
 import os
 from pathlib import Path
@@ -18,23 +18,13 @@ from .parsers.common import parse_float_token
 from .hydro_lte_alignment import preview_lte_hydro_alignment
 from .runner_validation import validate_rosseland_table, validate_rvtj_core
 from .runner_restart import RESTART_FILES, inspect_restart
+from .model_templates import resolve_model_template
 
 
 class RunnerError(ValueError):
     pass
 
 
-REVIEWED_SCRIPTS = {
-    "batch.sh": {"df872ab82a353d16e8a42489b6ad8b0eb0ad3ea2c4a78e911bb4f7fbb77e3585",
-                 "28c5fa0de471edbaaae5ab61527bd74193f40e7e124c56203d403131e338f5d9"},
-    # Both variants use the same flux/continuum recipe. The poems504 version
-    # requests ten shell threads and omits final root cleanup; the runner owns
-    # thread settings and exposes cleanup as a separate stage.
-    "obs/batobs.sh": {"82ba5a0d6000438e3a9d2574237a71bd5c79f0eab01735c7de9bb87c0acc55de",
-                      "a50f33c5948737808dcac3b1a015e00c57a226c90fba14031361dbfbff75b778"},
-    "obs/bat_ins.sh": {"95c167e47d7e3419b045832f0743237e4aae8bdf8121f3bfefc4dfa60fafb40f"},
-    "lte/ltebat.sh": {"e7955be7aea0b040c135bf960574cd8bfacd05bd174e4e1db11ffa0d2e3d1422", "0591cd72fd414cc1835547e20c283f07287c41ed7a75bdef9e545cd63a4c9fad"},
-}
 PROGRAMS = {"main": "cmfgen_dev.exe", "test": "cmfgen_dev.exe", "lte": "main_lte.exe",
             "hydro": "wind_hyd.exe", "flux": "cmf_flux.exe"}
 # Observer passes use different grids/profiles. The legacy script discards
@@ -65,25 +55,20 @@ def override_controls(text: str, values: dict) -> str:
     return "".join(lines)
 
 
-def _links(script: Path, atomic: Path, *, links_only=False) -> list[dict]:
+def _links(script: Path, atomic: Path) -> list[dict]:
     result = []
     for number, line in enumerate(script.read_text().splitlines(), 1):
         if not line.strip() or line.lstrip().startswith("#"):
             continue
-        # Entry points are hash-reviewed elsewhere, not parsed as arbitrary
-        # shell programs here. Non-link commands can span physical lines
-        # (notably sed edits); shlex on their first line rejects the trailing
-        # backslash. Only tokenize literal ln statements in reviewed scripts.
-        # The separate links-only manifest remains strict about every command.
-        if not links_only and line.split(None, 1)[0] != "ln":
+        # Read only literal link declarations. All other shell text is ignored,
+        # including commands continued across physical lines.
+        if line.split(None, 1)[0] != "ln":
             continue
         try:
             words = shlex.split(line, comments=True)
         except ValueError as exc:
             raise RunnerError(f"Cannot parse {script}:{number}") from exc
         if not words or words[0] != "ln":
-            if links_only:
-                raise RunnerError(f"Unsupported command in atomic manifest {script}:{number}")
             continue
         if len(words) != 4 or words[1] != "-sf":
             raise RunnerError(f"Unsupported link declaration {script}:{number}")
@@ -101,6 +86,50 @@ def _links(script: Path, atomic: Path, *, links_only=False) -> list[dict]:
             raise RunnerError(f"Atomic link escapes configured root: {target}")
         result.append({"name": name, "target": str(resolved), "source": str(script), "line": number})
     return result
+
+
+def resolve_atomic_links(model: Path, stage: str, atomic: Path):
+    """Read atomic setup data independently of shell entry-point behavior."""
+    record = resolve_model_template(model, "atomic_links.json")
+    manifest = Path(record["path"])
+    groups = [("base", "batch.sh"), ("ions", "batch_ins.sh")]
+    if stage == "flux":
+        groups.append(("obs", "obs/batobs.sh"))
+    explicit = record["origin"] != "packaged templates"
+    links, sources, notes = [], [], []
+    defaults = None
+    for group, filename in groups:
+        script = model / filename
+        if not explicit and script.is_file():
+            try:
+                # Inspect atomic declarations only; never require a launcher hash,
+                # interpreter, executable bit, sourced environment, or shell command.
+                rows = _links(script, atomic)
+                links.extend(rows)
+                sources.append(script)
+                continue
+            except (OSError, UnicodeError, RunnerError) as exc:
+                notes.append(f"Ignoring unusable atomic declarations in {filename}: {exc}")
+        if defaults is None:
+            defaults = json.loads(manifest.read_text())
+            if not isinstance(defaults, dict) or set(defaults) - {"base", "ions", "obs"}:
+                raise RunnerError(f"Invalid atomic link manifest: {manifest}")
+        mapping = defaults.get(group, {})
+        if not isinstance(mapping, dict):
+            raise RunnerError(f"Invalid atomic link group {group}: {manifest}")
+        for name, relative in mapping.items():
+            unsafe = (not name or Path(name).name != name or name in {".", ".."}
+                      or not isinstance(relative, str) or not relative
+                      or Path(relative).is_absolute() or ".." in Path(relative).parts)
+            if unsafe:
+                raise RunnerError(f"Unsafe atomic declaration {name}: {manifest}")
+            target = (atomic / relative).resolve()
+            if not target.is_relative_to(atomic):
+                raise RunnerError(f"Atomic link escapes configured root: {name}")
+            links.append({"name": name, "target": str(target), "source": str(manifest)})
+        sources.append(manifest)
+        notes.append(f"Atomic {group} declarations from {record['origin']}: {manifest}")
+    return links, list(dict.fromkeys(sources)), notes
 
 
 def build_run_plan(model: Path, *, stage: str, cmfgen_root: Path, atomic_root: Path,
@@ -139,13 +168,6 @@ def build_run_plan(model: Path, *, stage: str, cmfgen_root: Path, atomic_root: P
         errors.append(f"Workspace is not writable: {cwd}")
     if shutil.disk_usage(model).free < 1024**3:
         errors.append("Runner requires at least 1 GiB free; actual scratch requirements may be larger")
-    scripts = [] if stage == "hydro" else ["batch.sh"] + (
-        ["obs/batobs.sh", "obs/bat_ins.sh"] if stage == "flux" else ["lte/ltebat.sh"] if stage == "lte" else []
-    )
-    for name in scripts:
-        path = model / name
-        if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() not in REVIEWED_SCRIPTS[name]:
-            errors.append(f"Unreviewed script recipe: {name}; no automatic shell fallback")
     hydro_controls = control_occurrences((cwd / "HYDRO_PARAMS").read_text()) if stage == "hydro" and (cwd / "HYDRO_PARAMS").is_file() else {}
     old_model = False
     if stage == "hydro":
@@ -169,19 +191,16 @@ def build_run_plan(model: Path, *, stage: str, cmfgen_root: Path, atomic_root: P
             errors.append(f"Invalid flux input RVTJ: {exc}. Regenerate a finite atmosphere before spectral synthesis.")
     if stage in {"main", "test"}:
         for issue in inspect_model_preflight(model)["issues"]:
-            if issue["code"] == "script-not-executable":
-                continue  # The runner reads scripts as recipes, never runs them.
             if continuing and (issue["file"] == "RVSIG_COL" or issue["code"] in {"missing-gamma-input", "empty-gamma-input", "unpromoted-lte-result"}):
                 warnings.append("Fresh-start input check (not used by continuation): " + issue["message"])
                 continue
             (errors if issue["severity"] == "error" else warnings).append(issue["message"])
-    links = []
-    if stage != "hydro" and not any("Unreviewed" in error for error in errors):
+    links, recipe_files = [], []
+    if stage != "hydro":
         try:
-            links = _links(model / "batch.sh", atomic_root) + _links(model / "batch_ins.sh", atomic_root, links_only=True)
-            if stage == "flux":
-                links += _links(model / "obs/batobs.sh", atomic_root)
-        except (OSError, RunnerError) as exc:
+            links, recipe_files, notes = resolve_atomic_links(model, stage, atomic_root)
+            warnings.extend(notes)
+        except (OSError, ValueError) as exc:
             errors.append(str(exc))
     spec_path = cwd / "MODEL_SPEC" if stage == "lte" else model / "MODEL_SPEC"
     controls = control_occurrences(spec_path.read_text()) if spec_path.is_file() else {}
@@ -312,9 +331,7 @@ def build_run_plan(model: Path, *, stage: str, cmfgen_root: Path, atomic_root: P
         path = cwd / filename
         if path.is_symlink() or (path.exists() and path.stat().st_nlink != 1):
             errors.append(f"Refusing symlinked writable control: {cwd / filename}")
-    paths = {cwd / name for name in required} | {model / name for name in scripts}
-    if stage != "hydro":
-        paths.add(model / "batch_ins.sh")
+    paths = {cwd / name for name in required} | set(recipe_files)
     paths.update(cwd.glob("*_IN"))
     if stage in {"main", "test"}:
         # Snapshot absent files too: a newly appeared checkpoint changes the

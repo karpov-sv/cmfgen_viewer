@@ -57,7 +57,7 @@ Existing checkpoint files are copied in full to `restart-before/` before an auto
 
 After execution, `startup_observed` distinguishes native evidence from preflight expectations. A matching first iteration counter confirms continuation; the native fresh-start message identifies startup/fallback. A fallback emits a prominent progress warning and is recorded even if the computation otherwise succeeds. When neither marker is available (notably a zero-iteration continuation), the observed mode is `unconfirmed`, not an invented confirmation. Normal native-output validation still applies.
 
-The installation roots must be supplied by CLI options, environment, or configuration; shell setup is not sourced. Planning checks executable availability, required inputs, dimensions, active-ion atomic dependencies, workspace safety, process activity, and free disk space. An unreviewed script hash or nonliteral command in the atomic-link manifest blocks execution instead of falling back to the shell. Extending support to another script variant requires reviewing and implementing its operations first.
+The installation roots must be supplied by CLI options, environment, or configuration; shell setup is not sourced. Planning checks executable availability, required inputs, dimensions, active-ion atomic dependencies, workspace safety, process activity, and free disk space. Shell launchers are optional: their absence, executable permissions, interpreter, setup paths, and other shell commands do not block native execution. Atomic declarations come from an explicit `atomic_links.json`, existing literal atomic links, or packaged ostar defaults. Real missing atomic targets and unsafe destinations still block execution; no shell fallback is used.
 
 ## Configuration
 
@@ -123,7 +123,7 @@ Executable settings apply to every native stage in the sequence. `--iterations` 
 
 Successful execution is distinct from convergence or scientific acceptance. Every report explicitly leaves scientific acceptance unassessed. A zero exit code alone is insufficient: Fortran `STOP` can return zero after an error. Text `RVTJ` is supported; binary variants are not validated by this version.
 
-Observer templates may omit `SOB_EW_LAM_BEG` and `SOB_EW_LAM_END`. The continuum pass overrides these only when present, matching the legacy script's replacement-only edits. Absent bounds retain CMF_FLUX's native defaults (900–50,000 Å in the inspected installation), with Sobolev EW calculations disabled for this pass. Missing required controls and duplicate active controls still fail preflight. Atomic-link extraction ignores unrelated commands in hash-reviewed scripts, including continued `sed` commands; the separate atomic-link manifest still permits only literal link declarations.
+Observer templates may omit `SOB_EW_LAM_BEG` and `SOB_EW_LAM_END`. The continuum pass overrides these only when present, matching the legacy script's replacement-only edits. Absent bounds retain CMF_FLUX's native defaults (900–50,000 Å in the inspected installation), with Sobolev EW calculations disabled for this pass. Missing required controls and duplicate active controls still fail preflight. Atomic-link extraction reads only literal declarations and ignores unrelated shell commands, including continued `sed` commands. Shell launchers and their hashes are not execution prerequisites.
 
 ## Resources and progress
 

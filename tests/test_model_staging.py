@@ -397,3 +397,16 @@ def test_model_cleanup_requires_a_valid_explicit_selection(tmp_path: Path) -> No
             model_relpath="model_a",
             selected_names=["obs/BAMAT"],
         )
+
+
+def test_scriptless_model_copy_preserves_native_atomic_manifest(tmp_path):
+    source = tmp_path / 'source'
+    _write_solution(source)
+    for name in ['batch.sh', 'batch_ins.sh', 'clean.sh', 'obs/batobs.sh', 'obs/bat_ins.sh', 'obs/clean.sh']:
+        (source / name).unlink()
+    manifest = '{"base": {}, "ions": {}, "obs": {}}\n'
+    (source / 'atomic_links.json').write_text(manifest)
+    plan = plan_model_from_solution(str(tmp_path), source_relpath='source', destination_relpath='copy')
+    assert plan['ready'], plan['missing_required']
+    create_model_from_solution(str(tmp_path), source_relpath='source', destination_relpath='copy')
+    assert (tmp_path / 'copy/atomic_links.json').read_text() == manifest

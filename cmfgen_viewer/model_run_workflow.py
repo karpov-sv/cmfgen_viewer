@@ -1,4 +1,4 @@
-"""State inspection for externally executed main CMFGEN model runs."""
+"""Readiness and result inspection for main CMFGEN model workflows."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ class ModelRunWorkflowError(ValueError):
     """Raised when a main-model workflow target is invalid."""
 
 
-MAIN_REQUIRED_FILES = ("batch.sh", "VADAT", "MODEL_SPEC", "IN_ITS")
+MAIN_REQUIRED_FILES = ("VADAT", "MODEL_SPEC", "IN_ITS")
 MAIN_RESULT_FILES = ("MOD_SUM", "OUTGEN", "batch.log", "MODEL", "RVTJ")
 
 
