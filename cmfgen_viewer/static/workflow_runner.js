@@ -19,7 +19,9 @@
   const updateButtons = () => {
     const active = states.some(state => state.job?.active || state.busy);
     states.forEach(state => {
-      query(state, "run").disabled = state.busy || active;
+      state.panel.querySelectorAll("[data-inline-run]").forEach(button => {
+        button.disabled = state.busy || active;
+      });
     });
   };
   const render = (state, job) => {
@@ -33,7 +35,8 @@
       query(state, "stage").textContent = job.active ? (job.stage_label || job.sequence_label) : job.sequence_label;
       const elapsed = Math.max(0, Math.floor((Date.now() / 1000) - job.created_epoch));
       query(state, "elapsed").textContent = job.active ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s elapsed` : job.created_label;
-      query(state, "progress").textContent = job.active ? job.progress_label : "Run finished. Review the workflow results and run details.";
+      const progress = query(state, "progress");
+      if (progress) progress.textContent = job.active ? job.progress_label : "Run finished. Review the workflow results and run details.";
     }
     query(state, "details").href = `/runner-jobs/${job.job_id}`;
     const output = query(state, "output");
@@ -78,13 +81,19 @@
       event.preventDefault();
       if (states.some(item => item.busy || item.job?.active)) return;
       const values = new FormData(form);
+      const submitter = event.submitter;
+      if (submitter?.dataset.inlineSequence) {
+        values.set("stage_sequence", submitter.dataset.inlineSequence);
+        values.set("start_token", submitter.dataset.inlineToken);
+      }
+      const label = submitter?.dataset.inlineLabel || state.panel.dataset.label;
       const iterations = values.get("iterations");
       const threads = values.get("threads");
       const settings = [
         state.panel.dataset.stage === "main" ? `Additional iterations: ${iterations || "IN_ITS"}` : "",
         `Threads: ${threads || "configured default"}`,
       ].filter(Boolean).join("\n");
-      if (!window.confirm(`Start ${state.panel.dataset.label} for ${state.panel.dataset.model}?\n\n${settings}\n\nThe run will continue if you close the page or restart the viewer.`)) return;
+      if (!window.confirm(`Start ${label} for ${state.panel.dataset.model}?\n\n${settings}\n\nThe run will continue if you close the page or restart the viewer.`)) return;
       state.busy = true;
       error(state);
       updateButtons();

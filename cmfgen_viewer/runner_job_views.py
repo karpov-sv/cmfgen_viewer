@@ -104,7 +104,7 @@ def model_runner_launch(source_path):
             if model_path(config, signed["start_model"]) != model:
                 raise RunnerError("Run confirmation belongs to another model")
             options = parse_options(request.form, defaults)
-            if options["stages"] != [signed["start_stage"]] or signed["start_stage"] not in {"main", "flux", "lte", "hydro"}:
+            if options["stages"] != signed["start_stage"].split(",") or signed["start_stage"] not in {"main", "main,flux", "flux", "lte", "hydro"}:
                 raise RunnerError("Run confirmation belongs to another stage")
             plan = runner_plan(config, model, options)
             if not plan["ready"]:

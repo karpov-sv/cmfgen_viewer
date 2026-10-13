@@ -20,19 +20,22 @@ const snapshot = (active, status = active ? 'running' : 'succeeded') => ({
   created_label: 'today', stage_label: 'LTE', sequence_label: 'LTE', progress_label: 'progress',
 });
 
-function setup({initialJobs = [], initialActive = true, compact = false, delayHistory = false} = {}) {
+function setup({initialJobs = [], initialActive = true, compact = false, delayHistory = false, stage = 'lte'} = {}) {
   let active = initialActive, unavailable = false, count = 0;
   let releaseHistory;
   const historyReady = new Promise(resolve => {releaseHistory = resolve;});
-  const parts = Object.fromEntries(['run', 'error', 'details', 'stop',
-    ...(!compact ? ['job', 'state', 'stage', 'elapsed', 'progress', 'output'] : [])
+  const parts = Object.fromEntries(['run', 'error', 'details', 'stop', 'job', 'state', 'stage', 'elapsed', 'output',
+    ...(!compact ? ['progress'] : [])
   ].map(name => [name, element()]));
   const panel = element();
   const section = {};
-  panel.dataset = {stage: 'lte', label: 'LTE', model: 'model', runnerUrl: '/run'};
+  panel.dataset = {stage, label: stage, model: 'model', runnerUrl: '/run'};
   panel.querySelector = selector => parts[selector.match(/data-inline-(\w+)/)[1]] || null;
+  const combined = element();
+  combined.dataset = {inlineSequence:'main,flux', inlineToken:'combined-token', inlineLabel:'main + spectra'};
+  panel.querySelectorAll = () => stage === 'main' ? [parts.run, combined] : [parts.run];
   panel.closest = () => section;
-  const events = [], requests = [], timers = new Map(), listeners = {};
+  const events = [], requests = [], confirmations = [], timers = new Map(), listeners = {};
   const document = {
     hidden: false,
     querySelectorAll: () => [panel],
@@ -40,14 +43,14 @@ function setup({initialJobs = [], initialActive = true, compact = false, delayHi
     dispatchEvent: event => events.push(event),
   };
   vm.runInNewContext(source, {
-    document, window: {confirm: () => true}, Date,
+    document, window: {confirm: message => {confirmations.push(message); return true;}}, Date,
     CustomEvent: class {constructor(type, options) {this.type = type; this.detail = options.detail;}},
-    FormData: class {get() {return '';}},
+    FormData: class extends Map {constructor() {super([['stage_sequence',stage], ['start_token','single-token'], ['iterations','3'], ['threads','2']]);}},
     URLSearchParams,
     setTimeout: fn => {timers.set(++count, fn); return count;},
     clearTimeout: id => timers.delete(id),
     fetch: async (url, options) => {
-      requests.push({url, method: options.method || 'GET'});
+      requests.push({url, method: options.method || 'GET', body:options.body});
       if (url === '/run') return {ok:true, json:async () => {
         if (options.method === 'POST') return {job_id:'job', status_url:'/runner-jobs/job?format=json'};
         if (delayHistory) await historyReady;
@@ -59,13 +62,13 @@ function setup({initialJobs = [], initialActive = true, compact = false, delayHi
     },
   });
   return {
-    parts, events, requests, section,
+    parts, combined, events, requests, confirmations, section,
     async restoreHistory() { releaseHistory(); await settle(); },
     set active(value) {active = value;},
     set unavailable(value) {unavailable = value;},
     get pending() {return timers.size;},
-    async launch() {
-      await panel.listeners.submit({target:{matches:()=>true}, preventDefault() {}});
+    async launch(submitter) {
+      await panel.listeners.submit({target:{matches:()=>true}, submitter, preventDefault() {}});
       await settle();
     },
     async tick() {
@@ -128,5 +131,17 @@ function setup({initialJobs = [], initialActive = true, compact = false, delayHi
   slowHistory.active = false;
   await slowHistory.tick();
   assert.equal(slowHistory.events.length, 1);
+
+  const combined = setup({stage:'main'});
+  await settle(); await combined.launch(combined.combined);
+  const request = combined.requests.find(r=>r.method==='POST');
+  assert.equal(request.body.get('stage_sequence'), 'main,flux');
+  assert.equal(request.body.get('start_token'), 'combined-token');
+  assert.equal(request.body.get('iterations'), '3');
+  assert.match(combined.confirmations[0], /Start main \+ spectra/);
+  assert.ok(combined.parts.run.disabled && combined.combined.disabled);
+  combined.active = false;
+  await combined.tick();
+  assert.ok(!combined.parts.run.disabled && !combined.combined.disabled);
   console.log('Workflow runner completion checks passed.');
 })().catch(error => {console.error(error); process.exitCode = 1;});

@@ -215,3 +215,50 @@ def test_inline_launch_recovers_job_and_cancels_without_navigation(workspace, mo
     finally:
         if snapshot_job(model.parent, job_id)['active']:
             cancel_job(model.parent, job_id)
+
+
+@pytest.mark.parametrize('fail_main', [False, True])
+def test_inline_main_and_spectra_sequence(workspace, fail_main):
+    model, make_plan = workspace
+    make_plan('raise SystemExit(7)' if fail_main else SUCCESS, stage='main')
+    (model / 'atomic_links.json').write_text(json.dumps({
+        'base': {'HYD_L_DATA': 'test.dat'}, 'ions': {}, 'obs': {}}))
+    obs = model / 'obs'
+    obs.mkdir()
+    (obs / 'CMF_FLUX_PARAM_INIT').write_text(''.join(f'1 [{key}]\n' for key in (
+        'VTURB_FIX', 'VTURB_MIN', 'VTURB_MAX', 'NUM_ES', 'DO_SOB_LINES', 'GLOBAL_LINE')))
+    (obs / 'IN_FILE').write_text('../RVTJ [RVTJ]\n1 [MASS]\nF [ONLY_OBS_LINES]\n')
+    executable = model.parent / 'cmf/exe/cmf_flux.exe'
+    executable.write_text(f'#!{sys.executable}\n' + '''from pathlib import Path
+assert Path('../MODEL').is_file() and Path('../RVTJ').is_file()
+Path('OUT_FLUX').write_text('CMF_FLUX has finished')
+Path('OBSFRAME').write_text('Continuum Frequencies (2)\\n1 2\\nObserved intensity (Janskys)\\n3 4\\n')
+''')
+    executable.chmod(0o755)
+    client = create_app(basepath=str(model.parent), read_write_enabled=True,
+        cmfgen_root=str(model.parent / 'cmf'), atomic_root=str(model.parent / 'atomic')).test_client()
+    page = client.get('/model-actions/main-computation/model').get_data(as_text=True)
+    token = re.search(r'data-inline-token="([^"]+)"', page)[1]
+    main_token = re.search(r'name="start_token" value="([^"]+)"', page)[1]
+    url = '/model-actions/run/model?format=json'
+    assert client.post(url, data={'action': 'start', 'stage_sequence': 'main,flux', 'start_token': main_token}).status_code == 409
+    assert client.post(url, data={'action': 'start', 'stage_sequence': 'flux,main', 'start_token': token}).status_code == 409
+    response = client.post(url, data={'action': 'start', 'stage_sequence': 'main,flux',
+        'start_token': token, 'iterations': '3', 'threads': '2'})
+    assert response.status_code == 200, response.json
+    job_id = response.json['job_id']
+    try:
+        job = wait_for(model.parent, job_id, lambda job: not job['active'])
+        assert job['stages'] == ['main', 'flux']
+        assert job['options']['iterations'] == 3 and job['options']['threads'] == 2
+        assert job['status'] == ('failed' if fail_main else 'succeeded'), job
+        assert job['result']['completed_stages'] == ([] if fail_main else ['main', 'flux'])
+        assert job['result']['remaining_stages'] == (['flux'] if fail_main else [])
+        assert (model / 'IN_ITS').read_text() == '2 [NUM_ITS]\n'
+        if not fail_main:
+            assert all((obs / name).is_file() for name in ['obs_fin_15', 'obs_fin_10', 'obs_fin_20', 'obs_cont'])
+        else:
+            assert not (obs / 'obs_fin_15').exists()
+    finally:
+        if snapshot_job(model.parent, job_id)['active']:
+            cancel_job(model.parent, job_id)

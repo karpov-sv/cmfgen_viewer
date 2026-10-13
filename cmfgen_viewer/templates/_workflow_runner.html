@@ -9,20 +9,19 @@
     <input type="hidden" name="start_token" value="{{ workflow_runner_token(model_navigation.path, stage) }}">
     {% if stage == 'main' %}<div><label for="inline-{{ stage }}-iterations" class="small form-label mb-1">Additional iterations</label><input id="inline-{{ stage }}-iterations" class="form-control form-control-sm" style="width:10rem" name="iterations" type="number" min="1" placeholder="Use IN_ITS"></div>{% endif %}
     <div><label for="inline-{{ stage }}-threads" class="small form-label mb-1">Threads</label><input id="inline-{{ stage }}-threads" class="form-control form-control-sm" style="width:10rem" name="threads" type="number" min="1" placeholder="Configured default"></div>
-    <button class="btn btn-sm btn-primary" type="submit" data-inline-run>Run {{ label }}</button>
-    {% if compact %}
-    <button type="button" class="btn btn-sm btn-outline-danger d-none" data-inline-stop>Stop</button>
-    <a class="small py-1" data-inline-details href="{{ url_for('viewer.model_runner_launch', source_path=model_navigation.path, stages=stage) }}">Model runner</a>
-    {% endif %}
+    {% if stage == 'main' %}
+    <div class="d-flex flex-wrap gap-2">
+      <button class="btn btn-sm btn-primary" type="submit" data-inline-run>Run main</button>
+      <button class="btn btn-sm btn-primary" type="submit" data-inline-run data-inline-sequence="main,flux" data-inline-token="{{ workflow_runner_token(model_navigation.path, 'main,flux') }}" data-inline-label="main + spectra">Run main + spectra</button>
+    </div>
+    {% else %}<button class="btn btn-sm btn-primary" type="submit" data-inline-run>Run {{ label }}</button>{% endif %}
   </form>
   </div>
   <div data-inline-error class="alert alert-danger py-2 mt-2 mb-0 d-none" role="alert"></div>
-  {% if not compact %}
   <div data-inline-job class="mt-2 d-none" aria-live="polite">
     <div class="d-flex flex-wrap align-items-center gap-2"><span data-inline-state class="badge bg-secondary"></span><span class="small" data-inline-stage></span><span class="small text-muted" data-inline-elapsed></span><a class="small" data-inline-details>Run details</a><a class="small d-none" data-inline-output target="_blank" rel="noopener">View output</a><button type="button" class="btn btn-sm btn-outline-danger d-none" data-inline-stop>Stop run</button></div>
-    <p class="small mb-0 mt-1" data-inline-progress></p>
+    {% if not compact %}<p class="small mb-0 mt-1" data-inline-progress></p>{% endif %}
   </div>
-  {% endif %}
   {% if terminal|trim %}<div class="border-top mt-2 pt-2">{{ terminal }}</div>{% endif %}
 </div>
 {% endif %}
