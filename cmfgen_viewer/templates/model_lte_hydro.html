@@ -4,6 +4,8 @@
 
 {% from "_workflow_ui.html" import command_box, runtime_badge %}
 
+{% from "_workflow_runner.html" import stage_runner with context %}
+
 {% block body %}
   {% include "_breadcrumb.html" %}
 
@@ -12,7 +14,7 @@
   {% set runtime_compact = true %}
   <div class="workflow-page lte-hydro-workflow">
     <h2 class="h4 mb-1">LTE / hydro workflow</h2>
-    <p class="small text-muted mb-2">Prepare and inspect files here; use Model runner or run commands in your terminal. Process status updates live; results refresh automatically when a run stops.</p>
+    <p class="small text-muted mb-2">Prepare, run, and inspect stages here; use Model runner for custom sequences and resource settings. Process status updates live; results refresh automatically when a run stops.</p>
     <div class="workflow-overview mb-3">
       <div><span class="small text-muted me-2">Workspace</span><span class="badge {{ 'bg-success' if state.prepared else 'bg-secondary' }}">{{ 'Prepared' if state.prepared else 'Needs preparation' }}</span></div>
       <div><span class="small text-muted me-2">LTE</span>{{ runtime_badge(state.lte_runtime, source_path, output_ready=not awaiting_lte) }}</div>
@@ -77,7 +79,7 @@
 
     <details class="card workflow-stage mb-3" id="lte-run" {% if state.lte_runtime.active or (state.prepared and awaiting_lte) %}open{% endif %}>
       <summary class="card-header d-flex justify-content-between align-items-center">
-        <strong>2. Configure and run LTE externally</strong>
+        <strong>2. Configure and run LTE</strong>
         {% if state.lte_runtime.active %}<span class="badge bg-success">Running</span>{% elif state.lte_diagnostics.status == 'failed' %}<span class="badge bg-danger">Run failed</span>{% elif state.lte_output.fresh and state.lte_ready %}<span class="badge bg-success">Output ready</span>{% elif state.lte_ready %}<span class="badge bg-warning text-dark">Ready to run</span>{% elif state.prepared %}<span class="badge bg-warning text-dark">Needs configuration</span>{% else %}<span class="badge bg-secondary">Blocked</span>{% endif %}
       </summary>
       <div class="card-body">
@@ -146,17 +148,19 @@
           {% if state.missing_lte_control_keys %}
             <div class="alert alert-warning py-2 mb-0">Add the required LTE controls before running: <code>{{ state.missing_lte_control_keys | join(', ') }}</code>.</div>
           {% else %}
-            <p class="small mb-1">After reviewing TEFF/LOGG and the ND/NC/NP grid, run:</p>
-            {{ command_box(state.commands.lte, "lte-command") }}
+            <p class="small mb-1">Review TEFF/LOGG and the ND/NC/NP grid before starting.</p>
             {% if state.lte_output.stale %}<div class="alert alert-warning py-2 mb-0"><code>ROSSELAND_LTE_TAB</code> is older than an LTE input; rerun LTE.</div>{% elif not state.lte_output.exists %}<p class="text-muted mb-0">Waiting for <code>lte/ROSSELAND_LTE_TAB</code>.</p>{% endif %}
           {% endif %}
         {% else %}<p class="text-muted mb-0">Complete workspace preparation first.</p>{% endif %}
+        {% call stage_runner("lte", "LTE", compact=true) %}
+          {% if state.prepared and not state.missing_lte_control_keys %}<details class="workflow-help mb-0"><summary class="py-1">Run in terminal</summary>{{ command_box(state.commands.lte, "lte-command") }}</details>{% endif %}
+        {% endcall %}
       </div>
     </details>
 
     <details class="card workflow-stage mb-3" id="hydro-run" {% if state.hydro_runtime.active or (not awaiting_lte and ((state.hydro_alignment and state.hydro_alignment.has_mismatch) or state.hydro_diagnostics.status == 'failed' or (state.prepared and not state.hydro_output_ready))) %}open{% endif %}>
       <summary class="card-header d-flex justify-content-between align-items-center">
-        <strong>3. Configure and run hydro externally</strong>
+        <strong>3. Configure and run hydro</strong>
         {% if state.hydro_runtime.active %}<span class="badge bg-success">Running</span>{% elif awaiting_lte %}<span class="badge bg-secondary">Waiting for LTE</span>{% if state.hydro_alignment and state.hydro_alignment.has_mismatch %}<span class="badge bg-warning text-dark">Parameter mismatch</span>{% endif %}
         {% elif state.hydro_alignment and state.hydro_alignment.has_mismatch %}<span class="badge bg-danger">Parameter mismatch</span>{% elif state.hydro_diagnostics.status == 'failed' %}<span class="badge bg-danger">Run failed</span>{% elif state.hydro_output_ready %}<span class="badge bg-success">Output ready</span>{% elif state.hydro_ready %}<span class="badge bg-warning text-dark">Ready to run</span>{% else %}<span class="badge bg-secondary">Blocked</span>{% endif %}
       </summary>
@@ -224,8 +228,7 @@
         {% endif %}
         {% if state.hydro_ready %}
           <a class="btn btn-sm btn-outline-primary mb-2" href="{{ url_for('viewer.model_parameters', source_path=source_path ~ '/lte', file='HYDRO_PARAMS') }}">Edit HYDRO_PARAMS</a>
-          <p class="small mb-1">Verify LOGG, TEFF, luminosity and related values, then run:</p>
-          {{ command_box(state.commands.hydro, "hydro-command") }}
+          <p class="small mb-1">Verify LOGG, TEFF, luminosity and related values before starting.</p>
           <details class="workflow-help small mb-2"><summary>Hydro interactive instructions</summary><p class="text-muted">The pipeline preserves interactive input, writes stdout and stderr to <code>WIND_HYD</code>, and retains the executable exit status through <code>pipefail</code>.</p>
           <p class="small mb-1">Interactive answers from the supplied instructions:</p>
           <ol class="small">{% for answer in state.hydro_answers %}<li><code>{{ answer }}</code></li>{% endfor %}</ol></details>
@@ -233,6 +236,9 @@
         {% elif composition.ready and composition.changed %}<p class="text-muted mb-0">Apply LTE parameters above, then rerun hydro before reviewing and promoting its results.</p>
         {% elif awaiting_lte %}<p class="text-muted mb-0">A fresh, usable <code>lte/ROSSELAND_LTE_TAB</code> is required before hydro.</p>
         {% else %}<p class="text-muted mb-0">Resolve the hydro input validation issues above before running.</p>{% endif %}
+        {% call stage_runner("hydro", "hydro", compact=true) %}
+          {% if state.hydro_ready %}<details class="workflow-help mb-0"><summary class="py-1">Run in terminal</summary>{{ command_box(state.commands.hydro, "hydro-command") }}</details>{% endif %}
+        {% endcall %}
       </div>
     </details>
 
@@ -349,4 +355,5 @@
   </div>
   <script src="{{ url_for('static', filename='model_runtime.js') }}" defer></script>
   <script src="{{ url_for('static', filename='workflow_ui.js') }}" defer></script>
+  <script src="{{ url_for('static', filename='workflow_runner.js') }}" defer></script>
 {% endblock %}

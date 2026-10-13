@@ -129,7 +129,10 @@ def test_main_computation_page_links_runner_and_is_read_write_gated(tmp_path: Pa
     page = client.get("/model-actions/main-computation/model_a")
     assert page.status_code == 200
     assert b"Main model computation" in page.data
-    assert b"Use Model runner or run commands in your terminal." in page.data
+    assert b"Run stages below" in page.data
+    assert b'data-stage="main"' in page.data
+    assert b'data-stage="flux"' in page.data
+    assert b"workflow_runner.js" in page.data
     assert b"/model-actions/run/model_a" in page.data
     assert b"./batch.sh" in page.data
     assert b"Waiting for" in page.data

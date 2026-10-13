@@ -19,6 +19,12 @@ def signer():
     return URLSafeTimedSerializer(current_app.secret_key, salt="runner-launch")
 
 
+@bp.app_context_processor
+def workflow_runner_context():
+    return {"workflow_runner_token": lambda source_path, stage: signer().dumps(
+        {"start_model": source_path, "start_stage": stage})}
+
+
 def require_write():
     config = _viewer_config()
     if not config.get("read_write_enabled"):
@@ -87,9 +93,26 @@ def model_runner_launch(source_path):
     if all(stage in STAGE_CHOICES for stage in suggested):
         defaults = suggested
     error, plan, token = "", None, None
+    inline = request.args.get("format") == "json"
     options = {"stages": defaults, "iterations": None, "threads": None, "timeout": None,
                "memory_mib": None, "fresh_start": False, "no_core_dumps": False}
     try:
+        if request.method == "POST" and inline and request.form.get("action") == "start":
+            signed = signer().loads(request.form.get("start_token", ""), max_age=86400)
+            if not isinstance(signed.get("start_model"), str) or not isinstance(signed.get("start_stage"), str):
+                raise RunnerError("Invalid run confirmation")
+            if model_path(config, signed["start_model"]) != model:
+                raise RunnerError("Run confirmation belongs to another model")
+            options = parse_options(request.form, defaults)
+            if options["stages"] != [signed["start_stage"]] or signed["start_stage"] not in {"main", "flux", "lte", "hydro"}:
+                raise RunnerError("Run confirmation belongs to another stage")
+            plan = runner_plan(config, model, options)
+            if not plan["ready"]:
+                raise RunnerError("; ".join(plan["errors"]) or "Stage preflight is blocked")
+            job_id = launch_job(config["basepath"], model, options,
+                lambda: runner_plan(config, model, options), fingerprint(plan))
+            current_app.extensions["cmfgen_changes"].notify()
+            return jsonify(job_id=job_id, status_url=url_for("viewer.runner_job", job_id=job_id, format="json"))
         if request.method == "POST" and request.form.get("action") == "launch":
             reviewed = signer().loads(request.form.get("review_token", ""), max_age=1800)
             if reviewed["model"] != str(model):
@@ -98,14 +121,28 @@ def model_runner_launch(source_path):
             job_id = launch_job(config["basepath"], model, options,
                 lambda: runner_plan(config, model, options), reviewed["fingerprint"])
             current_app.extensions["cmfgen_changes"].notify()
+            if inline:
+                return jsonify(job_id=job_id, status_url=url_for("viewer.runner_job", job_id=job_id, format="json"))
             return redirect(url_for("viewer.runner_job", job_id=job_id))
         if request.method == "POST":
+            if inline:
+                raise RunnerError("Use the Model runner page to preview runs")
             options = parse_options(request.form, defaults)
             plan = runner_plan(config, model, options)
             if plan["ready"]:
                 token = signer().dumps({"model": str(model), "options": options, "fingerprint": fingerprint(plan)})
     except (RunnerError, OSError, ValueError, BadSignature) as exc:
         error = str(exc)
+    if inline:
+        if request.method == "GET":
+            jobs = [job for job in list_jobs(config["basepath"]) if job["model"] == str(model)][:10]
+            response = jsonify(jobs=jobs)
+        else:
+            response = jsonify(error=error)
+            if error:
+                response.status_code = 409
+        response.headers["Cache-Control"] = "no-store"
+        return response
     breadcrumb = make_breadcrumb(source_path)
     breadcrumb[-1]["path"] = source_path
     breadcrumb.append({"name": "Model runner", "path": None})
@@ -143,7 +180,11 @@ def runner_job_cancel(job_id):
         cancel_job(config["basepath"], job_id)
         current_app.extensions["cmfgen_changes"].notify()
     except (RunnerError, OSError, BadSignature) as exc:
+        if request.args.get("format") == "json":
+            return jsonify(error=str(exc)), 409
         abort(409, str(exc))
+    if request.args.get("format") == "json":
+        return jsonify(stopping=True)
     return redirect(url_for("viewer.runner_job", job_id=job_id))
 
 

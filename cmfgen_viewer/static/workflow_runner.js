@@ -1,0 +1,122 @@
+(() => {
+  "use strict";
+  const panels = Array.from(document.querySelectorAll("[data-workflow-runner]"));
+  if (!panels.length) return;
+  const states = panels.map(panel => ({panel, job: null, busy: false}));
+  let timer, refreshing = false;
+  const query = (state, name) => state.panel.querySelector(`[data-inline-${name}]`);
+  const error = (state, message = "") => {
+    const target = query(state, "error");
+    target.textContent = message;
+    target.classList.toggle("d-none", !message);
+  };
+  const json = async (url, init = {}) => {
+    const response = await fetch(url, {cache: "no-store", ...init});
+    const data = await response.json();
+    if (!response.ok) throw Error(data.error || "The runner is unavailable. Try again after the viewer reconnects.");
+    return data;
+  };
+  const updateButtons = () => {
+    const active = states.some(state => state.job?.active || state.busy);
+    states.forEach(state => {
+      query(state, "run").disabled = state.busy || active;
+    });
+  };
+  const render = (state, job) => {
+    state.job = job;
+    if (query(state, "job")) {
+      query(state, "job").classList.remove("d-none");
+      const badge = query(state, "state");
+      badge.className = `badge ${job.status_class}`;
+      badge.textContent = job.status_label;
+      query(state, "stage").textContent = job.active ? (job.stage_label || job.sequence_label) : job.sequence_label;
+      const elapsed = Math.max(0, Math.floor((Date.now() / 1000) - job.created_epoch));
+      query(state, "elapsed").textContent = job.active ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s elapsed` : job.created_label;
+      query(state, "progress").textContent = job.active ? job.progress_label : "Run finished. Review the workflow results and run details.";
+    }
+    query(state, "details").href = `/runner-jobs/${job.job_id}`;
+    const output = query(state, "output");
+    if (output) {
+      output.href = `/runner-jobs/${job.job_id}/log?native=1`;
+      output.classList.toggle("d-none", !job.native_log);
+    }
+    const stop = query(state, "stop");
+    stop.classList.toggle("d-none", !job.active);
+    stop.disabled = !job.can_cancel || state.busy;
+    if (job.active) {
+      state.panel.closest("details.workflow-stage").open = true;
+    }
+    updateButtons();
+  };
+  const refresh = async () => {
+    clearTimeout(timer);
+    if (document.hidden || refreshing) return;
+    refreshing = true;
+    try {
+      const active = states.filter(state => state.job?.active);
+      const ids = [...new Set(active.map(state => state.job.job_id))];
+      for (const id of ids) {
+        const job = await json(`/runner-jobs/${id}?format=json`);
+        active.filter(state => state.job.job_id === id).forEach(state => render(state, job));
+        if (!job.active) {
+          document.dispatchEvent(new CustomEvent("cmfgen:runner-finished"));
+        }
+      }
+    } catch (_error) { /* Keep the job visible and reconnect after viewer restart. */ }
+    finally {
+      refreshing = false;
+      if (states.some(state => state.job?.active)) timer = setTimeout(refresh, 5000);
+    }
+  };
+  states.forEach(state => {
+    state.panel.addEventListener("submit", async event => {
+      const form = event.target;
+      if (!form.matches("[data-inline-start]")) return;
+      event.preventDefault();
+      if (states.some(item => item.busy || item.job?.active)) return;
+      const values = new FormData(form);
+      const iterations = values.get("iterations");
+      const threads = values.get("threads");
+      const settings = [
+        state.panel.dataset.stage === "main" ? `Additional iterations: ${iterations || "IN_ITS"}` : "",
+        `Threads: ${threads || "configured default"}`,
+      ].filter(Boolean).join("\n");
+      if (!window.confirm(`Start ${state.panel.dataset.label} for ${state.panel.dataset.model}?\n\n${settings}\n\nThe run will continue if you close the page or restart the viewer.`)) return;
+      state.busy = true;
+      error(state);
+      updateButtons();
+      try {
+        const data = await json(state.panel.dataset.runnerUrl, {method: "POST", body: values});
+        state.job = {job_id: data.job_id, active: true};
+        render(state, await json(data.status_url));
+      } catch (failure) { error(state, failure.message); }
+      finally { state.busy = false; updateButtons(); if (state.job?.active) refresh(); }
+    });
+    query(state, "stop").addEventListener("click", async () => {
+      state.busy = true;
+      query(state, "stop").disabled = true;
+      error(state);
+      updateButtons();
+      try {
+        const job = await json(`/runner-jobs/${state.job.job_id}?format=json`);
+        await json(`/runner-jobs/${job.job_id}/cancel?format=json`, {
+          method: "POST", body: new URLSearchParams({cancel_token: job.cancel_token})
+        });
+        refresh();
+      } catch (failure) { error(state, failure.message); }
+      finally { state.busy = false; query(state, "stop").disabled = !state.job.can_cancel; updateButtons(); }
+    });
+  });
+  document.addEventListener("visibilitychange", refresh);
+  // One history request restores all cards, with polling only while a job is active.
+  json(panels[0].dataset.runnerUrl).then(async ({jobs}) => {
+    for (const state of states) {
+      const job = jobs.find(job => job.stages.includes(state.panel.dataset.stage));
+      if (job) render(state, job);
+    }
+    // An active job from a different workflow also reserves this model.
+    const other = jobs.find(job => job.active && !states.some(state => state.job?.job_id === job.job_id));
+    if (other) render(states[0], other);
+    refresh();
+  }).catch(failure => states.forEach(state => error(state, failure.message)));
+})();

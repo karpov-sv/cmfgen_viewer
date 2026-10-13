@@ -171,7 +171,7 @@
 
   const formFields = Array.from(document.querySelectorAll(
     '.workflow-page form input:not([type="hidden"]):not([type="submit"]), .workflow-page form select, .workflow-page form textarea',
-  ));
+  )).filter(field => !field.closest("[data-inline-start]"));
   const fieldValue = field => field.type === "checkbox" || field.type === "radio"
     ? field.checked : field.tagName === "SELECT"
       ? JSON.stringify(Array.from(field.options).map(option => option.selected)) : field.value;
@@ -197,6 +197,8 @@
       button.addEventListener("click", reloadPage);
     }, 1000);
   };
+
+  document.addEventListener("cmfgen:runner-finished", () => refreshResults(monitors[0]));
 
   const render = (monitor, runtime) => {
     if (monitor.dataset.runtimeCompact === "true") {

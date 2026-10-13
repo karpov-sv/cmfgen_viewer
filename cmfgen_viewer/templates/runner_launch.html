@@ -48,16 +48,7 @@
   <summary class="card-header d-flex justify-content-between align-items-center"><strong>2. Review and launch</strong><span class="badge {{ 'bg-success' if plan and plan.ready else 'bg-danger' if plan else 'bg-secondary' }}">{{ 'Ready' if plan and plan.ready else 'Blocked' if plan else 'Awaiting preview' }}</span></summary>
   <div class="card-body">
     {% if plan %}
-    <h2 class="h6">{{ stage_sequence(options.stages) }}</h2>
-    {% set first = plan.initial_plan|default(plan) %}
-    {% if first.restart %}<p>{{ first.restart.message }}</p>{% endif %}
-    <p class="small">Main iterations: {{ options.iterations or 'from IN_ITS' }} · Threads: {{ options.threads or 'configured default' }} · Timeout: {{ options.timeout or 'unlimited' }}{% if options.timeout %} seconds{% endif %} · Memory: {{ options.memory_mib or 'no added limit' }}{% if options.memory_mib %} MiB{% endif %}{% if options.fresh_start %} · Fresh start{% endif %}</p>
-    {% for issue in plan.errors %}<div class="alert alert-danger py-2">{{ issue }}</div>{% endfor %}
-    {% set warnings = plan.warnings + (first.warnings if plan.initial_plan is defined else []) %}
-    {% if warnings %}<details class="workflow-help mb-2"><summary>Preflight warnings ({{ warnings|length }})</summary><ul class="small mt-2">{% for warning in warnings %}<li>{{ warning }}</li>{% endfor %}</ul></details>{% endif %}
-    {% if plan.initial_plan is defined %}<p class="small">Only the first stage is preflighted now. Each later stage is checked after the preceding outputs are available. A failed stage stops the sequence.</p>{% endif %}
-    <details class="workflow-help"><summary>Plan details</summary><pre class="small mt-2">{{ plan|tojson(indent=2) }}</pre></details>
-    {% if review_token %}<form method="post" class="mt-3"><input type="hidden" name="action" value="launch"><input type="hidden" name="review_token" value="{{ review_token }}"><button class="btn btn-primary"><i class="fa fa-play me-1" aria-hidden="true"></i>Launch reviewed run</button></form>{% endif %}
+    {% include "_runner_review.html" %}
     {% else %}<p class="small text-muted mb-0">Choose the stages and settings above, then preview the run to check its inputs and startup mode.</p>{% endif %}
   </div>
 </details>

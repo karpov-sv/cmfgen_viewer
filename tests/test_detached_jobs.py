@@ -163,3 +163,55 @@ def test_reviewed_ui_launch_reconnect_and_native_log(workspace, monkeypatch):
     assert b'Run result' in recovered.get(f'/runner-jobs/{job_id}').data
     assert b'native output' in recovered.get(f'/runner-jobs/{job_id}/log?native=1').data
     assert b'run_finished' in recovered.get(f'/runner-jobs/{job_id}/log?events=1').data
+
+
+def test_inline_start_validates_stage_preflight_and_requires_write_mode(workspace, monkeypatch):
+    model, make_plan = workspace
+    plan = make_plan(stage='main')
+    app = create_app(basepath=str(model.parent), read_write_enabled=True)
+    client = app.test_client()
+    monkeypatch.setattr('cmfgen_viewer.runner_job_views.runner_plan', lambda *args: plan)
+    url = '/model-actions/run/model?format=json'
+    assert client.get(url).json == {'jobs': []}
+    assert client.get(url).headers['Cache-Control'] == 'no-store'
+    assert client.post(url, data={'action': 'start', 'stage_sequence': 'main'}).status_code == 409
+    page = client.get('/model-actions/main-computation/model').get_data(as_text=True)
+    token = re.search(r'name="start_token" value="([^"]+)"', page)[1]
+    assert client.post(url, data={'action': 'start', 'stage_sequence': 'flux', 'start_token': token}).status_code == 409
+    assert client.post(url, data={'action': 'preview', 'stage_sequence': 'main'}).status_code == 409
+    plan['ready'] = False
+    plan['errors'] = ['Missing required native input']
+    response = client.post(url, data={'action': 'start', 'stage_sequence': 'main', 'start_token': token})
+    assert response.status_code == 409
+    assert 'Missing required native input' in response.json['error']
+    assert not (model.parent / detached_jobs.JOB_DIR).exists()
+    readonly = create_app(basepath=str(model.parent)).test_client()
+    assert readonly.post(url, data={'action': 'start', 'stage_sequence': 'main', 'start_token': token}).status_code == 403
+
+
+def test_inline_launch_recovers_job_and_cancels_without_navigation(workspace, monkeypatch):
+    model, make_plan = workspace
+    plan = make_plan('import time; time.sleep(30)\n' + SUCCESS, stage='main')
+    app = create_app(basepath=str(model.parent), read_write_enabled=True, secret_key='inline-test')
+    client = app.test_client()
+    monkeypatch.setattr('cmfgen_viewer.runner_job_views.runner_plan', lambda *args: plan)
+    url = '/model-actions/run/model?format=json'
+    page = client.get('/model-actions/main-computation/model').get_data(as_text=True)
+    token = re.search(r'name="start_token" value="([^"]+)"', page)[1]
+    response = client.post(url, data={'action': 'start', 'stage_sequence': 'main', 'start_token': token})
+    assert response.status_code == 200
+    job_id = response.json['job_id']
+    try:
+        wait_for(model.parent, job_id, lambda job: job['status'] == 'running')
+        recovered = create_app(basepath=str(model.parent), read_write_enabled=True, secret_key='new-session').test_client()
+        job = recovered.get(url).json['jobs'][0]
+        assert job['job_id'] == job_id and job['active']
+        status = recovered.get(response.json['status_url']).json
+        assert recovered.post(f'/runner-jobs/{job_id}/cancel?format=json', data={'cancel_token': 'invalid'}).status_code == 409
+        cancelled = recovered.post(f'/runner-jobs/{job_id}/cancel?format=json', data={'cancel_token': status['cancel_token']})
+        assert cancelled.json == {'stopping': True}
+        assert wait_for(model.parent, job_id, lambda job: not job['active'])['status'] == 'cancelled'
+        assert inspect_model_activity(model)['safe_to_modify']
+    finally:
+        if snapshot_job(model.parent, job_id)['active']:
+            cancel_job(model.parent, job_id)

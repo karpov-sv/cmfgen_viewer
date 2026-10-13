@@ -4,13 +4,15 @@
 
 {% from "_workflow_ui.html" import command_box, runtime_badge %}
 
+{% from "_workflow_runner.html" import stage_runner with context %}
+
 {% block body %}
   {% include "_breadcrumb.html" %}
 
   {% include "_model_toolbar.html" %}
 
   <h2 class="h4 mb-1">Main model computation</h2>
-  <p class="small text-muted mb-2">Use Model runner or run commands in your terminal. Process status updates live; results refresh automatically when a run stops.</p>
+  <p class="small text-muted mb-2">Run stages below or use Model runner for custom sequences and resource settings. Process status updates live; results refresh automatically when a run stops.</p>
   <div class="workflow-overview mb-3">
     <div><span class="small text-muted me-2">Next run</span><span class="badge {{ 'bg-success' if state.ready else 'bg-secondary' }}">{{ 'Ready' if state.ready else 'Blocked' }}</span></div>
     <div><span class="small text-muted me-2">Process</span>{{ runtime_badge(state.runtime, source_path) }}</div>
@@ -56,8 +58,12 @@
       {% set runtime_url = url_for('viewer.model_workflow_runtime', kind='main', source_path=source_path) %}
       {% set runtime_source_path = source_path %}
       {% include '_model_runtime_status.html' %}
+      <div class="row g-3 mb-3">
+        <div class="col-md-6">{{ stage_runner("main", "main", fill=true) }}</div>
+        <div class="col-md-6">{{ stage_runner("flux", "spectra", fill=true) }}</div>
+      </div>
       {% if state.ready %}
-        {{ command_box(state.command, "main-command") }}
+        <details class="workflow-help mb-2"><summary>Run in terminal</summary>{{ command_box(state.command, "main-command") }}</details>
       {% elif state.missing %}
         <p class="text-muted mb-0">Supply the missing inputs first: <code>{{ state.missing | join(', ') }}</code>.</p>
       {% else %}
@@ -217,4 +223,5 @@
   <script src="{{ url_for('static', filename='model_convergence.js') }}" defer></script>
   <script src="{{ url_for('static', filename='model_runtime.js') }}" defer></script>
   <script src="{{ url_for('static', filename='workflow_ui.js') }}" defer></script>
+  <script src="{{ url_for('static', filename='workflow_runner.js') }}" defer></script>
 {% endblock %}
