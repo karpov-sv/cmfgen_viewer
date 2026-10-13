@@ -5,17 +5,7 @@
 {% from "_workflow_ui.html" import command_box, runtime_badge %}
 
 {% block body %}
-  {% if breadcrumb %}
-    <nav aria-label="breadcrumb">
-      <ol class="breadcrumb">
-        {% for item in breadcrumb %}
-          <li class="breadcrumb-item {% if item.path is none %}active{% endif %}">
-            {% if item.path is not none %}<a href="{{ url_for('viewer.view', path=item.path) }}">{{ item.name }}</a>{% else %}{{ item.name }}{% endif %}
-          </li>
-        {% endfor %}
-      </ol>
-    </nav>
-  {% endif %}
+  {% include "_breadcrumb.html" %}
 
   {% include "_model_toolbar.html" %}
   {% set awaiting_lte = not state.lte_output.fresh or state.lte_diagnostics.fatal or state.lte_runtime.active %}

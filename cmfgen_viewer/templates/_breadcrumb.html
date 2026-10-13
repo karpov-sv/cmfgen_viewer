@@ -1,0 +1,25 @@
+{% if breadcrumb %}
+  <nav aria-label="breadcrumb" class="mb-3">
+    <ol class="breadcrumb mb-0">
+      {% for item in breadcrumb %}
+        <li class="breadcrumb-item {% if item.path is none %}active{% endif %}">
+          {% if item.path is not none %}
+            <a href="{{ url_for('viewer.view', path=item.path, **(view_query | default({}))) }}">{{ item.name }}</a>
+          {% else %}
+            {{ item.name }}
+          {% endif %}
+          {% if loop.last and model_navigation %}
+            <button type="button" class="btn btn-sm btn-link text-secondary py-0 px-1"
+                    data-copy-path="{{ model_navigation.copy_path }}"
+                    data-copy-path-kind="{{ model_navigation.copy_path_kind }}"
+                    title="Copy full {{ model_navigation.copy_path_kind }} path: {{ model_navigation.copy_path }}"
+                    aria-label="Copy full {{ model_navigation.copy_path_kind }} path">
+              <i class="fa fa-copy" aria-hidden="true"></i>
+            </button>
+            <span class="small" data-path-copy-status role="status"></span>
+          {% endif %}
+        </li>
+      {% endfor %}
+    </ol>
+  </nav>
+{% endif %}

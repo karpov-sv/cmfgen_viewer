@@ -29,6 +29,7 @@ def test_workspace_navigation_returns_to_parent_model(tmp_path, endpoint, sectio
         endpoint, {"source_path": "grid/star/lte"},
     )
     assert nav["path"] == "grid/star"
+    assert nav["absolute_path"] == str(tmp_path / "grid/star")
     assert nav["active"] == section
 
 
@@ -58,11 +59,14 @@ def test_folder_and_file_share_one_toolbar(tmp_path):
         assert response.status_code == 200
         html = response.data.decode()
         assert html.count('aria-label="Model workflow"') == 1
+        assert f'data-copy-path="{tmp_path / path}"' in html
+        assert f'aria-label="Copy full {"file" if path.endswith("VADAT") else "folder"} path"' in html
         assert 'folder-shortcut-groups' in html
         assert 'Quick links:' in html
         assert 'href="/view/star"' in html
         assert 'disabled title="Model-directory read-write mode is disabled."' in html
     assert b'aria-label="Model workflow"' not in client.get("/view/").data
+    assert b'data-copy-path' not in client.get("/view/").data
 
 
 def test_lte_and_observer_shortcuts_stay_local_and_flat(tmp_path):
@@ -82,7 +86,10 @@ def test_lte_and_observer_shortcuts_stay_local_and_flat(tmp_path):
         assert b'Quick links:' in response.data
         assert f'href="/view/star/{folder}/{filename}"'.encode() in response.data
         assert b'aria-label="Model workflow"' in response.data
+        assert f'data-copy-path="{tmp_path / "star" / folder}"'.encode() in response.data
+        assert b'aria-label="Copy full folder path"' in response.data
     response = client.get('/view/star/lte/VADAT')
     assert response.status_code == 200
     assert b'Quick links:' in response.data
     assert b'folder-shortcut-groups' not in response.data
+    assert f'data-copy-path="{tmp_path / "star/lte/VADAT"}"'.encode() in response.data

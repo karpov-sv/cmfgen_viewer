@@ -46,8 +46,13 @@ def model_navigation_context(config, endpoint, view_args):
         active = "folder"
     elif endpoint == "viewer.model_workflow_plan":
         active = "lte" if view_args.get("scope") == "lte-hydro" else "main"
+    browsing = endpoint == "viewer.view"
+    copying_file = browsing and target.is_file()
     return {
         "path": model.relative_to(base).as_posix(),
+        "absolute_path": str(model),
+        "copy_path": str(target if browsing else model),
+        "copy_path_kind": "file" if copying_file else "folder" if browsing else "model",
         "read_write": bool(config.get("read_write_enabled", False)),
         "supports_staging": not is_sn_model_directory(model),
         "has_spectrum": discover_final_spectrum_files(model) is not None,

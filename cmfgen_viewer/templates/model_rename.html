@@ -3,21 +3,7 @@
 {% block title %}Rename or Move Model - CMFGEN Viewer{% endblock %}
 
 {% block body %}
-  {% if breadcrumb %}
-    <nav aria-label="breadcrumb">
-      <ol class="breadcrumb">
-        {% for item in breadcrumb %}
-          <li class="breadcrumb-item {% if item.path is none %}active{% endif %}">
-            {% if item.path is not none %}
-              <a href="{{ url_for('viewer.view', path=item.path) }}">{{ item.name }}</a>
-            {% else %}
-              {{ item.name }}
-            {% endif %}
-          </li>
-        {% endfor %}
-      </ol>
-    </nav>
-  {% endif %}
+  {% include "_breadcrumb.html" %}
 
   {% include "_model_toolbar.html" %}
 
