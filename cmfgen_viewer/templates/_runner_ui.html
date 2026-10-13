@@ -1,0 +1,6 @@
+{% macro stage_sequence(stages) -%}
+  {% for stage in stages %}{{ stage_labels.get(stage, stage) }}{% if not loop.last %} → {% endif %}{% endfor %}
+{%- endmacro %}
+{% macro status_badge(status, label='', live=false) -%}
+  <span class="badge {{ status_classes.get(status, 'bg-secondary') }}"{% if live %} data-runner-state{% endif %}>{{ label or status_labels.get(status, status|replace('_', ' ')|capitalize) }}</span>
+{%- endmacro %}

@@ -30,7 +30,7 @@ nthreads = 1
 
 Keys are case-insensitive. `CMFDIST`, `ATOMIC`, and `threads` are also accepted configuration keys. Use `#` comments and quote paths containing spaces. `~` expands; relative configuration paths are resolved from the configuration file's directory. CLI/environment paths are relative to the startup directory. Configuration files are parsed, never sourced: shell commands, `export`, and `$VARIABLE` substitution are unsupported. Invalid or duplicate settings produce an error.
 
-Viewer settings support preflight checks; they are not injected into commands you run separately in a terminal. Make sure your shell setup points to the same installation and atomic tree. The runner uses its resolved settings directly when launching native executables.
+Viewer settings support preflight checks and configure UI-launched runner jobs. They are not injected into commands you run separately in a terminal. Make sure your shell setup points to the same installation and atomic tree. The runner uses its resolved settings directly when launching native executables.
 
 ## Activity and write protection
 

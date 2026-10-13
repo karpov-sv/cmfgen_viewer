@@ -8,6 +8,7 @@ from pathlib import Path
 from flask import jsonify, url_for
 
 from .grid_config import _grid_fit_source_label, _normalize_grid_fit_source
+from .detached_jobs import list_jobs
 from .observed_spectrum import is_valid_upload_token, list_upload_manifests
 from .summary_jobs import SUMMARY_JOB_DETAILS, SUMMARY_JOB_KIND, summary_job_progress
 from .view_common import _cache_jobs, _grid_jobs, _upload_root, _viewer_config, bp
@@ -115,6 +116,20 @@ def background_tasks_payload():
         for snapshot in _cache_jobs().snapshots(status="running", exclude=SUMMARY_JOB_DETAILS)
     ]
     tasks = grid_tasks + cache_tasks
+    config = _viewer_config()
+    if config.get("read_write_enabled"):
+        for job in list_jobs(config["basepath"], active_only=True):
+            if not job["active"]:
+                continue
+            progress = job.get("progress", {})
+            processed, total = progress.get("current", 0), progress.get("total", 0)
+            tasks.append({"id": job["job_id"], "kind": "model-run", "status": job["status"],
+                "status_label": job["status_label"], "title": "Runner: " + " → ".join(job["stages"]),
+                "target": job["model_relpath"], "href": url_for("viewer.runner_job", job_id=job["job_id"]),
+                "return_label": "View runner job", "processed": processed, "total": total,
+                "progress_percent": min(100, max(0, 100 * processed / total)) if total else 0,
+                "progress_label": f"{job.get('stage', 'Starting')} · {processed}/{total}" if total else job.get("stage", "Starting"),
+                "current_model": "", "cancel_requested": job["status"] == "stopping"})
     return {"ok": True, "running_count": len(tasks), "tasks": tasks}
 
 

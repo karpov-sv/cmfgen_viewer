@@ -4,7 +4,7 @@ Use **Preview main workflow** or **Preview spectra only** for read-only HTML/JSO
 
 Main CMFGEN computation is intentionally separate from LTE/hydro structure preparation. Open **Main Computation** from a model's workflow actions, or continue there from the final LTE/hydro handoff guard.
 
-The viewer never starts, stops, or supervises CMFGEN. It checks the model inputs and displays the exact terminal command:
+Use **Model runner** to preview and launch supported stages from the UI. The runner executes in an independent process and keeps running across viewer restarts. The workflow also displays a terminal command for external execution:
 
 ```bash
 cd /absolute/path/to/model && ./batch.sh

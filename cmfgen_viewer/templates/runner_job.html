@@ -1,0 +1,68 @@
+{% extends 'base.html' %}
+{% block title %}Model runner - {{ job.model_relpath }}{% endblock %}
+{% from '_runner_ui.html' import status_badge with context %}
+{% block body %}
+{% include '_breadcrumb.html' %}
+{% include '_model_toolbar.html' %}
+<h1 class="h4 mb-1">Model runner</h1>
+<p class="small text-muted mb-2">{{ job.sequence_label }}. This run is saved independently of the viewer and reconnects after an app restart.</p>
+<div id="runner-job" data-status-url="{{ url_for('viewer.runner_job', job_id=job.job_id, format='json') }}" data-active="{{ 'true' if job.active else 'false' }}">
+  <div class="workflow-overview mb-3">
+    <div><span class="small text-muted me-2">Run</span>{{ status_badge(job.status, job.status_label, live=true) }}</div>
+    <div><span class="small text-muted me-2">Stage</span><span class="small" data-runner-stage>{{ job.stage_label }}</span></div>
+    <div><span class="small text-muted me-2">Started</span><span class="small" title="{{ job.created_at }}">{{ job.created_label }}</span></div>
+  </div>
+
+  <details class="card workflow-stage mb-3" open>
+    <summary class="card-header d-flex justify-content-between align-items-center"><strong>1. Run status</strong></summary>
+    <div class="card-body">
+      <p class="small mb-2" data-runner-progress>{{ job.progress_label if job.active else 'Run finished; review the results below.' }}</p>
+      {% if job.status in ['interrupted','orphaned','unknown'] %}<div class="alert alert-warning py-2">Runner ownership could not be confirmed. Inspect remaining native processes and the saved journal before explicitly continuing. This job will not be relaunched automatically.</div>{% endif %}
+      {% if job.error %}<div class="alert alert-danger py-2">{{ job.error }}</div>{% endif %}
+      <div class="d-flex flex-wrap gap-2">
+        <a class="btn btn-sm btn-outline-secondary {{ 'd-none' if not job.native_log else '' }}" data-runner-native-output href="{{ url_for('viewer.runner_job_log', job_id=job.job_id, native=1) }}">Latest native output</a>
+        {% if job.active %}<form method="post" action="{{ url_for('viewer.runner_job_cancel', job_id=job.job_id) }}"><input type="hidden" name="cancel_token" value="{{ cancel_token }}"><button class="btn btn-sm btn-outline-danger" data-runner-stop {% if not job.can_cancel %}disabled title="Runner process ownership could not be verified"{% endif %}>Stop run</button></form>{% endif %}
+      </div>
+    </div>
+  </details>
+
+  <details class="card workflow-stage mb-3" {% if job.result %}open{% endif %}>
+    <summary class="card-header d-flex justify-content-between align-items-center"><strong>2. Run result</strong>{% if not job.result %}<span class="badge bg-secondary">{{ 'Awaiting result' if job.active else 'No report' }}</span>{% endif %}</summary>
+    <div class="card-body">
+      {% if job.result %}
+        {% set reports = job.result.stage_results|default([job.result]) %}
+        <div class="table-responsive mb-2"><table class="table table-sm align-middle mb-0">
+          <thead><tr><th>Stage</th><th>Status</th><th>Details</th></tr></thead>
+          <tbody>{% for report in reports %}<tr>
+            <th>{{ stage_labels.get(report.stage, report.stage) }}</th>
+            <td>{{ status_badge(report.status) }}</td>
+            <td class="small">
+              {% for problem in report.problems|default([]) %}<div class="text-danger">{{ problem }}</div>{% endfor %}
+              {% for pass in report.passes|default([]) %}
+                {% if pass.returncode is defined and pass.returncode < 0 %}<div class="text-danger">{{ stage_labels.get(pass.id, pass.id) }} terminated by signal {{ -pass.returncode }} (exit status {{ pass.returncode }}).</div>{% endif %}
+                {% for problem in pass.problems|default([]) %}<div class="text-danger">{{ problem }}</div>{% endfor %}
+              {% endfor %}
+            </td>
+          </tr>{% endfor %}</tbody>
+        </table></div>
+        {% if job.result.remaining_stages %}<p class="small text-muted">Not run: {% for stage in job.result.remaining_stages %}{{ stage_labels.get(stage, stage) }}{% if not loop.last %}, {% endif %}{% endfor %}.</p>{% endif %}
+        <p class="small text-muted mb-0">Execution status is separate from convergence and scientific acceptance. Review the model's workflow results before accepting the solution.</p>
+      {% else %}<p class="small text-muted mb-0">{{ 'The runner report will appear when execution finishes.' if job.active else 'No stage report was produced. Review the run status and logs.' }}</p>{% endif %}
+    </div>
+  </details>
+
+  <details class="card workflow-stage mb-3">
+    <summary class="card-header d-flex align-items-center"><strong>3. Logs and details</strong></summary>
+    <div class="card-body">
+      <div class="d-flex flex-wrap gap-2 mb-3">
+        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('viewer.runner_job_log', job_id=job.job_id) }}">Worker log</a>
+        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('viewer.runner_job_log', job_id=job.job_id, events=1) }}">Progress events</a>
+        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('viewer.runner_job', job_id=job.job_id, format='json') }}">Job JSON</a>
+      </div>
+      {% if job.journal %}<p class="small">Journal: <code class="text-break">{{ job.journal }}</code></p>{% endif %}
+      {% if job.result %}<details class="workflow-help"><summary>Full runner report</summary><pre class="small mt-2">{{ job.result|tojson(indent=2) }}</pre></details>{% endif %}
+    </div>
+  </details>
+</div>
+<script src="{{ url_for('static', filename='runner_job.js') }}"></script>
+{% endblock %}

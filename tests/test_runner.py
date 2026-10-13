@@ -224,7 +224,8 @@ def test_default_children_preserve_inherited_limits_and_thread_settings(workspac
     for name, limit in limits.items():
         code += f"assert resource.getrlimit(resource.{name}) == {limit!r}\n"
     if sys.platform == "darwin":
-        code += f"assert resource.getrlimit(resource.RLIMIT_STACK) == {resource.getrlimit(resource.RLIMIT_STACK)!r}\n"
+        hard_stack = resource.getrlimit(resource.RLIMIT_STACK)[1]
+        code += f"assert resource.getrlimit(resource.RLIMIT_STACK) == {(hard_stack, hard_stack)!r}\n"
     code += """
 assert 'OMP_NUM_THREADS' not in os.environ
 assert os.environ['OPENBLAS_NUM_THREADS'] == '3'
@@ -790,3 +791,11 @@ Path('ROSSELAND_LTE_TAB').write_text('1 !Number of temperatures\\n1 !Number of d
     assert plan['ready'], plan['errors']
     result = run_plan(plan)
     assert result['status'] == 'succeeded', result
+
+
+def test_native_signal_is_reported_even_without_output(workspace):
+    model, make_plan = workspace
+    result = run_plan(make_plan('import os,signal; os.kill(os.getpid(),signal.SIGTERM)'))
+    assert result['status'] == 'failed'
+    assert result['passes'][0]['returncode'] == -15
+    assert 'terminated by SIGTERM' in result['passes'][0]['problems'][0]

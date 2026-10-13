@@ -548,6 +548,13 @@ def run_plan(plan: dict, emit=None) -> dict:
                 ) if stage in {"main", "test"} else []
                 record["diagnostic_findings"] = findings
                 problems[:0] = [f"{finding['title']}: {finding['message']}" for finding in findings if finding["severity"] == "error"]
+                if record["returncode"] < 0 and record["status"] != "timeout":
+                    number = -record["returncode"]
+                    try:
+                        label = signal.Signals(number).name
+                    except ValueError:
+                        label = f"signal {number}"
+                    problems.insert(0, f"Native executable terminated by {label} (signal {number}).")
                 startup_warnings = []
                 if plan.get("restart"):
                     record["startup_observed"] = observe_startup(plan["restart"], (cwd / "OUTGEN", pass_dir / "process.log"))

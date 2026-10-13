@@ -17,6 +17,9 @@ except ImportError:  # pragma: no cover - non-POSIX systems fail closed for writ
     fcntl = None
 
 LOCK_NAME = ".cmfgen-viewer-write.lock"
+RUN_LOCK_NAME = ".cmfgen-runner-job.lock"
+# Set only inside the independent, single-threaded runner worker.
+_OWNED_RUN_MODEL = None
 
 
 def model_workspace_root(path: Path) -> Path:
@@ -29,6 +32,25 @@ def model_workspace_root(path: Path) -> Path:
 
 def inspect_model_activity(model_dir: Path, *, proc_root: Path | None = None) -> dict:
     root = model_workspace_root(model_dir)
+    if root != _OWNED_RUN_MODEL and ((root / RUN_LOCK_NAME).exists() or (root / RUN_LOCK_NAME).is_symlink()):
+        descriptor = None
+        try:
+            if fcntl is None:
+                raise OSError("Runner reservation visibility is unavailable")
+            descriptor = os.open(root / RUN_LOCK_NAME, os.O_RDONLY | os.O_NOFOLLOW)
+            info = os.fstat(descriptor)
+            if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+                raise OSError("Unsafe runner reservation lock")
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return {"state": "active", "safe_to_modify": False,
+                    "reason": "A detached runner job owns this model; wait for the sequence to finish.",
+                    "processes": [], "uncertainties": [], "model_path": str(root)}
+        except OSError as exc:
+            return _activity_payload(root, [], [str(exc)])
+        finally:
+            if descriptor is not None:
+                os.close(descriptor)
     if proc_root is None:
         processes, uncertainties = scan_model_processes(root, recursive=True)
         return _activity_payload(root, processes, uncertainties)

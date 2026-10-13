@@ -115,7 +115,7 @@ def test_gammas_fallback_remains_a_freshness_dependency(tmp_path: Path) -> None:
     )
 
 
-def test_main_computation_page_is_external_only_and_read_write_gated(tmp_path: Path) -> None:
+def test_main_computation_page_links_runner_and_is_read_write_gated(tmp_path: Path) -> None:
     _write_model(tmp_path)
     app = create_app(basepath=str(tmp_path), read_write_enabled=True, secret_key="test")
     app.testing = True
@@ -129,7 +129,8 @@ def test_main_computation_page_is_external_only_and_read_write_gated(tmp_path: P
     page = client.get("/model-actions/main-computation/model_a")
     assert page.status_code == 200
     assert b"Main model computation" in page.data
-    assert b"Run commands in your terminal." in page.data
+    assert b"Use Model runner or run commands in your terminal." in page.data
+    assert b"/model-actions/run/model_a" in page.data
     assert b"./batch.sh" in page.data
     assert b"Waiting for" in page.data
     assert b"Process and progress" in page.data

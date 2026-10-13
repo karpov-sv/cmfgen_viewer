@@ -2,7 +2,7 @@
 
 Use **Preview workflow** for a read-only stage plan covering preparation through manual promotion. Stage preflight now checks scripts, executable configuration, dependencies, controls, workspace resources, and activity. Mutations and handoffs are blocked during visible active calculations or uncertain activity; see [Templates and configuration](/documentation/templates-and-configuration#activity-and-write-protection) for shared settings and write protection.
 
-The viewer supports preparation and state tracking for the LTE/hydro sequence used when changing parameters such as `LOGG`. It deliberately does **not** start, stop, or supervise CMFGEN programs. Run every displayed command in a terminal you control; the open workflow page receives server-sent status updates. The server checks process and file status every five seconds while subscribed.
+The viewer supports preparation and state tracking for the LTE/hydro sequence used when changing parameters such as `LOGG`. Use **Model runner** to preview and execute supported stages independently of the viewer, or run the displayed commands in your terminal; the open workflow page receives server-sent status updates. The server checks process and file status every five seconds while subscribed.
 
 Open a concrete, non-SN model and choose **LTE / Hydro** under **Model actions**. Read-write mode must have been enabled at startup.
 

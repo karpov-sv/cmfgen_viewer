@@ -1,4 +1,4 @@
-"""Read-only HTML and JSON dry-run previews; no execution endpoint."""
+"""Read-only external-script workflow previews, separate from runner launches."""
 
 from flask import abort, jsonify, make_response, render_template, request
 

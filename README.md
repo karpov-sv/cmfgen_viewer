@@ -22,11 +22,12 @@ This project provides a practical local web UI for inspecting CMFGEN model folde
 - Single-model and bulk model spectrum visualization workflows.
 - Global observed-spectrum upload/overlay workflow, including async model-grid fitting against uploaded spectra.
 - Standalone command-line model status, preflight, and reviewed native execution workflows.
+- Reviewed UI runner launches with persistent job pages, cancellation, and recovery across viewer restarts.
 - Documentation browser backed by markdown files in `doc/`.
 
 ### Out of scope (current)
 
-- Launching or supervising CMFGEN/CMF_FLUX jobs from the web UI.
+- Executing arbitrary shell scripts or automatically accepting scientific results.
 - Arbitrary editing of model files beyond the allowlisted control-file editor and controlled model workflows.
 - Full binary/direct-access file decoding for all `_INFO`/direct-access artifacts.
 - Auth/multi-user deployment hardening.
@@ -252,7 +253,7 @@ and exit codes. Execution checks do not establish scientific convergence.
     `IN_ITS` iteration controls, while preserving the surrounding control-file text and using the same review path.
   - guarded LTE/hydro workflow preparation: the app creates the input workspace, reports missing or stale
     artifacts, gives copyable terminal commands, and checkpoints/promotes reviewed results, but deliberately
-    never starts or supervises CMFGEN processes; read-only monitors match externally launched processes by
+    offers reviewed detached runner launches that survive viewer restarts; read-only monitors match externally launched processes by
     name and working directory and estimate LTE/hydro progress from their output files; domain-aware LTE
     diagnostics combine `OUTLTE`, frequency progress, batch markers, timing, and result freshness, while the
     hydro command preserves interactive output in a parsed `WIND_HYD` log,

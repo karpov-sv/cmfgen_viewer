@@ -1,6 +1,16 @@
 # Command-line runner
 
-`cmfgen_run.py` runs a reviewed subset of the ostar workflows directly in Python. It never executes `batch.sh`, `batobs.sh`, sourced setup scripts, or arbitrary shell commands. This is a standalone command, not an in-app execution feature.
+`cmfgen_run.py` runs a reviewed subset of the ostar workflows directly in Python. It never executes `batch.sh`, `batobs.sh`, sourced setup scripts, or arbitrary shell commands. The same runner can be launched from the viewer as an independent process.
+
+## Launching from the viewer
+
+In read-write mode, choose **Model runner** in the shared model toolbar, beside the workflow links. Select a stage preset or enter a custom ordered sequence, optionally set additional main iterations, threads, timeout, memory limit, or fresh startup, then **Preview run**. Review the findings and choose **Launch reviewed run**. Changed inputs or configuration require a new preview. For sequences, only the first stage is fully checked initially; later stages are preflighted against the outputs just produced.
+
+The launch opens a persistent job page with current stage/progress, logs, final results, and a **Stop run** action. Running jobs also appear in the Tasks menu. Closing the browser or restarting the viewer leaves the detached runner and its native child active. The viewer recovers saved jobs after restart without relying on its former in-memory task store or process handles.
+
+Launch records are retained in `.cmfgen-runner-jobs/` under the configured model-tree root. Normal `.cmfgen-runs/` journals remain in each model. A separate model reservation lock protects the complete sequence, including gaps between stages; conflicting edits and launches are blocked. Stopping targets the verified runner process, which stops its native process group and restores temporary controls. PID reuse cannot redirect a stop request to an unrelated process.
+
+If the runner disappears without a final result, the job is shown as interrupted, with surviving native processes identified when visible. It is never automatically relaunched. Machine reboot or logout survival is not guaranteed; inspect checkpoints and journals before explicitly continuing. Restarting with a different model-tree root shows that root's own launch history.
 
 ## Quick start
 
@@ -117,7 +127,7 @@ Observer templates may omit `SOB_EW_LAM_BEG` and `SOB_EW_LAM_END`. The continuum
 
 ## Resources and progress
 
-Execution resource controls are opt-in. By default, the runner adds no memory or time limit, inherits the host's core-dump policy, and preserves native/library thread settings. Existing OS, shell, container, or scheduler limits still apply. On Linux, the runner raises the child stack limit to its permitted hard limit because CMFGEN requires a larger stack. On macOS, it preserves the inherited stack limits: raising them from Python can fail even at the reported hard limit. Build the macOS executable with a larger main-thread stack, for example `-Wl,-stack_size,0x4000000` (64 MiB) in `F90` and `F90nomp` in `Makefile_definitions`, then relink it. Increasing shell limits alone does not replace this linker setting.
+Execution resource controls are opt-in. By default, the runner adds no memory or time limit, inherits the host's core-dump policy, and preserves native/library thread settings. Existing OS, shell, container, or scheduler limits still apply. On Linux, the runner raises the child stack limit to its permitted hard limit because CMFGEN requires a larger stack. On macOS, a fixed internal shell/exec bootstrap raises the inherited soft stack limit to the permitted hard limit before native execution, since attempting that change inside the running Python process can fail. This avoids inheriting a viewer's small stack allowance (commonly about 8 MiB). The bootstrap preserves the process identity, resource limits, and model lock descriptor; it does not source shell setup or execute model scripts. If the permitted stack is still insufficient, review the OS limits and executable's main-thread stack setting, such as `-Wl,-stack_size,0x4000000` (64 MiB) in `F90` and `F90nomp` in `Makefile_definitions`, then relink as needed.
 
 - `--memory-mib MIB` applies a per-child POSIX `RLIMIT_AS` virtual-address-space cap, not an RSS cap (minimum 128 MiB). Without it, both inherited address-space limits are preserved. Large models can require substantially more than 4 GiB.
 - `--threads N` (or `--nthreads N`), `OMP_NUM_THREADS`, or a `.cmfgenrc` thread setting explicitly selects a positive thread count. When configured, the runner sets OpenMP/OpenBLAS/MKL thread environment variables to that count; otherwise those variables remain as inherited.

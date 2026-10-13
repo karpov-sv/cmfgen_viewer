@@ -37,11 +37,12 @@ def live_events():
         last_runtime = {}
         next_runtime = 0.0
         next_tasks = 0.0
+        next_external = 0.0
         heartbeat = time.monotonic() + 15.0
         first = True
         while True:
             now = time.monotonic()
-            if first or (signal.version != version and now >= next_tasks):
+            if first or now >= next_external or (signal.version != version and now >= next_tasks):
                 # Read the version before snapshots: a concurrent write remains
                 # visible as a subsequent notification instead of being lost.
                 version = signal.version
@@ -50,6 +51,9 @@ def live_events():
                     yield event_frame("tasks", tasks)
                     last_tasks = tasks
                 next_tasks = now + 1.0
+                # Independent workers cannot notify this app's in-memory signal.
+                # Reconcile their durable state while active and at idle heartbeats.
+                next_external = now + (5.0 if any(task["kind"] == "model-run" for task in tasks["tasks"]) else 15.0)
             if targets and now >= next_runtime:
                 for key, kind, target in targets:
                     try:
@@ -69,7 +73,7 @@ def live_events():
             if now >= heartbeat:
                 yield ": keepalive\n\n"
                 heartbeat = now + 15.0
-            deadline = min(heartbeat, next_runtime) if targets else heartbeat
+            deadline = min(heartbeat, next_external, next_runtime) if targets else min(heartbeat, next_external)
             if signal.version != version:
                 # Coalesce rapid progress writes into at most one task update/s.
                 time.sleep(max(0.0, min(deadline, next_tasks) - now))

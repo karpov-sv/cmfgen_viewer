@@ -20,7 +20,7 @@ Workspace changes require startup with `--read-write`. Model parameter and text 
 
 For a new LTE/hydro structure, follow [LTE / Hydro](/documentation/lte-hydro): prepare the workspace, run LTE, run hydro, review the result, then promote it. Promotion updates the root structure and archives incompatible old solution files. Continue to [Main computation](/documentation/main-computation) after the handoff is ready.
 
-The viewer displays commands for execution in your terminal. Its workflow pages receive live process status and refresh results when a monitored calculation stops. Unsaved edits defer the reload. The separate [Command-line runner](/documentation/command-line-runner) can execute supported stages directly.
+The viewer displays commands for execution in your terminal and offers **Model runner** for supported stage sequences. UI-launched jobs run independently and remain available after app restarts. Its workflow pages receive live process status and refresh results when a monitored calculation stops. Unsaved edits defer the reload. The separate [Command-line runner](/documentation/command-line-runner) can execute supported stages directly.
 
 ## Setup and reference
 

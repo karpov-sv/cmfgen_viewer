@@ -15,6 +15,13 @@
   {{ toolbar_link('parameters', nav.read_write, 'viewer.model_parameters', 'Edit Parameters', 'sliders') }}
   {{ toolbar_link('lte', nav.read_write and nav.supports_staging, 'viewer.model_lte_hydro', 'LTE / Hydro', 'cogs') }}
   {{ toolbar_link('main', nav.read_write, 'viewer.model_main_computation', 'Main Computation', 'play-circle') }}
+  <div class="model-runner-action ms-md-2">
+    {% if nav.read_write %}
+      <a class="btn btn-sm {{ 'btn-primary' if nav.active == 'runner' else 'btn-outline-primary' }}" {% if nav.active == 'runner' %}aria-current="page"{% endif %} href="{{ url_for('viewer.model_runner_launch', source_path=nav.path, stages='lte,hydro' if nav.active == 'lte' else 'main,flux' if nav.active == 'main' else 'main') }}"><i class="fa fa-play me-1" aria-hidden="true"></i>Model runner</a>
+    {% else %}
+      <button class="btn btn-sm btn-outline-secondary" type="button" disabled title="Model-directory read-write mode is disabled."><i class="fa fa-play me-1" aria-hidden="true"></i>Model runner</button>
+    {% endif %}
+  </div>
   <div class="dropdown model-folder-actions">
     <button class="btn btn-sm {{ 'btn-secondary' if nav.active in ['create', 'rename', 'cleanup'] else 'btn-outline-secondary' }} dropdown-toggle" type="button" id="model-folder-actions" data-bs-toggle="dropdown" aria-expanded="false">Model actions</button>
     <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="model-folder-actions">

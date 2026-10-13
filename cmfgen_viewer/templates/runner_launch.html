@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}Model runner - {{ source_path }}{% endblock %}
+{% from "_runner_ui.html" import stage_sequence, status_badge with context %}
+{% block body %}
+{% include '_breadcrumb.html' %}
+{% include '_model_toolbar.html' %}
+<h1 class="h4 mb-1">Model runner</h1>
+<p class="small text-muted mb-2">Configure and review a run here. It continues independently if you close this page or restart the viewer.</p>
+<div class="workflow-overview mb-3">
+  <div><span class="small text-muted me-2">Review</span><span class="badge {{ 'bg-success' if plan and plan.ready else 'bg-danger' if plan else 'bg-secondary' }}">{{ 'Ready' if plan and plan.ready else 'Blocked' if plan else 'Not previewed' }}</span></div>
+  <div><span class="small text-muted me-2">Active jobs</span><span class="badge {{ 'bg-success' if jobs|selectattr('active')|list else 'bg-secondary' }}">{{ jobs|selectattr('active')|list|length }}</span></div>
+  {% if jobs %}<a href="#runner-history" class="small ms-auto">Recent runs</a>{% endif %}
+</div>
+{% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
+{% set presets = [('main','Main computation'), ('main,flux','Main computation → spectra'), ('flux','Spectra only'), ('prepare-lte,lte,hydro','Prepare LTE → LTE → hydro'), ('lte,hydro','LTE → hydro'), ('lte','LTE only'), ('hydro','Hydro only'), ('promote-hydro','Promote reviewed hydro results'), ('cleanup','Cleanup'), ('test','Startup test')] %}
+<form method="post">
+<details class="card workflow-stage mb-3" id="runner-settings" {% if not plan or error %}open{% endif %}>
+  <summary class="card-header d-flex justify-content-between align-items-center"><strong>1. Configure run</strong><span class="badge bg-secondary">{{ options.stages|length }} stage{{ 's' if options.stages|length != 1 else '' }}</span></summary>
+  <div class="card-body">
+    <div class="row g-3">
+      <div class="col-md-5"><label class="form-label" for="run-stages">Stages</label>
+        <select class="form-select form-select-sm" id="run-stages" name="stage_sequence">
+          {% for value, label in presets %}<option value="{{ value }}" {% if options.stages|join(',') == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-md-3"><label class="form-label" for="run-iterations">Main iterations</label><input class="form-control form-control-sm" type="number" min="1" id="run-iterations" name="iterations" value="{{ options.iterations or '' }}" placeholder="Use IN_ITS"><div class="form-text">Additional iterations in this invocation.</div></div>
+      <div class="col-md-2"><label class="form-label" for="run-threads">Threads</label><input class="form-control form-control-sm" type="number" min="1" id="run-threads" name="threads" value="{{ options.threads or '' }}" placeholder="Configured default"></div>
+    </div>
+    <details class="workflow-help mt-3" {% if options.timeout or options.memory_mib or options.fresh_start or options.no_core_dumps %}open{% endif %}>
+      <summary>Startup and resource settings</summary>
+      <div class="row g-3 mt-0">
+        <div class="col-md-3"><label class="form-label" for="run-timeout">Timeout (seconds)</label><input class="form-control form-control-sm" type="number" min="0.001" step="any" id="run-timeout" name="timeout" value="{{ options.timeout or '' }}" placeholder="Unlimited"></div>
+        <div class="col-md-3"><label class="form-label" for="run-memory">Memory limit (MiB)</label><input class="form-control form-control-sm" type="number" min="128" id="run-memory" name="memory_mib" value="{{ options.memory_mib or '' }}" placeholder="No added limit"></div>
+        <div class="col-md-6 align-self-end"><label class="small me-3"><input class="form-check-input me-1" type="checkbox" name="fresh_start" value="1" {% if options.fresh_start %}checked{% endif %}> Fresh start</label><label class="small"><input class="form-check-input me-1" type="checkbox" name="no_core_dumps" value="1" {% if options.no_core_dumps %}checked{% endif %}> Disable core dumps</label></div>
+      </div>
+      <p class="small text-muted mt-2 mb-0">Usable checkpoints are continued by default. Fresh start archives them. Timeout is shared across native stages.</p>
+    </details>
+    <details class="workflow-help mt-3"><summary>Custom ordered stages</summary>
+      <label class="small mt-2" for="custom-stages">Overrides the stage preset; separate stage names with commas.</label>
+      <input class="form-control form-control-sm" id="custom-stages" name="stage_order" placeholder="test,main,flux" value="{{ options.stages|join(',') if options.stages|join(',') not in presets|map(attribute=0)|list else '' }}">
+      <div class="form-text">Available: {{ stages|join(', ') }}. Promotion copies reviewed results and invalidates incompatible old solution files.</div>
+    </details>
+  </div>
+  <div class="card-footer"><button class="btn btn-sm btn-outline-primary" name="action" value="preview">Preview run</button></div>
+</details>
+</form>
+<details class="card workflow-stage mb-3" id="runner-review" {% if plan %}open{% endif %}>
+  <summary class="card-header d-flex justify-content-between align-items-center"><strong>2. Review and launch</strong><span class="badge {{ 'bg-success' if plan and plan.ready else 'bg-danger' if plan else 'bg-secondary' }}">{{ 'Ready' if plan and plan.ready else 'Blocked' if plan else 'Awaiting preview' }}</span></summary>
+  <div class="card-body">
+    {% if plan %}
+    <h2 class="h6">{{ stage_sequence(options.stages) }}</h2>
+    {% set first = plan.initial_plan|default(plan) %}
+    {% if first.restart %}<p>{{ first.restart.message }}</p>{% endif %}
+    <p class="small">Main iterations: {{ options.iterations or 'from IN_ITS' }} · Threads: {{ options.threads or 'configured default' }} · Timeout: {{ options.timeout or 'unlimited' }}{% if options.timeout %} seconds{% endif %} · Memory: {{ options.memory_mib or 'no added limit' }}{% if options.memory_mib %} MiB{% endif %}{% if options.fresh_start %} · Fresh start{% endif %}</p>
+    {% for issue in plan.errors %}<div class="alert alert-danger py-2">{{ issue }}</div>{% endfor %}
+    {% set warnings = plan.warnings + (first.warnings if plan.initial_plan is defined else []) %}
+    {% if warnings %}<details class="workflow-help mb-2"><summary>Preflight warnings ({{ warnings|length }})</summary><ul class="small mt-2">{% for warning in warnings %}<li>{{ warning }}</li>{% endfor %}</ul></details>{% endif %}
+    {% if plan.initial_plan is defined %}<p class="small">Only the first stage is preflighted now. Each later stage is checked after the preceding outputs are available. A failed stage stops the sequence.</p>{% endif %}
+    <details class="workflow-help"><summary>Plan details</summary><pre class="small mt-2">{{ plan|tojson(indent=2) }}</pre></details>
+    {% if review_token %}<form method="post" class="mt-3"><input type="hidden" name="action" value="launch"><input type="hidden" name="review_token" value="{{ review_token }}"><button class="btn btn-primary"><i class="fa fa-play me-1" aria-hidden="true"></i>Launch reviewed run</button></form>{% endif %}
+    {% else %}<p class="small text-muted mb-0">Choose the stages and settings above, then preview the run to check its inputs and startup mode.</p>{% endif %}
+  </div>
+</details>
+<details class="card workflow-stage mb-3" id="runner-history" {% if jobs %}open{% endif %}>
+  <summary class="card-header d-flex justify-content-between align-items-center"><strong>3. Recent runs</strong><span class="badge bg-secondary">{{ jobs|length }}</span></summary>
+  <div class="card-body">
+    {% if jobs %}<div class="table-responsive"><table class="table table-sm align-middle mb-0">
+      <thead><tr><th>Stages</th><th>Status</th><th>Started (UTC)</th></tr></thead>
+      <tbody>{% for job in jobs %}<tr><td><a href="{{ url_for('viewer.runner_job', job_id=job.job_id) }}">{{ job.sequence_label }}</a></td><td>{{ status_badge(job.status, job.status_label) }}</td><td class="small text-muted text-nowrap">{{ job.created_label|replace(' UTC', '') }}</td></tr>{% endfor %}</tbody>
+    </table></div>{% else %}<p class="small text-muted mb-0">No runner jobs have been launched for this model yet.</p>{% endif %}
+  </div>
+</details>
+{% endblock %}
