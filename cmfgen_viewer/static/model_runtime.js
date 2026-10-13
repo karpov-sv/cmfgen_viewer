@@ -178,8 +178,9 @@
   const initialValues = new Map(formFields.map(field => [field, fieldValue(field)]));
   const hasUnsavedChanges = () => formFields.some(field => fieldValue(field) !== initialValues.get(field));
 
-  // Navigate with GET even if this page was rendered after a failed form POST.
-  const reloadPage = () => window.location.replace(window.location.href);
+  // Navigate with GET even after a failed form POST. A URL with a stage
+  // fragment would only scroll within the old document, so remove it first.
+  const reloadPage = () => window.location.replace(window.location.href.split("#")[0]);
 
   const refreshResults = (monitor) => {
     if (reloadTimer !== null || refreshNotice) return;
@@ -191,6 +192,8 @@
         return;
       }
       refreshNotice = append(monitor, "div", "small border-top pt-2 mt-2");
+      const stage = monitor.closest("details.workflow-stage");
+      if (stage) stage.open = true;
       append(refreshNotice, "span", "me-2", "Run stopped. This page has unsaved changes.");
       const button = append(refreshNotice, "button", "btn btn-sm btn-outline-primary", "Refresh results");
       button.type = "button";
@@ -198,7 +201,10 @@
     }, 1000);
   };
 
-  document.addEventListener("cmfgen:runner-finished", () => refreshResults(monitors[0]));
+  document.addEventListener("cmfgen:runner-finished", event => {
+    const monitor = monitors.find(item => item.dataset.runtimeKey.startsWith(`${event.detail?.stage}:`)) || monitors[0];
+    refreshResults(monitor);
+  });
 
   const render = (monitor, runtime) => {
     if (monitor.dataset.runtimeCompact === "true") {

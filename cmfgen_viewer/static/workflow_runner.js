@@ -23,6 +23,7 @@
     });
   };
   const render = (state, job) => {
+    const finished = state.job?.active && !job.active;
     state.job = job;
     if (query(state, "job")) {
       query(state, "job").classList.remove("d-none");
@@ -47,6 +48,11 @@
       state.panel.closest("details.workflow-stage").open = true;
     }
     updateButtons();
+    if (finished) {
+      document.dispatchEvent(new CustomEvent("cmfgen:runner-finished", {
+        detail: {stage: state.panel.dataset.stage}
+      }));
+    }
   };
   const refresh = async () => {
     clearTimeout(timer);
@@ -58,9 +64,6 @@
       for (const id of ids) {
         const job = await json(`/runner-jobs/${id}?format=json`);
         active.filter(state => state.job.job_id === id).forEach(state => render(state, job));
-        if (!job.active) {
-          document.dispatchEvent(new CustomEvent("cmfgen:runner-finished"));
-        }
       }
     } catch (_error) { /* Keep the job visible and reconnect after viewer restart. */ }
     finally {
@@ -111,12 +114,15 @@
   // One history request restores all cards, with polling only while a job is active.
   json(panels[0].dataset.runnerUrl).then(async ({jobs}) => {
     for (const state of states) {
+      // A slow history response may describe the job before an inline launch.
+      // Keep the new owner and its completion polling instead of restoring stale history.
+      if (state.job || state.busy) continue;
       const job = jobs.find(job => job.stages.includes(state.panel.dataset.stage));
       if (job) render(state, job);
     }
     // An active job from a different workflow also reserves this model.
     const other = jobs.find(job => job.active && !states.some(state => state.job?.job_id === job.job_id));
-    if (other) render(states[0], other);
+    if (other && !states.some(state => state.busy || state.job?.active)) render(states[0], other);
     refresh();
   }).catch(failure => states.forEach(state => error(state, failure.message)));
 })();

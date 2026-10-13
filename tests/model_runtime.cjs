@@ -25,13 +25,15 @@ class Element {
   }
 }
 
-function setup(initiallyActive = [false], fields = [], summaries = []) {
+function setup(initiallyActive = [false], fields = [], summaries = [], href = 'http://localhost/workflow') {
+  fields.forEach(field => { field.closest ||= () => null; });
   const monitors = initiallyActive.map((active, index) => {
     const monitor = new Element();
     monitor.dataset = {runtimeActive: String(active), runtimeKey: String(index)};
     return monitor;
   });
   const subscriptions = new Map();
+  const events = new Map();
   const timers = [];
   let reloads = 0;
   vm.runInNewContext(source, {
@@ -41,19 +43,20 @@ function setup(initiallyActive = [false], fields = [], summaries = []) {
         : selector.startsWith('.workflow-page form') ? fields : [],
       createElement: () => new Element(),
       createTextNode: text => ({textContent: text}),
-      addEventListener() {},
+      addEventListener: (name, callback) => events.set(name, callback),
     },
     window: {
       CmfgenLiveUpdates: {subscribe: (key, callback) => subscriptions.set(key, callback)},
       setTimeout: callback => { timers.push(callback); return timers.length; },
-      location: {href: "http://localhost/workflow", replace: url => {
-        assert.equal(url, "http://localhost/workflow");
+      location: {href, replace: url => {
+        assert.equal(url, href.split('#')[0]);
         reloads++;
       }},
     },
   });
   return {
     monitors,
+    finish(stage) { events.get('cmfgen:runner-finished')({detail: {stage}}); },
     update(active, available = true, index = 0, phase = 'CMFGEN', diagnostics, extra = {}) {
       subscriptions.get('runtime:' + index)({active, monitoring_available: available, phase_label: phase, diagnostics, ...extra});
     },
@@ -94,6 +97,48 @@ simultaneous.update(false, true, 1);
 assert.equal(simultaneous.pending, 1, 'Coalesce multiple monitors');
 simultaneous.flush();
 assert.equal(simultaneous.reloads, 1);
+
+const runner = setup();
+runner.finish('lte');
+runner.finish('hydro');
+assert.equal(runner.pending, 1, 'Coalesce runner completion notifications');
+runner.flush();
+assert.equal(runner.reloads, 1, 'Refresh on runner completion even without observed native activity');
+
+for (const anchor of ['lte-run', 'hydro-run', 'result-review']) {
+  const anchored = setup([true], [], [], `http://localhost/workflow?file=VADAT#${anchor}`);
+  anchored.update(false);
+  anchored.flush();
+  assert.equal(anchored.reloads, 1, 'Stage links must refresh HTML rather than navigate to a fragment');
+}
+
+const both = setup([true]);
+both.update(false);
+both.finish('main');
+assert.equal(both.pending, 1, 'Native and runner completion must share one refresh');
+both.flush();
+assert.equal(both.reloads, 1);
+
+const hydroField = {tagName: 'INPUT', type: 'text', value: '10'};
+const hydroEditing = setup([false, false], [hydroField]);
+hydroEditing.monitors[0].dataset.runtimeKey = 'lte:model';
+hydroEditing.monitors[1].dataset.runtimeKey = 'hydro:model';
+const hydroSection = {open: false};
+hydroEditing.monitors[1].closest = () => hydroSection;
+hydroField.value = '20';
+hydroEditing.finish('hydro');
+hydroEditing.flush();
+assert.equal(hydroEditing.reloads, 0, 'Runner completion must preserve unsaved control edits');
+assert.equal(hydroEditing.monitors[0].children.length, 0, 'Show the notice on the completed stage');
+assert.equal(hydroEditing.monitors[1].children.at(-1).children.at(-1).textContent, 'Refresh results');
+assert.ok(hydroSection.open, 'Reveal the unsaved-edit notice even if the stage was collapsed');
+
+const runnerField = {tagName: 'INPUT', type: 'text', value: '10', closest: () => ({})};
+const settingsOnly = setup([false], [runnerField]);
+runnerField.value = '20';
+settingsOnly.finish('lte');
+settingsOnly.flush();
+assert.equal(settingsOnly.reloads, 1, 'Run options must not block refreshing model results');
 
 for (const field of [
   {tagName: 'INPUT', type: 'text', value: '10'},
