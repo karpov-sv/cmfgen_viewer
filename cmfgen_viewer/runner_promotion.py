@@ -57,6 +57,8 @@ def build_promotion_plan(model: Path) -> dict[str, object]:
 
     source_names = ("VADAT", LTE_OUTPUT, HYDRO_OUTPUT)
     destination_names = (LTE_OUTPUT, HYDRO_OUTPUT, "RVSIG_COL", "VADAT")
+    if not (model / "VADAT").is_file():
+        errors.append("A current root VADAT is required for promotion")
     target_names = tuple(dict.fromkeys((*destination_names, *MAIN_STATE_FILES)))
     for name in target_names:
         path = model / name
@@ -80,7 +82,8 @@ def build_promotion_plan(model: Path) -> dict[str, object]:
         "model": str(model),
         "cwd": str(model),
         "inputs": inputs,
-        "sources": [f"lte/{name}" for name in source_names],
+        "sources": [f"lte/{name}" for name in source_names if name != "VADAT"],
+        "vadat_updates": ["RMAX", "RSTAR (when reported)"],
         "destinations": list(destination_names),
         "invalidates": existing_state,
         "lte_cleanup": state["lte_cleanup"],
@@ -88,10 +91,11 @@ def build_promotion_plan(model: Path) -> dict[str, object]:
         "synchronized_rstar": generated_rstar,
         "timeout": None,
         "passes": [{"id": "promote-hydro", "overrides": {}}],
-        "warnings": [
+        "warnings": state.get("promotion_vadat_warnings", []) + [
             "Promotion accepts file integrity and freshness only; review the generated "
             "luminosity and radius ratio before running it."
             " VADAT RSTAR is synchronized from the reported core radius when available."
+            " Only generated radii are patched in the current root VADAT; other controls and comments are preserved."
         ],
         "errors": list(dict.fromkeys(errors)),
         "ready": not errors,

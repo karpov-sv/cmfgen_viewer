@@ -162,8 +162,8 @@ def build_workflow_plan(basepath: str, *, model_relpath: str, scope: str, config
                       "validation": ["No active process in the model tree", "Fresh LTE/hydro outputs, no fatal diagnostics", "User reviewed luminosity and generated radius ratio"],
                       "changes": [{"action": "backup_then_atomic_copy", "source": f"lte/{source}", "destination": target}
                                   for source, target in (("ROSSELAND_LTE_TAB", "ROSSELAND_LTE_TAB"),
-                                                         ("RVSIG_COL_NEW", "RVSIG_COL_NEW"), ("RVSIG_COL_NEW", "RVSIG_COL"), ("VADAT", "VADAT"))]
-                                 + [{"action": "synchronize_generated_radii", "file": "lte/VADAT",
+                                                         ("RVSIG_COL_NEW", "RVSIG_COL_NEW"), ("RVSIG_COL_NEW", "RVSIG_COL"))]
+                                 + [{"action": "synchronize_generated_radii", "files": ["VADAT", "lte/VADAT"], "preserves_other_root_controls": True,
                                      "controls": ["RMAX", "RSTAR (when reported)"]},
                                     {"action": "mark_solution_stale_and_invalidate_summary"},
                                     {"action": "archive_lte_temporaries", "files": [item["name"] for item in state["lte_cleanup"]["entries"]]}], "command": None, "issues": []})

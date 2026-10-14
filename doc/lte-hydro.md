@@ -75,6 +75,8 @@ Inspect `RVSIG_COL_NEW`. If its luminosity does not match the intended value, up
 
 The result-review panel shows the generated quantities and promotion action first. RMAX and core-radius differences are labeled **Will be synchronized during promotion**, rather than parameter-mismatch warnings. Other parameter differences still require review. No manual RMAX edit is needed. The collapsed **Adjust parameters and rerun** section contains the REF_R quick editor and full HYDRO_PARAMS/VADAT editor links. Saving REF_R creates a recoverable checkpoint and makes hydro output stale until wind_hyd is rerun. Full VADAT edits require rerunning LTE and hydro.
 
+Promotion preserves all other root `VADAT` values, comments, and formatting. It also synchronizes the generated radii in `lte/VADAT`. Root-only edits, including initialization controls, are retained. Differences in core physics settings between root and LTE controls are shown for review; promotion does not merge those settings or establish that the structure matches changed physics. Both original VADAT files are backed up. Promotion status compares installed structures and generated radii, allowing the two configuration files to differ intentionally.
+
 Promotion archives and removes old main-run checkpoints and solution products (`POINT1`, `POINT2`, `SCRTEMP`, their `NEW_*` variants, `MODEL`, `RVTJ`, and `MOD_SUM`) together with grid-dependent radiation caches (`EDDFACTOR*`, `ES_J_CONV*`, `J_COMP`, `MEANOPAC`, and `TRANS_INFO`). They describe the previous depth/radius grid and cannot be made compatible by copying the new hydro structure into them. A subsequent fresh main or initialization run regenerates the solution state; all invalidated files remain recoverable in the promotion checkpoint.
 
 When `RVSIG_COL_NEW` is available, its labeled header is summarized directly on the page. Generated luminosity, radius ratio, core radius, effective temperature, surface gravity, mass, and mass-loss rate are compared with the intended `lte/VADAT` values; reference radius is compared with `HYDRO_PARAMS [REF_R]`. Parameter mismatches are highlighted with colored rows and a warning; radius changes are marked for synchronization during promotion. Mean atomic mass, Eddington parameter, atom density, and depth-point count are shown as additional diagnostics when present. Fresh files alone do not establish that the generated structure matches the intended model.
@@ -87,7 +89,7 @@ Promotion is enabled only when both `ROSSELAND_LTE_TAB` and `RVSIG_COL_NEW` are 
 | --- | --- |
 | `ROSSELAND_LTE_TAB` | `ROSSELAND_LTE_TAB` |
 | `RVSIG_COL_NEW` | `RVSIG_COL_NEW` and `RVSIG_COL` |
-| `VADAT` | `VADAT` |
+| Generated `RSTAR` / `RMAX` | Patch these controls in the current root `VADAT` |
 
 Successful promotion also moves known top-level LTE temporary files into the same checkpoint, under `lte/temporary/`. Candidates include regular `*OUT`, `POP*`, numeric `fort.*` files, and the standard matrix, scratch, and intermediate diagnostics targeted by the model cleanup policy. Controls and `*_IN` population inputs, `ROSSELAND_LTE_TAB`, `RVSIG_COL_NEW`, `MODEL`, `RVTJ`, `GAMMAS`, and retained run diagnostics (`OUTLTE`, `WIND_HYD`, `TIMING`, `ML_COUNTER`, `OUT_PARAMS`, and `ltebat.log`) stay in `lte/`. Symbolic links, hard-linked inputs, nested directories, and unrelated files are excluded. If promotion fails, moved temporary files and previous model state are restored.
 

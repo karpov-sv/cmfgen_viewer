@@ -37,6 +37,8 @@
             <th>{{ stage_labels.get(report.stage, report.stage) }}</th>
             <td>{{ status_badge(report.status) }}</td>
             <td class="small">
+              {% if report.error %}<div class="text-danger">{{ report.error }}</div>{% endif %}
+              {% for problem in report.restore_errors|default([]) %}<div class="text-danger">{{ problem }}</div>{% endfor %}
               {% for problem in report.problems|default([]) %}<div class="text-danger">{{ problem }}</div>{% endfor %}
               {% for pass in report.passes|default([]) %}
                 {% if pass.returncode is defined and pass.returncode < 0 %}<div class="text-danger">{{ stage_labels.get(pass.id, pass.id) }} terminated by signal {{ -pass.returncode }} (exit status {{ pass.returncode }}).</div>{% endif %}

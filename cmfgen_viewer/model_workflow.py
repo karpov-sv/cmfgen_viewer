@@ -728,6 +728,30 @@ def _save_workflow_quick_controls(
         raise ModelWorkflowError(str(exc)) from exc
 
 
+def _promoted_radius_controls(model_dir: Path, lte_dir: Path) -> bool:
+    generated, _ = _rvsig_generated_values(lte_dir / HYDRO_OUTPUT)
+    root = _control_numeric_values(model_dir / "VADAT")
+    expected = {"RMAX": generated.get("radius_ratio")}
+    if generated.get("core_radius") is not None:
+        expected["RSTAR"] = generated["core_radius"]
+    return all(value is not None and value > 0 and key in root
+               and math.isclose(root[key], value, rel_tol=1e-10, abs_tol=1e-12)
+               for key, value in expected.items())
+
+
+def _promotion_vadat_warnings(model_dir: Path, lte_dir: Path) -> list[str]:
+    root = _control_numeric_values(model_dir / "VADAT")
+    lte = _control_numeric_values(lte_dir / "VADAT")
+    differences = [f"{key}: root={root[key]:g}, LTE={lte[key]:g}"
+                   for key in ("LSTAR", "TEFF", "LOGG", "MDOT", "VINF", "BETA", "MASS")
+                   if key in root and key in lte and not math.isclose(root[key], lte[key], rel_tol=1e-8, abs_tol=0)]
+    if not differences:
+        return []
+    return ["Root VADAT differs from the LTE/hydro configuration (" + "; ".join(differences) +
+            "). Promotion preserves these root values and updates only generated radii. "
+            "Review the differences and rerun LTE/hydro with aligned physics settings if needed."]
+
+
 def inspect_lte_hydro_workflow(basepath: str, *, model_relpath: str, config: dict | None = None, template_root: str | None = None) -> dict[str, object]:
     normalized, model_dir = _resolve_model(basepath, model_relpath)
     activity = inspect_model_activity(model_dir)
@@ -794,13 +818,13 @@ def inspect_lte_hydro_workflow(basepath: str, *, model_relpath: str, config: dic
         composition_ready and lte_configured and activity["safe_to_modify"] and lte_result_usable
         and hydro_output["fresh"] and not hydro_diagnostics.get("fatal") and not hydro_runtime["active"]
     )
-    promotion_ready = hydro_output_ready
+    promotion_ready = hydro_output_ready and _regular_file(model_dir / "VADAT")
     promoted = bool(
         promotion_ready
         and _same_contents(lte_dir / LTE_OUTPUT, model_dir / LTE_OUTPUT)
         and _same_contents(lte_dir / HYDRO_OUTPUT, model_dir / HYDRO_OUTPUT)
         and _same_contents(lte_dir / HYDRO_OUTPUT, model_dir / "RVSIG_COL")
-        and _same_contents(lte_dir / "VADAT", model_dir / "VADAT")
+        and _promoted_radius_controls(model_dir, lte_dir)
     )
     main_dependencies = tuple(model_dir / name for name in ("VADAT", "RVSIG_COL", LTE_OUTPUT))
     main_ready = activity["safe_to_modify"] and all(_regular_file(path) for path in main_dependencies)
@@ -833,6 +857,7 @@ def inspect_lte_hydro_workflow(basepath: str, *, model_relpath: str, config: dic
         "hydro_diagnostics": hydro_diagnostics,
         "hydro_output_ready": hydro_output_ready,
         "promotion_ready": promotion_ready,
+        "promotion_vadat_warnings": _promotion_vadat_warnings(model_dir, lte_dir),
         "promoted": promoted,
         "main_ready": main_ready,
         "commands": {"lte": lte_command, "hydro": hydro_command},
@@ -1014,6 +1039,14 @@ def promote_lte_hydro_results(
             lte_vadat_info = lte_vadat.stat()
         except (OSError, UnicodeError) as exc:
             raise ModelWorkflowError(f"Could not read lte/VADAT before promotion: {exc}") from exc
+        root_vadat = model_dir / "VADAT"
+        if root_vadat.is_symlink() or not _regular_file(root_vadat):
+            raise ModelWorkflowError("A regular current root VADAT is required for promotion")
+        try:
+            root_vadat_contents = root_vadat.read_bytes().decode("utf-8", errors="strict")
+            root_vadat_info = root_vadat.stat()
+        except (OSError, UnicodeError) as exc:
+            raise ModelWorkflowError(f"Could not read root VADAT before promotion: {exc}") from exc
         radius_values = {"RMAX": f"{generated_rmax:.12g}"}
         generated_rstar = generated.get("core_radius")
         if generated_rstar is not None:
@@ -1027,13 +1060,18 @@ def promote_lte_hydro_results(
             definitions_by_file={"VADAT": tuple({"key": key, "comment": "Radius from the generated hydro structure"} for key in radius_values)},
             marker_label="hydro result promotion",
         ).encode("utf-8")
+        synchronized_root_vadat = _updated_control_contents(
+            root_vadat_contents, "VADAT", radius_values,
+            definitions_by_file={"VADAT": tuple({"key": key, "comment": "Radius from the generated hydro structure"} for key in radius_values)},
+            marker_label="hydro result promotion",
+        ).encode("utf-8")
         sources = {
             "ROSSELAND_LTE_TAB": lte_dir / "ROSSELAND_LTE_TAB",
             "RVSIG_COL_NEW": lte_dir / "RVSIG_COL_NEW",
             "RVSIG_COL": lte_dir / "RVSIG_COL_NEW",
-            "VADAT": lte_dir / "VADAT",
         }
-        for name in (*sources, *MAIN_STATE_FILES):
+        promoted_targets = (*sources, "VADAT")
+        for name in (*promoted_targets, *MAIN_STATE_FILES):
             if (model_dir / name).is_symlink():
                 raise ModelWorkflowError(f"Refusing to modify symlinked model target: {name}")
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
@@ -1048,7 +1086,7 @@ def promote_lte_hydro_results(
             mkdir_readable(backup_dir, parents=True, exist_ok=False)
             mkdir_readable(backup_dir / "lte")
             copy_readable(lte_vadat, backup_dir / "lte" / "VADAT")
-            for name in sources:
+            for name in promoted_targets:
                 target = model_dir / name
                 if _regular_file(target):
                     original_names.add(name)
@@ -1071,6 +1109,8 @@ def promote_lte_hydro_results(
             for name, source in sources.items():
                 _atomic_copy(source, model_dir / name)
                 replaced_names.append(name)
+            _atomic_write(root_vadat, synchronized_root_vadat, stat.S_IMODE(root_vadat_info.st_mode))
+            replaced_names.append("VADAT")
             for name in MAIN_STATE_FILES:
                 target = model_dir / name
                 if _regular_file(target):

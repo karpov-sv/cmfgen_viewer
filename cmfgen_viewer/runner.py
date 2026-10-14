@@ -17,6 +17,8 @@ import uuid
 from .workflow_permissions import copy_readable, make_readable, mkdir_readable, open_readable, readable_mode
 from .model_activity import model_mutation_guard
 from .model_initialization import lte_initialization_controls
+from .control_files import control_occurrences
+from .runner_controls import TemporaryControl
 from .native_diagnostics import analyze_main_diagnostics
 from .native_crash import macos_crash_evidence
 from .parsers.common import parse_float_token
@@ -24,7 +26,7 @@ from .runner_config import resolve_runner_config
 from .runner_cleanup import build_cleanup_plan
 from .runner_preparation import build_preparation_plan, run_preparation_plan
 from .runner_promotion import build_promotion_plan
-from .runner_recipe import RunnerError, build_run_plan, override_controls, snapshot
+from .runner_recipe import RunnerError, build_run_plan, snapshot
 from .runner_validation import validate_rosseland_table, validate_rvsig_structure, validate_rvtj_core
 from .runner_restart import RESTART_FILES, observe_startup
 from .runner_output import TerminalOutput
@@ -452,9 +454,10 @@ def run_plan(plan: dict, emit=None) -> dict:
                 path = cwd / "VADAT"
                 if path.is_symlink() or path.stat().st_nlink != 1:
                     raise RunnerError("Refusing unsafe writable VADAT")
-                controls[path] = (path.read_bytes(), path.stat().st_mode, path.stat().st_atime_ns, path.stat().st_mtime_ns)
-                rendered = lte_initialization_controls(path.read_text(), plan["initialization"]["t_exc"])
-                _write_control(path, rendered.encode(), controls[path][1])
+                controls[path] = TemporaryControl(path, _write_control)
+                # Validate compatibility before applying just the selected values.
+                lte_initialization_controls(controls[path].original.decode(), plan["initialization"]["t_exc"])
+                controls[path].apply({"DC_METH": "LTE", "T_EXC": f"{plan['initialization']['t_exc']:.12g}"})
                 effective = journal / "effective"
                 mkdir_readable(effective, exist_ok=True)
                 copy_readable(path, effective / "VADAT")
@@ -465,7 +468,9 @@ def run_plan(plan: dict, emit=None) -> dict:
                 path = cwd / control_name
                 if path.is_symlink():
                     raise RunnerError(f"Refusing symlinked control: {path}")
-                controls[path] = (path.read_bytes(), path.stat().st_mode, path.stat().st_atime_ns, path.stat().st_mtime_ns) if path.exists() else None
+                controls[path] = TemporaryControl(path, _write_control)
+            flux_template = ((cwd / "CMF_FLUX_PARAM_INIT").read_bytes()
+                             if stage == "flux" else None)
             _json(journal / "links-before.json", {link["name"]: os.readlink(cwd / link["name"]) if (cwd / link["name"]).is_symlink() else None for link in plan["links"]})
             for link in plan["links"]:
                 destination = cwd / link["name"]
@@ -519,11 +524,23 @@ def run_plan(plan: dict, emit=None) -> dict:
                         else:
                             copy_readable(path, previous / name)
                 before = {name: snapshot(cwd / name) for name in products}
-                if step["overrides"] or stage == "flux":
-                    original = (cwd / "CMF_FLUX_PARAM_INIT").read_text() if stage == "flux" else controls[cwd / "IN_ITS"][0].decode()
-                    rendered = override_controls(original, step["overrides"])
-                    original_control = controls[cwd / control_name]
-                    _write_control(cwd / control_name, rendered.encode(), original_control[1] if original_control else 0o644)
+                if step["overrides"] or stage == "flux" or (
+                        cwd / control_name in controls and controls[cwd / control_name].owned):
+                    control = controls[cwd / control_name]
+                    values = dict(step["overrides"])
+                    if stage == "flux":
+                        if (cwd / "CMF_FLUX_PARAM_INIT").read_bytes() != flux_template:
+                            raise RunnerError("CMF_FLUX_PARAM_INIT changed during execution; rebuild the plan")
+                        template_rows = control_occurrences(flux_template.decode())
+                        if control.effective is not None:
+                            # Reset the preceding pass's overrides without copying the template.
+                            values = {key: template_rows[key][0]["value"]
+                                      for key in control.owned - values.keys()} | values
+                    else:
+                        original_rows = control_occurrences(control.original.decode())
+                        values = {key: original_rows[key][0]["value"]
+                                  for key in control.owned - values.keys()} | values
+                    rendered = control.apply(values, seed=flux_template).decode()
                     with open_readable(pass_dir / control_name, "w") as handle:
                         handle.write(rendered)
                 record = {"id": step["id"], "status": "running", "log": str(pass_dir / "process.log")}
@@ -652,16 +669,14 @@ def run_plan(plan: dict, emit=None) -> dict:
         finally:
             if process is not None and process.poll() is None:
                 _stop(process)
-            for path, original in controls.items():
+            for path, control in controls.items():
                 try:
-                    if path.is_symlink():
-                        raise RunnerError(f"Control became a symlink during execution: {path}")
-                    if original is None:
-                        path.unlink(missing_ok=True)
-                    else:
-                        _write_control(path, original[0], original[1])
-                        os.utime(path, ns=(original[2], original[3]))
-                except (OSError, RunnerError) as exc:
+                    conflicts = control.restore()
+                    if conflicts:
+                        result["status"] = "runner_error"
+                        result.setdefault("restore_errors", []).extend(conflicts)
+                        event("control_restore_conflict", problems=conflicts)
+                except (OSError, RunnerError, UnicodeError) as exc:
                     result["status"] = "runner_error"
                     result.setdefault("restore_errors", []).append(str(exc))
             for record in result["passes"]:

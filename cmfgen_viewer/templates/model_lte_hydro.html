@@ -241,6 +241,9 @@
         {% if state.promoted %}<span class="badge bg-success">Promoted</span>{% elif state.promotion_ready %}<span class="badge bg-warning text-dark">Ready to promote</span>{% else %}<span class="badge bg-secondary">Blocked</span>{% endif %}
       </summary>
       <div class="card-body">
+        <p class="small text-muted">Promotion preserves the current root VADAT, including manual/editor changes. Only RMAX and the reported RSTAR are updated from the generated structure.</p>
+        {% for warning in state.promotion_vadat_warnings %}<div class="alert alert-warning py-2 small">{{ warning }}</div>{% endfor %}
+
         <div class="mb-3 d-flex flex-wrap gap-2">
           {% if state.hydro_output.exists %}
             <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('viewer.view', path=source_path ~ '/lte/RVSIG_COL_NEW') }}">Open RVSIG_COL_NEW</a>
@@ -282,7 +285,7 @@
         {% if state.promoted %}
           <p class="small text-success mb-0">The current results have been promoted. Continue to main model computation below.</p>
         {% elif state.promotion_ready %}
-          <p class="small">Promotion synchronizes <code>VADAT [RMAX]</code> from the generated radius ratio and <code>[RSTAR]</code> from the reported core radius when available, preserving the generated structure's radius scale. It copies <code>ROSSELAND_LTE_TAB</code>, <code>RVSIG_COL_NEW</code>, <code>RVSIG_COL</code>, and <code>VADAT</code> to the model root, and invalidates old main checkpoints and solution files. Everything replaced or invalidated is checkpointed first. Known LTE temporary files are archived in the same checkpoint after promotion.</p>
+          <p class="small">Promotion synchronizes <code>VADAT [RMAX]</code> from the generated radius ratio and <code>[RSTAR]</code> from the reported core radius when available, preserving the generated structure's radius scale. It copies <code>ROSSELAND_LTE_TAB</code>, <code>RVSIG_COL_NEW</code>, and <code>RVSIG_COL</code> to the model root, patches only the generated radii in the current root <code>VADAT</code>, and invalidates old main checkpoints and solution files. Everything replaced or invalidated is checkpointed first. Known LTE temporary files are archived in the same checkpoint after promotion.</p>
           <form method="post">
             <input type="hidden" name="action" value="promote">
             <div class="form-check mb-2"><input class="form-check-input" id="results-checked" type="checkbox" name="results_checked" value="1"><label class="form-check-label" for="results-checked">I checked the luminosity and radius ratio reported by RVSIG_COL_NEW.</label></div>
