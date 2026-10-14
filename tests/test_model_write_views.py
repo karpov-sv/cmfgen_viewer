@@ -74,7 +74,7 @@ def test_create_from_solution_route_previews_and_creates_model(tmp_path: Path) -
         follow_redirects=False,
     )
     assert response.status_code == 302
-    assert response.headers["Location"] == "/view/grid/model_b?created=1"
+    assert response.headers["Location"] == "/view/grid/model_b"
     assert (tmp_path / "grid" / "model_b" / "MODEL_SPEC").is_file()
     assert (tmp_path / "grid" / "model_b" / "clean.sh").is_file()
     assert (tmp_path / "grid" / "model_b" / "obs" / "batobs.sh").is_file()
@@ -210,7 +210,7 @@ def test_rename_model_route_moves_cache_entry_and_redirects(tmp_path: Path) -> N
         follow_redirects=False,
     )
     assert renamed.status_code == 302
-    assert renamed.headers["Location"] == "/view/archive/model_b?renamed=1"
+    assert renamed.headers["Location"] == "/view/archive/model_b"
     assert not source.exists()
     assert (tmp_path / "archive" / "model_b" / "MODEL_SPEC").is_file()
     assert inspect_model_summary_entry(
@@ -276,7 +276,7 @@ def test_cleanup_model_route_previews_and_selectively_removes_candidates(tmp_pat
         follow_redirects=False,
     )
     assert cleaned.status_code == 302
-    assert cleaned.headers["Location"] == "/view/grid/model_a?cleaned=1&removed=1"
+    assert cleaned.headers["Location"] == "/view/grid/model_a"
     assert not (source / "BAMAT").exists()
     assert (source / "EWDATA").is_file()
     assert inspect_model_summary_entry(
@@ -481,7 +481,7 @@ def test_quick_parameter_editor_reviews_and_saves_vadat_values(tmp_path: Path) -
         follow_redirects=False,
     )
     assert saved.status_code == 302
-    assert "quick_saved=VADAT" in saved.headers["Location"]
+    assert saved.headers["Location"] == "/model-actions/edit/grid/model_a"
     assert (source / "VADAT").read_text(encoding="utf-8") == proposed
     assert len(list((source / ".cmfgen-viewer-backups").glob("VADAT.*.bak"))) == 1
     assert inspect_model_summary_entry(

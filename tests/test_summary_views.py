@@ -47,7 +47,7 @@ def post(client, paths):
     return response.headers["Location"]
 
 
-def test_post_starts_once_redirects_immediately_and_get_restores_results(setup):
+def test_post_starts_once_redirects_immediately_and_get_restores_results(setup, pending_notices):
     app, client, threads, db = setup
     url = post(client, ["model_a", "model_b"])
     assert len(threads) == 1
@@ -60,7 +60,8 @@ def test_post_starts_once_redirects_immediately_and_get_restores_results(setup):
     assert duplicate == url
     assert len(threads) == 1
     different = post(client, ["model_c"])
-    assert "notice=" in different
+    assert different == url
+    assert "Another bulk summary is running" in pending_notices(client)
     assert len(threads) == 1
     task = client.get("/tasks/status").get_json()["tasks"][0]
     assert task["kind"] == "bulk-summary"
@@ -126,13 +127,13 @@ def test_cancel_before_start_and_retry_unfinished_selection(setup):
     assert snapshot["selected_paths"] == ["model_a", "model_b"]
 
 
-def test_summary_and_maintenance_block_each_other_and_guard_cleanup(setup, monkeypatch):
+def test_summary_and_maintenance_block_each_other_and_guard_cleanup(setup, monkeypatch, pending_notices):
     app, client, threads, db = setup
     url = post(client, ["model_a"])
     for endpoint in ("delete-base", "delete-unavailable", "delete-noncurrent"):
         response = client.post("/system/cache/" + endpoint, data={"basepath": app.config["CMFGEN_VIEWER"]["basepath"]})
         assert response.status_code == 302
-        assert "Wait+for" in response.headers["Location"]
+        assert 'Wait for' in pending_notices(client)
     maintenance = client.post("/system/cache/maintain", data={"action": "check"})
     assert maintenance.status_code == 303
     assert url in maintenance.headers["Location"]

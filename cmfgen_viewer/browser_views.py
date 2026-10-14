@@ -204,13 +204,6 @@ def view(path: str):
         context["model_workflow_source"] = path if concrete_model_root else ""
         context["model_workflow_supported"] = concrete_model_root and not is_sn_model_directory(target)
         context["read_write_enabled"] = bool(config.get("read_write_enabled", False))
-        context["model_created"] = request.args.get("created", "").strip() == "1"
-        context["model_renamed"] = request.args.get("renamed", "").strip() == "1"
-        context["model_cleaned"] = request.args.get("cleaned", "").strip() == "1"
-        try:
-            context["model_cleanup_removed"] = max(0, int(request.args.get("removed", "0")))
-        except ValueError:
-            context["model_cleanup_removed"] = 0
         context["model_inputs_modified"] = bool(
             concrete_model_root and model_inputs_modified_since_solution(target)
         )

@@ -162,7 +162,7 @@ def test_cache_maintenance_refreshes_stale_entries(tmp_path: Path) -> None:
 
 
 def test_system_starts_cache_job_and_exposes_status(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path, monkeypatch, pending_notices
 ) -> None:
     app = _make_app(tmp_path)
     client = app.test_client()
@@ -192,4 +192,4 @@ def test_system_starts_cache_job_and_exposes_status(
         data={"basepath": str(app.config["CMFGEN_VIEWER"]["basepath"])},
     )
     assert blocked_cleanup.status_code == 302
-    assert "Wait+for+cache+maintenance" in blocked_cleanup.headers["Location"]
+    assert 'Wait for cache maintenance' in pending_notices(client)

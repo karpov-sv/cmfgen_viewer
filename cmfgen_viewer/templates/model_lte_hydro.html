@@ -36,14 +36,7 @@
       {% else %}<a href="#main-handoff">Review main computation inputs</a>{% endif %}
       <a class="small ms-auto" href="{{ url_for('viewer.model_workflow_plan', scope='lte-hydro', source_path=source_path) }}">Preview workflow</a>
     </div>
-    {% if message %}<div class="alert alert-success py-2">{{ message }}</div>{% endif %}
     {% if error %}<div class="alert alert-danger py-2">{{ error }}</div>{% endif %}
-    {% if hydro_initialization_skipped %}
-      <div class="alert alert-warning py-2">
-        <strong>HYDRO_PARAMS retained its template values.</strong> Automatic initialization could not be verified; review hydro parameters before running hydro.
-        {% if state.hydro_alignment and state.hydro_alignment.issues %}<details class="workflow-help small mt-1"><summary>Initialization issues</summary>{% for issue in state.hydro_alignment.issues %}<div>{{ issue }}</div>{% endfor %}</details>{% endif %}
-      </div>
-    {% endif %}
     {% if not state.activity.safe_to_modify %}<div class="alert alert-warning">{{ state.activity.reason }}</div>{% endif %}
 
     <details class="card workflow-stage mb-3" id="workspace-preparation" {% if not state.prepared %}open{% endif %}>

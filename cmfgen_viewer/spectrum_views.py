@@ -407,10 +407,6 @@ def spectrum(path: str):
     }
 
     warnings: list[str] = []
-    upload_error = request.args.get("upload_error", "").strip()
-    if upload_error:
-        warnings.append(upload_error)
-    fit_notice = request.args.get("fit_notice", "").strip()
 
     upload_root = _upload_root(config)
     upload_entries = list_upload_manifests(upload_root)
@@ -561,7 +557,6 @@ def spectrum(path: str):
         model_summary_sections=model_summary_sections,
         spectrum_summary_rows=spectrum_data_rows(continuum, final),
         warnings=warnings,
-        fit_notice=fit_notice,
         obs_tokens=selected_obs_tokens,
         available_uploads=available_uploads,
         selected_observed_uploads=selected_observed_uploads,

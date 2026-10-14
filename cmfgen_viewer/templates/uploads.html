@@ -8,12 +8,6 @@
     <h2 class="h4 mb-1">Uploaded Spectra and Photometry</h2>
     <p class="text-muted mb-2">Storage root: <code>{{ upload_root }}</code></p>
 
-    {% if message %}
-      <div class="alert alert-success py-2">{{ message }}</div>
-    {% endif %}
-    {% if error %}
-      <div class="alert alert-danger py-2">{{ error }}</div>
-    {% endif %}
 
     <div class="upload-inline-wrap mb-3">
       <form method="post" action="{{ url_for('viewer.uploads_upload') }}" enctype="multipart/form-data" class="upload-inline-form">

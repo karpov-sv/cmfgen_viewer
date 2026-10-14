@@ -54,15 +54,6 @@
       Every save creates a recoverable copy under <code>.cmfgen-viewer-backups/</code>.
     </div>
 
-    {% if quick_saved %}
-      <div class="alert alert-success py-2">
-        Quick parameters in <code>{{ quick_saved }}</code> were saved atomically.
-        {% if backup_relpath %}
-          Backup:
-          <a href="{{ url_for('viewer.view', path=source_path.rstrip('/') ~ '/' ~ backup_relpath) }}"><code>{{ backup_relpath }}</code></a>.
-        {% endif %}
-      </div>
-    {% endif %}
     {% if quick_error %}
       <div class="alert alert-danger py-2">{{ quick_error }}</div>
     {% endif %}

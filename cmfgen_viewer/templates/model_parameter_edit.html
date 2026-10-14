@@ -18,15 +18,6 @@
       </a>
     </div>
 
-    {% if saved %}
-      <div class="alert alert-success py-2">
-        Control file saved atomically.
-        {% if backup_relpath %}
-          Backup:
-          <a href="{{ url_for('viewer.view', path=backup_view_path) }}"><code>{{ backup_relpath }}</code></a>.
-        {% endif %}
-      </div>
-    {% endif %}
     {% if error %}
       <div class="alert alert-danger py-2">
         {{ error }}

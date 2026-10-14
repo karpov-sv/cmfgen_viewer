@@ -6,7 +6,7 @@ import math
 from pathlib import Path
 from urllib.parse import urlencode
 
-from flask import Blueprint, current_app, redirect, url_for
+from flask import Blueprint, current_app, flash, redirect, url_for
 
 from .browser import is_model_context_path, resolve_path
 from .job_store import JobStore
@@ -52,6 +52,23 @@ QUICK_LINK_GLOBS = (
     "obs/full_timing*",
     "obs/cont_timing*",
 )
+
+
+def _notification_url(
+    endpoint: str,
+    *,
+    message: str = "",
+    error: str = "",
+    notice: str = "",
+    warning: str = "",
+    **values,
+) -> str:
+    """Queue one-time action notices and build a redirect URL with only view state."""
+    target = url_for(endpoint, **values)
+    for category, text in (("success", message), ("danger", error), ("info", notice), ("warning", warning)):
+        if text:
+            flash(text, category)
+    return target
 
 
 def _viewer_config() -> dict[str, object]:
@@ -118,9 +135,7 @@ def _spectrum_url(
     fin: str,
     mode: str,
     obs_tokens: list[str] | None = None,
-    upload_error: str = "",
     transform_params: dict[str, object] | None = None,
-    fit_notice: str = "",
     fit_wavelength_inputs: dict[str, str] | None = None,
 ) -> str:
     base = url_for("viewer.spectrum", path=model_root)
@@ -136,10 +151,6 @@ def _spectrum_url(
             query.append(("fit_lambda_min", fit_min))
         if fit_max:
             query.append(("fit_lambda_max", fit_max))
-    if upload_error:
-        query.append(("upload_error", upload_error))
-    if fit_notice:
-        query.append(("fit_notice", fit_notice))
     encoded = urlencode(query, doseq=True)
     return f"{base}?{encoded}" if encoded else base
 
@@ -155,15 +166,17 @@ def _spectrum_redirect(
     fit_notice: str = "",
     fit_wavelength_inputs: dict[str, str] | None = None,
 ):
+    if upload_error:
+        flash(upload_error, "danger")
+    if fit_notice:
+        flash(fit_notice, "success")
     return redirect(
         _spectrum_url(
             model_root,
             fin=fin,
             mode=mode,
             obs_tokens=obs_tokens or [],
-            upload_error=upload_error,
             transform_params=transform_params,
-            fit_notice=fit_notice,
             fit_wavelength_inputs=fit_wavelength_inputs,
         )
     )
@@ -175,7 +188,6 @@ def _bulk_spectra_url(
     selected_models: list[str],
     mode: str,
     obs_tokens: list[str] | None = None,
-    upload_error: str = "",
 ) -> str:
     base = url_for("viewer.bulk_spectra", path=path)
     query: list[tuple[str, str]] = [("mode", _normalize_spectrum_mode(mode))]
@@ -184,8 +196,6 @@ def _bulk_spectra_url(
     for token in obs_tokens or []:
         if is_valid_upload_token(token):
             query.append(("obs", token))
-    if upload_error:
-        query.append(("upload_error", upload_error))
     encoded = urlencode(query, doseq=True)
     return f"{base}?{encoded}" if encoded else base
 
@@ -198,13 +208,14 @@ def _bulk_spectra_redirect(
     obs_tokens: list[str] | None = None,
     upload_error: str = "",
 ):
+    if upload_error:
+        flash(upload_error, "danger")
     return redirect(
         _bulk_spectra_url(
             path,
             selected_models=selected_models,
             mode=mode,
             obs_tokens=obs_tokens or [],
-            upload_error=upload_error,
         )
     )
 

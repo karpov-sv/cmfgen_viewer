@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from flask import abort, current_app, redirect, render_template, request, url_for
+from markupsafe import Markup
 
 from .browser import make_breadcrumb
 from .model_editor import (
@@ -20,7 +21,17 @@ from .model_quick_editor import (
     save_quick_model_parameter_edit,
 )
 from .summary_cache import delete_model_summary_entries
-from .view_common import _viewer_config, bp
+from .view_common import _notification_url, _viewer_config, bp
+
+
+def _saved_notice(source_path: str, backup_relpath: str, *, filename: str = "") -> Markup:
+    text = (
+        Markup("Quick parameters in <code>{}</code> were saved atomically.").format(filename)
+        if filename else Markup("Control file saved atomically.")
+    )
+    return text + Markup(' Backup: <a href="{}"><code>{}</code></a>.').format(
+        url_for("viewer.view", path=f"{source_path.rstrip('/')}/{backup_relpath}"), backup_relpath
+    )
 
 
 def _editor_breadcrumb(source_relpath: str, action_name: str) -> list[dict[str, str | None]]:
@@ -145,11 +156,10 @@ def model_parameters(source_path: str):
                         saved=saved,
                     )
                     return redirect(
-                        url_for(
+                        _notification_url(
                             "viewer.model_parameters",
                             source_path=source_path,
-                            quick_saved=quick_file_relpath,
-                            backup=str(saved["backup_relpath"]),
+                            message=_saved_notice(source_path, str(saved["backup_relpath"]), filename=quick_file_relpath),
                         )
                     )
             except ModelEditorError as exc:
@@ -162,8 +172,6 @@ def model_parameters(source_path: str):
             quick_cards=quick_cards,
             quick_review=quick_review,
             quick_error=quick_error,
-            quick_saved=str(request.args.get("quick_saved", "")).strip(),
-            backup_relpath=str(request.args.get("backup", "")).strip(),
             breadcrumb=_editor_breadcrumb(source_path, "Edit parameters"),
         )
 
@@ -188,9 +196,6 @@ def model_parameters(source_path: str):
             loaded_checkpoint=None,
             review=None,
             error=str(exc),
-            saved=False,
-            backup_relpath="",
-            backup_view_path="",
             breadcrumb=_editor_breadcrumb(source_path, "Edit parameters"),
         ), 400
 
@@ -251,12 +256,11 @@ def model_parameters(source_path: str):
                     saved=saved,
                 )
                 return redirect(
-                    url_for(
+                    _notification_url(
                         "viewer.model_parameters",
                         source_path=source_path,
                         file=file_relpath,
-                        saved="1",
-                        backup=str(saved["backup_relpath"]),
+                        message=_saved_notice(source_path, str(saved["backup_relpath"])),
                     )
                 )
             file_record = review["file"]
@@ -269,8 +273,6 @@ def model_parameters(source_path: str):
         contents = str(loaded_checkpoint["contents"])
     else:
         contents = str(file_record["contents"])
-    backup_relpath = str(request.args.get("backup", "")).strip() if request.method == "GET" else ""
-    backup_view_path = f"{source_path.rstrip('/')}/{backup_relpath}" if backup_relpath else ""
     return render_template(
         "model_parameter_edit.html",
         source_path=source_path,
@@ -282,8 +284,5 @@ def model_parameters(source_path: str):
         loaded_checkpoint=loaded_checkpoint,
         review=review,
         error=error,
-        saved=request.args.get("saved", "").strip() == "1",
-        backup_relpath=backup_relpath,
-        backup_view_path=backup_view_path,
         breadcrumb=_editor_breadcrumb(source_path, f"Edit {file_relpath}"),
     )

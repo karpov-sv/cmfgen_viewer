@@ -5,8 +5,6 @@
 {% block body %}
   <section class="mb-4">
     <h2 class="h4 mb-3">System</h2>
-    {% if message %}<div class="alert alert-success py-2">{{ message }}</div>{% endif %}
-    {% if error %}<div class="alert alert-danger py-2">{{ error }}</div>{% endif %}
     {% set cache_job_running = active_cache_jobs > 0 or active_summary_jobs > 0 %}
 
     <div class="alert {% if read_write_enabled %}alert-warning{% else %}alert-secondary{% endif %} py-2" role="status">

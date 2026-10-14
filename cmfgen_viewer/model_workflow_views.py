@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from flask import abort, current_app, redirect, render_template, request, url_for
+from flask import abort, current_app, redirect, render_template, request
 
 from .browser import make_breadcrumb
 from .model_workflow import (
@@ -18,7 +18,7 @@ from .model_workflow import (
     save_result_quick_controls,
 )
 from .summary_cache import delete_model_summary_entries
-from .view_common import _viewer_config, bp
+from .view_common import _notification_url, _viewer_config, bp
 
 
 def _breadcrumb(source_path: str) -> list[dict[str, str | None]]:
@@ -36,7 +36,6 @@ def model_lte_hydro(source_path: str):
         abort(403)
     basepath = str(config.get("basepath", "."))
     error = ""
-    message = str(request.args.get("message", "")).strip()
     submitted_controls: dict[str, str] = {}
     submitted_filename = ""
     submitted_card_key = "lte_quick_control_cards"
@@ -46,17 +45,20 @@ def model_lte_hydro(source_path: str):
             if action == "align_lte_composition":
                 saved = align_hydro_lte_composition(basepath, model_relpath=source_path,
                     expected_digest=str(request.form.get("expected_digest", "")))
-                return redirect(url_for("viewer.model_lte_hydro", source_path=source_path,
+                return redirect(_notification_url("viewer.model_lte_hydro", source_path=source_path,
                     _anchor="lte-composition", message=f"MU_ATOM aligned with LTE ({saved['value']}); rerun hydro."))
             if action == "prepare":
                 prepared = prepare_lte_hydro_workspace(basepath, model_relpath=source_path, template_root=config.get("template_root"))
                 return redirect(
-                    url_for(
+                    _notification_url(
                         "viewer.model_lte_hydro",
                         source_path=source_path,
                         message=("LTE workspace prepared. HYDRO_PARAMS initialized from VADAT. No calculation was started."
                                  if prepared["hydro_initialized"] else "LTE workspace prepared. No calculation was started."),
-                        hydro_initialization="skipped" if prepared["hydro_initialization_issues"] else None,
+                        warning=("HYDRO_PARAMS retained its template values. Automatic initialization could not be verified; "
+                                 "review hydro parameters before running hydro. Initialization issues: "
+                                 + " ".join(prepared["hydro_initialization_issues"])
+                                 if prepared["hydro_initialization_issues"] else ""),
                     )
                 )
             if action == "configure_lte":
@@ -76,7 +78,7 @@ def model_lte_hydro(source_path: str):
                     values=submitted_controls,
                 )
                 return redirect(
-                    url_for(
+                    _notification_url(
                         "viewer.model_lte_hydro",
                         source_path=source_path,
                         message=(
@@ -92,7 +94,7 @@ def model_lte_hydro(source_path: str):
                     basepath, model_relpath=source_path,
                     expected_digest=str(request.form.get("expected_digest", "")),
                 )
-                return redirect(url_for(
+                return redirect(_notification_url(
                     "viewer.model_lte_hydro", source_path=source_path, _anchor="hydro-alignment",
                     message=f"HYDRO_PARAMS aligned with LTE/VADAT; rerun hydro. Checkpoint: {saved['backup_relpath']}.",
                 ))
@@ -116,7 +118,7 @@ def model_lte_hydro(source_path: str):
                     values=submitted_controls,
                 )
                 return redirect(
-                    url_for(
+                    _notification_url(
                         "viewer.model_lte_hydro",
                         source_path=source_path,
                         message=(
@@ -145,7 +147,7 @@ def model_lte_hydro(source_path: str):
                         exc_info=True,
                     )
                 return redirect(
-                    url_for(
+                    _notification_url(
                         "viewer.model_lte_hydro",
                         source_path=source_path,
                         message=(
@@ -176,8 +178,6 @@ def model_lte_hydro(source_path: str):
         "model_lte_hydro.html",
         source_path=source_path,
         state=state,
-        message=message,
-        hydro_initialization_skipped=request.args.get("hydro_initialization") == "skipped",
         error=error,
         breadcrumb=_breadcrumb(source_path),
     )

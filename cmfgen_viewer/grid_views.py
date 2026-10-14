@@ -97,8 +97,6 @@ def uploads():
         "uploads.html",
         upload_root=str(upload_root),
         uploads=upload_items,
-        message=request.args.get("message", "").strip(),
-        error=request.args.get("error", "").strip(),
         vizier_photometry_name=request.args.get("photometry_name", "").strip(),
         **_vizier_form_context(),
     )
@@ -193,10 +191,6 @@ def upload_view(token: str):
         photometry_text = source_text
 
     warnings: list[str] = []
-    upload_error = request.args.get("error", "").strip()
-    if upload_error:
-        warnings.append(upload_error)
-    upload_message = request.args.get("message", "").strip()
     warnings.extend(str(item) for item in parsed.get("warnings", []))
 
     plot_data, plot_warning = build_uploaded_spectrum_plot(parsed)
@@ -299,7 +293,6 @@ def upload_view(token: str):
         model_name_pattern=model_name_pattern,
         active_grid_job=active_grid_job,
         plot_data=plot_data,
-        upload_message=upload_message,
         photometry_text=photometry_text,
         warnings=warnings,
         **_vizier_form_context(),

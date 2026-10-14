@@ -126,8 +126,6 @@ def test_view_url_helpers_and_selection_resolution(tmp_path: Path) -> None:
             obs_tokens=["Token_0001", "invalid token"],
             transform_params={"redshift": 0.1},
             fit_wavelength_inputs={"min": "1200", "max": "5000"},
-            upload_error="e",
-            fit_notice="n",
         )
         assert "fin=obs_fin" in spectrum_url
         assert "obs=Token_0001" in spectrum_url

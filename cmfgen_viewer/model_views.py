@@ -33,6 +33,7 @@ from .view_common import (
     _bulk_spectra_redirect,
     _bulk_spectra_url,
     _cache_jobs,
+    _notification_url,
     _collect_obs_tokens,
     _collect_quick_links,
     _collect_rel_paths,
@@ -80,7 +81,7 @@ def _start_summary_job(path: str, selected_paths: list[str], *, force_refresh: b
         if active is None:
             return redirect(url_for("viewer.bulk_summary_job", job_id=job_id), code=303)
         if active.get("kind") != SUMMARY_JOB_KIND:
-            return redirect(url_for("viewer.system_status", job=job_id,
+            return redirect(_notification_url("viewer.system_status", job=job_id,
                 error="Wait for cache maintenance to finish before summarizing models.", _anchor="model-cache"), code=303)
         if (active["path"] != path or active["basepath"] != basepath
             or set(active["selected_paths"]) != set(selected_paths) or active["force_refresh"] != force_refresh):
@@ -95,7 +96,7 @@ def _start_summary_job(path: str, selected_paths: list[str], *, force_refresh: b
         except Exception as exc:
             store.update(job_id, status="failed", phase="Failed", finished_at=time.time(),
                          error=f"Could not start summary worker: {exc}")
-    return redirect(url_for("viewer.bulk_summary_job", job_id=job_id, **({"notice": notice} if notice else {})), code=303)
+    return redirect(_notification_url("viewer.bulk_summary_job", job_id=job_id, notice=notice), code=303)
 
 
 def _summary_job_snapshot(job_id: str, *, compact: bool = False):
@@ -139,7 +140,6 @@ def bulk_summary_job(job_id: str):
         summary_scope="bulk",
         summary_job=summary_job_progress(snapshot),
         retry_count=len(summary_job_retry_paths(snapshot)) if snapshot["status"] != "running" else 0,
-        notice=str(request.args.get("notice", "")),
         cache_notice="",
         hr_overlay=_load_mamajek_hr_overlay(),
         **context,
@@ -254,9 +254,6 @@ def bulk_spectra(path: str):
     selected_obs_tokens = _collect_obs_tokens(request.values.getlist("obs"))
 
     warnings: list[str] = []
-    upload_error = request.values.get("upload_error", "").strip()
-    if upload_error:
-        warnings.append(upload_error)
 
     valid_dirs, skipped = _resolve_selected_model_dirs(basepath, directory, selected_paths)
 

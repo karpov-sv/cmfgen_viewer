@@ -256,7 +256,7 @@ def test_models_summary_exposes_plot_open_and_selection_filter_controls(
     assert 'meta: { modelclick: openModelOnClick ? "on" : "off" }' in summary_script
 
 
-def test_upload_routes_end_to_end_for_photometry(tmp_path: Path) -> None:
+def test_upload_routes_end_to_end_for_photometry(tmp_path: Path, pending_notices) -> None:
     app = _make_app(tmp_path)
     client = app.test_client()
     upload_root = Path(app.config["CMFGEN_VIEWER"]["upload_root"])
@@ -266,7 +266,7 @@ def test_upload_routes_end_to_end_for_photometry(tmp_path: Path) -> None:
 
     no_file = client.post("/uploads/upload", data={}, follow_redirects=False)
     assert no_file.status_code == 302
-    assert "No+file+selected+for+upload." in no_file.headers["Location"]
+    assert 'No file selected for upload.' in pending_notices(client)
 
     upload_response = client.post(
         "/uploads/upload",
@@ -278,7 +278,7 @@ def test_upload_routes_end_to_end_for_photometry(tmp_path: Path) -> None:
         follow_redirects=False,
     )
     assert upload_response.status_code == 302
-    assert "Uploaded+obs.phot." in upload_response.headers["Location"]
+    assert 'Uploaded obs.phot.' in pending_notices(client)
 
     manifests = list_upload_manifests(upload_root)
     assert len(manifests) == 1
@@ -310,7 +310,7 @@ def test_upload_routes_end_to_end_for_photometry(tmp_path: Path) -> None:
     assert not (upload_root / token).exists()
 
 
-def test_uploads_delete_all_removes_only_managed_bundles(tmp_path: Path) -> None:
+def test_uploads_delete_all_removes_only_managed_bundles(tmp_path: Path, pending_notices) -> None:
     app = _make_app(tmp_path)
     client = app.test_client()
     upload_root = Path(app.config["CMFGEN_VIEWER"]["upload_root"])
@@ -338,7 +338,7 @@ def test_uploads_delete_all_removes_only_managed_bundles(tmp_path: Path) -> None
     response = client.post("/uploads/delete-all", follow_redirects=False)
 
     assert response.status_code == 302
-    assert "Removed+all+2+upload(s)." in response.headers["Location"]
+    assert 'Removed all 2 upload(s).' in pending_notices(client)
     assert list_upload_manifests(upload_root) == []
     assert unmanaged.is_dir()
 
@@ -386,7 +386,7 @@ def test_update_photometry_allows_clearing_table(tmp_path: Path) -> None:
     assert b"No photometry points yet" in view_response.data
 
 
-def test_update_photometry_preserves_vizier_state_in_redirect(tmp_path: Path) -> None:
+def test_update_photometry_preserves_vizier_state_in_redirect(tmp_path: Path, pending_notices) -> None:
     app = _make_app(tmp_path)
     client = app.test_client()
     upload_root = Path(app.config["CMFGEN_VIEWER"]["upload_root"])
@@ -419,7 +419,7 @@ def test_update_photometry_preserves_vizier_state_in_redirect(tmp_path: Path) ->
     )
     assert update_response.status_code == 302
     location = update_response.headers["Location"]
-    assert "Photometry+data+updated." in location
+    assert 'Photometry data updated.' in pending_notices(client)
     query = parse_qs(urlparse(location).query)
     assert query.get("vizier_center") == ["11:22:33 +44:55:06"]
     assert query.get("vizier_radius_arcsec") == ["7.5"]
@@ -428,7 +428,7 @@ def test_update_photometry_preserves_vizier_state_in_redirect(tmp_path: Path) ->
     assert sorted(query.get("vizier_catalog", [])) == ["gaia_dr3_syntphot", "twomass"]
 
 
-def test_upload_photometry_allows_empty_then_append_from_vizier(tmp_path: Path, monkeypatch) -> None:
+def test_upload_photometry_allows_empty_then_append_from_vizier(tmp_path: Path, monkeypatch, pending_notices) -> None:
     app = _make_app(tmp_path)
     client = app.test_client()
     upload_root = Path(app.config["CMFGEN_VIEWER"]["upload_root"])
@@ -442,7 +442,7 @@ def test_upload_photometry_allows_empty_then_append_from_vizier(tmp_path: Path, 
         follow_redirects=False,
     )
     assert upload_response.status_code == 302
-    assert "Uploaded+photometry+empty.phot." in upload_response.headers["Location"]
+    assert 'Uploaded photometry empty.phot.' in pending_notices(client)
 
     manifests = list_upload_manifests(upload_root)
     assert len(manifests) == 1
@@ -477,7 +477,7 @@ def test_upload_photometry_allows_empty_then_append_from_vizier(tmp_path: Path, 
         follow_redirects=False,
     )
     assert append_response.status_code == 302
-    assert "Appended+1+VizieR+photometry+point" in append_response.headers["Location"]
+    assert 'Appended 1 VizieR photometry point' in pending_notices(client)
 
     manifest = read_upload_manifest(upload_root, token)
     assert isinstance(manifest, dict)
@@ -486,7 +486,7 @@ def test_upload_photometry_allows_empty_then_append_from_vizier(tmp_path: Path, 
     assert "Gaia DR3 syntphot BP" in content
 
 
-def test_create_photometry_from_vizier_on_uploads_page(tmp_path: Path, monkeypatch) -> None:
+def test_create_photometry_from_vizier_on_uploads_page(tmp_path: Path, monkeypatch, pending_notices) -> None:
     app = _make_app(tmp_path)
     client = app.test_client()
     upload_root = Path(app.config["CMFGEN_VIEWER"]["upload_root"])
@@ -534,8 +534,8 @@ def test_create_photometry_from_vizier_on_uploads_page(tmp_path: Path, monkeypat
 
     assert response.status_code == 302
     assert "/uploads/view/" in response.headers["Location"]
-    assert "Created+catalog-data.phot+with+2+VizieR+photometry+point" in response.headers["Location"]
-    assert "Skipped+1+duplicate+row" in response.headers["Location"]
+    assert 'Created catalog-data.phot with 2 VizieR photometry point' in pending_notices(client)
+    assert 'Skipped 1 duplicate row' in pending_notices(client)
     assert captured == {
         "center": "12:00:00 +15:00:00",
         "radius_arcsec": 7.5,
@@ -555,7 +555,7 @@ def test_create_photometry_from_vizier_on_uploads_page(tmp_path: Path, monkeypat
     assert "Gaia DR3 syntphot G" in stored
 
 
-def test_create_photometry_from_vizier_failure_preserves_form_without_bundle(tmp_path: Path) -> None:
+def test_create_photometry_from_vizier_failure_preserves_form_without_bundle(tmp_path: Path, pending_notices) -> None:
     app = _make_app(tmp_path)
     client = app.test_client()
     upload_root = Path(app.config["CMFGEN_VIEWER"]["upload_root"])
@@ -573,7 +573,8 @@ def test_create_photometry_from_vizier_failure_preserves_form_without_bundle(tmp
 
     assert response.status_code == 302
     query = parse_qs(urlparse(response.headers["Location"]).query)
-    assert query.get("error") == ["VizieR center coordinates are required."]
+    assert "error" not in query
+    assert "VizieR center coordinates are required." in pending_notices(client)
     assert query.get("photometry_name") == ["keep-this-name.phot"]
     assert query.get("vizier_radius_arcsec") == ["9"]
     assert query.get("vizier_catalog") == ["twomass"]
@@ -586,7 +587,7 @@ def test_create_photometry_from_vizier_failure_preserves_form_without_bundle(tmp
     assert b'<details class="card mb-3" open>' in redirected_page.data
 
 
-def test_append_vizier_photometry_route_appends_rows(tmp_path: Path, monkeypatch) -> None:
+def test_append_vizier_photometry_route_appends_rows(tmp_path: Path, monkeypatch, pending_notices) -> None:
     app = _make_app(tmp_path)
     client = app.test_client()
     upload_root = Path(app.config["CMFGEN_VIEWER"]["upload_root"])
@@ -637,7 +638,7 @@ def test_append_vizier_photometry_route_appends_rows(tmp_path: Path, monkeypatch
     )
     assert append_response.status_code == 302
     location = append_response.headers["Location"]
-    assert "Appended+1+VizieR+photometry+point" in location
+    assert 'Appended 1 VizieR photometry point' in pending_notices(client)
     parsed_query = parse_qs(urlparse(location).query)
     assert parsed_query.get("vizier_center") == ["12:00:00 +15:00:00"]
     assert parsed_query.get("vizier_radius_arcsec") == ["5"]
@@ -662,7 +663,7 @@ def test_append_vizier_photometry_route_appends_rows(tmp_path: Path, monkeypatch
     assert "5000 100 1.0" in content
 
 
-def test_append_vizier_photometry_uses_current_textarea_state_even_if_empty(tmp_path: Path, monkeypatch) -> None:
+def test_append_vizier_photometry_uses_current_textarea_state_even_if_empty(tmp_path: Path, monkeypatch, pending_notices) -> None:
     app = _make_app(tmp_path)
     client = app.test_client()
     upload_root = Path(app.config["CMFGEN_VIEWER"]["upload_root"])
@@ -705,7 +706,7 @@ def test_append_vizier_photometry_uses_current_textarea_state_even_if_empty(tmp_
         follow_redirects=False,
     )
     assert append_response.status_code == 302
-    assert "Appended+1+VizieR+photometry+point" in append_response.headers["Location"]
+    assert 'Appended 1 VizieR photometry point' in pending_notices(client)
 
     manifest = read_upload_manifest(upload_root, token)
     assert isinstance(manifest, dict)
@@ -715,7 +716,7 @@ def test_append_vizier_photometry_uses_current_textarea_state_even_if_empty(tmp_
     assert "Gaia DR3 syntphot G" in stored
 
 
-def test_append_vizier_photometry_requires_selected_catalog_or_all(tmp_path: Path) -> None:
+def test_append_vizier_photometry_requires_selected_catalog_or_all(tmp_path: Path, pending_notices) -> None:
     app = _make_app(tmp_path)
     client = app.test_client()
     upload_root = Path(app.config["CMFGEN_VIEWER"]["upload_root"])
@@ -744,13 +745,13 @@ def test_append_vizier_photometry_requires_selected_catalog_or_all(tmp_path: Pat
     )
     assert append_response.status_code == 302
     location = append_response.headers["Location"]
-    assert "Select+at+least+one+VizieR+catalog+or+specify+VizieR+table+IDs." in location
+    assert 'Select at least one VizieR catalog or specify VizieR table IDs.' in pending_notices(client)
     parsed_query = parse_qs(urlparse(location).query)
     assert parsed_query.get("vizier_center") == ["120.5 -20.25"]
     assert parsed_query.get("vizier_radius_arcsec") == ["5"]
 
 
-def test_append_vizier_photometry_deduplicates_against_disabled_existing_row(tmp_path: Path, monkeypatch) -> None:
+def test_append_vizier_photometry_deduplicates_against_disabled_existing_row(tmp_path: Path, monkeypatch, pending_notices) -> None:
     app = _make_app(tmp_path)
     client = app.test_client()
     upload_root = Path(app.config["CMFGEN_VIEWER"]["upload_root"])
@@ -803,8 +804,8 @@ def test_append_vizier_photometry_deduplicates_against_disabled_existing_row(tmp
     )
     assert append_response.status_code == 302
     location = append_response.headers["Location"]
-    assert "Photometry+data+updated.+No+new+rows+appended." in location
-    assert "Skipped+1+duplicate+VizieR+row" in location
+    assert 'Photometry data updated. No new rows appended.' in pending_notices(client)
+    assert 'Skipped 1 duplicate VizieR row' in pending_notices(client)
 
     manifest = read_upload_manifest(upload_root, token)
     assert isinstance(manifest, dict)
@@ -815,7 +816,7 @@ def test_append_vizier_photometry_deduplicates_against_disabled_existing_row(tmp
     assert "Keep enabled" in stored
 
 
-def test_append_vizier_photometry_accepts_manual_table_ids_only(tmp_path: Path, monkeypatch) -> None:
+def test_append_vizier_photometry_accepts_manual_table_ids_only(tmp_path: Path, monkeypatch, pending_notices) -> None:
     app = _make_app(tmp_path)
     client = app.test_client()
     upload_root = Path(app.config["CMFGEN_VIEWER"]["upload_root"])
@@ -861,13 +862,13 @@ def test_append_vizier_photometry_accepts_manual_table_ids_only(tmp_path: Path, 
         follow_redirects=False,
     )
     assert append_response.status_code == 302
-    assert "Appended+1+VizieR+photometry+point" in append_response.headers["Location"]
+    assert 'Appended 1 VizieR photometry point' in pending_notices(client)
 
     assert captured["catalog_keys"] == []
     assert captured["source_ids"] == ["II/122B/merged"]
 
 
-def test_append_vizier_photometry_skips_fully_duplicate_rows_textually(tmp_path: Path, monkeypatch) -> None:
+def test_append_vizier_photometry_skips_fully_duplicate_rows_textually(tmp_path: Path, monkeypatch, pending_notices) -> None:
     app = _make_app(tmp_path)
     client = app.test_client()
     upload_root = Path(app.config["CMFGEN_VIEWER"]["upload_root"])
@@ -910,8 +911,8 @@ def test_append_vizier_photometry_skips_fully_duplicate_rows_textually(tmp_path:
     )
     assert append_response.status_code == 302
     location = append_response.headers["Location"]
-    assert "Appended+1+VizieR+photometry+point" in location
-    assert "Skipped+1+duplicate+row" in location
+    assert 'Appended 1 VizieR photometry point' in pending_notices(client)
+    assert 'Skipped 1 duplicate row' in pending_notices(client)
 
     manifest = read_upload_manifest(upload_root, token)
     assert isinstance(manifest, dict)

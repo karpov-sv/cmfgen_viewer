@@ -603,6 +603,8 @@ def test_workflow_page_never_runs_processes_and_guards_read_only_mode(
     )
     assert response.status_code == 200
     assert b"No calculation was started" in response.data
+    assert response.request.query_string == b""
+    assert b"No calculation was started" not in client.get("/model-actions/lte-hydro/model_a").data
     assert b"./ltebat.sh" in response.data
     assert b"Required controls:" in response.data
     assert b"Save VADAT Controls" in response.data

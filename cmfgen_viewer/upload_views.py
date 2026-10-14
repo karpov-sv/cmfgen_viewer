@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import time
 
-from flask import abort, redirect, request, url_for
+from flask import abort, redirect, request
 from werkzeug.utils import secure_filename
 
 from .observed_spectrum import (
@@ -22,7 +22,7 @@ from .parsers.common import format_number, parse_float_token
 from .spectrum_options import _spectrum_lambda_bounds
 from .upload_service import create_photometry_bundle as _create_photometry_bundle
 from .upload_service import create_upload_bundle
-from .view_common import _upload_root, _viewer_config, bp
+from .view_common import _notification_url, _upload_root, _viewer_config, bp
 from .vizier_photometry import (
     DEFAULT_VIZIER_RADIUS_ARCSEC,
     format_photometry_table_rows,
@@ -321,8 +321,7 @@ def _uploads_redirect_with_vizier_state(*, error: str):
     photometry_name = str(request.form.get("photometry_name", "")).strip()
     if photometry_name:
         query["photometry_name"] = photometry_name
-    query["error"] = error
-    return redirect(url_for("viewer.uploads", **query))
+    return redirect(_notification_url("viewer.uploads", error=error, **query))
 
 
 def _upload_view_redirect_with_vizier_state(
@@ -332,11 +331,7 @@ def _upload_view_redirect_with_vizier_state(
     error: str = "",
 ):
     query = _vizier_state_query_from_form()
-    if message:
-        query["message"] = message
-    if error:
-        query["error"] = error
-    return redirect(url_for("viewer.upload_view", token=token, **query))
+    return redirect(_notification_url("viewer.upload_view", token=token, message=message, error=error, **query))
 
 
 @bp.route("/uploads/upload", methods=["POST"])
@@ -347,7 +342,7 @@ def uploads_upload():
 
     uploaded = request.files.get("observed_file")
     if uploaded is None or not uploaded.filename:
-        return redirect(url_for("viewer.uploads", error="No file selected for upload."))
+        return redirect(_notification_url("viewer.uploads", error="No file selected for upload."))
 
     requested_flux_mode = str(request.form.get("flux_mode", "auto")).strip().lower()
     try:
@@ -360,10 +355,10 @@ def uploads_upload():
             lambda_max=lambda_max,
         )
     except Exception as exc:
-        return redirect(url_for("viewer.uploads", error=f"Upload failed: {exc}"))
+        return redirect(_notification_url("viewer.uploads", error=f"Upload failed: {exc}"))
 
     return redirect(
-        url_for("viewer.uploads", message=f"Uploaded {manifest['filename']}.")
+        _notification_url("viewer.uploads", message=f"Uploaded {manifest['filename']}.")
     )
 
 
@@ -385,9 +380,9 @@ def uploads_upload_photometry():
             lambda_max=lambda_max,
         )
     except Exception as exc:
-        return redirect(url_for("viewer.uploads", error=f"Photometry upload failed: {exc}"))
+        return redirect(_notification_url("viewer.uploads", error=f"Photometry upload failed: {exc}"))
 
-    return redirect(url_for("viewer.uploads", message=f"Uploaded photometry {safe_name}."))
+    return redirect(_notification_url("viewer.uploads", message=f"Uploaded photometry {safe_name}."))
 
 
 @bp.route("/uploads/create-vizier-photometry", methods=["POST"])
@@ -421,8 +416,7 @@ def uploads_create_vizier_photometry():
     if skipped_duplicates > 0:
         message = f"{message} Skipped {skipped_duplicates} duplicate row(s)."
     query = _vizier_state_query_from_form()
-    query["message"] = message
-    return redirect(url_for("viewer.upload_view", token=token, **query))
+    return redirect(_notification_url("viewer.upload_view", token=token, message=message, **query))
 
 
 @bp.route("/uploads/update-photometry/<token>", methods=["POST"])
@@ -437,12 +431,12 @@ def uploads_update_photometry(token: str):
     entries = {str(item.get("token", "")): item for item in list_upload_manifests(upload_root)}
     entry = entries.get(token)
     if entry is None:
-        return redirect(url_for("viewer.uploads", error="Uploaded photometry token is not available."))
+        return redirect(_notification_url("viewer.uploads", error="Uploaded photometry token is not available."))
 
     stored_name = str(entry.get("stored_name", "")).strip()
     source_path = upload_root / token / stored_name if stored_name else None
     if source_path is None or not source_path.is_file():
-        return redirect(url_for("viewer.uploads", error="Uploaded photometry file is missing."))
+        return redirect(_notification_url("viewer.uploads", error="Uploaded photometry file is missing."))
 
     observation_type = str(entry.get("observation_type", "")).strip().lower()
     if observation_type != "photometry" and source_path.suffix.lower() != ".phot":
@@ -524,16 +518,16 @@ def uploads_append_vizier_photometry(token: str):
     entries = {str(item.get("token", "")): item for item in list_upload_manifests(upload_root)}
     entry = entries.get(token)
     if entry is None:
-        return redirect(url_for("viewer.uploads", error="Uploaded photometry token is not available."))
+        return redirect(_notification_url("viewer.uploads", error="Uploaded photometry token is not available."))
 
     stored_name = str(entry.get("stored_name", "")).strip()
     source_path = upload_root / token / stored_name if stored_name else None
     if source_path is None or not source_path.is_file():
-        return redirect(url_for("viewer.uploads", error="Uploaded photometry file is missing."))
+        return redirect(_notification_url("viewer.uploads", error="Uploaded photometry file is missing."))
 
     observation_type = str(entry.get("observation_type", "")).strip().lower()
     if observation_type != "photometry" and source_path.suffix.lower() != ".phot":
-        return redirect(url_for("viewer.upload_view", token=token, error="Only photometry uploads can be edited here."))
+        return redirect(_notification_url("viewer.upload_view", token=token, error="Only photometry uploads can be edited here."))
 
     try:
         rows_text = _query_vizier_photometry_rows_from_form()
@@ -627,7 +621,7 @@ def uploads_delete(token: str):
     if read_upload_manifest(upload_root, token) is None:
         abort(404)
     remove_upload_bundle(upload_root, token)
-    return redirect(url_for("viewer.uploads", message="Upload removed."))
+    return redirect(_notification_url("viewer.uploads", message="Upload removed."))
 
 
 @bp.route("/uploads/delete-all", methods=["POST"])
@@ -637,15 +631,15 @@ def uploads_delete_all():
     try:
         removed, failed = remove_all_upload_bundles(upload_root)
     except OSError as exc:
-        return redirect(url_for("viewer.uploads", error=f"Could not remove uploads: {exc}"))
+        return redirect(_notification_url("viewer.uploads", error=f"Could not remove uploads: {exc}"))
 
     if failed:
         return redirect(
-            url_for(
+            _notification_url(
                 "viewer.uploads",
                 error=f"Removed {removed} upload(s); {failed} bundle(s) could not be removed.",
             )
         )
     if removed:
-        return redirect(url_for("viewer.uploads", message=f"Removed all {removed} upload(s)."))
-    return redirect(url_for("viewer.uploads", message="No managed uploads to remove."))
+        return redirect(_notification_url("viewer.uploads", message=f"Removed all {removed} upload(s)."))
+    return redirect(_notification_url("viewer.uploads", message="No managed uploads to remove."))

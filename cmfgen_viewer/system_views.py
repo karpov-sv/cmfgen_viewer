@@ -33,7 +33,7 @@ from .summary_cache import (
     delete_model_summary_namespaces_except,
     list_model_summary_namespaces,
 )
-from .view_common import _cache_jobs, _grid_jobs, _upload_root, _viewer_config, bp
+from .view_common import _notification_url, _cache_jobs, _grid_jobs, _upload_root, _viewer_config, bp
 
 
 def _package_version(name: str) -> str:
@@ -154,8 +154,6 @@ def system_status():
         active_summary_jobs=active_summary_jobs,
         active_task_count=active_grid_jobs + active_cache_jobs + active_summary_jobs,
         read_write_enabled=read_write_enabled,
-        message=str(request.args.get("message", "")).strip(),
-        error=str(request.args.get("error", "")).strip(),
     )
 
 
@@ -189,10 +187,10 @@ def system_cache_maintain():
     if existing:
         snapshot = _cache_jobs().snapshot(job_id, exclude=SUMMARY_JOB_DETAILS)
         if snapshot is not None and snapshot.get("kind") == SUMMARY_JOB_KIND:
-            return redirect(url_for("viewer.bulk_summary_job", job_id=job_id,
+            return redirect(_notification_url("viewer.bulk_summary_job", job_id=job_id,
                 notice="Wait for bulk summarization to finish before starting cache maintenance."), code=303)
         return redirect(
-            url_for(
+            _notification_url(
                 "viewer.system_status",
                 job=job_id,
                 error="Another cache maintenance job is already running; the requested action was not started.",
@@ -200,7 +198,7 @@ def system_cache_maintain():
             )
         )
     return redirect(
-        url_for(
+        _notification_url(
             "viewer.system_status",
             job=job_id,
             _anchor="model-cache",
@@ -229,7 +227,7 @@ def _reject_cleanup_while_maintenance_runs():
     if not _cache_jobs().snapshots(status="running", exclude=SUMMARY_JOB_DETAILS):
         return None
     return redirect(
-        url_for(
+        _notification_url(
             "viewer.system_status",
             error="Wait for cache maintenance or bulk summarization to finish before deleting cache entries.",
             _anchor="model-cache",
@@ -260,7 +258,7 @@ def system_cache_delete_base():
     deleted = delete_model_summary_namespace(summary_cache_db, basepath=target)
     label = "current base" if target == current_basepath else target
     return redirect(
-        url_for("viewer.system_status", message=f"Removed {deleted} cached model(s) for {label}.", _anchor="model-cache")
+        _notification_url("viewer.system_status", message=f"Removed {deleted} cached model(s) for {label}.", _anchor="model-cache")
     )
 
 
@@ -276,7 +274,7 @@ def system_cache_delete_unavailable():
     ]
     deleted = sum(delete_model_summary_namespace(summary_cache_db, basepath=item) for item in unavailable)
     return redirect(
-        url_for(
+        _notification_url(
             "viewer.system_status",
             message=f"Removed {deleted} cached model(s) from {len(unavailable)} unavailable base(s).",
             _anchor="model-cache",
@@ -292,7 +290,7 @@ def system_cache_delete_noncurrent():
     summary_cache_db = str(config.get("summary_cache_db", "model_summary_cache.sqlite"))
     deleted = delete_model_summary_namespaces_except(summary_cache_db, basepath=current_basepath)
     return redirect(
-        url_for(
+        _notification_url(
             "viewer.system_status",
             message=f"Removed {deleted} cached model(s) outside the current base.",
             _anchor="model-cache",

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from flask import abort, current_app, redirect, render_template, request, url_for
+from flask import abort, current_app, redirect, render_template, request
 
 from .browser import is_model_directory, make_breadcrumb, resolve_path
 from .model_staging import (
@@ -17,7 +17,7 @@ from .model_staging import (
     rename_model_directory,
 )
 from .summary_cache import delete_model_summary_entries, relocate_model_summary_entry
-from .view_common import _viewer_config, bp
+from .view_common import _notification_url, _viewer_config, bp
 
 
 def _default_model_destination(basepath: str, source_relpath: str) -> str:
@@ -108,7 +108,7 @@ def model_create_from_solution(source_path: str):
                         created_relpath,
                         exc_info=True,
                     )
-                return redirect(url_for("viewer.view", path=created_relpath, created="1"))
+                return redirect(_notification_url("viewer.view", path=created_relpath, message="New model created from the selected solution."))
         except ModelStagingError as exc:
             error = str(exc)
 
@@ -174,7 +174,7 @@ def model_rename(source_path: str):
                     destination_relpath,
                     exc_info=True,
                 )
-            return redirect(url_for("viewer.view", path=destination_relpath, renamed="1"))
+            return redirect(_notification_url("viewer.view", path=destination_relpath, message="Model directory renamed or moved successfully."))
         except ModelStagingError as exc:
             error = str(exc)
 
@@ -228,11 +228,10 @@ def model_cleanup(source_path: str):
             failed_count = int(result.get("failed_count", 0))
             if failed_count == 0:
                 return redirect(
-                    url_for(
+                    _notification_url(
                         "viewer.view",
                         path=source_path,
-                        cleaned="1",
-                        removed=int(result.get("removed_count", 0)),
+                        message=f"Model cleanup removed {int(result.get('removed_count', 0))} item(s).",
                     )
                 )
             failures = result.get("failures", [])
