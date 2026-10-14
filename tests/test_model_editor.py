@@ -291,3 +291,98 @@ def test_quick_model_parameters_edit_iteration_controls(tmp_path: Path) -> None:
         values=values,
     )
     assert (model / "IN_ITS").read_text(encoding="utf-8") == proposed
+
+
+def _scaling_model(tmp_path):
+    model = tmp_path / "model_a"
+    _write_model(model, newline="\r\n")
+    contents = (
+        "1.0D5 [LSTAR] ! luminosity\r\n"
+        "70.0 [RSTAR] ! core radius\r\n"
+        "10.0 [MASS] ! stellar mass\r\n"
+        "3.0 [TEFF] ! fixed temperature\r\n"
+        "3.50D0 [LOGG] ! fixed gravity\r\n"
+        "2D-6 [MDOT] ! unchanged wind\r\n"
+    )
+    (model / "VADAT").write_bytes(contents.encode())
+    card = load_quick_model_parameter_cards(str(tmp_path), model_relpath="model_a")[0]
+    values = {field["key"]: field["value"] for field in card["fields"]}
+    return model, contents, card, values
+
+
+def test_luminosity_scaling_preserves_temperature_gravity_and_file_layout(tmp_path):
+    model, original, card, values = _scaling_model(tmp_path)
+    values.update(LSTAR="4D5", RSTAR="999", MASS="999", LOGG="3.5")
+    kwargs = dict(model_relpath="model_a", file_relpath="VADAT", expected_digest=card["digest"],
+                  values=values, keep_temperature_logg=True)
+    review = review_quick_model_parameter_edit(str(tmp_path), **kwargs)
+    proposed = original.replace("1.0D5", "4D5").replace("70.0", "140").replace("10.0", "40")
+    assert review["contents"] == proposed
+    assert review["card"]["keep_temperature_logg"]
+    assert any("Scaling preserves this discrepancy" in warning for warning in review["warnings"])
+    assert (model / "VADAT").read_bytes() == original.encode()
+    # The save form posts the derived values; recomputation still uses the saved baseline.
+    kwargs["values"] = {field["key"]: field["value"] for field in review["card"]["fields"]}
+    repeated = review_quick_model_parameter_edit(str(tmp_path), **kwargs)
+    assert repeated["proposed_digest"] == review["proposed_digest"]
+    saved = save_quick_model_parameter_edit(str(tmp_path), reviewed_digest=review["proposed_digest"], **kwargs)
+    assert (model / "VADAT").read_bytes() == proposed.encode()
+    assert (model / saved["backup_relpath"]).read_bytes() == original.encode()
+
+
+@pytest.mark.parametrize("luminosity", ["0", "-1", "NaN", "1e309", "1e-320"])
+def test_luminosity_scaling_rejects_invalid_and_unrepresentable_values(tmp_path, luminosity):
+    model, original, card, values = _scaling_model(tmp_path)
+    values["LSTAR"] = luminosity
+    with pytest.raises(ModelEditorError):
+        review_quick_model_parameter_edit(str(tmp_path), model_relpath="model_a", file_relpath="VADAT",
+                                         expected_digest=card["digest"], values=values, keep_temperature_logg=True)
+    assert (model / "VADAT").read_bytes() == original.encode()
+
+
+def test_luminosity_scaling_rejects_gravity_edits_and_missing_controls(tmp_path):
+    model, original, card, values = _scaling_model(tmp_path)
+    values["LOGG"] = "4"
+    with pytest.raises(ModelEditorError, match="LOGG.*unchanged"):
+        review_quick_model_parameter_edit(str(tmp_path), model_relpath="model_a", file_relpath="VADAT",
+                                         expected_digest=card["digest"], values=values, keep_temperature_logg=True)
+    (model / "VADAT").write_text(original.replace("3.0 [TEFF]", "3.0 [OTHER]"))
+    card = load_quick_model_parameter_cards(str(tmp_path), model_relpath="model_a")[0]
+    assert not card["luminosity_scaling"]["available"]
+    with pytest.raises(ModelEditorError, match="TEFF"):
+        review_quick_model_parameter_edit(str(tmp_path), model_relpath="model_a", file_relpath="VADAT",
+                                         expected_digest=card["digest"], values=values, keep_temperature_logg=True)
+
+
+def test_luminosity_scaling_noop_preserves_original_notation_and_requires_review(tmp_path):
+    model, original, card, values = _scaling_model(tmp_path)
+    kwargs = dict(model_relpath="model_a", file_relpath="VADAT", expected_digest=card["digest"],
+                  values=values, keep_temperature_logg=True)
+    assert not review_quick_model_parameter_edit(str(tmp_path), **kwargs)["changed"]
+    values["LSTAR"] = "4D5"
+    review = review_quick_model_parameter_edit(str(tmp_path), **kwargs)
+    values["LSTAR"] = "9D5"
+    with pytest.raises(ModelEditorError, match="changed after review"):
+        save_quick_model_parameter_edit(str(tmp_path), reviewed_digest=review["proposed_digest"], **kwargs)
+    assert (model / "VADAT").read_bytes() == original.encode()
+
+
+@pytest.mark.parametrize("factor", [2, 0.25])
+def test_luminosity_scaling_preserves_stefan_boltzmann_and_gravity_ratios(tmp_path, factor):
+    _, _, card, values = _scaling_model(tmp_path)
+    values["LSTAR"] = str(1e5 * factor)
+    review = review_quick_model_parameter_edit(str(tmp_path), model_relpath="model_a", file_relpath="VADAT",
+                                             expected_digest=card["digest"], values=values, keep_temperature_logg=True)
+    result = review["values"]
+    luminosity, radius, mass = (float(result[key]) for key in ("LSTAR", "RSTAR", "MASS"))
+    assert luminosity / radius ** 2 == pytest.approx(1e5 / 70 ** 2)
+    assert mass / radius ** 2 == pytest.approx(10 / 70 ** 2)
+
+
+def test_luminosity_scaling_unchecked_allows_independent_radius_mass_and_gravity_edits(tmp_path):
+    _, _, card, values = _scaling_model(tmp_path)
+    values.update(LSTAR="4D5", RSTAR="80", MASS="15", LOGG="4")
+    review = review_quick_model_parameter_edit(str(tmp_path), model_relpath="model_a", file_relpath="VADAT",
+                                             expected_digest=card["digest"], values=values)
+    assert review["values"] == values
+    assert not review["keep_temperature_logg"]

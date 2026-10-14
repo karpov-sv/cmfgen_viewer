@@ -578,3 +578,51 @@ def test_model_parameter_checkpoint_loads_into_editor_then_restores_through_revi
     assert restored.status_code == 302
     assert (source / "VADAT").read_text(encoding="utf-8") == original
     assert len(list((source / ".cmfgen-viewer-backups").glob("VADAT.*.bak"))) == 2
+
+
+def test_quick_editor_luminosity_scaling_survives_review_and_save(tmp_path):
+    from html.parser import HTMLParser
+
+    class ReviewFormParser(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.inputs = {}
+            self.save_values = {}
+
+        def handle_starttag(self, tag, attributes):
+            attrs = dict(attributes)
+            if tag == "form":
+                self.inputs = {}
+            if tag == "input" and "name" in attrs:
+                self.inputs[attrs["name"]] = attrs.get("value", "")
+
+        def handle_endtag(self, tag):
+            if tag == "form" and self.inputs.get("action") == "quick_save":
+                self.save_values = dict(self.inputs)
+
+    source = tmp_path / "model_a"
+    _write_solution(source)
+    original = "1D5 [LSTAR]\n70 [RSTAR]\n10 [MASS]\n3 [TEFF]\n3.5 [LOGG]\n"
+    (source / "VADAT").write_text(original)
+    app = _make_app(tmp_path, read_write=True)
+    client = app.test_client()
+    url = "/model-actions/edit/model_a"
+    page = client.get(url)
+    assert b'Keep effective temperature and log g fixed' in page.data
+    response = client.post(url, data={
+        "action": "quick_preview", "quick_file_relpath": "VADAT",
+        "expected_digest": hashlib.sha256(original.encode()).hexdigest(),
+        "keep_temperature_logg": "1", "quick_value:LSTAR": "4D5",
+        "quick_value:RSTAR": "70", "quick_value:MASS": "10", "quick_value:LOGG": "3.5",
+    })
+    assert response.status_code == 200
+    assert b'Effective temperature and log g held fixed' in response.data
+    parser = ReviewFormParser()
+    parser.feed(response.get_data(as_text=True))
+    data = parser.save_values
+    assert data["keep_temperature_logg"] == "1"
+    assert data["quick_value:RSTAR"] == "140"
+    assert data["quick_value:MASS"] == "40"
+    saved = client.post(url, data=data)
+    assert saved.status_code == 302
+    assert (source / "VADAT").read_text() == original.replace("1D5", "4D5").replace("70", "140").replace("10", "40")

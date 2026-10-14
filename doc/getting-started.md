@@ -18,6 +18,9 @@ Upload an observed spectrum or photometry through **Uploads** to compare it with
 
 Workspace changes require startup with `--read-write`. Model parameter and text editors retain recovery checkpoints. Copy a model when you want to explore different controls while preserving the original solution.
 
+In **Edit parameters → Quick parameters**, enable **Keep effective temperature and log g fixed** to change luminosity while scaling the saved `RSTAR` by `sqrt(LSTAR / original LSTAR)` and `MASS` by the luminosity ratio. Radius, mass, and log g become read-only while selected; `TEFF` and `LOGG` are retained. Review the derived changes before saving. Every preview uses the original saved values, and saving creates the usual recovery checkpoint and marks the solution stale. The option requires unique, valid `LSTAR`, `RSTAR`, `MASS`, `TEFF`, and `LOGG` controls, with positive luminosity, radius, mass, and temperature. A review warning flags an existing mass/gravity discrepancy greater than 0.05 dex at the LTE/hydro reference radius; scaling preserves that discrepancy. This edits controls; it does not regenerate the LTE/hydro structure.
+
+
 For a new LTE/hydro structure, follow [LTE / Hydro](/documentation/lte-hydro): prepare the workspace, run LTE, run hydro, review the result, then promote it. Promotion updates the root structure and archives incompatible old solution files. Continue to [Main computation](/documentation/main-computation) after the handoff is ready.
 
 The viewer displays commands for execution in your terminal and offers **Model runner** for supported stage sequences. UI-launched jobs run independently and remain available after app restarts. Its workflow pages receive live process status and refresh results when a monitored calculation stops. Unsaved edits defer the reload. The separate [Command-line runner](/documentation/command-line-runner) can execute supported stages directly.

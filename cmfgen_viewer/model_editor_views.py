@@ -127,6 +127,8 @@ def model_parameters(source_path: str):
             )
             if card is None:
                 abort(400)
+            keep_temperature_logg = request.form.get("keep_temperature_logg") == "1"
+            card["keep_temperature_logg"] = keep_temperature_logg
             values = _submitted_quick_values(card)
             expected_digest = str(request.form.get("expected_digest", ""))
             try:
@@ -136,6 +138,7 @@ def model_parameters(source_path: str):
                     file_relpath=quick_file_relpath,
                     expected_digest=expected_digest,
                     values=values,
+                    keep_temperature_logg=keep_temperature_logg,
                 )
                 reviewed_card = quick_review["card"]
                 quick_cards[quick_cards.index(card)] = reviewed_card
@@ -147,6 +150,7 @@ def model_parameters(source_path: str):
                         expected_digest=expected_digest,
                         reviewed_digest=str(request.form.get("reviewed_digest", "")),
                         values=values,
+                        keep_temperature_logg=keep_temperature_logg,
                     )
                     _after_parameter_save(
                         config,
