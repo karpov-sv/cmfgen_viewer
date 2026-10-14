@@ -127,7 +127,8 @@ def test_listing_skips_repeated_unavailable_symlink_targets(tmp_path, monkeypatc
     probes = []
 
     def track_stat(path, *args, **kwargs):
-        if path.parent == folder and path.name.startswith("atomic_"):
+        if (path.parent == folder and path.name.startswith("atomic_")
+                and kwargs.get("follow_symlinks", True)):
             probes.append(path)
         return original_stat(path, *args, **kwargs)
 

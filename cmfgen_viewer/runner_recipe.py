@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import shlex
 import shutil
+import sys
 
 from .control_files import control_occurrences
 from .model_activity import inspect_model_activity
@@ -139,6 +140,9 @@ def build_run_plan(model: Path, *, stage: str, cmfgen_root: Path, atomic_root: P
         raise RunnerError("Supported stages: test, main, lte, hydro, flux")
     if (threads is not None and threads < 1) or (memory_mib is not None and memory_mib < 128):
         raise RunnerError("Require positive threads and at least 128 MiB memory")
+    if memory_mib is not None and sys.platform == "darwin":
+        raise RunnerError("--memory-mib is unsupported on macOS: RLIMIT_AS cannot enforce "
+                          "the requested address-space cap. Omit --memory-mib to inherit host limits.")
     if timeout is not None and (not math.isfinite(timeout) or timeout <= 0):
         raise RunnerError("--timeout must be a positive finite number of seconds")
     if iterations is not None and (iterations < 1 or stage != "main"):

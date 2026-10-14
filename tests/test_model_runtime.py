@@ -237,6 +237,10 @@ def test_cmf_flux_progress_tracks_script_passes_and_latest_loop(tmp_path: Path) 
         encoding="utf-8",
     )
     (obs / "CMF_FLUX_PARAM").write_text("15.0D0 [VTURB_FIX]\n", encoding="utf-8")
+    # The log and native output must follow the controls for this invocation.
+    control_time = (obs / "CMF_FLUX_PARAM").stat().st_mtime
+    for name in ("batobs.log", "OUT_FLUX"):
+        os.utime(obs / name, (control_time + 1, control_time + 1))
     _write_fake_process(
         proc_root,
         123,
@@ -675,7 +679,7 @@ def test_run_diagnostics_accept_success_and_ignore_benign_numerical_notes(
     ]
 
     assert [item["status"] for item in diagnostics] == ["succeeded", "succeeded"]
-    assert "All 2 CMF_FLUX passes" in diagnostics[1]["summary"]
+    assert "all 2 expected spectrum outputs are current and valid" in diagnostics[1]["summary"]
 
 
 def test_flux_diagnostic_reports_incomplete_missing_or_unfinished_results(

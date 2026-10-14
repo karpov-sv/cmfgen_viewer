@@ -37,8 +37,13 @@ def main():
     parser.add_argument("--no-core-dumps", action="store_true")
     args = parser.parse_args()
     if args.memory_mib is not None:
+        if sys.platform == "darwin":
+            parser.error("--memory-mib is unsupported on macOS; omit it to inherit host limits")
         limit = args.memory_mib * 1024**2
-        resource.setrlimit(resource.RLIMIT_AS, (limit, limit))
+        try:
+            resource.setrlimit(resource.RLIMIT_AS, (limit, limit))
+        except (OSError, ValueError) as exc:
+            parser.error(f"Cannot apply --memory-mib={args.memory_mib}: {exc}")
     if args.no_core_dumps:
         resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
     _raise_stack_limit()

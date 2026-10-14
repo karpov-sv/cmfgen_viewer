@@ -24,6 +24,40 @@ def test_linux_raises_stack_to_hard_limit(monkeypatch, hard):
     assert changes == [(runner_child.resource.RLIMIT_STACK, (hard, hard))]
 
 
+def test_linux_bootstrap_applies_requested_memory_cap(monkeypatch):
+    monkeypatch.setattr(runner_child.sys, "platform", "linux")
+    monkeypatch.setattr(runner_child.sys, "argv", ["runner_child", "/tmp/native", "--memory-mib", "256"])
+    monkeypatch.setattr(runner_child, "_raise_stack_limit", lambda: None)
+    changes, launches = [], []
+    monkeypatch.setattr(runner_child.resource, "setrlimit", lambda *args: changes.append(args))
+    monkeypatch.setattr(runner_child.os, "execv", lambda *args: launches.append(args))
+    runner_child.main()
+    assert changes == [(runner_child.resource.RLIMIT_AS, (256 * 1024**2, 256 * 1024**2))]
+    assert launches == [("/tmp/native", ["/tmp/native"])]
+
+
+@pytest.mark.parametrize("platform,error", [("darwin", None),
+                                           ("linux", ValueError("current limit exceeds maximum limit")),
+                                           ("linux", OSError("permission denied"))])
+def test_unsupported_memory_cap_never_launches_unlimited_child(monkeypatch, capsys, platform, error):
+    monkeypatch.setattr(runner_child.sys, "platform", platform)
+    monkeypatch.setattr(runner_child.sys, "argv", ["runner_child", "/tmp/native", "--memory-mib", "256"])
+
+    def set_limit(*args):
+        if error is None:
+            pytest.fail("Unsupported macOS memory cap should be rejected before setrlimit")
+        raise error
+
+    monkeypatch.setattr(runner_child.resource, "setrlimit", set_limit)
+    monkeypatch.setattr(runner_child.os, "execv", lambda *args: pytest.fail("Child must not launch"))
+    with pytest.raises(SystemExit) as exc:
+        runner_child.main()
+    assert exc.value.code == 2
+    message = capsys.readouterr().err
+    assert "--memory-mib" in message
+    assert "Traceback" not in message
+
+
 def test_macos_exec_bootstrap_raises_stack_using_positional_arguments(monkeypatch):
     monkeypatch.setattr(runner_child.sys, 'platform', 'darwin')
     monkeypatch.setattr(runner_child.resource, 'getrlimit', lambda _: (8 * 1024**2, 64 * 1024**2))

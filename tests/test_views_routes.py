@@ -660,7 +660,8 @@ def test_append_vizier_photometry_route_appends_rows(tmp_path: Path, monkeypatch
     stored_path = upload_root / token / stored_name
     content = stored_path.read_text(encoding="utf-8")
     assert "Pan-STARRS g" in content
-    assert "5000 100 1.0" in content
+    preserved_row = next(line for line in content.splitlines() if line.startswith("5000 "))
+    assert [float(token) for token in preserved_row.split()[:5]] == [5000, 100, 1, 0, 1]
 
 
 def test_append_vizier_photometry_uses_current_textarea_state_even_if_empty(tmp_path: Path, monkeypatch, pending_notices) -> None:

@@ -180,17 +180,32 @@ def test_unsafe_outputs_do_not_overwrite_symlink_target(workspace, tmp_path):
     assert external.read_text() == "untouched"
 
 
-def test_resource_limit_is_applied_in_child(workspace):
+def test_core_limit_and_threads_are_applied_in_child(workspace):
     _, make_plan = workspace
     code = """
 import os
 import resource
-assert resource.getrlimit(resource.RLIMIT_AS) == (256*1024**2, 256*1024**2)
 assert resource.getrlimit(resource.RLIMIT_CORE) == (0, 0)
 for name in ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS'):
     assert os.environ[name] == '2'
 """ + SUCCESS
-    assert run_plan(make_plan(code, memory_mib=256, threads=2, no_core_dumps=True))["status"] == "tested"
+    assert run_plan(make_plan(code, threads=2, no_core_dumps=True))["status"] == "tested"
+
+
+@pytest.mark.skipif(sys.platform == "darwin", reason="macOS does not support RLIMIT_AS caps")
+def test_resource_limit_is_applied_in_child(workspace):
+    _, make_plan = workspace
+    code = "import resource\nassert resource.getrlimit(resource.RLIMIT_AS) == (256*1024**2, 256*1024**2)\n" + SUCCESS
+    result = run_plan(make_plan(code, memory_mib=256))
+    assert result["status"] == "tested", result
+
+
+def test_macos_memory_cap_is_rejected_before_workspace_changes(workspace, monkeypatch):
+    model, make_plan = workspace
+    monkeypatch.setattr(runner_recipe.sys, "platform", "darwin")
+    with pytest.raises(RunnerError, match="--memory-mib is unsupported on macOS"):
+        make_plan(memory_mib=256)
+    assert not (model / ".cmfgen-runs").exists()
 
 
 def test_default_children_preserve_inherited_limits_and_thread_settings(workspace, monkeypatch):
