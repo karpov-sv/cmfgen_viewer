@@ -6,94 +6,20 @@ import math
 from pathlib import Path
 
 from .app import create_app
-from .runner_config import resolve_runner_config
+from .config_options import (
+    CONFIG_KEY_ALIASES,
+    _parse_bool_config_value,
+    _parse_int_config_value,
+    _parse_float_config_value,
+    normalize_config_value,
+)
+from .runner_config import resolve_viewer_defaults, resolve_runner_config
 from .runner_recipe import RunnerError
 
 try:
     import tomllib
 except ModuleNotFoundError:  # pragma: no cover - Python 3.11+ provides tomllib
     tomllib = None
-
-
-CONFIG_KEY_ALIASES: dict[str, str] = {
-    "dir": "basepath",
-    "basepath": "basepath",
-    "port": "port",
-    "host": "host",
-    "all": "show_all",
-    "show_all": "show_all",
-    "lambda_min": "lambda_min",
-    "lambda_max": "lambda_max",
-    "fit_pool_size": "fit_pool_size",
-    "read_write": "read_write",
-    "read_write_enabled": "read_write",
-    "upload_dir": "upload_root",
-    "upload_root": "upload_root",
-    "debug": "debug",
-    "secret": "secret",
-    "auth_user": "auth_user",
-    "auth_password": "auth_password",
-    "auth_realm": "auth_realm",
-    "template_root": "template_root",
-    "cmfgen_root": "cmfgen_root",
-    "atomic_root": "atomic_root",
-}
-
-
-def _parse_bool_config_value(name: str, value: object) -> bool:
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, int) and value in {0, 1}:
-        return bool(value)
-    if isinstance(value, str):
-        text = value.strip().lower()
-        if text in {"1", "true", "yes", "on"}:
-            return True
-        if text in {"0", "false", "no", "off"}:
-            return False
-    raise ValueError(f"Config option '{name}' must be a boolean value.")
-
-
-def _parse_int_config_value(name: str, value: object) -> int:
-    if isinstance(value, bool):
-        raise ValueError(f"Config option '{name}' must be an integer.")
-    if isinstance(value, int):
-        return value
-    if isinstance(value, float):
-        if math.isfinite(value) and value.is_integer():
-            return int(value)
-        raise ValueError(f"Config option '{name}' must be an integer.")
-    if isinstance(value, str):
-        text = value.strip()
-        if not text:
-            raise ValueError(f"Config option '{name}' must be an integer.")
-        try:
-            return int(text, 10)
-        except ValueError as exc:
-            raise ValueError(f"Config option '{name}' must be an integer.") from exc
-    raise ValueError(f"Config option '{name}' must be an integer.")
-
-
-def _parse_float_config_value(name: str, value: object) -> float:
-    if isinstance(value, bool):
-        raise ValueError(f"Config option '{name}' must be a number.")
-    if isinstance(value, int | float):
-        numeric = float(value)
-        if math.isfinite(numeric):
-            return numeric
-        raise ValueError(f"Config option '{name}' must be a finite number.")
-    if isinstance(value, str):
-        text = value.strip()
-        if not text:
-            raise ValueError(f"Config option '{name}' must be a number.")
-        try:
-            numeric = float(text)
-        except ValueError as exc:
-            raise ValueError(f"Config option '{name}' must be a number.") from exc
-        if math.isfinite(numeric):
-            return numeric
-        raise ValueError(f"Config option '{name}' must be a finite number.")
-    raise ValueError(f"Config option '{name}' must be a number.")
 
 
 def _load_config_defaults(config_path: str) -> dict[str, object]:
@@ -162,19 +88,7 @@ def _load_config_defaults(config_path: str) -> dict[str, object]:
         keys = ", ".join(sorted(unknown_keys))
         raise ValueError(f"Unsupported config option(s): {keys}")
 
-    normalized_defaults: dict[str, object] = {}
-    for key, value in defaults.items():
-        if key in {"show_all", "debug", "read_write"}:
-            normalized_defaults[key] = _parse_bool_config_value(key, value)
-        elif key in {"port", "fit_pool_size"}:
-            normalized_defaults[key] = _parse_int_config_value(key, value)
-        elif key in {"lambda_min", "lambda_max"}:
-            normalized_defaults[key] = _parse_float_config_value(key, value)
-        elif key in {"basepath", "host", "auth_realm", "upload_root", "template_root", "cmfgen_root", "atomic_root"}:
-            normalized_defaults[key] = str(value)
-        elif key in {"secret", "auth_user", "auth_password"}:
-            normalized_defaults[key] = None if value is None else str(value)
-    return normalized_defaults
+    return {key: normalize_config_value(key, value) for key, value in defaults.items()}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -251,7 +165,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--read-write",
         dest="read_write",
         action="store_true",
-        help="Allow operations that modify model directories (disabled by default)",
+        help="Allow operations that modify model directories (default: viewer config, .cmfgenrc read_write, or disabled)",
     )
     access_group.add_argument(
         "--read-only",
@@ -308,6 +222,10 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> None:
     pre_parser = argparse.ArgumentParser(add_help=False)
     pre_parser.add_argument("--config", dest="config_path", default=None)
+    pre_access = pre_parser.add_mutually_exclusive_group()
+    pre_access.add_argument("--read-write", dest="read_write", action="store_true")
+    pre_access.add_argument("--read-only", dest="read_write", action="store_false")
+    pre_parser.set_defaults(read_write=None)
     pre_args, _unknown_args = pre_parser.parse_known_args(argv)
 
     config_defaults: dict[str, object] = {}
@@ -321,6 +239,11 @@ def main(argv: list[str] | None = None) -> None:
     parser = build_parser()
     if config_error:
         parser.error(config_error)
+    try:
+        rc_defaults, rc_sources = resolve_viewer_defaults()
+    except (RunnerError, OSError, UnicodeError) as exc:
+        parser.error(str(exc))
+    parser.set_defaults(**rc_defaults)
     if config_defaults:
         parser.set_defaults(**config_defaults)
     args = parser.parse_args(argv)
@@ -373,6 +296,11 @@ def main(argv: list[str] | None = None) -> None:
         key: "viewer CLI/config" if source == "cli" else source
         for key, source in cmfgen_sources.items()
     }
+
+    cmfgen_sources["read_write"] = (
+        "viewer CLI/config" if pre_args.read_write is not None or "read_write" in config_defaults
+        else rc_sources.get("read_write", "default")
+    )
 
     app = create_app(
         basepath=str(basepath),

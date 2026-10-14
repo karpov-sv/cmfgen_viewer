@@ -26,9 +26,40 @@ cmfgen_root = ~/CMFGEN2023/cur_cmf
 atomic_root = ~/CMFGEN2023/atomic
 # Optional positive thread count:
 nthreads = 1
+# Optional viewer defaults:
+read_write = true
+dir = ~/models
+lambda_min = 800
+lambda_max = 250000
+host = 127.0.0.1
+port = 5567
+all = false
+fit_pool_size = 0
+# upload_dir = ~/cmfgen-uploads
+# template_root = ~/cmfgen-templates
+# debug = false
 ```
 
-Keys are case-insensitive. `CMFDIST`, `ATOMIC`, and `threads` are also accepted configuration keys. Use `#` comments and quote paths containing spaces. `~` expands; relative configuration paths are resolved from the configuration file's directory. CLI/environment paths are relative to the startup directory. Configuration files are parsed, never sourced: shell commands, `export`, and `$VARIABLE` substitution are unsupported. Invalid or duplicate settings produce an error.
+Keys are case-insensitive, and hyphens and underscores are interchangeable (`lambda-min` and `lambda_min`). `CMFDIST`, `ATOMIC`, and `threads` are also accepted configuration keys. Use `#` comments and quote paths containing spaces. `~` expands; relative configuration paths are resolved from the configuration file's directory. CLI/environment paths are relative to the startup directory. Configuration files are parsed, never sourced: shell commands, `export`, and `$VARIABLE` substitution are unsupported. Invalid or duplicate settings produce an error.
+
+Viewer options follow **CLI flags > viewer JSON/TOML configuration > startup-directory `.cmfgenrc` > `~/.cmfgenrc` > built-in defaults**. The supported viewer settings are:
+
+| Settings | Meaning |
+| --- | --- |
+| `dir` / `basepath` | Model tree to browse |
+| `host`, `port` | Viewer bind address and port |
+| `lambda_min`, `lambda_max` | Positive wavelength limits in Å, with minimum below maximum |
+| `read_write` | Allow model-directory modifications; defaults to `false` |
+| `all` / `show_all` | Show hidden files and directories |
+| `upload_dir` / `upload_root` | Persistent upload storage |
+| `fit_pool_size` | Grid-fitting worker limit; `0` selects automatically |
+| `template_root` | Explicit workflow template directory |
+| `debug` | Flask debug mode |
+| `secret` | Flask session signing key |
+| `auth_user`, `auth_password`, `auth_realm` | HTTP Basic Auth credentials and realm |
+
+Boolean values `true`/`false`, `yes`/`no`, `on`/`off`, and `1`/`0` are accepted case-insensitively. `--read-only` and `--read-write` override configured access defaults. Viewer options apply at viewer startup; the standalone runner accepts them in the shared file and uses its own installation/thread settings when executing stages. Installation roots and threads keep the environment-variable precedence described above. The **System** page shows effective access and its source.
+
 
 Viewer settings support preflight checks and configure UI-launched runner jobs. They are not injected into commands you run separately in a terminal. Make sure your shell setup points to the same installation and atomic tree. The runner uses its resolved settings directly when launching native executables.
 

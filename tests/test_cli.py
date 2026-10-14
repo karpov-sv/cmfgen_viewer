@@ -230,6 +230,7 @@ def test_main_uses_runner_rc_fallbacks_for_workflow_config(
         "cmfgen_root": str(user_dir / ".cmfgenrc"),
         "atomic_root": str(user_dir / ".cmfgenrc"),
         "threads": str(user_dir / ".cmfgenrc") if threads is not None else "default",
+        "read_write": "default",
     }
 
 
@@ -247,3 +248,74 @@ def test_main_rejects_invalid_inputs(tmp_path: Path) -> None:
     upload_file.write_text("x", encoding="utf-8")
     with pytest.raises(SystemExit):
         cli.main(["--dir", str(tmp_path), "--upload-dir", str(upload_file)])
+
+
+@pytest.mark.parametrize("config_values,flags,expected_access,expected_min", [
+    ({}, [], True, 1000),
+    ({}, ["--read-only", "--lambda-min", "1500"], False, 1500),
+    ({"read_write": False, "lambda_min": 1200}, [], False, 1200),
+    ({"read_write": False, "lambda_min": 1200}, ["--read-write", "--lambda-min", "1600"], True, 1600),
+])
+def test_main_rc_viewer_defaults_with_config_and_cli_precedence(
+    tmp_path, monkeypatch, config_values, flags, expected_access, expected_min
+):
+    home, work = tmp_path / "home", tmp_path / "work"
+    home.mkdir()
+    work.mkdir()
+    models = home / "model tree"
+    models.mkdir()
+    (home / ".cmfgenrc").write_text('dir = "model tree"\nlambda_min = 900\nread_write = false\n'
+                                       'cmfgen_root = rc-cmf\natomic_root = rc-atomic\nnthreads = 2\n')
+    (work / ".cmfgenrc").write_text(
+        'read_write = true\nlambda-min = 1000\nlambda-max = 20000\nport = 6002\n'
+        'host = 127.0.0.2\nall = true\nfit_pool_size = 2\n'
+        'upload_dir = uploads\ntemplate_root = templates\ndebug = false\n'
+    )
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+    monkeypatch.chdir(work)
+    monkeypatch.setenv("CMFDIST", "env-cmf")
+    monkeypatch.setenv("ATOMIC", "env-atomic")
+    monkeypatch.setenv("OMP_NUM_THREADS", "3")
+    captured = {}
+
+    class DummyApp:
+        def run(self, **kwargs):
+            captured["run"] = kwargs
+
+    def create(**kwargs):
+        captured.update(kwargs)
+        return DummyApp()
+
+    monkeypatch.setattr(cli, "create_app", create)
+    arguments = list(flags)
+    if config_values:
+        config = work / "viewer.json"
+        config.write_text(json.dumps(config_values))
+        arguments += ["--config", str(config)]
+    cli.main(arguments)
+    assert captured["cmfgen_root"] == str(work / "env-cmf")
+    assert captured["atomic_root"] == str(work / "env-atomic")
+    assert captured["cmfgen_runner_threads"] == 3
+    assert captured["basepath"] == str(models)
+    assert captured["read_write_enabled"] is expected_access
+    assert captured["lambda_min_angstrom"] == expected_min
+    assert captured["lambda_max_angstrom"] == 20000
+    assert captured["show_all"] is True
+    assert captured["fit_pool_size_max"] == 2
+    assert captured["upload_root"] == str(work / "uploads")
+    assert captured["template_root"] == work / "templates"
+    assert captured["run"] == {"host": "127.0.0.2", "port": 6002, "debug": False}
+    assert captured["cmfgen_config_sources"]["read_write"] == (
+        "viewer CLI/config" if config_values or "--read-only" in flags else str(work / ".cmfgenrc")
+    )
+
+
+@pytest.mark.parametrize("text", ["read_write = maybe", "lambda_min = -5", "lambda_max = 500",
+                                  "fit_pool_size = -1", "port = 12.5"])
+def test_main_rejects_invalid_viewer_rc_before_starting(tmp_path, monkeypatch, text):
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".cmfgenrc").write_text(text)
+    monkeypatch.setattr(cli, "create_app", lambda **kwargs: pytest.fail("must not start with invalid config"))
+    with pytest.raises(SystemExit):
+        cli.main([])

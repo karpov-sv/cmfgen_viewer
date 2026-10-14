@@ -113,6 +113,7 @@ def system_status():
     runtime_rows = [
         ["Model base directory", basepath],
         ["Model directory access", "Read-write" if read_write_enabled else "Read-only"],
+        ["Model directory access source", str(cmfgen_sources.get("read_write") or "default")],
         ["CMFGEN root", str(config.get("cmfgen_root") or "Not configured")],
         ["CMFGEN root source", str(cmfgen_sources.get("cmfgen_root") or "None")],
         ["Atomic-data root", str(config.get("atomic_root") or "Not configured")],

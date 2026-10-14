@@ -1,9 +1,10 @@
-"""Standalone runner defaults; rc files are data, never shell scripts."""
+"""Shared viewer and runner defaults; rc files are data, never shell scripts."""
 
 import os
 from pathlib import Path
 import shlex
 
+from .config_options import CONFIG_KEY_ALIASES, normalize_config_value
 from .runner_recipe import RunnerError
 
 
@@ -11,6 +12,7 @@ KEYS = {
     "cmfgen_root": "cmfgen_root", "cmfdist": "cmfgen_root",
     "atomic_root": "atomic_root", "atomic": "atomic_root",
     "nthreads": "threads", "threads": "threads",
+    **CONFIG_KEY_ALIASES,
 }
 ENVIRONMENT = {
     "cmfgen_root": "CMFDIST", "atomic_root": "ATOMIC", "threads": "OMP_NUM_THREADS",
@@ -24,10 +26,10 @@ def _read_rc(path):
         if not line.strip() or line.lstrip().startswith("#"):
             continue
         key, separator, raw = line.partition("=")
-        name = KEYS.get(key.strip().lower())
+        name = KEYS.get(key.strip().lower().replace("-", "_"))
         location = f"{path}:{number}"
         if not separator or name is None:
-            raise RunnerError(f"{location}: expected cmfgen_root, atomic_root, or nthreads = value")
+            raise RunnerError(f"{location}: expected a supported viewer/runner setting in key = value form")
         if name in values:
             raise RunnerError(f"{location}: duplicate setting {name}")
         try:
@@ -37,12 +39,37 @@ def _read_rc(path):
         if len(words) != 1 or not words[0].strip():
             raise RunnerError(f"{location}: expected one nonempty value (quote paths containing spaces)")
         value = words[0]
-        if name != "threads":
+        if name in {"cmfgen_root", "atomic_root", "basepath", "upload_root", "template_root"}:
             value = Path(value).expanduser()
             if not value.is_absolute():
                 value = path.parent / value
+        elif name != "threads":
+            try:
+                value = normalize_config_value(name, value)
+            except ValueError as exc:
+                raise RunnerError(f"{location}: {exc}") from exc
         values[name] = value
     return values
+
+
+def _rc_defaults():
+    values, sources = {}, {}
+    paths = dict.fromkeys((Path.home() / ".cmfgenrc", Path.cwd() / ".cmfgenrc"))
+    for path in paths:
+        if not path.exists() and not path.is_symlink():
+            continue
+        for name, value in _read_rc(path).items():
+            values[name] = value
+            sources[name] = str(path)
+    return values, sources
+
+
+def resolve_viewer_defaults():
+    """Load viewer rc defaults; roots and threads retain runner/environment precedence."""
+    values, sources = _rc_defaults()
+    viewer_keys = set(CONFIG_KEY_ALIASES.values()) - {"cmfgen_root", "atomic_root"}
+    return ({key: value for key, value in values.items() if key in viewer_keys},
+            {key: source for key, source in sources.items() if key in viewer_keys})
 
 
 def resolve_runner_config(
@@ -55,13 +82,11 @@ def resolve_runner_config(
     """
     values = {"threads": None}
     sources = {"threads": "default"}
-    paths = dict.fromkeys((Path.home() / ".cmfgenrc", Path.cwd() / ".cmfgenrc"))
-    for path in paths:
-        if not path.exists() and not path.is_symlink():
-            continue
-        for name, value in _read_rc(path).items():
-            values[name] = value
-            sources[name] = str(path)
+    rc_values, rc_sources = _rc_defaults()
+    for name in ("cmfgen_root", "atomic_root", "threads"):
+        if name in rc_values:
+            values[name] = rc_values[name]
+            sources[name] = rc_sources[name]
     for environment in (LEGACY_ENVIRONMENT, ENVIRONMENT):
         for name, variable in environment.items():
             value = os.environ.get(variable)

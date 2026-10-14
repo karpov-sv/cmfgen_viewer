@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from cmfgen_viewer import runner
-from cmfgen_viewer.runner_config import resolve_runner_config
+from cmfgen_viewer.runner_config import resolve_runner_config, resolve_viewer_defaults
 from cmfgen_viewer.runner_recipe import RunnerError
 
 
@@ -106,7 +106,8 @@ def test_invalid_thread_counts(config_dirs, monkeypatch, value, source):
 @pytest.mark.parametrize("planning", [True, False])
 def test_cli_resolves_defaults_and_records_sources(config_dirs, monkeypatch, capsys, planning):
     _, work_dir = config_dirs
-    (work_dir / ".cmfgenrc").write_text("cmfdist = cmf\natomic = atomic\nnthreads = 2\n")
+    (work_dir / ".cmfgenrc").write_text("cmfdist = cmf\natomic = atomic\nnthreads = 2\n"
+                                      "read_write = false\nlambda_min = 1000\nport = 5567\n")
     plans = []
     def build(model, **options):
         assert model == Path("model")
@@ -146,3 +147,46 @@ def test_cli_unreadable_config_reports_json(config_dirs, capsys, kind):
         path.symlink_to(work_dir / "missing")
     assert runner.main(["model", "--stage", "test", "--plan", "--json"]) == 2
     assert json.loads(capsys.readouterr().out)["status"] == "preflight_failed"
+
+
+def test_mixed_viewer_runner_rc_resolves_typed_defaults_and_relative_paths(config_dirs):
+    home, work = config_dirs
+    (home / ".cmfgenrc").write_text("read_write = true\nlambda_min = 900\nport = 6000\ndir = models\n")
+    (work / ".cmfgenrc").write_text(
+        'read-write = OFF\nlambda-max = 32000\nfit-pool-size = 4\nall = yes\ndebug = false\n'
+        'upload-dir = "uploaded files"\ntemplate_root = templates\nhost = 127.0.0.2\n'
+        'cmfgen_root = cmf\natomic_root = atomic\nnthreads = 2\n'
+    )
+    values, sources = resolve_viewer_defaults()
+    assert values == {
+        "read_write": False, "lambda_min": 900.0, "lambda_max": 32000.0,
+        "port": 6000, "fit_pool_size": 4, "show_all": True, "debug": False,
+        "basepath": home / "models", "upload_root": work / "uploaded files",
+        "template_root": work / "templates", "host": "127.0.0.2",
+    }
+    assert sources["lambda_min"] == str(home / ".cmfgenrc")
+    assert sources["read_write"] == str(work / ".cmfgenrc")
+    native, _ = resolve_runner_config()
+    assert native == {"cmfgen_root": work / "cmf", "atomic_root": work / "atomic", "threads": 2}
+
+
+@pytest.mark.parametrize("text", [
+    "read_write = maybe", "lambda_min = NaN", "lambda_max = infinity",
+    "port = 12.5", "fit_pool_size = yes", "debug = sometimes",
+    "lambda-min = 800\nlambda_min = 900", "read-write = true\nread_write = false",
+])
+def test_invalid_viewer_rc_reports_file_and_line(config_dirs, text):
+    _, work = config_dirs
+    (work / ".cmfgenrc").write_text(text)
+    with pytest.raises(RunnerError, match=r"\.cmfgenrc:\d+:"):
+        resolve_viewer_defaults()
+
+
+@pytest.mark.parametrize("value,expected", [
+    ("true", True), ("FALSE", False), ("yes", True), ("no", False),
+    ("ON", True), ("off", False), ("1", True), ("0", False),
+])
+def test_read_write_boolean_forms(config_dirs, value, expected):
+    _, work = config_dirs
+    (work / ".cmfgenrc").write_text(f"read_write = {value}\n")
+    assert resolve_viewer_defaults()[0]["read_write"] is expected
