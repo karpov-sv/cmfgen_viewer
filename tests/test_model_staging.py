@@ -123,16 +123,16 @@ def test_plan_and_create_model_from_solution(tmp_path: Path) -> None:
     assert (destination / "GAMMAS_IN").read_text(encoding="utf-8") == "gamma-state\n"
     assert (destination / "HeI_IN").read_text(encoding="utf-8") == "helium-state\n"
     assert (destination / "GREY_SCL_FAC_IN").is_file()
-    assert (destination / "batch.sh").stat().st_mode & 0o777 == 0o750
-    assert (destination / "clean.sh").stat().st_mode & 0o777 == 0o750
-    assert (destination / "obs").stat().st_mode & 0o777 == 0o710
-    assert (destination / "obs" / "batobs.sh").stat().st_mode & 0o777 == 0o740
+    assert (destination / "batch.sh").stat().st_mode & 0o777 == 0o755
+    assert (destination / "clean.sh").stat().st_mode & 0o777 == 0o755
+    assert (destination / "obs").stat().st_mode & 0o777 == 0o755
+    assert (destination / "obs" / "batobs.sh").stat().st_mode & 0o777 == 0o755
     assert (destination / "obs" / "CMF_FLUX_PARAM_INIT").is_file()
     assert (destination / "obs" / "CFDAT_IN").is_file()
     assert not (destination / "obs" / "batobs.log").exists()
     assert not (destination / "obs" / "CMF_FLUX_PARAM").exists()
     assert not (destination / "obs" / "obs_fin").exists()
-    assert destination.stat().st_mode & 0o777 == 0o750
+    assert destination.stat().st_mode & 0o777 == 0o755
     assert not (destination / "MOD_SUM").exists()
 
 

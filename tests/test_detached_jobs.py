@@ -41,12 +41,17 @@ from cmfgen_viewer.detached_jobs import launch_job,fingerprint
 plan=json.loads(Path(sys.argv[1]).read_text());model=Path(plan['model'])
 print(launch_job(model.parent,model,{'stages':[plan['stage']]},lambda:plan,fingerprint(plan)),flush=True)
 '''
-    launcher = subprocess.run([sys.executable, '-c', code, str(payload)], capture_output=True, text=True)
+    launcher = subprocess.run([sys.executable, '-c', code, str(payload)], capture_output=True, text=True, umask=0o077)
     assert launcher.returncode == 0, launcher.stderr
     job_id = launcher.stdout.strip()
     job = wait_for(model.parent, job_id, lambda job: not job['active'])
     assert job['status'] == 'tested', job
     assert job['result']['journal']
+    directory = model.parent / '.cmfgen-runner-jobs' / job_id
+    assert directory.stat().st_mode & 0o777 == 0o755
+    assert directory.parent.stat().st_mode & 0o777 == 0o755
+    for name in ('request.json', 'plan.json', 'state.json', 'result.json', 'worker.log', 'events.jsonl'):
+        assert (directory / name).stat().st_mode & 0o777 == 0o644
     assert (model / 'RVTJ').exists()
     assert inspect_model_activity(model)['safe_to_modify']
 

@@ -12,6 +12,7 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .workflow_permissions import copy_readable, mkdir_readable, readable_mode
 from .browser import is_model_directory, resolve_path
 from .control_files import control_occurrences as _control_occurrences
 from .hydro_lte_alignment import preview_lte_hydro_alignment, apply_lte_hydro_alignment
@@ -479,8 +480,9 @@ def align_hydro_parameters(basepath: str, *, model_relpath: str, expected_digest
                     raise ModelWorkflowError("VADAT or HYDRO_PARAMS changed while saving. Reload and review the new values.")
             info = target.stat()
             backup_dir = model_dir / MODEL_EDITOR_BACKUP_DIR / "hydro-alignment" / datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
-            backup_dir.mkdir(parents=True, exist_ok=False)
-            shutil.copy2(target, backup_dir / "HYDRO_PARAMS")
+            mkdir_readable(model_dir / MODEL_EDITOR_BACKUP_DIR, exist_ok=True)
+            mkdir_readable(backup_dir, parents=True, exist_ok=False)
+            copy_readable(target, backup_dir / "HYDRO_PARAMS")
             _atomic_write(target, updated.encode("utf-8"), stat.S_IMODE(info.st_mode))
             backup_relpath = backup_dir.relative_to(model_dir).as_posix()
             mark_model_inputs_modified(model_dir, file_relpath="lte/HYDRO_PARAMS", backup_relpath=backup_relpath)
@@ -842,7 +844,7 @@ def inspect_lte_hydro_workflow(basepath: str, *, model_relpath: str, config: dic
 def _copy_regular(source: Path, destination: Path) -> None:
     if not _regular_file(source):
         raise ModelWorkflowError(f"Required regular file is unavailable: {source}")
-    shutil.copy2(source, destination)
+    copy_readable(source, destination)
 
 
 def _initialize_hydro_parameters(staging: Path) -> dict[str, object]:
@@ -902,6 +904,7 @@ def prepare_lte_hydro_workspace(basepath: str, *, model_relpath: str, template_r
             if _regular_file(model_dir / "RVSIG_COL") and not (model_dir / "RVSIG_COL_OLD").exists():
                 _copy_regular(model_dir / "RVSIG_COL", model_dir / "RVSIG_COL_OLD")
                 created_rvsig_backup = True
+            staging.chmod(0o755)
             os.replace(staging, lte_dir)
         except (OSError, shutil.Error) as exc:
             if created_rvsig_backup:
@@ -929,7 +932,7 @@ def _atomic_copy(source: Path, destination: Path) -> None:
             target_handle.flush()
             os.fsync(target_handle.fileno())
         source_mode = stat.S_IMODE(source.stat().st_mode)
-        temporary.chmod(source_mode)
+        temporary.chmod(readable_mode(source_mode))
         os.replace(temporary, destination)
         temporary = None
     finally:
@@ -949,7 +952,7 @@ def _atomic_write(destination: Path, contents: bytes, mode: int) -> None:
             target_handle.write(contents)
             target_handle.flush()
             os.fsync(target_handle.fileno())
-        temporary.chmod(mode)
+        temporary.chmod(readable_mode(mode))
         os.replace(temporary, destination)
         temporary = None
     finally:
@@ -1012,20 +1015,21 @@ def promote_lte_hydro_results(basepath: str, *, model_relpath: str) -> dict[str,
         replaced_names: list[str] = []
         invalidated_names: list[str] = []
         try:
-            backup_dir.mkdir(parents=True, exist_ok=False)
-            (backup_dir / "lte").mkdir()
-            shutil.copy2(lte_vadat, backup_dir / "lte" / "VADAT")
+            mkdir_readable(model_dir / MODEL_EDITOR_BACKUP_DIR, exist_ok=True)
+            mkdir_readable(backup_dir, parents=True, exist_ok=False)
+            mkdir_readable(backup_dir / "lte")
+            copy_readable(lte_vadat, backup_dir / "lte" / "VADAT")
             for name in sources:
                 target = model_dir / name
                 if _regular_file(target):
                     original_names.add(name)
-                    shutil.copy2(target, backup_dir / name)
+                    copy_readable(target, backup_dir / name)
             for name in MAIN_STATE_FILES:
                 target = model_dir / name
                 if target.exists() and not _regular_file(target):
                     raise ModelWorkflowError(f"Refusing to invalidate non-regular model target: {name}")
                 if _regular_file(target):
-                    shutil.copy2(target, backup_dir / name)
+                    copy_readable(target, backup_dir / name)
             _atomic_write(
                 lte_vadat,
                 synchronized_vadat,

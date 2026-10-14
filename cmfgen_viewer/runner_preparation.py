@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import uuid
 
+from .workflow_permissions import mkdir_readable, open_readable
 from .model_workflow import (
     ModelWorkflowError,
     _hydro_alignment_from_records,
@@ -76,10 +77,10 @@ def run_preparation_plan(plan: dict, emit=None) -> dict:
     root = model / ".cmfgen-runs"
     if root.is_symlink():
         raise RunnerError("Refusing symlinked run archive")
-    root.mkdir(exist_ok=True)
+    mkdir_readable(root, exist_ok=True)
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:8]
     journal = root / run_id
-    journal.mkdir()
+    mkdir_readable(journal)
     _json(journal / "plan.json", plan)
     record = {"id": "prepare-lte", "status": "running", "problems": []}
     result = {
@@ -91,7 +92,7 @@ def run_preparation_plan(plan: dict, emit=None) -> dict:
 
     def event(kind, **values):
         item = {"event": kind, "run_id": run_id, "time": datetime.now(timezone.utc).isoformat(), **values}
-        with (journal / "events.jsonl").open("a") as handle:
+        with open_readable(journal / "events.jsonl", "a") as handle:
             handle.write(json.dumps(item) + "\n")
         if emit:
             emit(item)

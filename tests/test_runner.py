@@ -845,3 +845,26 @@ def test_explicit_atomic_manifest_rejects_unsafe_targets(workspace):
     plan = make_plan()
     assert not plan['ready']
     assert any('Unsafe atomic declaration' in error for error in plan['errors'])
+
+
+def test_native_products_and_journals_readable_under_restrictive_umask(workspace):
+    import os
+
+    model, make_plan = workspace
+    (model / "MOD_SUM").write_text("old private output")
+    (model / "MOD_SUM").chmod(0o600)
+    plan = make_plan()
+    old_mask = os.umask(0o077)
+    try:
+        result = run_plan(plan)
+    finally:
+        os.umask(old_mask)
+    assert result['status'] == 'tested'
+    for name in ('MOD_SUM', 'RVTJ', 'MODEL', 'OUTGEN'):
+        assert (model / name).stat().st_mode & 0o777 == 0o644
+    journal = Path(result['journal'])
+    for path in [journal.parent, journal, *journal.rglob('*')]:
+        if path.is_dir():
+            assert path.stat().st_mode & 0o555 == 0o555
+        elif path.is_file() and not path.is_symlink():
+            assert path.stat().st_mode & 0o444 == 0o444

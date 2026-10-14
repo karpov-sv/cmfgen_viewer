@@ -117,3 +117,30 @@ def test_preparation_never_overwrites_partial_workspace(tmp_path):
     plan = build_preparation_plan(model)
     assert not plan['ready'] and 'incomplete' in plan['errors'][0]
     assert (model / 'lte/VADAT').read_text() == 'keep existing inputs\n'
+
+
+def test_preparation_and_journal_readable_under_restrictive_umask(tmp_path):
+    import os
+
+    model = _write_initializable_workspace_inputs(tmp_path)
+    template = tmp_path / 'templates/lte/HYDRO_PARAMS'
+    (model / 'VADAT').chmod(0o600)
+    (model / 'MODEL_SPEC').chmod(0o600)
+    template.chmod(0o600)
+    plan = build_preparation_plan(model)
+    old_mask = os.umask(0o077)
+    try:
+        result = runner.run_plan(plan)
+    finally:
+        os.umask(old_mask)
+    assert result['status'] == 'succeeded'
+    assert (model / 'lte').stat().st_mode & 0o777 == 0o755
+    for name in ('VADAT', 'MODEL_SPEC', 'HYDRO_PARAMS'):
+        assert (model / 'lte' / name).stat().st_mode & 0o777 == 0o644
+    journal = Path(result['journal'])
+    assert journal.stat().st_mode & 0o777 == 0o755
+    assert journal.parent.stat().st_mode & 0o777 == 0o755
+    for name in ('plan.json', 'result.json', 'events.jsonl'):
+        assert (journal / name).stat().st_mode & 0o777 == 0o644
+    assert template.stat().st_mode & 0o777 == 0o600
+    assert (model / 'VADAT').stat().st_mode & 0o777 == 0o600

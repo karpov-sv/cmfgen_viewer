@@ -6,10 +6,10 @@ from fnmatch import fnmatchcase
 import os
 from pathlib import Path
 import shutil
-import stat
 import tempfile
 from threading import Lock
 
+from .workflow_permissions import copy_readable, make_readable, mkdir_readable, readable_mode
 from .browser import is_model_directory, resolve_path
 from .model_activity import model_mutation_guard
 from .model_templates import resolve_model_template
@@ -331,22 +331,22 @@ def create_model_from_solution(
         staging_path: Path | None = None
         try:
             staging_path = Path(tempfile.mkdtemp(prefix=".cmfgen-create-", dir=str(destination.parent)))
-            staging_path.chmod(stat.S_IMODE(source.stat().st_mode))
+            staging_path.chmod(readable_mode(source.stat().st_mode, directory=True))
             entries = plan.get("entries")
             if not isinstance(entries, list):
                 raise ModelStagingError("Model copy plan is invalid.")
             if bool(plan.get("observer_setup", False)):
                 observer_source = source / "obs"
                 observer_destination = staging_path / "obs"
-                observer_destination.mkdir()
-                observer_destination.chmod(stat.S_IMODE(observer_source.stat().st_mode) if observer_source.is_dir() else 0o755)
+                mkdir_readable(observer_destination)
+                observer_destination.chmod(readable_mode(observer_source.stat().st_mode, directory=True) if observer_source.is_dir() else 0o755)
             for entry in entries:
                 if not isinstance(entry, dict):
                     raise ModelStagingError("Model copy plan contains an invalid entry.")
                 source_file = Path(str(entry["source_path"]))
                 destination_file = staging_path.joinpath(*Path(str(entry["destination_name"])).parts)
-                destination_file.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(source_file, destination_file, follow_symlinks=True)
+                mkdir_readable(destination_file.parent, parents=True, exist_ok=True)
+                copy_readable(source_file, destination_file, follow_symlinks=True)
 
             if destination.exists() or destination.is_symlink():
                 raise ModelStagingError(
@@ -544,6 +544,7 @@ def cleanup_model_directory(
                     if destination.exists() or destination.is_symlink():
                         raise FileExistsError(f"Cleanup archive target already exists: {destination}")
                     os.replace(source, destination)
+                    make_readable(destination)
             except OSError as exc:
                 failures.append({"name": name, "error": str(exc)})
             else:

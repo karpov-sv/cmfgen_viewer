@@ -11,6 +11,7 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .workflow_permissions import mkdir_readable, open_readable
 from .browser import is_model_directory, resolve_path
 from .control_files import tokenize_control
 from .model_staging import MODEL_WRITE_LOCK
@@ -481,12 +482,13 @@ def review_model_parameter_edit(
 def _write_backup(model_dir: Path, file_relpath: str, payload: bytes, digest: str) -> str:
     source_relpath = Path(file_relpath)
     backup_dir = model_dir / MODEL_EDITOR_BACKUP_DIR / source_relpath.parent
-    backup_dir.mkdir(parents=True, exist_ok=True)
+    mkdir_readable(model_dir / MODEL_EDITOR_BACKUP_DIR, exist_ok=True)
+    mkdir_readable(backup_dir, parents=True, exist_ok=True)
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
     backup_name = f"{source_relpath.name}.{timestamp}.{digest[:12]}.bak"
     backup_path = backup_dir / backup_name
     try:
-        with backup_path.open("xb") as handle:
+        with open_readable(backup_path, "xb") as handle:
             handle.write(payload)
             handle.flush()
             os.fsync(handle.fileno())

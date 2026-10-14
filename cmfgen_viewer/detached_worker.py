@@ -5,6 +5,7 @@ import signal
 import sys
 import time
 
+from .workflow_permissions import open_readable
 from . import model_activity
 from .detached_jobs import read_json, write_json
 from .runner import run_plan
@@ -39,7 +40,7 @@ def main(directory, descriptor):
         write_json(directory / "state.json", state)
 
         def emit(event):
-            with (directory / "events.jsonl").open("a") as stream:
+            with open_readable(directory / "events.jsonl", "a") as stream:
                 import json
                 stream.write(json.dumps(event, allow_nan=False) + "\n")
             if event["event"] == "progress":

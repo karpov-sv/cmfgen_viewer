@@ -709,7 +709,8 @@ def test_prepare_initializes_hydro_and_preserves_sources(tmp_path):
     contents = (model / 'lte/HYDRO_PARAMS').read_text()
     assert '! Keep template comment' in contents and '! temperature' in contents
     assert '100 [MAX_R]' in contents and 'F [OLD_MOD]' in contents
-    assert (model / 'lte/HYDRO_PARAMS').stat().st_mode & 0o777 == 0o640
+    assert (model / 'lte/HYDRO_PARAMS').stat().st_mode & 0o777 == 0o644
+    assert template.stat().st_mode & 0o777 == 0o640
     assert template.read_bytes() == original_template
     assert (model / 'VADAT').read_bytes() == original_vadat
     assert not state['hydro_ready']  # Preparation has not produced any LTE result.

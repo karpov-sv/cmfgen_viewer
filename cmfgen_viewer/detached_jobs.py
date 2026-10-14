@@ -15,6 +15,7 @@ import uuid
 
 import psutil
 
+from .workflow_permissions import make_readable, mkdir_readable, open_readable
 from .model_activity import model_mutation_guard, RUN_LOCK_NAME, fcntl
 from .runner_recipe import RunnerError
 
@@ -49,7 +50,7 @@ _CHILDREN_LOCK = threading.Lock()
 def write_json(path, data):
     temporary = path.with_name(path.name + "." + uuid.uuid4().hex + ".tmp")
     try:
-        with temporary.open("x") as stream:
+        with open_readable(temporary, "x") as stream:
             json.dump(data, stream, allow_nan=False)
             stream.flush()
             os.fsync(stream.fileno())
@@ -188,18 +189,18 @@ def launch_job(base, model, options, build_plan, expected_fingerprint):
             root = base / JOB_DIR
             if root.is_symlink():
                 raise RunnerError("Refusing symlinked job archive")
-            root.mkdir(exist_ok=True)
+            mkdir_readable(root, exist_ok=True)
             job_id = uuid.uuid4().hex
             directory = root / job_id
-            directory.mkdir(mode=0o700)
+            mkdir_readable(directory)
             write_json(directory / "request.json", {"model": str(model), "model_relpath": model.relative_to(base).as_posix(),
                 "stages": options["stages"], "options": options,
                 "created_epoch": time.time(), "created_at": datetime.now(timezone.utc).isoformat()})
             write_json(directory / "plan.json", plan)
-            with (directory / "worker.log").open("xb") as output:
+            with open_readable(directory / "worker.log", "xb") as output:
                 child = subprocess.Popen([sys.executable, "-m", "cmfgen_viewer.detached_worker", str(directory), str(lock_fd)],
                     cwd=Path(__file__).resolve().parent.parent, stdin=subprocess.DEVNULL,
-                    stdout=output, stderr=subprocess.STDOUT, start_new_session=True, pass_fds=(lock_fd,))
+                    stdout=output, stderr=subprocess.STDOUT, start_new_session=True, pass_fds=(lock_fd,), umask=0o022)
             identity = {"pid": child.pid, "create_time": psutil.Process(child.pid).create_time()}
             write_json(directory / "process.json", identity)
             with _CHILDREN_LOCK:
@@ -213,6 +214,7 @@ def launch_job(base, model, options, build_plan, expected_fingerprint):
             os.close(lock_fd)
     # The worker must not acquire the stage write lock before this launcher releases it.
     (directory / "start").touch()
+    make_readable(directory / "start")
     return job_id
 
 
@@ -229,6 +231,7 @@ def cancel_job(base, job_id):
     if (directory / "cancel").exists():
         return  # Repeated requests must not interrupt the runner's cleanup.
     (directory / "cancel").touch()
+    make_readable(directory / "cancel")
     if not (directory / "state.json").exists():
         return  # The worker observes this marker before launching anything.
     # psutil guards against PID reuse when signalling.

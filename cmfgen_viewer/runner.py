@@ -8,13 +8,13 @@ import os
 from pathlib import Path
 import re
 import signal
-import shutil
 import subprocess
 import sys
 import tempfile
 import time
 import uuid
 
+from .workflow_permissions import copy_readable, make_readable, mkdir_readable, open_readable, readable_mode
 from .model_activity import model_mutation_guard
 from .native_diagnostics import analyze_main_diagnostics
 from .parsers.common import parse_float_token
@@ -44,6 +44,7 @@ def _json(path, value):
         with os.fdopen(descriptor, "w") as handle:
             json.dump(value, handle, indent=2)
             handle.write("\n")
+        make_readable(Path(temporary))
         os.replace(temporary, path)
     finally:
         if os.path.exists(temporary):
@@ -65,7 +66,7 @@ def _write_control(path, contents, mode=0o644):
             handle.write(contents)
             handle.flush()
             os.fsync(handle.fileno())
-        os.chmod(temporary, mode)
+        os.chmod(temporary, readable_mode(mode))
         os.replace(temporary, path)
     finally:
         if os.path.exists(temporary):
@@ -76,7 +77,7 @@ def _publish(source, destination):
     descriptor, temporary = tempfile.mkstemp(prefix=".runner-product-", dir=destination.parent)
     os.close(descriptor)
     try:
-        shutil.copy2(source, temporary)
+        copy_readable(source, temporary)
         os.replace(temporary, destination)
     finally:
         if os.path.exists(temporary):
@@ -374,13 +375,15 @@ def run_plan(plan: dict, emit=None) -> dict:
         for path in cwd.iterdir():
             if path.is_symlink() and path.name not in plan["permitted_links"]:
                 raise RunnerError(f"Unclassified symlink in execution workspace: {path}")
+        if stage in {"lte", "hydro"}:
+            make_readable(cwd)
         root = model / ".cmfgen-runs"
         if root.is_symlink():
             raise RunnerError("Refusing symlinked run archive")
-        root.mkdir(exist_ok=True)
+        mkdir_readable(root, exist_ok=True)
         run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:8]
         journal = root / run_id
-        journal.mkdir()
+        mkdir_readable(journal)
         _json(journal / "plan.json", plan)
         result = {"run_id": run_id, "stage": stage, "status": "running", "journal": str(journal),
                   "passes": [], "planned_passes": len(plan["passes"]),
@@ -390,7 +393,7 @@ def run_plan(plan: dict, emit=None) -> dict:
 
         def event(kind, **values):
             item = {"event": kind, "run_id": run_id, "time": datetime.now(timezone.utc).isoformat(), **values}
-            with (journal / "events.jsonl").open("a") as handle:
+            with open_readable(journal / "events.jsonl", "a") as handle:
                 handle.write(json.dumps(item) + "\n")
             if emit:
                 emit(item)
@@ -403,24 +406,24 @@ def run_plan(plan: dict, emit=None) -> dict:
                 event("startup", **plan["restart"])
             # Preserve all small startup controls/restart files used by the run.
             inputs_dir = journal / "inputs"
-            inputs_dir.mkdir()
+            mkdir_readable(inputs_dir)
             for record in plan["inputs"]:
                 path = Path(record["path"])
                 if record.get("sha256") and path.is_relative_to(model):
                     target = inputs_dir / path.relative_to(model)
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(path, target)
+                    mkdir_readable(target.parent, parents=True, exist_ok=True)
+                    copy_readable(path, target)
             if stage == "hydro" and plan.get("lte_composition_alignment"):
                 from .hydro_lte_alignment import apply_lte_hydro_alignment
                 alignment = apply_lte_hydro_alignment(model, plan["lte_composition_alignment"]["digest"])
                 result["lte_composition_alignment"] = alignment
                 effective = journal / "effective"
-                effective.mkdir()
-                shutil.copy2(cwd / "HYDRO_PARAMS", effective / "HYDRO_PARAMS")
+                mkdir_readable(effective)
+                copy_readable(cwd / "HYDRO_PARAMS", effective / "HYDRO_PARAMS")
                 event("lte_composition_aligned", **alignment)
             if stage in {"main", "test"} and plan.get("restart", {}).get("present_files"):
                 restart_backup = journal / "restart-before"
-                restart_backup.mkdir()
+                mkdir_readable(restart_backup)
                 for name in RESTART_FILES:
                     path = model / name
                     if path.is_symlink() or (path.exists() and (not path.is_file() or path.stat().st_nlink != 1)):
@@ -428,8 +431,9 @@ def run_plan(plan: dict, emit=None) -> dict:
                     if path.is_file():
                         if plan.get("fresh_start"):
                             path.rename(restart_backup / name)
+                            make_readable(restart_backup / name)
                         else:
-                            shutil.copy2(path, restart_backup / name)
+                            copy_readable(path, restart_backup / name)
             control_name = "CMF_FLUX_PARAM" if stage == "flux" else "IN_ITS"
             if stage == "flux" or any(step["overrides"] for step in plan["passes"]):
                 path = cwd / control_name
@@ -467,9 +471,9 @@ def run_plan(plan: dict, emit=None) -> dict:
                 )
             for step_number, step in enumerate(plan["passes"], 1):
                 pass_dir = journal / step["id"]
-                pass_dir.mkdir()
+                mkdir_readable(pass_dir)
                 previous = pass_dir / "before"
-                previous.mkdir()
+                mkdir_readable(previous)
                 logs = (("OUTGEN", "WARNINGS") if stage in {"main", "test"} else
                         ("OUTLTE", "ML_COUNTER") if stage == "lte" else
                         ("WIND_HYD",) if stage == "hydro" else ("OUT_FLUX",))
@@ -485,15 +489,17 @@ def run_plan(plan: dict, emit=None) -> dict:
                     if path.is_file():
                         if name in retired:
                             path.rename(previous / name)
+                            make_readable(previous / name)
                         else:
-                            shutil.copy2(path, previous / name)
+                            copy_readable(path, previous / name)
                 before = {name: snapshot(cwd / name) for name in products}
                 if step["overrides"] or stage == "flux":
                     original = (cwd / "CMF_FLUX_PARAM_INIT").read_text() if stage == "flux" else controls[cwd / "IN_ITS"][0].decode()
                     rendered = override_controls(original, step["overrides"])
                     original_control = controls[cwd / control_name]
                     _write_control(cwd / control_name, rendered.encode(), original_control[1] if original_control else 0o644)
-                    (pass_dir / control_name).write_text(rendered)
+                    with open_readable(pass_dir / control_name, "w") as handle:
+                        handle.write(rendered)
                 record = {"id": step["id"], "status": "running", "log": str(pass_dir / "process.log")}
                 result["passes"].append(record)
                 _json(journal / "result.json", result)
@@ -507,15 +513,16 @@ def run_plan(plan: dict, emit=None) -> dict:
                     input_handle = (cwd / "IN_FILE").open("rb")
                 elif stage == "hydro":
                     input_path = pass_dir / "stdin.txt"
-                    input_path.write_text(step["stdin"]["text"])
+                    with open_readable(input_path, "w") as handle:
+                        handle.write(step["stdin"]["text"])
                     input_handle = input_path.open("rb")
                 else:
                     input_handle = subprocess.DEVNULL
                 try:
-                    with (pass_dir / "process.log").open("wb") as output:
+                    with open_readable(pass_dir / "process.log", "wb") as output:
                         process = subprocess.Popen(child_command,
                                                    cwd=cwd, env=env, stdin=input_handle, stdout=output, stderr=subprocess.STDOUT,
-                                                   start_new_session=True, pass_fds=(lock_fd,))
+                                                   start_new_session=True, pass_fds=(lock_fd,), umask=0o022)
                         record["pid"] = process.pid
                         _json(journal / "result.json", result)
                         last_report = 0
@@ -579,7 +586,8 @@ def run_plan(plan: dict, emit=None) -> dict:
                 for name in native_names:
                     path = cwd / name
                     if path.is_file() and not path.is_symlink():
-                        shutil.copy2(path, pass_dir / name)
+                        make_readable(path)
+                        copy_readable(path, pass_dir / name)
                 if record["status"] == "succeeded" and stage in {"main", "lte", "hydro"}:
                     final_progress = _progress(stage, cwd)
                     if final_progress.get("total") is not None:
@@ -593,7 +601,7 @@ def run_plan(plan: dict, emit=None) -> dict:
                     if destination.is_symlink():
                         raise RunnerError(f"Refusing symlinked spectrum target: {destination}")
                     if destination.exists():
-                        shutil.copy2(destination, previous / destination.name)
+                        copy_readable(destination, previous / destination.name)
                     _publish(cwd / "OBSFRAME", destination)
                     record["output"] = str(destination)
                     event(
@@ -645,10 +653,10 @@ def _run_promotion_plan(plan: dict, emit=None) -> dict:
     root = model / ".cmfgen-runs"
     if root.is_symlink():
         raise RunnerError("Refusing symlinked run archive")
-    root.mkdir(exist_ok=True)
+    mkdir_readable(root, exist_ok=True)
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:8]
     journal = root / run_id
-    journal.mkdir()
+    mkdir_readable(journal)
     _json(journal / "plan.json", plan)
     started_at = datetime.now(timezone.utc).isoformat()
     record = {"id": "promote-hydro", "status": "running", "problems": []}
@@ -670,7 +678,7 @@ def _run_promotion_plan(plan: dict, emit=None) -> dict:
             "time": datetime.now(timezone.utc).isoformat(),
             **values,
         }
-        with (journal / "events.jsonl").open("a") as handle:
+        with open_readable(journal / "events.jsonl", "a") as handle:
             handle.write(json.dumps(item) + "\n")
         if emit:
             emit(item)
@@ -719,12 +727,12 @@ def _run_cleanup_plan(plan: dict, emit=None) -> dict:
     root = model / ".cmfgen-runs"
     if root.is_symlink():
         raise RunnerError("Refusing symlinked run archive")
-    root.mkdir(exist_ok=True)
+    mkdir_readable(root, exist_ok=True)
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:8]
     journal = root / run_id
-    journal.mkdir()
+    mkdir_readable(journal)
     archive = journal / "removed"
-    archive.mkdir()
+    mkdir_readable(archive)
     _json(journal / "plan.json", plan)
     record = {"id": "cleanup", "status": "running", "problems": []}
     result = {
@@ -745,7 +753,7 @@ def _run_cleanup_plan(plan: dict, emit=None) -> dict:
             "time": datetime.now(timezone.utc).isoformat(),
             **values,
         }
-        with (journal / "events.jsonl").open("a") as handle:
+        with open_readable(journal / "events.jsonl", "a") as handle:
             handle.write(json.dumps(item) + "\n")
         if emit:
             emit(item)
@@ -803,10 +811,10 @@ def _run_sequence_plan(plan: dict, emit=None) -> dict:
     root = model / ".cmfgen-runs"
     if root.is_symlink():
         raise RunnerError("Refusing symlinked run archive")
-    root.mkdir(exist_ok=True)
+    mkdir_readable(root, exist_ok=True)
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:8]
     journal = root / run_id
-    journal.mkdir()
+    mkdir_readable(journal)
     _json(journal / "plan.json", plan)
     stages = list(plan["stages"])
     result = {
@@ -829,7 +837,7 @@ def _run_sequence_plan(plan: dict, emit=None) -> dict:
             "time": datetime.now(timezone.utc).isoformat(),
             **values,
         }
-        with (journal / "events.jsonl").open("a") as handle:
+        with open_readable(journal / "events.jsonl", "a") as handle:
             handle.write(json.dumps(item) + "\n")
         if emit:
             emit(item)

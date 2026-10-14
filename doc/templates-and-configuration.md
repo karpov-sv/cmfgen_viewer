@@ -63,6 +63,8 @@ Boolean values `true`/`false`, `yes`/`no`, `on`/`off`, and `1`/`0` are accepted 
 
 Viewer settings support preflight checks and configure UI-launched runner jobs. They are not injected into commands you run separately in a terminal. Make sure your shell setup points to the same installation and atomic tree. The runner uses its resolved settings directly when launching native executables.
 
+Workflow-created model/workspace directories, checkpoints, run journals, logs, and copied or published products are readable by all users: directories normally use `0755`, regular files `0644`, and executable files `0755`. Existing write permissions are retained. Native runner children use umask `022`; the viewer does not change its process-wide umask. Symbolic-link targets are left untouched.
+
 ## Activity and write protection
 
 Edits, model copying/moving, cleanup, LTE preparation, and promotion require an idle model with available process visibility. Recognized CMFGEN, CMF_FLUX, LTE, hydro, and batch processes in the model tree block writes; unknown visibility also blocks them. Detection uses `psutil` on Linux and macOS.
