@@ -20,6 +20,7 @@ from .parsers.common import parse_float_token
 from .hydro_lte_alignment import preview_lte_hydro_alignment
 from .runner_validation import validate_rosseland_table, validate_rvtj_core
 from .runner_restart import RESTART_FILES, inspect_restart
+from .recovery_files import RECOVERY_FILE_LIMIT
 from .model_templates import resolve_model_template
 
 
@@ -30,7 +31,7 @@ class RunnerError(ValueError):
 PROGRAMS = {"main": "cmfgen_dev.exe", "test": "cmfgen_dev.exe", "lte": "main_lte.exe",
             "hydro": "wind_hyd.exe", "flux": "cmf_flux.exe"}
 # Observer passes use different grids/profiles. The legacy script discards
-# these scratch caches between passes; archive them instead, including before
+# these scratch caches between passes; retire them, including before
 # the first pass so reruns cannot consume caches from an earlier invocation.
 FLUX_CACHE_FILES = ("EDDFACTOR", "EDDFACTOR_INFO", "ES_J_CONV", "ES_J_CONV_INFO",
                     "J_COMP", "MEANOPAC", "TRANS_INFO")
@@ -136,7 +137,7 @@ def resolve_atomic_links(model: Path, stage: str, atomic: Path):
 
 def build_run_plan(model: Path, *, stage: str, cmfgen_root: Path, atomic_root: Path,
                    threads=None, timeout=None, memory_mib=None, iterations=None, fresh_start=False,
-                   no_core_dumps=False, lte_initialization=False, t_exc=1.0) -> dict:
+                   no_core_dumps=False, lte_initialization=False, t_exc=1.0, keep_large_files=False) -> dict:
     if stage not in PROGRAMS:
         raise RunnerError("Supported stages: test, main, lte, hydro, flux")
     if (threads is not None and threads < 1) or (memory_mib is not None and memory_mib < 128):
@@ -164,7 +165,7 @@ def build_run_plan(model: Path, *, stage: str, cmfgen_root: Path, atomic_root: P
     initialization = None
     if lte_initialization:
         if continuing:
-            errors.append("LTE initialization applies to fresh startup; explicitly select --fresh-start to archive checkpoints")
+            errors.append("LTE initialization applies to fresh startup; explicitly select --fresh-start to retire checkpoints")
         try:
             lte_initialization_controls((model / "VADAT").read_text(), t_exc)
         except (ValueError, OSError) as exc:
@@ -177,7 +178,9 @@ def build_run_plan(model: Path, *, stage: str, cmfgen_root: Path, atomic_root: P
     if restart:
         errors.extend(restart["errors"])
         warnings.extend(restart["warnings"])
-        backup_bytes = sum((model / name).stat().st_size for name in restart["present_files"] if (model / name).is_file())
+        backup_sizes = [(model / name).stat().st_size for name in restart["present_files"]
+                        if (model / name).is_file()]
+        backup_bytes = sum(size for size in backup_sizes if keep_large_files or size <= RECOVERY_FILE_LIMIT)
         if not fresh_start and shutil.disk_usage(model).free < backup_bytes + 1024**3:
             errors.append("Insufficient free space for checkpoint backup plus 1 GiB working headroom")
     activity = inspect_model_activity(model)
@@ -381,9 +384,9 @@ def build_run_plan(model: Path, *, stage: str, cmfgen_root: Path, atomic_root: P
             "executable": str(exe), "executable_snapshot": snapshot(exe), "links": kept, "passes": passes,
             "inputs": [snapshot(path) for path in sorted(paths)], "threads": threads, "timeout": timeout,
             "memory_mib": memory_mib, "no_core_dumps": no_core_dumps, "errors": errors, "warnings": warnings,
-            "fresh_start": fresh_start, "initialization": initialization,
+            "fresh_start": fresh_start, "initialization": initialization, "keep_large_files": keep_large_files,
             "restart": restart,
             "permitted_links": sorted(permitted_links),
             "cache_files": list(FLUX_CACHE_FILES) if stage == "flux" else [],
-            "ready": not errors, "cleanup": "no deletion; archive flux caches before each pass; retain diagnostics and atomic links",
+            "ready": not errors, "cleanup": "retire flux caches before each pass; retain diagnostics and atomic links; large recovery files require keep_large_files",
             "scientific_acceptance": "not assessed", "launches_legacy_scripts": False}

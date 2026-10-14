@@ -40,6 +40,11 @@ def model_lte_hydro(source_path: str):
     submitted_controls: dict[str, str] = {}
     submitted_filename = ""
     submitted_card_key = "lte_quick_control_cards"
+    keep_large_files = (
+        request.form.get("keep_large_files") == "1"
+        if "recovery_setting" in request.form
+        else bool(config.get("keep_large_files", False))
+    )
     try:
         if request.method == "POST":
             action = str(request.form.get("action", "")).strip().lower()
@@ -130,10 +135,13 @@ def model_lte_hydro(source_path: str):
                     )
                 )
             if action == "cleanup_lte":
-                cleaned = cleanup_lte_workspace(basepath, model_relpath=source_path)
+                cleaned = cleanup_lte_workspace(
+                    basepath, model_relpath=source_path, keep_large_files=keep_large_files,
+                )
                 return redirect(_notification_url(
                     "viewer.model_lte_hydro", source_path=source_path, _anchor="result-review",
-                    message=f"Archived {cleaned['removed_count']} LTE temporary file(s) ({cleaned['human_size']}). "
+                    warning=" ".join(cleaned["recovery"]["warnings"]),
+                    message=f"Cleaned {cleaned['removed_count']} LTE temporary file(s) ({cleaned['human_size']}). "
                             + (f"Recovery archive: {cleaned['archive_path']}." if cleaned['archive_path'] else "No temporary files needed cleanup."),
                 ))
             if action == "promote":
@@ -141,7 +149,9 @@ def model_lte_hydro(source_path: str):
                     raise ModelWorkflowError(
                         "Confirm that RVSIG_COL_NEW has the intended luminosity and radius ratio."
                     )
-                result = promote_lte_hydro_results(basepath, model_relpath=source_path)
+                result = promote_lte_hydro_results(
+                    basepath, model_relpath=source_path, keep_large_files=keep_large_files,
+                )
                 try:
                     delete_model_summary_entries(
                         str(config.get("summary_cache_db", "model_summary_cache.sqlite")),
@@ -160,9 +170,10 @@ def model_lte_hydro(source_path: str):
                         source_path=source_path,
                         message=(
                             f"Results promoted with RMAX={result['synchronized_rmax']:.10g}; "
-                            f"previous files and invalidated main state are in {result['backup_relpath']}. "
-                            f"Archived {result['lte_cleanup_result']['removed_count']} LTE temporary file(s)."
+                            f"Recovery files retained under the selected policy: {result['backup_relpath']}. "
+                            f"Cleaned {result['lte_cleanup_result']['removed_count']} LTE temporary file(s)."
                         ),
+                        warning=" ".join(result["recovery"]["warnings"]),
                     )
                 )
             abort(400)
@@ -183,6 +194,8 @@ def model_lte_hydro(source_path: str):
                 if key in submitted_controls:
                     field["value"] = submitted_controls[key]
 
+    if request.method == "POST" and request.form.get("action") in {"cleanup_lte", "promote"}:
+        state["keep_large_files_default"] = keep_large_files
     return render_template(
         "model_lte_hydro.html",
         source_path=source_path,

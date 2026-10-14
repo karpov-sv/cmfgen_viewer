@@ -81,6 +81,7 @@ def fingerprint(plan):
     evidence["options"] = plan.get("stage_options")
     evidence["passes"] = initial.get("passes")
     evidence["initialization"] = initial.get("initialization")
+    evidence["keep_large_files"] = initial.get("keep_large_files", False)
     evidence["configuration"] = plan.get("configuration_sources")
     return hashlib.sha256(json.dumps(evidence, sort_keys=True, default=str).encode()).hexdigest()
 

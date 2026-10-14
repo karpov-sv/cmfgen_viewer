@@ -167,6 +167,7 @@ class TerminalOutput:
             self.line("ERROR", "Preflight failed — nothing launched")
 
     def plan(self, plan):
+        self.line("INFO", "Recovery: " + ("full-size artifacts and logs" if plan.get("keep_large_files", False) else "compact; omit artifacts above 2 MiB and retain log excerpts"))
         if plan.get("kind") == "sequence":
             self.line("INFO", f"CMFGEN multi-stage run — {plan['model']}")
             self.line("INFO", "Sequence: " + " → ".join(plan["stages"]))
@@ -205,7 +206,7 @@ class TerminalOutput:
                 "INFO",
                 f"{plan['entry_count']} candidate(s), {plan['human_size']}; "
                 f"{file_count} file(s), {symlink_count} symlink(s); "
-                "entries will be archived in the run journal",
+                "entries will be retired under the selected recovery policy",
             )
             display_entries = sorted(
                 entries,
@@ -239,7 +240,7 @@ class TerminalOutput:
             if plan.get("synchronized_rstar") is not None:
                 self.line("INFO", f"VADAT RSTAR will be synchronized to {plan['synchronized_rstar']:.12g}")
             cleanup = plan["lte_cleanup"]
-            self.line("INFO", f"Will archive {cleanup['entry_count']} LTE temporary file(s) ({cleanup['human_size']})")
+            self.line("INFO", f"Will clean {cleanup['entry_count']} LTE temporary file(s) ({cleanup['human_size']})")
             display_entries = cleanup["entries"] if self.verbose else cleanup["entries"][:24]
             for entry in display_entries:
                 self.line("INFO", f"  lte/{entry['name']} ({entry['human_size']})")
@@ -248,7 +249,7 @@ class TerminalOutput:
             if plan.get("invalidates"):
                 self.line(
                     "INFO",
-                    "Will archive and invalidate previous main state: "
+                    "Will invalidate previous main state (recovery follows the selected policy): "
                     + ", ".join(plan["invalidates"]),
                 )
             self.warnings(plan.get("warnings", []))
@@ -370,7 +371,8 @@ class TerminalOutput:
                 self.line("INFO", f"VADAT RSTAR synchronized to {promotion['synchronized_rstar']:.12g}")
             self.line("INFO", f"Backup: {promotion['backup_path']}")
             cleanup = promotion["lte_cleanup"]
-            self.line("INFO", f"Archived {cleanup['removed_count']} LTE temporary file(s)")
+            verb = "Cleaned" if promotion.get("recovery", {}).get("discarded_files") else "Archived"
+            self.line("INFO", f"{verb} {cleanup['removed_count']} LTE temporary file(s)")
             invalidated = promotion.get("invalidated_files", [])
             if invalidated:
                 self.line("INFO", "Invalidated previous main state: " + ", ".join(invalidated))
@@ -383,12 +385,14 @@ class TerminalOutput:
             cleanup = result["cleanup"]
             self.line(
                 "OK" if status == "succeeded" else "WARN",
-                f"Archived {cleanup['removed_count']} cleanup candidate(s)",
+                f"{'Cleaned' if cleanup.get('recovery', {}).get('discarded_files') else 'Archived'} {cleanup['removed_count']} cleanup candidate(s)",
             )
             self.line("INFO", f"Recovery archive: {cleanup['archive_path']}")
         if result.get("error"):
             self.line("ERROR", result["error"])
         self.details("ERROR", result.get("restore_errors", []))
+        for recovery in (result.get("recovery", {}), result.get("promotion", {}).get("recovery", {}), result.get("cleanup", {}).get("recovery", {})):
+            self.details("WARN", recovery.get("warnings", []))
         for step in passes:
             if step.get("returncode") not in {None, 0}:
                 self.line("ERROR", f"{step['id']}: exit status {step['returncode']}")

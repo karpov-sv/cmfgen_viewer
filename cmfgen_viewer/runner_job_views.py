@@ -45,13 +45,14 @@ def model_path(config, source_path):
         abort(404)
 
 
-def parse_options(form, defaults):
+def parse_options(form, defaults, *, keep_large_files_default=False):
     sequence = form.get("stage_order", "").strip() or form.get("stage_sequence", "").strip()
     stages = [stage.strip() for stage in sequence.split(",")] if sequence else form.getlist("stage") or defaults
     if not stages or len(set(stages)) != len(stages) or any(stage not in STAGE_CHOICES for stage in stages):
         raise RunnerError("Choose supported stages without duplicates")
     options = {"stages": stages, "fresh_start": form.get("fresh_start") == "1",
                "no_core_dumps": form.get("no_core_dumps") == "1",
+               "keep_large_files": (form.get("keep_large_files") == "1" if "recovery_setting" in form else keep_large_files_default),
                "lte_initialization": form.get("lte_initialization") == "1", "t_exc": 1.0}
     for name in ("iterations", "threads", "timeout", "memory_mib"):
         raw = form.get(name, "").strip()
@@ -88,6 +89,7 @@ def runner_plan(config, model, options):
     kwargs = dict(native_config=native, configuration_sources=sources, timeout=options["timeout"],
         memory_mib=options["memory_mib"], iterations=options["iterations"], fresh_start=options["fresh_start"],
         no_core_dumps=options["no_core_dumps"], cleanup_files=None,
+        keep_large_files=options.get("keep_large_files", config.get("keep_large_files", False)),
         lte_initialization=options.get("lte_initialization", False), t_exc=options.get("t_exc", 1.0),
         template_root=Path(config["template_root"]) if config.get("template_root") and "prepare-lte" in options["stages"] else None)
     if len(options["stages"]) == 1:
@@ -106,7 +108,7 @@ def model_runner_launch(source_path):
     error, plan, token = "", None, None
     inline = request.args.get("format") == "json"
     options = {"stages": defaults, "iterations": None, "threads": None, "timeout": None,
-               "memory_mib": None, "fresh_start": False, "no_core_dumps": False, "lte_initialization": False, "t_exc": 1.0}
+               "memory_mib": None, "keep_large_files": config.get("keep_large_files", False), "fresh_start": False, "no_core_dumps": False, "lte_initialization": False, "t_exc": 1.0}
     try:
         if request.method == "POST" and inline and request.form.get("action") == "start":
             signed = signer().loads(request.form.get("start_token", ""), max_age=86400)
@@ -114,7 +116,7 @@ def model_runner_launch(source_path):
                 raise RunnerError("Invalid run confirmation")
             if model_path(config, signed["start_model"]) != model:
                 raise RunnerError("Run confirmation belongs to another model")
-            options = parse_options(request.form, defaults)
+            options = parse_options(request.form, defaults, keep_large_files_default=config.get("keep_large_files", False))
             if options["stages"] != signed["start_stage"].split(",") or signed["start_stage"] not in {"main", "main,flux", "flux", "lte", "hydro"}:
                 raise RunnerError("Run confirmation belongs to another stage")
             plan = runner_plan(config, model, options)
@@ -138,7 +140,7 @@ def model_runner_launch(source_path):
         if request.method == "POST":
             if inline:
                 raise RunnerError("Use the Model runner page to preview runs")
-            options = parse_options(request.form, defaults)
+            options = parse_options(request.form, defaults, keep_large_files_default=config.get("keep_large_files", False))
             plan = runner_plan(config, model, options)
             if plan["ready"]:
                 token = signer().dumps({"model": str(model), "options": options, "fingerprint": fingerprint(plan)})

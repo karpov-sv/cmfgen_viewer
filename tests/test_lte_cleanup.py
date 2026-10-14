@@ -159,7 +159,7 @@ def test_cleanup_ui_works_after_promotion_and_is_read_write_gated(promotable_mod
     response = client.post(url, data={'action': 'cleanup_lte'}, follow_redirects=True)
     assert response.status_code == 200
     assert response.history[0].headers['Location'].endswith('#result-review')
-    assert f'Archived {len(names)} LTE temporary file(s)'.encode() in response.data
+    assert f'Cleaned {len(names)} LTE temporary file(s)'.encode() in response.data
     assert b'Clean LTE Temporary Files' not in response.data
     assert all(not (promotable_model / 'lte' / name).exists() for name in names)
     archive = next((promotable_model / '.cmfgen-viewer-backups/lte-cleanup').iterdir())

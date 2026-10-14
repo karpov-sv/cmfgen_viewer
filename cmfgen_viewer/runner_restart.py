@@ -49,7 +49,7 @@ def inspect_restart(model, *, fresh_start=False):
         elif not os.access(path, os.R_OK):
             errors.append(f"Restart file is not readable: {name}")
     if errors or fresh_start or not present:
-        result["message"] = "Explicit fresh start: archive checkpoints and use *_IN" if fresh_start else "Fresh start from *_IN"
+        result["message"] = "Explicit fresh start: retire checkpoints and use *_IN" if fresh_start else "Fresh start from *_IN"
         return result
     failures = []
     for name in ("POINT1", "POINT2"):

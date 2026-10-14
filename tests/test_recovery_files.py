@@ -1,0 +1,183 @@
+"""Compact recovery is default, with full rollback until an operation commits."""
+from pathlib import Path
+from werkzeug.datastructures import MultiDict
+
+import pytest
+
+from cmfgen_viewer import model_workflow
+from cmfgen_viewer.recovery_files import RECOVERY_FILE_LIMIT, compact_recovery, copy_recovery, retire_recovery
+from cmfgen_viewer.model_workflow import cleanup_lte_workspace, promote_lte_hydro_results, ModelWorkflowError
+from cmfgen_viewer.runner import run_plan, build_sequence_plan
+from cmfgen_viewer.runner_config import resolve_recovery_policy
+from cmfgen_viewer.runner_job_views import parse_options
+from test_runner import workspace, SUCCESS
+from test_runner_promotion import promotable_model
+from test_runner_config import config_dirs
+
+LARGE = b'BEGIN\n' + b'x' * RECOVERY_FILE_LIMIT + b'\nEND'
+
+
+def test_compact_keeps_history_and_small_files_and_excerpts_logs(tmp_path):
+    (tmp_path / 'ES_J_CONV').write_bytes(LARGE)
+    (tmp_path / 'OUTGEN').write_bytes(LARGE)
+    (tmp_path / 'process.log').write_bytes(LARGE)
+    (tmp_path / 'events.jsonl').write_bytes(LARGE)
+    (tmp_path / 'VADAT').write_text('controls')
+    external = tmp_path.parent / 'external-data'
+    external.write_bytes(LARGE)
+    (tmp_path / 'cache-link').symlink_to(external)
+    summary = compact_recovery(tmp_path)
+    assert summary['discarded_files'] == ['ES_J_CONV']
+    assert set(summary['excerpted_logs']) == {'OUTGEN', 'process.log'}
+    for name in summary['excerpted_logs']:
+        data = (tmp_path / name).read_bytes()
+        assert len(data) == RECOVERY_FILE_LIMIT
+        assert data.startswith(b'BEGIN\n') and data.endswith(b'\nEND')
+        assert b'middle of large diagnostic log omitted' in data
+    assert (tmp_path / 'events.jsonl').read_bytes() == LARGE
+    assert external.read_bytes() == LARGE
+    assert (tmp_path / 'VADAT').read_text() == 'controls'
+    assert summary['bytes_released'] > len(LARGE)
+
+
+@pytest.mark.parametrize('keep', [False, True])
+def test_copy_and_retire_follow_explicit_policy(tmp_path, keep):
+    source = tmp_path / 'ES_J_CONV'
+    source.write_bytes(LARGE)
+    copied = tmp_path / 'copy'
+    copy_recovery(source, copied, keep_large_files=keep)
+    assert source.read_bytes() == LARGE
+    assert copied.exists() == keep
+    retired = tmp_path / 'retired'
+    retire_recovery(source, retired, keep_large_files=keep)
+    assert not source.exists()
+    assert retired.exists() == keep
+    if keep:
+        assert retired.read_bytes() == LARGE
+        assert compact_recovery(tmp_path, keep_large_files=True)['bytes_released'] == 0
+
+
+@pytest.mark.parametrize('keep', [False, True])
+def test_native_run_keeps_working_output_with_optional_journal_copy(workspace, keep):
+    model, make_plan = workspace
+    code = SUCCESS + "\n(p/'MODEL').write_bytes(b'x' * (2 * 1024 * 1024 + 10))\n"
+    result = run_plan(make_plan(code, keep_large_files=keep))
+    assert result['status'] == 'tested', result
+    assert (model / 'MODEL').stat().st_size > RECOVERY_FILE_LIMIT
+    archived = list(Path(result['journal']).rglob('MODEL'))
+    assert bool(archived) == keep
+
+
+@pytest.mark.parametrize('keep', [False, True])
+def test_lte_cleanup_retention(promotable_model, keep):
+    (promotable_model / 'lte/POPHYD').write_bytes(LARGE)
+    result = cleanup_lte_workspace(str(promotable_model.parent), model_relpath=promotable_model.name, keep_large_files=keep)
+    assert not (promotable_model / 'lte/POPHYD').exists()
+    assert (Path(result['archive_path']) / 'POPHYD').exists() == keep
+    assert result['recovery']['keep_large_files'] == keep
+
+
+def test_failed_promotion_preserves_full_rollback_files(promotable_model, monkeypatch):
+    (promotable_model / 'lte/POPHYD').write_bytes(LARGE)
+    (promotable_model / 'ES_J_CONV').write_bytes(LARGE)
+    def fail(*args, **kwargs):
+        raise ModelWorkflowError('simulated commit failure')
+    monkeypatch.setattr(model_workflow, 'mark_model_inputs_modified', fail)
+    with pytest.raises(ModelWorkflowError, match='simulated'):
+        promote_lte_hydro_results(str(promotable_model.parent), model_relpath=promotable_model.name)
+    assert (promotable_model / 'lte/POPHYD').read_bytes() == LARGE
+    assert (promotable_model / 'ES_J_CONV').read_bytes() == LARGE
+
+
+@pytest.mark.parametrize('keep', [False, True])
+def test_successful_promotion_compacts_only_new_backup(promotable_model, keep):
+    old = promotable_model / '.cmfgen-viewer-backups/lte-hydro/old'
+    old.mkdir(parents=True)
+    (old / 'ES_J_CONV').write_bytes(LARGE)
+    (promotable_model / 'ES_J_CONV').write_bytes(LARGE)
+    (promotable_model / 'lte/POPHYD').write_bytes(LARGE)
+    result = promote_lte_hydro_results(str(promotable_model.parent), model_relpath=promotable_model.name, keep_large_files=keep)
+    backup = promotable_model / result['backup_relpath']
+    assert (backup / 'ES_J_CONV').exists() == keep
+    assert (backup / 'lte/temporary/POPHYD').exists() == keep
+    assert (old / 'ES_J_CONV').read_bytes() == LARGE
+    assert (promotable_model / 'RVSIG_COL').exists()
+
+
+def test_rc_opt_in_and_explicit_override(config_dirs):
+    _, work = config_dirs
+    assert resolve_recovery_policy() is False
+    (work / '.cmfgenrc').write_text('keep_large_files = true\n')
+    assert resolve_recovery_policy() is True
+    assert resolve_recovery_policy(False) is False
+    (work / '.cmfgenrc').write_text('keep_large_files = false\n')
+    assert resolve_recovery_policy(True) is True
+
+
+def test_sequence_and_ui_options_preserve_policy(promotable_model):
+    plan = build_sequence_plan(promotable_model, ['promote-hydro', 'cleanup'], native_config={}, configuration_sources={}, timeout=None, iterations=None, fresh_start=False, cleanup_files=None, keep_large_files=True)
+    assert plan['stage_options']['keep_large_files'] is True
+    assert plan['initial_plan']['keep_large_files'] is True
+    assert parse_options(MultiDict(), ['cleanup'], keep_large_files_default=True)['keep_large_files'] is True
+    assert parse_options(MultiDict({'recovery_setting': '1'}), ['cleanup'], keep_large_files_default=True)['keep_large_files'] is False
+    assert parse_options(MultiDict({'recovery_setting': '1', 'keep_large_files': '1'}), ['cleanup'])['keep_large_files'] is True
+
+
+@pytest.mark.parametrize('keep', [False, True])
+def test_flux_retires_large_caches_before_each_pass_without_trimming_final_output(workspace, keep):
+    from test_runner import RVTJ_CORE
+    model, make_plan = workspace
+    make_plan()
+    obs = model / 'obs'
+    obs.mkdir()
+    (obs / 'CMF_FLUX_PARAM_INIT').write_text(''.join(f'1 [{key}]\n' for key in ('VTURB_FIX', 'VTURB_MIN', 'VTURB_MAX', 'NUM_ES', 'DO_SOB_LINES', 'GLOBAL_LINE')))
+    (obs / 'IN_FILE').write_text('../RVTJ [RVTJ]\n1 [MASS]\nF [ONLY_OBS_LINES]\n')
+    for name in ('batobs.sh', 'bat_ins.sh'):
+        (obs / name).write_text('# fixture: no additional atomic links\n')
+    (obs / 'ES_J_CONV').write_bytes(LARGE)
+    (model / 'RVTJ').write_text(RVTJ_CORE)
+    (model / 'MODEL').write_text('input')
+    code = """
+from pathlib import Path
+assert not Path('ES_J_CONV').exists(), 'stale cache reused'
+Path('ES_J_CONV').write_bytes(b'x' * (2 * 1024 * 1024 + 10))
+Path('OUT_FLUX').write_text('CMF_FLUX has finished')
+Path('OBSFRAME').write_text('Continuum Frequencies (2)\\n1 2\\nObserved intensity (Janskys)\\n3 4\\n')
+"""
+    result = run_plan(make_plan(code, stage='flux', keep_large_files=keep))
+    assert result['status'] == 'succeeded', result
+    assert (obs / 'ES_J_CONV').stat().st_size > RECOVERY_FILE_LIMIT
+    assert (obs / 'obs_cont').is_file()
+    journal = Path(result['journal'])
+    assert (journal / 'flux-15/before/ES_J_CONV').exists() == keep
+    assert (journal / 'flux-10/before/ES_J_CONV').exists() == keep
+    assert bool(list(journal.rglob('ES_J_CONV'))) == keep
+
+
+def test_failed_compaction_keeps_artifact_and_reports_warning(tmp_path, monkeypatch):
+    cache = tmp_path / 'ES_J_CONV'
+    cache.write_bytes(LARGE)
+    original = Path.unlink
+    def unlink(path, *args, **kwargs):
+        if path == cache:
+            raise PermissionError('simulated permission denial')
+        return original(path, *args, **kwargs)
+    monkeypatch.setattr(Path, 'unlink', unlink)
+    result = compact_recovery(tmp_path)
+    assert result['warnings'] and 'simulated' in result['warnings'][0]
+    assert cache.read_bytes() == LARGE
+    assert result['bytes_released'] == 0
+
+
+@pytest.mark.parametrize('flag,expected', [(None, True), ('--keep-large-files', True), ('--no-keep-large-files', False)])
+def test_cli_flag_overrides_rc_for_filesystem_stages(promotable_model, config_dirs, capsys, flag, expected):
+    import json
+    from cmfgen_viewer.runner import main
+    _, work = config_dirs
+    (work / '.cmfgenrc').write_text('keep_large_files = true\n')
+    args = [str(promotable_model), '--stage', 'promote-hydro', '--plan', '--json']
+    if flag:
+        args.append(flag)
+    assert main(args) == 0
+    assert json.loads(capsys.readouterr().out)['keep_large_files'] is expected
+    assert not (promotable_model / '.cmfgen-runs').exists()

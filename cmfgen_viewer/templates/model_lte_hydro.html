@@ -285,9 +285,14 @@
         {% if state.promoted %}
           <p class="small text-success mb-0">The current results have been promoted. Continue to main model computation below.</p>
         {% elif state.promotion_ready %}
-          <p class="small">Promotion synchronizes <code>VADAT [RMAX]</code> from the generated radius ratio and <code>[RSTAR]</code> from the reported core radius when available, preserving the generated structure's radius scale. It copies <code>ROSSELAND_LTE_TAB</code>, <code>RVSIG_COL_NEW</code>, and <code>RVSIG_COL</code> to the model root, patches only the generated radii in the current root <code>VADAT</code>, and invalidates old main checkpoints and solution files. Everything replaced or invalidated is checkpointed first. Known LTE temporary files are archived in the same checkpoint after promotion.</p>
+          <p class="small">Promotion synchronizes <code>VADAT [RMAX]</code> from the generated radius ratio and <code>[RSTAR]</code> from the reported core radius when available, preserving the generated structure's radius scale. It copies <code>ROSSELAND_LTE_TAB</code>, <code>RVSIG_COL_NEW</code>, and <code>RVSIG_COL</code> to the model root, patches only the generated radii in the current root <code>VADAT</code>, and invalidates old main checkpoints and solution files. Everything replaced or invalidated is checkpointed first. Known LTE temporary files are cleaned after promotion; large recovery copies are optional.</p>
           <form method="post">
             <input type="hidden" name="action" value="promote">
+            <input type="hidden" name="recovery_setting" value="1">
+            <div class="form-check mb-2">
+              <input class="form-check-input" type="checkbox" id="promote-keep-large-files" name="keep_large_files" value="1" {% if state.keep_large_files_default %}checked{% endif %}>
+              <label class="form-check-label small" for="promote-keep-large-files">Keep large recovery files (above 2 MiB)</label>
+            </div>
             <div class="form-check mb-2"><input class="form-check-input" id="results-checked" type="checkbox" name="results_checked" value="1"><label class="form-check-label" for="results-checked">I checked the luminosity and radius ratio reported by RVSIG_COL_NEW.</label></div>
             <button class="btn btn-danger" type="submit">Promote Results</button>
           </form>
@@ -295,7 +300,7 @@
         {% if state.lte_cleanup.entry_count %}
           <details class="workflow-help mt-3" id="lte-cleanup">
             <summary>LTE temporary files — {{ state.lte_cleanup.entry_count }} files, {{ state.lte_cleanup.human_size }}</summary>
-            <p class="small text-muted mt-2">Promotion archives these files automatically. You can also clean them separately. Controls, LTE/hydro results, run diagnostics, and atomic links stay in the workspace. Files are moved to a recoverable checkpoint; this tidies <code>lte/</code> without freeing disk space.</p>
+            <p class="small text-muted mt-2">Promotion cleans these files automatically. You can also clean them separately. Controls, LTE/hydro results, run diagnostics, and atomic links stay in the workspace. Small recovery files are kept; files above 2 MiB are discarded unless full-size recovery is selected. Large diagnostic logs retain beginning/end excerpts.</p>
             <div class="table-responsive workflow-cleanup-files mb-2">
               <table class="table table-sm small mb-0">
                 <thead><tr><th>File</th><th>Type</th><th class="text-end">Size</th></tr></thead>
@@ -304,6 +309,11 @@
             </div>
             <form method="post">
               <input type="hidden" name="action" value="cleanup_lte">
+            <input type="hidden" name="recovery_setting" value="1">
+            <div class="form-check mb-2">
+              <input class="form-check-input" type="checkbox" id="cleanup-keep-large-files" name="keep_large_files" value="1" {% if state.keep_large_files_default %}checked{% endif %}>
+              <label class="form-check-label small" for="cleanup-keep-large-files">Keep large recovery files (above 2 MiB)</label>
+            </div>
               <button class="btn btn-sm btn-outline-secondary" type="submit" {% if not state.activity.safe_to_modify %}disabled title="{{ state.activity.reason }}"{% endif %}>Clean LTE Temporary Files</button>
             </form>
           </details>

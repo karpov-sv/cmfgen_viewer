@@ -560,5 +560,5 @@ def test_promotion_preview_reports_lte_cleanup_candidates(plan):
                            "entries": [{"name": "HIOUT", "human_size": "10 B"}]}
     stream = io.StringIO()
     TerminalOutput(stream).plan(plan)
-    assert "Will archive 1 LTE temporary file(s) (10 B)" in stream.getvalue()
+    assert "Will clean 1 LTE temporary file(s) (10 B)" in stream.getvalue()
     assert "lte/HIOUT" in stream.getvalue()

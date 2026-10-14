@@ -174,6 +174,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Disable operations that modify model directories (the default; overrides config)",
     )
     parser.set_defaults(read_write=False)
+    parser.add_argument("--keep-large-files", action=argparse.BooleanOptionalAction, default=False, help="Keep full-size recovery artifacts and logs for UI-launched workflows (default: false)")
     parser.add_argument("--template-root", default=None, help="Workflow template root containing lte/ and obs/ (default: model-tree templates, then packaged defaults)")
     parser.add_argument(
         "--cmfgen-root",
@@ -310,6 +311,7 @@ def main(argv: list[str] | None = None) -> None:
         upload_root=str(upload_root) if upload_root is not None else None,
         fit_pool_size_max=args.fit_pool_size,
         read_write_enabled=args.read_write,
+        keep_large_files=args.keep_large_files,
         secret_key=args.secret,
         auth_username=auth_user,
         auth_password=auth_password,

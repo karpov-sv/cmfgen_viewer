@@ -32,6 +32,12 @@
       <input class="form-control form-control-sm mt-1" style="max-width: 12rem" id="run-t-exc" name="t_exc" type="number" min="0.000001" step="any" value="{{ options.t_exc|default(1.0) }}">
       <p class="small text-muted mb-0 mt-1">Temporarily uses DC_METH=LTE and T_EXC (1.0 = 10,000 K), then restores VADAT. For unreliable starting populations; review suitability for cooler atmospheres. Existing checkpoints require an explicit fresh start. This does not establish convergence.</p>
     </div>
+    <div class="form-check mt-3">
+      <input type="hidden" name="recovery_setting" value="1">
+      <input class="form-check-input" type="checkbox" id="keep-large-files" name="keep_large_files" value="1" {% if options.keep_large_files %}checked{% endif %}>
+      <label class="form-check-label small" for="keep-large-files">Keep large recovery files and full diagnostic logs</label>
+      <div class="form-text">Unchecked: recovery files above 2 MiB are omitted and large logs keep beginning/end excerpts. Run history, small snapshots, and working model outputs remain available.</div>
+    </div>
     <details class="workflow-help mt-3" {% if options.timeout or options.memory_mib or options.fresh_start or options.no_core_dumps %}open{% endif %}>
       <summary>Startup and resource settings</summary>
       <div class="row g-3 mt-0">
@@ -39,12 +45,12 @@
         <div class="col-md-3"><label class="form-label" for="run-memory">Memory limit (MiB)</label><input class="form-control form-control-sm" type="number" min="128" id="run-memory" name="memory_mib" value="{{ options.memory_mib or '' }}" placeholder="No added limit"></div>
         <div class="col-md-6 align-self-end"><label class="small me-3"><input class="form-check-input me-1" type="checkbox" name="fresh_start" value="1" {% if options.fresh_start %}checked{% endif %}> Fresh start</label><label class="small"><input class="form-check-input me-1" type="checkbox" name="no_core_dumps" value="1" {% if options.no_core_dumps %}checked{% endif %}> Disable core dumps</label></div>
       </div>
-      <p class="small text-muted mt-2 mb-0">Usable checkpoints are continued by default. Fresh start archives them. Timeout is shared across native stages.</p>
+      <p class="small text-muted mt-2 mb-0">Usable checkpoints are continued by default. Fresh start retires them; large recovery copies are optional. Timeout is shared across native stages.</p>
     </details>
     <details class="workflow-help mt-3"><summary>Custom ordered stages</summary>
       <label class="small mt-2" for="custom-stages">Overrides the stage preset; separate stage names with commas.</label>
       <input class="form-control form-control-sm" id="custom-stages" name="stage_order" placeholder="test,main,flux" value="{{ options.stages|join(',') if options.stages|join(',') not in presets|map(attribute=0)|list else '' }}">
-      <div class="form-text">Available: {{ stages|join(', ') }}. Promotion copies reviewed results, invalidates incompatible old solution files, and archives known LTE temporary files.</div>
+      <div class="form-text">Available: {{ stages|join(', ') }}. Promotion copies reviewed results, invalidates incompatible old solution files, and cleans known LTE temporary files.</div>
     </details>
   </div>
   <div class="card-footer"><button class="btn btn-sm btn-outline-primary" name="action" value="preview">Preview run</button></div>

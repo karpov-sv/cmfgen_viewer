@@ -28,6 +28,8 @@ atomic_root = ~/CMFGEN2023/atomic
 nthreads = 1
 # Optional viewer defaults:
 read_write = true
+# Opt in to full-size recovery files (default: false):
+keep_large_files = false
 dir = ~/models
 lambda_min = 800
 lambda_max = 250000
@@ -50,6 +52,7 @@ Viewer options follow **CLI flags > viewer JSON/TOML configuration > startup-dir
 | `host`, `port` | Viewer bind address and port |
 | `lambda_min`, `lambda_max` | Positive wavelength limits in Å, with minimum below maximum |
 | `read_write` | Allow model-directory modifications; defaults to `false` |
+| `keep_large_files` | Keep recovery artifacts above 2 MiB and full diagnostic logs; defaults to `false` |
 | `all` / `show_all` | Show hidden files and directories |
 | `upload_dir` / `upload_root` | Persistent upload storage |
 | `fit_pool_size` | Grid-fitting worker limit; `0` selects automatically |
@@ -141,7 +144,7 @@ The standalone runner launches the native executable directly; it does not
 require the LTE or parent shell launchers. Its atomic declarations are validated
 as data independently of shell setup.
 The packaged cleanup script retains main products and checkpoints; the runner's
-`cleanup` stage also retains a recovery archive and is preferable for that use.
+`cleanup` stage also retains a recovery archive under the selected size policy and is preferable for that use.
 No script is executed during preparation or model copying.
 
 These are starting controls, not a universal physical model. LTE preparation

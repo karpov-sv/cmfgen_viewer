@@ -72,6 +72,12 @@ def resolve_viewer_defaults():
             {key: source for key, source in sources.items() if key in viewer_keys})
 
 
+def resolve_recovery_policy(explicit=None):
+    if explicit is not None:
+        return explicit
+    return _rc_defaults()[0].get("keep_large_files", False)
+
+
 def resolve_runner_config(
     *, cmfgen_root=None, atomic_root=None, threads=None, require_roots=True
 ):
