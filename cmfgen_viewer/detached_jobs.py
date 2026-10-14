@@ -80,6 +80,7 @@ def fingerprint(plan):
     evidence = {key: initial.get(key) for key in ("inputs", "executable_snapshot", "copies", "entries", "hydro_alignment", "lte_composition_alignment")}
     evidence["options"] = plan.get("stage_options")
     evidence["passes"] = initial.get("passes")
+    evidence["initialization"] = initial.get("initialization")
     evidence["configuration"] = plan.get("configuration_sources")
     return hashlib.sha256(json.dumps(evidence, sort_keys=True, default=str).encode()).hexdigest()
 

@@ -260,6 +260,8 @@ class TerminalOutput:
         self.line("INFO", f"Executable: {plan['executable']}")
         if plan.get("restart"):
             self.line("INFO", plan["restart"]["message"])
+        if plan.get("initialization"):
+            self.line("INFO", f"Fresh LTE initial populations: DC_METH=LTE, T_EXC={plan['initialization']['t_exc']} (10^4 K); VADAT restored afterward")
         passes = plan.get("passes", [])
         if passes:
             self.line("INFO", "Passes: " + " → ".join(step["id"] for step in passes))

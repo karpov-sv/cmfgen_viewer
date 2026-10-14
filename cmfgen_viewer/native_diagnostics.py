@@ -71,6 +71,35 @@ def analyze_main_diagnostics(
     stops = stop in {"T", "TRUE", ".TRUE.", "T (native default)"}
     it_on_t = control("IT_ON_T")
     findings: list[dict[str, object]] = []
+    combined = "\n".join(sources.values())
+    fatal = re.search(r"SIG(?:ILL|FPE|SEGV)|^\s*Floating[- ]point exception(?:\s*\(|\s*$)|error termination|Fortran runtime error", combined, re.I | re.M)
+    stack = re.search(r"(?im)^.*(?:#\d+|Native crash frame:).*\b(?:scale_pops|cnvt_fr_dc)(?:_\w*)?\b.*$", combined)
+    zero_rgu = re.search(r"Error in SETPOP_WLD_V\d+\s*--\s*zero RGU", combined, re.I)
+    initial_phase = ("Starting a new model" in combined and "Calling AUTO_ADD_ION" in combined
+                     and "Current great iteration count" not in combined)
+    if not completed and "Current great iteration count" not in combined and (zero_rgu or (fatal and (stack or initial_phase))):
+        confirmed = bool(stack or zero_rgu)
+        evidence = (stack or zero_rgu or fatal).group(0).strip()
+        dc = control("DC_METH", "ED (native default for LIN_INT=F)")
+        suggestions = [
+            "For a fresh main/test start with unreliable population estimates, preview --lte-initialization --t-exc 1.0, or use the parameter editor's LTE initial populations option (DC_METH=LTE, T_EXC=1.0).",
+            "T_EXC is in 10^4 K; 1.0 means 10,000 K for initial estimates. Review suitability for cooler atmospheres. Keep initial temperature refinement IT_ON_T enabled.",
+            "Usable checkpoints are continued by default. Select --fresh-start explicitly only when you intend to archive them and rebuild from initial estimates.",
+            "Review the source model's convergence and the *_IN populations, T_IN, and density changes such as MDOT. LTE initialization does not guarantee convergence.",
+        ]
+        if dc == "LTE":
+            suggestions.insert(0, "DC_METH is already LTE in the current settings. Inspect T_EXC, temperature/density inputs, and the native backtrace before retrying.")
+        findings.append({
+            "code": "initial_population_scaling" if confirmed else "suspected_initial_population_failure",
+            "title": "Initial population estimates failed" if confirmed else "Possible initial population failure",
+            "severity": "error",
+            "message": ("Native evidence points to invalid population conversion/scaling during initialization."
+                        if confirmed else "The fresh model crashed during initialization before any iteration. Population interpolation is a possible cause; the opaque backtrace does not confirm it."),
+            "path": next((name for name, text in sources.items() if evidence in text), "OUTGEN"),
+            "evidence": evidence, "suggestions": suggestions,
+            "links": [name for name in ("VADAT", "T_IN", "MODEL_SPEC") if (model / name).is_file()],
+            "controls": {"DC_METH": dc, "T_EXC": control("T_EXC"), "LIN_INT": control("LIN_INT"), "IT_ON_T": it_on_t},
+        })
     signatures = (
         ("inner_optical_depth", "Inner boundary optical depth is too small",
          r"This model does not extend sufficiently deeply to guarantee the accuracy of"),

@@ -15,10 +15,11 @@ from .model_editor import (
     save_model_parameter_edit,
 )
 from .parsers.common import parse_float_token
+from .model_initialization import lte_initialization_controls
 
 QUICK_PARAMETER_FILES = ("VADAT", "IN_ITS")
 
-QUICK_PARAMETER_DEFINITIONS: dict[str, dict[str, dict[str, str]]] = {
+QUICK_PARAMETER_DEFINITIONS: dict[str, dict[str, dict[str, object]]] = {
     "VADAT": {
         "LSTAR": {
             "label": "Luminosity",
@@ -62,6 +63,27 @@ QUICK_PARAMETER_DEFINITIONS: dict[str, dict[str, dict[str, str]]] = {
             "kind": "float",
             "unit": "log g",
             "notice": "Changing LOGG requires regenerating the LTE/hydro structure; this edit alone is not sufficient.",
+        },
+        "DC_METH": {
+            "label": "Initial population method",
+            "group": "Initialization",
+            "kind": "token",
+            "unit": "",
+            "notice": "Fresh initialization only. Leave unset to preserve the native default "
+                      "(ED with LIN_INT=F, R with LIN_INT=T). LTE is a fallback, not a convergence guarantee.",
+            "choices": [
+                ("ED", "Electron density"), ("R", "Radius"),
+                ("TR", "Temperature / radius"), ("RTX", "Excitation temperature / radius"),
+                ("SPH_TAU", "Spherical optical depth"), ("RNS", "Unscaled radius"),
+                ("LTE", "LTE initial populations"),
+            ],
+        },
+        "T_EXC": {
+            "label": "Minimum initial excitation temperature",
+            "group": "Initialization",
+            "kind": "float",
+            "unit": "10⁴ K",
+            "notice": "Used with DC_METH=LTE; 1.0 corresponds to 10,000 K.",
         },
         "DO_CL": {
             "label": "Enable clumping",
@@ -115,6 +137,7 @@ QUICK_PARAMETER_GROUP_ORDER = (
     "Clumping",
     "Composition",
     "Additional abundances",
+    "Initialization",
     "Iteration controls",
 )
 
@@ -140,7 +163,7 @@ def _clumping_parameter_number(key: str) -> int:
 def _quick_parameter_definitions(
     file_relpath: str,
     occurrences: dict[str, list[dict[str, object]]],
-) -> list[tuple[str, dict[str, str]]]:
+) -> list[tuple[str, dict[str, object]]]:
     definitions = list(QUICK_PARAMETER_DEFINITIONS.get(file_relpath, {}).items())
     if file_relpath != "VADAT":
         return definitions
@@ -195,6 +218,8 @@ def _quick_parameter_definitions(
 def _validate_quick_parameter_value(field: dict[str, object], raw_value: object) -> str:
     value = str(raw_value).strip()
     key = str(field["key"])
+    if not value and field.get("missing") and key in {"DC_METH", "T_EXC"}:
+        return ""
     if not value:
         raise ModelEditorError(f"[{key}] requires a value.")
     if any(character in value for character in "\r\n[]!"):
@@ -216,11 +241,15 @@ def _validate_quick_parameter_value(field: dict[str, object], raw_value: object)
         parsed = parse_float_token(value)
         if parsed is None or not math.isfinite(parsed):
             raise ModelEditorError(f"[{key}] must be a finite number.")
+        if key == "T_EXC" and parsed <= 0:
+            raise ModelEditorError("[T_EXC] must be positive")
         return value
     if kind == "token":
         if len(value) > 64 or QUICK_TOKEN_RE.fullmatch(value) is None:
             raise ModelEditorError(f"[{key}] must be a single control token.")
-        return value
+        if key == "DC_METH" and value.upper() not in {"ED", "R", "RNS", "TR", "RTX", "SPH_TAU", "LTE"}:
+            raise ModelEditorError("Unsupported [DC_METH] interpolation method")
+        return value.upper() if key == "DC_METH" else value
     raise ModelEditorError(f"[{key}] has an unsupported quick-editor field type.")
 
 
@@ -260,17 +289,20 @@ def _quick_card_from_record(record: dict[str, object]) -> dict[str, object]:
     issues: list[str] = []
     for key, definition in _quick_parameter_definitions(file_relpath, occurrences):
         matches = occurrences.get(key, [])
-        if not matches:
+        optional = key in {"DC_METH", "T_EXC"}
+        if not matches and not optional:
             continue
-        if len(matches) != 1:
+        if len(matches) > 1:
             issues.append(f"[{key}] occurs more than once and is available only in the text editor.")
             continue
-        occurrence = matches[0]
+        occurrence = matches[0] if matches else {"value": "", "comment": "Leave unset unless needed", "line_index": -1, "value_start": 0, "value_end": 0}
         safe_key = re.sub(r"[^A-Za-z0-9_-]+", "-", key).strip("-").lower()
         field = {
             **definition,
             **occurrence,
             "key": key,
+            "missing": not matches,
+            "optional": optional and not matches,
             "field_name": f"quick_value:{key}",
             "input_id": f"quick-{file_relpath.lower().replace('/', '-')}-{safe_key}",
         }
@@ -294,7 +326,7 @@ def _quick_card_from_record(record: dict[str, object]) -> dict[str, object]:
                 {
                     "name": group_name,
                     "fields": group_fields,
-                    "collapsed": group_name == "Additional abundances",
+                    "collapsed": group_name in {"Additional abundances", "Initialization"},
                 }
             )
     return {
@@ -358,6 +390,10 @@ def _prepare_quick_parameter_edit(
     card = _quick_card_from_record(record)
     fields = list(card["fields"])
     expected_keys = {str(field["key"]) for field in fields}
+    values = dict(values)
+    for field in fields:
+        if field.get("missing"):
+            values.setdefault(str(field["key"]), "")
     if set(values) != expected_keys:
         raise ModelEditorError("The submitted quick-parameter set does not match the current file.")
 
@@ -391,13 +427,35 @@ def _prepare_quick_parameter_edit(
     for field in fields:
         key = str(field["key"])
         value = _validate_quick_parameter_value(field, values[key])
+        if field.get("missing"):
+            field["value"] = value
+            if value:
+                if lines and not lines[-1].endswith("\n"):
+                    lines[-1] += "\n"
+                lines.append(f"{value:<13} [{key}]\n")
+            continue
         line_index = int(field["line_index"])
         value_start = int(field["value_start"])
         value_end = int(field["value_end"])
         line = lines[line_index]
         lines[line_index] = f"{line[:value_start]}{value}{line[value_end:]}"
         field["value"] = value
-    return card, "".join(lines)
+    contents = "".join(lines)
+    if file_relpath == "VADAT":
+        original = _keyword_occurrences(str(record["contents"]))
+        updated = _keyword_occurrences(contents)
+        method = updated.get("DC_METH", [])
+        changed = any([r["value"] for r in original.get(key, [])] != [r["value"] for r in updated.get(key, [])]
+                      for key in ("DC_METH", "T_EXC"))
+        if changed and len(method) == 1 and method[0]["value"].upper() == "LTE":
+            rows = updated.get("T_EXC", [])
+            if len(rows) != 1:
+                raise ModelEditorError("Specify [T_EXC] for LTE initialization; 1.0 means 10,000 K for initial estimates.")
+            try:
+                lte_initialization_controls(contents, parse_float_token(rows[0]["value"]))
+            except (ValueError, TypeError) as exc:
+                raise ModelEditorError(str(exc)) from exc
+    return card, contents
 
 
 def review_quick_model_parameter_edit(

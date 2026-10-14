@@ -51,7 +51,8 @@ def parse_options(form, defaults):
     if not stages or len(set(stages)) != len(stages) or any(stage not in STAGE_CHOICES for stage in stages):
         raise RunnerError("Choose supported stages without duplicates")
     options = {"stages": stages, "fresh_start": form.get("fresh_start") == "1",
-               "no_core_dumps": form.get("no_core_dumps") == "1"}
+               "no_core_dumps": form.get("no_core_dumps") == "1",
+               "lte_initialization": form.get("lte_initialization") == "1", "t_exc": 1.0}
     for name in ("iterations", "threads", "timeout", "memory_mib"):
         raw = form.get(name, "").strip()
         try:
@@ -61,6 +62,15 @@ def parse_options(form, defaults):
         if value is not None and (not math.isfinite(value) or value <= 0 or (name == "memory_mib" and value < 128)):
             raise RunnerError(f"{name} must be positive (memory minimum: 128 MiB)")
         options[name] = value
+    if options["lte_initialization"]:
+        if not any(stage in {"main", "test"} for stage in stages):
+            raise RunnerError("LTE initialization applies only to main/test")
+        try:
+            options["t_exc"] = float(form.get("t_exc", "1.0"))
+        except ValueError as exc:
+            raise RunnerError("T_EXC must be positive and finite") from exc
+        if not math.isfinite(options["t_exc"]) or options["t_exc"] <= 0:
+            raise RunnerError("T_EXC must be positive and finite")
     if options["iterations"] is not None and "main" not in stages:
         raise RunnerError("Iteration overrides apply only to main")
     if options["fresh_start"] and not any(stage in {"main", "test"} for stage in stages):
@@ -78,6 +88,7 @@ def runner_plan(config, model, options):
     kwargs = dict(native_config=native, configuration_sources=sources, timeout=options["timeout"],
         memory_mib=options["memory_mib"], iterations=options["iterations"], fresh_start=options["fresh_start"],
         no_core_dumps=options["no_core_dumps"], cleanup_files=None,
+        lte_initialization=options.get("lte_initialization", False), t_exc=options.get("t_exc", 1.0),
         template_root=Path(config["template_root"]) if config.get("template_root") and "prepare-lte" in options["stages"] else None)
     if len(options["stages"]) == 1:
         return _build_requested_stage_plan(model, options["stages"][0], **kwargs)
@@ -95,7 +106,7 @@ def model_runner_launch(source_path):
     error, plan, token = "", None, None
     inline = request.args.get("format") == "json"
     options = {"stages": defaults, "iterations": None, "threads": None, "timeout": None,
-               "memory_mib": None, "fresh_start": False, "no_core_dumps": False}
+               "memory_mib": None, "fresh_start": False, "no_core_dumps": False, "lte_initialization": False, "t_exc": 1.0}
     try:
         if request.method == "POST" and inline and request.form.get("action") == "start":
             signed = signer().loads(request.form.get("start_token", ""), max_age=86400)

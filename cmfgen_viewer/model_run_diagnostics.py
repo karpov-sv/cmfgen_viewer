@@ -14,6 +14,7 @@ import re
 
 from .model_editor import model_inputs_modified_since_solution
 from .native_diagnostics import analyze_main_diagnostics, latest_main_log
+from .native_crash import runner_crash_sources
 from .spectrum_io import load_obs_spectrum
 
 
@@ -231,7 +232,9 @@ def diagnose_main_run(model_dir: Path, *, active: bool = False) -> dict[str, obj
         and (_mtime(rvtj) or 0) >= (_mtime(outgen) or 0)
         and bool(re.search(r"^Model Finalized on:", _read_head(mod_sum), re.MULTILINE))
     )
-    findings = analyze_main_diagnostics(model_dir, {"OUTGEN": outgen_text, "batch.log": log}, completed=completed)
+    sources = {"OUTGEN": outgen_text, "batch.log": log}
+    sources.update(runner_crash_sources(model_dir, _mtime(outgen) or 0))
+    findings = analyze_main_diagnostics(model_dir, sources, completed=completed)
     safeguards = [finding for finding in findings if finding["severity"] == "error"]
     if safeguards:
         return _record("main", "failed", str(safeguards[0]["title"]), findings=findings)

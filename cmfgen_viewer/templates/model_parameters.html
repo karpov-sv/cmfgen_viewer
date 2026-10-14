@@ -11,6 +11,11 @@
               <option value="T" {% if field.value|upper == "T" %}selected{% endif %}>T — enabled</option>
               <option value="F" {% if field.value|upper == "F" %}selected{% endif %}>F — disabled</option>
             </select>
+          {% elif field.choices %}
+            <select class="form-select font-monospace" id="{{ field.input_id }}" name="{{ field.field_name }}">
+              {% if field.missing %}<option value="" {% if not field.value %}selected{% endif %}>Native default (leave unset)</option>{% endif %}
+              {% for value, label in field.choices %}<option value="{{ value }}" {% if field.value|upper == value %}selected{% endif %}>{{ value }} — {{ label }}</option>{% endfor %}
+            </select>
           {% else %}
             <input
               class="form-control font-monospace"
@@ -20,7 +25,7 @@
               inputmode="{% if field.kind in ['float', 'integer'] %}decimal{% else %}text{% endif %}"
               autocomplete="off"
               spellcheck="false"
-              required
+              {% if field.optional %}placeholder="Leave unset; required for LTE"{% else %}required{% endif %}
             >
           {% endif %}
           {% if field.unit %}<span class="input-group-text">{{ field.unit }}</span>{% endif %}

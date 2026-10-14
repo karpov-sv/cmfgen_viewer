@@ -16,7 +16,9 @@ import uuid
 
 from .workflow_permissions import copy_readable, make_readable, mkdir_readable, open_readable, readable_mode
 from .model_activity import model_mutation_guard
+from .model_initialization import lte_initialization_controls
 from .native_diagnostics import analyze_main_diagnostics
+from .native_crash import macos_crash_evidence
 from .parsers.common import parse_float_token
 from .runner_config import resolve_runner_config
 from .runner_cleanup import build_cleanup_plan
@@ -222,6 +224,8 @@ def _build_requested_stage_plan(
     cleanup_files: list[str] | None,
     no_core_dumps: bool = False,
     template_root: Path | None = None,
+    lte_initialization: bool = False,
+    t_exc: float = 1.0,
 ) -> dict[str, object]:
     """Build one stage, applying sequence-wide options only where relevant."""
     if stage == "prepare-lte":
@@ -243,6 +247,8 @@ def _build_requested_stage_plan(
             no_core_dumps=no_core_dumps,
             iterations=iterations if stage == "main" else None,
             fresh_start=fresh_start if stage in {"main", "test"} else False,
+            lte_initialization=lte_initialization if stage in {"main", "test"} else False,
+            t_exc=t_exc,
         )
         sources = configuration_sources
     plan["configuration_sources"] = sources
@@ -262,8 +268,12 @@ def build_sequence_plan(
     cleanup_files: list[str] | None,
     no_core_dumps: bool = False,
     template_root: Path | None = None,
+    lte_initialization: bool = False,
+    t_exc: float = 1.0,
 ) -> dict[str, object]:
     """Build the initial preflight and a serializable just-in-time stage recipe."""
+    if lte_initialization and (not math.isfinite(t_exc) or t_exc <= 0):
+        raise RunnerError("T_EXC must be positive and finite")
     if len(stages) < 2:
         raise RunnerError("A multi-stage plan requires at least two stages")
     if len(set(stages)) != len(stages):
@@ -283,6 +293,7 @@ def build_sequence_plan(
         no_core_dumps=no_core_dumps,
         iterations=iterations,
         fresh_start=stages[0] == fresh_start_stage,
+        lte_initialization=lte_initialization, t_exc=t_exc,
         cleanup_files=cleanup_files,
         template_root=template_root,
     )
@@ -308,6 +319,7 @@ def build_sequence_plan(
             "iterations": iterations,
             "fresh_start": fresh_start,
             "fresh_start_stage": fresh_start_stage,
+            "lte_initialization": lte_initialization, "t_exc": t_exc,
             "cleanup_files": cleanup_files,
             "template_root": str(template_root.expanduser().resolve()) if template_root is not None else None,
         },
@@ -348,6 +360,8 @@ def _sequence_stage_plan(
         no_core_dumps=options.get("no_core_dumps", False),
         iterations=options.get("iterations"),
         fresh_start=stage == options.get("fresh_start_stage"),
+        lte_initialization=options.get("lte_initialization", False),
+        t_exc=options.get("t_exc", 1.0),
         cleanup_files=options.get("cleanup_files"),
         template_root=Path(options["template_root"]) if options.get("template_root") else None,
     )
@@ -434,6 +448,18 @@ def run_plan(plan: dict, emit=None) -> dict:
                             make_readable(restart_backup / name)
                         else:
                             copy_readable(path, restart_backup / name)
+            if plan.get("initialization"):
+                path = cwd / "VADAT"
+                if path.is_symlink() or path.stat().st_nlink != 1:
+                    raise RunnerError("Refusing unsafe writable VADAT")
+                controls[path] = (path.read_bytes(), path.stat().st_mode, path.stat().st_atime_ns, path.stat().st_mtime_ns)
+                rendered = lte_initialization_controls(path.read_text(), plan["initialization"]["t_exc"])
+                _write_control(path, rendered.encode(), controls[path][1])
+                effective = journal / "effective"
+                mkdir_readable(effective, exist_ok=True)
+                copy_readable(path, effective / "VADAT")
+                result["initialization"] = plan["initialization"]
+                event("initialization_selected", **plan["initialization"])
             control_name = "CMF_FLUX_PARAM" if stage == "flux" else "IN_ITS"
             if stage == "flux" or any(step["overrides"] for step in plan["passes"]):
                 path = cwd / control_name
@@ -548,6 +574,11 @@ def run_plan(plan: dict, emit=None) -> dict:
                 problems = _validate(stage, cwd, before)
                 diagnostic_sources = {name: _tail(cwd / name, 64*1024) for name in logs}
                 diagnostic_sources["process.log"] = _tail(pass_dir / "process.log", 64*1024)
+                if stage in {"main", "test"} and record["returncode"] < 0:
+                    frames = macos_crash_evidence(record["pid"], plan["executable"], since=datetime.fromisoformat(result["started_at"]).timestamp())
+                    if frames:
+                        diagnostic_sources["process.log"] += "\n" + frames
+                        record["native_crash_evidence"] = frames
                 diagnostic = "\n".join(diagnostic_sources.values())
                 findings = analyze_main_diagnostics(
                     cwd, diagnostic_sources,
@@ -1043,6 +1074,8 @@ def main(argv=None):
     )
     parser.add_argument("--no-core-dumps", action="store_true", help="Disable core dumps in native children (default: inherit host policy)")
     parser.add_argument("--iterations", type=int)
+    parser.add_argument("--lte-initialization", action="store_true", help="Use LTE initial departure coefficients for fresh main/test startup; temporarily override VADAT and restore it afterward")
+    parser.add_argument("--t-exc", type=float, help="Minimum initial excitation temperature in 10^4 K with --lte-initialization (default: 1.0)")
     parser.add_argument("--fresh-start", action="store_true", help="Archive POINT1/POINT2/SCRTEMP and force *_IN startup (default: continue when checkpoints are usable)")
     parser.add_argument(
         "--cleanup-file",
@@ -1084,6 +1117,8 @@ def main(argv=None):
                     ("--no-core-dumps", args.no_core_dumps),
                     ("--iterations", args.iterations is not None),
                     ("--fresh-start", args.fresh_start),
+                    ("--lte-initialization", args.lte_initialization),
+                    ("--t-exc", args.t_exc is not None),
                 )
                 if supplied
             ]
@@ -1112,6 +1147,12 @@ def main(argv=None):
             raise RunnerError("--iterations is a positive main-stage override only")
         if args.iterations is not None and "main" not in stages:
             raise RunnerError("--iterations is a positive main-stage override only")
+        if args.t_exc is not None and not args.lte_initialization:
+            raise RunnerError("--t-exc requires --lte-initialization")
+        if args.t_exc is not None and (not math.isfinite(args.t_exc) or args.t_exc <= 0):
+            raise RunnerError("T_EXC must be positive and finite")
+        if args.lte_initialization and not any(stage in {"test", "main"} for stage in stages):
+            raise RunnerError("--lte-initialization applies only to main/test")
         if args.fresh_start and not any(stage in {"test", "main"} for stage in stages):
             raise RunnerError("--fresh-start applies only to main/test")
         if args.template_root is not None and "prepare-lte" not in stages:
@@ -1129,6 +1170,8 @@ def main(argv=None):
                 no_core_dumps=args.no_core_dumps,
                 iterations=args.iterations,
                 fresh_start=args.fresh_start,
+                lte_initialization=args.lte_initialization,
+                t_exc=args.t_exc if args.t_exc is not None else 1.0,
                 cleanup_files=args.cleanup_file,
                 template_root=args.template_root,
             )
@@ -1143,6 +1186,8 @@ def main(argv=None):
                 no_core_dumps=args.no_core_dumps,
                 iterations=args.iterations,
                 fresh_start=args.fresh_start,
+                lte_initialization=args.lte_initialization,
+                t_exc=args.t_exc if args.t_exc is not None else 1.0,
                 cleanup_files=args.cleanup_file,
                 template_root=args.template_root,
             )

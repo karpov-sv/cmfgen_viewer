@@ -35,6 +35,23 @@ python3 cmfgen_run.py /path/to/model --plan \
 
 Execution requires an explicit `--stage`: omit `--plan` from the command above to execute the selected stage with the same options. Use `--stage main` for model iterations and `--stage test` for a zero-iteration startup check. Planning through `--plan` never changes the workspace. Main/test runs continue from usable checkpoints by default, following CMFGEN's native behavior. `--fresh-start` explicitly moves existing `POINT1`, `POINT2`, and `SCRTEMP` into that run's `restart-before/` archive before starting from `*_IN`. These checkpoints are retained, not deleted, and are not automatically restored over newly generated restart state. Use a disposable or staged workspace when trying a new configuration.
 
+### LTE initial populations
+
+For unreliable starting populations, explicitly select **LTE initial populations** on the Model runner page, or preview:
+
+```bash
+python3 cmfgen_run.py /path/to/model --stage main --plan \
+  --lte-initialization --t-exc 1.0
+```
+
+This temporarily sets `VADAT [DC_METH]=LTE` and `[T_EXC]=1.0` (the default when selected), then restores the original bytes, permissions, and modification time after success, failure, cancellation, or timeout. The effective `VADAT` is archived in the run journal's `effective/` directory; the original remains in `inputs/`. `--t-exc` uses units of 10⁴ K: `1.0` means 10,000 K for initial excitation estimates, not a constraint on the final atmospheric temperature. Review the value for cooler atmospheres. The option is off by default and applies only to main/test; it does not automatically change `IT_ON_T` or promise convergence.
+
+This method requires `LIN_INT=F` and, if present, `LTE_EST=F`. These controls select compatible initialization paths; adjust them explicitly when needed. A usable checkpoint requires an explicit `--fresh-start` before choosing LTE initialization. That archives the checkpoint rather than silently replacing continuation. In sequences the option is forwarded to main/test stages and other stages retain their own controls.
+
+For a persistent choice, **Edit parameters → Quick parameters → Initialization**, below the abundance groups, provides a `DC_METH` selector and a `T_EXC` field. The section is collapsed initially. Missing controls remain unset until explicitly filled, so ordinary stellar/abundance edits do not add initialization settings. Selecting `LTE` requires a positive `T_EXC`; `1.0` means 10,000 K for initial estimates. Review and save the diff through the usual backup workflow.
+
+Population-initialization failures now receive suggested LTE recovery steps. Named `SCALE_POPS`/`CNVT_FR_DC` crash frames or the native zero-RGU safeguard provide specific evidence. An opaque fatal crash during fresh initialization is labeled **Possible initial population failure**; `SIGILL` alone is insufficient. On macOS, available `.ips` crash reports are correlated by process name, PID, and report freshness, and only their symbol names are used. Crash reports can arrive after the runner finishes, so a later web/status refresh may provide more specific evidence. A failure after iteration has begun is not assigned this initialization diagnosis. The analyzer does not change model inputs or restart a failed run automatically.
+
 ## Continuation and fresh starts
 
 No `--resume` flag is needed:

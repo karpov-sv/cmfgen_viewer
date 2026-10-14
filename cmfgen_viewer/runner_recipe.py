@@ -12,6 +12,7 @@ import shlex
 import shutil
 import sys
 
+from .model_initialization import lte_initialization_controls
 from .control_files import control_occurrences
 from .model_activity import inspect_model_activity
 from .model_preflight import inspect_model_preflight
@@ -135,7 +136,7 @@ def resolve_atomic_links(model: Path, stage: str, atomic: Path):
 
 def build_run_plan(model: Path, *, stage: str, cmfgen_root: Path, atomic_root: Path,
                    threads=None, timeout=None, memory_mib=None, iterations=None, fresh_start=False,
-                   no_core_dumps=False) -> dict:
+                   no_core_dumps=False, lte_initialization=False, t_exc=1.0) -> dict:
     if stage not in PROGRAMS:
         raise RunnerError("Supported stages: test, main, lte, hydro, flux")
     if (threads is not None and threads < 1) or (memory_mib is not None and memory_mib < 128):
@@ -149,6 +150,10 @@ def build_run_plan(model: Path, *, stage: str, cmfgen_root: Path, atomic_root: P
         raise RunnerError("--iterations is a positive main-stage override only")
     if fresh_start and stage not in {"main", "test"}:
         raise RunnerError("--fresh-start applies only to main/test")
+    if lte_initialization and stage not in {"main", "test"}:
+        raise RunnerError("--lte-initialization applies only to main/test")
+    if lte_initialization and (not math.isfinite(t_exc) or t_exc <= 0):
+        raise RunnerError("T_EXC must be positive and finite (units of 10^4 K)")
     model, cmfgen_root, atomic_root = (p.expanduser().resolve() for p in (model, cmfgen_root, atomic_root))
     if not model.is_dir() or not (model / "VADAT").is_file() or not (model / "MODEL_SPEC").is_file():
         raise RunnerError("Not a model workspace")
@@ -156,6 +161,19 @@ def build_run_plan(model: Path, *, stage: str, cmfgen_root: Path, atomic_root: P
     errors, warnings = [], []
     restart = inspect_restart(model, fresh_start=fresh_start) if stage in {"main", "test"} else None
     continuing = restart is not None and restart["mode"] == "continuation"
+    initialization = None
+    if lte_initialization:
+        if continuing:
+            errors.append("LTE initialization applies to fresh startup; explicitly select --fresh-start to archive checkpoints")
+        try:
+            lte_initialization_controls((model / "VADAT").read_text(), t_exc)
+        except (ValueError, OSError) as exc:
+            errors.append(str(exc))
+        vadat = model / "VADAT"
+        if vadat.is_symlink() or vadat.stat().st_nlink != 1:
+            errors.append("Refusing unsafe writable VADAT for LTE initialization")
+        initialization = {"method": "LTE", "t_exc": t_exc, "temporary": True}
+        warnings.append("Fresh LTE initial populations: DC_METH=LTE, T_EXC=" + str(t_exc) + " (10^4 K). VADAT will be restored afterward; convergence remains unassessed.")
     if restart:
         errors.extend(restart["errors"])
         warnings.extend(restart["warnings"])
@@ -363,7 +381,7 @@ def build_run_plan(model: Path, *, stage: str, cmfgen_root: Path, atomic_root: P
             "executable": str(exe), "executable_snapshot": snapshot(exe), "links": kept, "passes": passes,
             "inputs": [snapshot(path) for path in sorted(paths)], "threads": threads, "timeout": timeout,
             "memory_mib": memory_mib, "no_core_dumps": no_core_dumps, "errors": errors, "warnings": warnings,
-            "fresh_start": fresh_start,
+            "fresh_start": fresh_start, "initialization": initialization,
             "restart": restart,
             "permitted_links": sorted(permitted_links),
             "cache_files": list(FLUX_CACHE_FILES) if stage == "flux" else [],
