@@ -165,7 +165,8 @@ def build_workflow_plan(basepath: str, *, model_relpath: str, scope: str, config
                                                          ("RVSIG_COL_NEW", "RVSIG_COL_NEW"), ("RVSIG_COL_NEW", "RVSIG_COL"), ("VADAT", "VADAT"))]
                                  + [{"action": "synchronize_generated_radii", "file": "lte/VADAT",
                                      "controls": ["RMAX", "RSTAR (when reported)"]},
-                                    {"action": "mark_solution_stale_and_invalidate_summary"}], "command": None, "issues": []})
+                                    {"action": "mark_solution_stale_and_invalidate_summary"},
+                                    {"action": "archive_lte_temporaries", "files": [item["name"] for item in state["lte_cleanup"]["entries"]]}], "command": None, "issues": []})
     return {"schema_version": 1, "scope": scope, "model_path": str(model_dir),
             "model_relpath": model_relpath, "execution_available": False, "steps": steps,
             "limitations": ["Read-only preview: no programs, shell scripts, or filesystem actions are executed.",

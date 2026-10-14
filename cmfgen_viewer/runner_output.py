@@ -238,6 +238,13 @@ class TerminalOutput:
                 self.line("INFO", f"VADAT RMAX will be synchronized to {plan['synchronized_rmax']:.12g}")
             if plan.get("synchronized_rstar") is not None:
                 self.line("INFO", f"VADAT RSTAR will be synchronized to {plan['synchronized_rstar']:.12g}")
+            cleanup = plan["lte_cleanup"]
+            self.line("INFO", f"Will archive {cleanup['entry_count']} LTE temporary file(s) ({cleanup['human_size']})")
+            display_entries = cleanup["entries"] if self.verbose else cleanup["entries"][:24]
+            for entry in display_entries:
+                self.line("INFO", f"  lte/{entry['name']} ({entry['human_size']})")
+            if len(display_entries) < cleanup["entry_count"]:
+                self.line("INFO", f"  {cleanup['entry_count'] - len(display_entries)} more; use --verbose to list all")
             if plan.get("invalidates"):
                 self.line(
                     "INFO",
@@ -362,6 +369,8 @@ class TerminalOutput:
             if promotion.get("synchronized_rstar") is not None:
                 self.line("INFO", f"VADAT RSTAR synchronized to {promotion['synchronized_rstar']:.12g}")
             self.line("INFO", f"Backup: {promotion['backup_path']}")
+            cleanup = promotion["lte_cleanup"]
+            self.line("INFO", f"Archived {cleanup['removed_count']} LTE temporary file(s)")
             invalidated = promotion.get("invalidated_files", [])
             if invalidated:
                 self.line("INFO", "Invalidated previous main state: " + ", ".join(invalidated))

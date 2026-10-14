@@ -77,7 +77,7 @@ def job_directory(base, job_id):
 
 def fingerprint(plan):
     initial = plan.get("initial_plan", plan)
-    evidence = {key: initial.get(key) for key in ("inputs", "executable_snapshot", "copies", "entries", "hydro_alignment", "lte_composition_alignment")}
+    evidence = {key: initial.get(key) for key in ("inputs", "executable_snapshot", "copies", "entries", "hydro_alignment", "lte_composition_alignment", "lte_cleanup")}
     evidence["options"] = plan.get("stage_options")
     evidence["passes"] = initial.get("passes")
     evidence["initialization"] = initial.get("initialization")

@@ -13,6 +13,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .workflow_permissions import copy_readable, mkdir_readable, readable_mode
+from .lte_cleanup import (
+    LteCleanupError,
+    archive_lte_temporaries,
+    inspect_lte_cleanup,
+    restore_lte_temporaries,
+    validate_lte_cleanup,
+)
 from .browser import is_model_directory, resolve_path
 from .control_files import control_occurrences as _control_occurrences
 from .hydro_lte_alignment import preview_lte_hydro_alignment, apply_lte_hydro_alignment
@@ -806,6 +813,7 @@ def inspect_lte_hydro_workflow(basepath: str, *, model_relpath: str, config: dic
         "hydro_preflight": hydro_preflight,
         "model_path": str(model_dir),
         "lte_path": str(lte_dir),
+        "lte_cleanup": inspect_lte_cleanup(lte_dir),
         "template_root": str(Path(template_root).expanduser().resolve()) if template_root is not None else None,
         "root_files": root_files,
         "template_files": template_files,
@@ -963,7 +971,22 @@ def _atomic_write(destination: Path, contents: bytes, mode: int) -> None:
                 pass
 
 
-def promote_lte_hydro_results(basepath: str, *, model_relpath: str) -> dict[str, object]:
+def cleanup_lte_workspace(basepath: str, *, model_relpath: str) -> dict:
+    model_dir = _resolve_model(basepath, model_relpath)[1]
+    with MODEL_WRITE_LOCK, model_mutation_guard(model_dir, ModelWorkflowError):
+        archive_root = model_dir / MODEL_EDITOR_BACKUP_DIR
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+        archive_dir = archive_root / "lte-cleanup" / timestamp
+        try:
+            mkdir_readable(archive_root, exist_ok=True)
+            return archive_lte_temporaries(model_dir / "lte", archive_dir)
+        except (OSError, LteCleanupError) as exc:
+            raise ModelWorkflowError(f"Could not clean LTE temporary files: {exc}") from exc
+
+
+def promote_lte_hydro_results(
+    basepath: str, *, model_relpath: str, expected_cleanup_entries=None,
+) -> dict[str, object]:
     with MODEL_WRITE_LOCK, model_mutation_guard(_resolve_model(basepath, model_relpath)[1], ModelWorkflowError):
         state = inspect_lte_hydro_workflow(basepath, model_relpath=model_relpath)
         if not state["promotion_ready"]:
@@ -976,6 +999,10 @@ def promote_lte_hydro_results(basepath: str, *, model_relpath: str) -> dict[str,
         model_dir = Path(str(state["model_path"]))
         lte_dir = model_dir / "lte"
         lte_vadat = lte_dir / "VADAT"
+        try:
+            validate_lte_cleanup(lte_dir, expected_cleanup_entries)
+        except LteCleanupError as exc:
+            raise ModelWorkflowError(str(exc)) from exc
         generated, _metadata = _rvsig_generated_values(lte_dir / HYDRO_OUTPUT)
         generated_rmax = generated.get("radius_ratio")
         if generated_rmax is None or generated_rmax <= 0:
@@ -1014,6 +1041,8 @@ def promote_lte_hydro_results(basepath: str, *, model_relpath: str) -> dict[str,
         original_names: set[str] = set()
         replaced_names: list[str] = []
         invalidated_names: list[str] = []
+        cleanup = {"removed_files": []}
+        cleanup_archive = backup_dir / "lte" / "temporary"
         try:
             mkdir_readable(model_dir / MODEL_EDITOR_BACKUP_DIR, exist_ok=True)
             mkdir_readable(backup_dir, parents=True, exist_ok=False)
@@ -1047,13 +1076,17 @@ def promote_lte_hydro_results(basepath: str, *, model_relpath: str) -> dict[str,
                 if _regular_file(target):
                     target.unlink()
                     invalidated_names.append(name)
+            cleanup = archive_lte_temporaries(
+                lte_dir, cleanup_archive, expected_entries=expected_cleanup_entries,
+            )
             backup_relpath = backup_dir.relative_to(model_dir).as_posix()
             mark_model_inputs_modified(
                 model_dir,
                 file_relpath="LTE/hydro promoted outputs",
                 backup_relpath=backup_relpath,
             )
-        except (OSError, shutil.Error, ModelEditorError, ModelWorkflowError) as exc:
+        except (OSError, shutil.Error, ModelEditorError, ModelWorkflowError, LteCleanupError) as exc:
+            restore_lte_temporaries(lte_dir, cleanup_archive, cleanup["removed_files"])
             for name in reversed(replaced_names):
                 target = model_dir / name
                 try:
@@ -1079,6 +1112,7 @@ def promote_lte_hydro_results(basepath: str, *, model_relpath: str) -> dict[str,
             raise ModelWorkflowError(f"Could not promote LTE/hydro results: {exc}") from exc
     result = inspect_lte_hydro_workflow(basepath, model_relpath=model_relpath)
     result["backup_relpath"] = backup_relpath
+    result["lte_cleanup_result"] = cleanup
     result["invalidated_files"] = invalidated_names
     result["synchronized_rmax"] = generated_rmax
     result["synchronized_rstar"] = generated_rstar

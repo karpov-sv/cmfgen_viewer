@@ -155,6 +155,7 @@ def test_promotion_result_reports_backup_and_invalidated_state(result):
         "synchronized_rmax": 12.5,
         "backup_path": "/tmp/model/.cmfgen-viewer-backups/lte-hydro/test",
         "invalidated_files": ["POINT1", "RVTJ"],
+        "lte_cleanup": {"removed_count": 3},
     }
     stream = io.StringIO()
 
@@ -163,6 +164,7 @@ def test_promotion_result_reports_backup_and_invalidated_state(result):
     text = stream.getvalue()
     assert "Promoted LTE/hydro results with RMAX=12.5" in text
     assert "Backup: /tmp/model/.cmfgen-viewer-backups/lte-hydro/test" in text
+    assert "Archived 3 LTE temporary file(s)" in text
     assert "Invalidated previous main state: POINT1, RVTJ" in text
     assert "Filesystem checks passed" in text
 
@@ -550,3 +552,13 @@ def test_progress_none_preserves_final_summary(monkeypatch, capsys, plan, result
     captured = capsys.readouterr()
     assert "[RUN]" not in captured.err
     assert "[OK] main: completed" in captured.out
+
+
+def test_promotion_preview_reports_lte_cleanup_candidates(plan):
+    plan["stage"] = "promote-hydro"
+    plan["lte_cleanup"] = {"entry_count": 1, "human_size": "10 B",
+                           "entries": [{"name": "HIOUT", "human_size": "10 B"}]}
+    stream = io.StringIO()
+    TerminalOutput(stream).plan(plan)
+    assert "Will archive 1 LTE temporary file(s) (10 B)" in stream.getvalue()
+    assert "lte/HIOUT" in stream.getvalue()

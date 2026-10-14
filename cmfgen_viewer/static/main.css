@@ -880,6 +880,17 @@ a:focus {
     gap: 0.35rem;
 }
 
+.workflow-cleanup-files {
+    max-height: 18rem;
+    overflow: auto;
+}
+
+.workflow-cleanup-files th {
+    position: sticky;
+    top: 0;
+    background: var(--bs-body-bg, #fff);
+}
+
 .workflow-help > summary {
     cursor: pointer;
     color: #56616c;

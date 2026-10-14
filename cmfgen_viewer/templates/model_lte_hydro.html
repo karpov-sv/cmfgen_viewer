@@ -282,13 +282,29 @@
         {% if state.promoted %}
           <p class="small text-success mb-0">The current results have been promoted. Continue to main model computation below.</p>
         {% elif state.promotion_ready %}
-          <p class="small">Promotion synchronizes <code>VADAT [RMAX]</code> from the generated radius ratio and <code>[RSTAR]</code> from the reported core radius when available, preserving the generated structure's radius scale. It copies <code>ROSSELAND_LTE_TAB</code>, <code>RVSIG_COL_NEW</code>, <code>RVSIG_COL</code>, and <code>VADAT</code> to the model root, and invalidates old main checkpoints and solution files. Everything replaced or invalidated is checkpointed first.</p>
+          <p class="small">Promotion synchronizes <code>VADAT [RMAX]</code> from the generated radius ratio and <code>[RSTAR]</code> from the reported core radius when available, preserving the generated structure's radius scale. It copies <code>ROSSELAND_LTE_TAB</code>, <code>RVSIG_COL_NEW</code>, <code>RVSIG_COL</code>, and <code>VADAT</code> to the model root, and invalidates old main checkpoints and solution files. Everything replaced or invalidated is checkpointed first. Known LTE temporary files are archived in the same checkpoint after promotion.</p>
           <form method="post">
             <input type="hidden" name="action" value="promote">
             <div class="form-check mb-2"><input class="form-check-input" id="results-checked" type="checkbox" name="results_checked" value="1"><label class="form-check-label" for="results-checked">I checked the luminosity and radius ratio reported by RVSIG_COL_NEW.</label></div>
             <button class="btn btn-danger" type="submit">Promote Results</button>
           </form>
         {% else %}<p class="text-muted mb-0">Fresh LTE and hydro outputs are required. Files are considered stale when older than their relevant inputs.</p>{% endif %}
+        {% if state.lte_cleanup.entry_count %}
+          <details class="workflow-help mt-3" id="lte-cleanup">
+            <summary>LTE temporary files — {{ state.lte_cleanup.entry_count }} files, {{ state.lte_cleanup.human_size }}</summary>
+            <p class="small text-muted mt-2">Promotion archives these files automatically. You can also clean them separately. Controls, LTE/hydro results, run diagnostics, and atomic links stay in the workspace. Files are moved to a recoverable checkpoint; this tidies <code>lte/</code> without freeing disk space.</p>
+            <div class="table-responsive workflow-cleanup-files mb-2">
+              <table class="table table-sm small mb-0">
+                <thead><tr><th>File</th><th>Type</th><th class="text-end">Size</th></tr></thead>
+                <tbody>{% for entry in state.lte_cleanup.entries %}<tr><td><code>{{ entry.name }}</code></td><td>{{ entry.reason }}</td><td class="text-end text-nowrap">{{ entry.human_size }}</td></tr>{% endfor %}</tbody>
+              </table>
+            </div>
+            <form method="post">
+              <input type="hidden" name="action" value="cleanup_lte">
+              <button class="btn btn-sm btn-outline-secondary" type="submit" {% if not state.activity.safe_to_modify %}disabled title="{{ state.activity.reason }}"{% endif %}>Clean LTE Temporary Files</button>
+            </form>
+          </details>
+        {% endif %}
         {% if state.prepared %}
           <details class="workflow-help mt-3" id="result-corrections">
             <summary>Adjust parameters and rerun</summary>

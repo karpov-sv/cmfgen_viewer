@@ -89,6 +89,10 @@ Promotion is enabled only when both `ROSSELAND_LTE_TAB` and `RVSIG_COL_NEW` are 
 | `RVSIG_COL_NEW` | `RVSIG_COL_NEW` and `RVSIG_COL` |
 | `VADAT` | `VADAT` |
 
+Successful promotion also moves known top-level LTE temporary files into the same checkpoint, under `lte/temporary/`. Candidates include regular `*OUT`, `POP*`, numeric `fort.*` files, and the standard matrix, scratch, and intermediate diagnostics targeted by the model cleanup policy. Controls and `*_IN` population inputs, `ROSSELAND_LTE_TAB`, `RVSIG_COL_NEW`, `MODEL`, `RVTJ`, `GAMMAS`, and retained run diagnostics (`OUTLTE`, `WIND_HYD`, `TIMING`, `ML_COUNTER`, `OUT_PARAMS`, and `ltebat.log`) stay in `lte/`. Symbolic links, hard-linked inputs, nested directories, and unrelated files are excluded. If promotion fails, moved temporary files and previous model state are restored.
+
+Expand **LTE temporary files** in the result-review card to see candidates and sizes. **Clean LTE Temporary Files** also works independently of promotion, including for already-promoted models, and archives files under `.cmfgen-viewer-backups/lte-cleanup/<timestamp>/`. Cleanup requires an idle model with available process visibility. It tidies the working directory without reducing total disk usage; remove the recovery archive separately when it is no longer needed. The runner's `promote-hydro` stage performs the same automatic cleanup and records its results.
+
 Existing destination files are saved under `.cmfgen-viewer-backups/lte-hydro/<timestamp>/` first. Promotion also marks the solution stale and removes its cached summary, so a pre-promotion `MOD_SUM` is not treated as current.
 
 ## 5. Run the main model externally

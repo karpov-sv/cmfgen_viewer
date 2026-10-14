@@ -9,6 +9,7 @@ from .model_workflow import (
     LTE_QUICK_CONTROLS,
     RESULT_QUICK_CONTROLS,
     ModelWorkflowError,
+    cleanup_lte_workspace,
     align_hydro_parameters,
     align_hydro_lte_composition,
     inspect_lte_hydro_workflow,
@@ -128,6 +129,13 @@ def model_lte_hydro(source_path: str):
                         _anchor="result-review",
                     )
                 )
+            if action == "cleanup_lte":
+                cleaned = cleanup_lte_workspace(basepath, model_relpath=source_path)
+                return redirect(_notification_url(
+                    "viewer.model_lte_hydro", source_path=source_path, _anchor="result-review",
+                    message=f"Archived {cleaned['removed_count']} LTE temporary file(s) ({cleaned['human_size']}). "
+                            + (f"Recovery archive: {cleaned['archive_path']}." if cleaned['archive_path'] else "No temporary files needed cleanup."),
+                ))
             if action == "promote":
                 if request.form.get("results_checked") != "1":
                     raise ModelWorkflowError(
@@ -152,7 +160,8 @@ def model_lte_hydro(source_path: str):
                         source_path=source_path,
                         message=(
                             f"Results promoted with RMAX={result['synchronized_rmax']:.10g}; "
-                            f"previous files and invalidated main state are in {result['backup_relpath']}."
+                            f"previous files and invalidated main state are in {result['backup_relpath']}. "
+                            f"Archived {result['lte_cleanup_result']['removed_count']} LTE temporary file(s)."
                         ),
                     )
                 )

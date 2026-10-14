@@ -83,6 +83,7 @@ def build_promotion_plan(model: Path) -> dict[str, object]:
         "sources": [f"lte/{name}" for name in source_names],
         "destinations": list(destination_names),
         "invalidates": existing_state,
+        "lte_cleanup": state["lte_cleanup"],
         "synchronized_rmax": generated_rmax,
         "synchronized_rstar": generated_rstar,
         "timeout": None,

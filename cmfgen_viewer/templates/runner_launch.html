@@ -44,7 +44,7 @@
     <details class="workflow-help mt-3"><summary>Custom ordered stages</summary>
       <label class="small mt-2" for="custom-stages">Overrides the stage preset; separate stage names with commas.</label>
       <input class="form-control form-control-sm" id="custom-stages" name="stage_order" placeholder="test,main,flux" value="{{ options.stages|join(',') if options.stages|join(',') not in presets|map(attribute=0)|list else '' }}">
-      <div class="form-text">Available: {{ stages|join(', ') }}. Promotion copies reviewed results and invalidates incompatible old solution files.</div>
+      <div class="form-text">Available: {{ stages|join(', ') }}. Promotion copies reviewed results, invalidates incompatible old solution files, and archives known LTE temporary files.</div>
     </details>
   </div>
   <div class="card-footer"><button class="btn btn-sm btn-outline-primary" name="action" value="preview">Preview run</button></div>
