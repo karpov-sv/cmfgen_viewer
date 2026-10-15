@@ -22,6 +22,7 @@
       <button class="btn btn-sm btn-outline-secondary" type="button" disabled title="Model-directory read-write mode is disabled."><i class="fa fa-play me-1" aria-hidden="true"></i>Model runner</button>
     {% endif %}
   </div>
+  {{ toolbar_link('history', true, 'viewer.model_history', 'History', 'history') }}
   <div class="dropdown model-folder-actions">
     <button class="btn btn-sm {{ 'btn-secondary' if nav.active in ['create', 'rename', 'cleanup'] else 'btn-outline-secondary' }} dropdown-toggle" type="button" id="model-folder-actions" data-bs-toggle="dropdown" aria-expanded="false">Model actions</button>
     <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="model-folder-actions">

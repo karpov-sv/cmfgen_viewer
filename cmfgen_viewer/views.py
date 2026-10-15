@@ -7,6 +7,7 @@ Importing them registers every route on the shared viewer blueprint.
 # Route modules register handlers on the shared blueprint as import side effects.
 from . import browser_views as _browser_views  # noqa: E402,F401
 from . import grid_views as _grid_views  # noqa: E402,F401
+from . import model_history_views as _model_history_views  # noqa: E402,F401
 from . import model_editor_views as _model_editor_views  # noqa: E402,F401
 from . import model_run_workflow_views as _model_run_workflow_views  # noqa: E402,F401
 from . import model_runtime_views as _model_runtime_views  # noqa: E402,F401

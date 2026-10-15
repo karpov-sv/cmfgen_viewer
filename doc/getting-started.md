@@ -30,3 +30,15 @@ The viewer displays commands for execution in your terminal and offers **Model r
 Use [Templates and configuration](/documentation/templates-and-configuration) for installation roots, reusable workspace defaults, workflow previews, and write protection. **System** shows effective settings and filesystem details.
 
 [File reference](/documentation/file-reference) explains model controls, outputs, restart files, and observer products. Successful execution, fresh files, and completed counters do not by themselves establish convergence or scientific acceptance.
+
+## History and recovery
+
+The model toolbar's **History** button opens saved runner journals, editor checkpoints, and workflow recovery archives, including archives inside `lte/` and `obs/`. Each entry shows its date, size, status, and recorded retention policy. Open an entry to view or download individual files and compare archived controls with their current versions. An unrecorded policy means the archive has no retention metadata; it does not imply a complete backup.
+
+The full control-file editor always shows **Saved versions** above the file contents. This includes editor backups and recognized control copies from runner and workflow archives. The quick-parameter page links to **Saved versions and recovery**. Choose a version and **Load into Editor**, review the displayed diff, and **Save Reviewed Changes** to restore it. Loading does not modify the model; saving backs up the current control and uses the usual stale-solution handling.
+
+For main/test journals with a complete pre-run checkpoint, History also offers **Preview restart recovery**. Recovery requires the original pointer/SCRTEMP set, original MODEL/RVTJ, recorded input metadata, unchanged VADAT/MODEL_SPEC, and matching recorded atomic-link targets. It runs the same checkpoint-health and compatibility checks as continuation preflight. Missing large files, incompatible controls, or insufficient provenance produce an explanation instead of a restore action. Review the saved iteration and filenames before confirming. The native binary layout and atomic-data contents remain subject to CMFGEN's own checks.
+
+Confirmed restart recovery stages the restored files first, archives the current checkpoints/products/caches, restores the saved checkpoint and atmosphere as one set, and marks the solution stale. A failure during replacement rolls back the working state. No calculation starts automatically. The source archive is preserved. Keeping large copies of the displaced current state is optional, following the usual recovery policy.
+
+Archives are retained indefinitely. Filter by minimum age, select archives, and **Preview cleanup** to either remove large artifacts while keeping JSON history and log excerpts, or delete complete archives. Confirmation is required; changed archives invalidate the preview. Cleanup and recovery writes require read-write mode and an idle model with available process visibility. Read-only browsing remains available during runs. Deleting an archive removes its recovery evidence permanently and can leave older job-detail links without their underlying journal.

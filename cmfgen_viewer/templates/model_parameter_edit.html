@@ -49,6 +49,25 @@
         </div>
       {% endif %}
 
+      <div class="border rounded p-2 mb-3" id="editor-history">
+        <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
+          <strong class="small">Saved versions ({{ checkpoints|length }})</strong>
+          <a class="small" href="{{ url_for('viewer.model_history', source_path=checkpoint_history_source|default(source_path)) }}">History and recovery</a>
+        </div>
+        {% if checkpoints %}
+          <form method="get" class="input-group">
+            <input type="hidden" name="file" value="{{ file_relpath }}">
+            <input type="hidden" name="history_model" value="{{ checkpoint_history_source }}">
+            <label class="visually-hidden" for="parameter-checkpoint">Load a saved version</label>
+            <select class="form-select form-select-sm font-monospace" id="parameter-checkpoint" name="archived_file" required>
+              <option value="">Choose a saved version…</option>
+              {% for checkpoint in checkpoints %}<option value="{{ checkpoint.backup_relpath }}">{{ checkpoint.modified_display }} — {{ checkpoint.kind }} — {{ checkpoint.backup_relpath }}</option>{% endfor %}
+            </select>
+            <button class="btn btn-sm btn-outline-primary" type="submit">Load into Editor</button>
+          </form>
+        {% else %}<p class="small text-muted mb-0">No saved versions for this file. Saving changes creates its first checkpoint. Copies in runner and workflow archives also appear here when available.</p>{% endif %}
+      </div>
+
       <form method="post" id="parameter-edit-form">
         <input type="hidden" name="action" value="preview">
         <input type="hidden" name="file_relpath" value="{{ file_relpath }}">
@@ -67,22 +86,7 @@
       </form>
       <div class="d-flex flex-wrap align-items-start gap-2 mb-4">
         <button class="btn btn-primary" type="submit" form="parameter-edit-form">Review Changes</button>
-        {% if checkpoints %}
-          <form method="get" class="input-group model-checkpoint-selector">
-            <input type="hidden" name="file" value="{{ file_relpath }}">
-            <label class="visually-hidden" for="parameter-checkpoint">Load a checkpoint</label>
-            <select class="form-select font-monospace" id="parameter-checkpoint" name="checkpoint" required>
-              <option value="">Choose a saved checkpoint…</option>
-              {% for checkpoint in checkpoints %}
-                <option
-                  value="{{ checkpoint.name }}"
-                  {% if loaded_checkpoint and loaded_checkpoint.name == checkpoint.name %}selected{% endif %}
-                >{{ checkpoint.modified_display }} — {{ checkpoint.name }}</option>
-              {% endfor %}
-            </select>
-            <button class="btn btn-outline-primary" type="submit">Load into Editor</button>
-          </form>
-        {% endif %}
+
       </div>
 
       {% if review %}

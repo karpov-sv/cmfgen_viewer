@@ -2,19 +2,23 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from flask import abort, current_app, redirect, render_template, request, url_for
 from markupsafe import Markup
 
 from .browser import make_breadcrumb
 from .model_editor import (
     ModelEditorError,
-    list_model_parameter_checkpoints,
+    _resolve_model,
     list_model_parameter_files,
     load_model_parameter_checkpoint,
     load_model_parameter_file,
     review_model_parameter_edit,
     save_model_parameter_edit,
 )
+from .model_history import control_versions, load_archived_control
+from .model_activity import model_workspace_root
 from .model_quick_editor import (
     load_quick_model_parameter_cards,
     review_quick_model_parameter_edit,
@@ -204,13 +208,16 @@ def model_parameters(source_path: str):
         ), 400
 
     expected_digest = str(file_record["digest"])
+    checkpoint_history_source = source_path
     try:
-        checkpoints = list_model_parameter_checkpoints(
-            basepath,
-            model_relpath=source_path,
-            file_relpath=file_relpath,
-        )
-    except ModelEditorError as exc:
+        _, model_dir = _resolve_model(basepath, source_path)
+        history_dir = model_workspace_root(model_dir)
+        if not history_dir.is_relative_to(Path(basepath).resolve()):
+            history_dir = model_dir
+        checkpoint_history_source = history_dir.relative_to(Path(basepath).resolve()).as_posix()
+        history_target = (model_dir.relative_to(history_dir) / file_relpath).as_posix()
+        checkpoints = control_versions(history_dir, history_target)
+    except (ModelEditorError, OSError) as exc:
         checkpoints = []
         error = str(exc)
     loaded_checkpoint: dict[str, object] | None = None
@@ -224,6 +231,33 @@ def model_parameters(source_path: str):
                     file_relpath=file_relpath,
                     checkpoint_name=checkpoint_name,
                 )
+            except ModelEditorError as exc:
+                error = str(exc)
+        archive_id = str(request.args.get("archive", "")).strip()
+        archived_file = str(request.args.get('archived_file', '')).strip()
+        if archived_file and not archive_id:
+            version = next((item for item in checkpoints if item['backup_relpath'] == archived_file), None)
+            if version is not None:
+                archive_id = version['archive_id']
+            else:
+                error = 'Saved version no longer exists; reload the history list.'
+
+        if archive_id:
+            try:
+                history_source = request.args.get("history_model", checkpoint_history_source)
+                _, history_model = _resolve_model(basepath, history_source)
+                if model_dir != history_model and model_dir != history_model / 'lte':
+                    raise ModelEditorError('Archive belongs to another model.')
+                target = ('lte/' if model_dir != history_model else '') + file_relpath
+                loaded_checkpoint = load_archived_control(history_model, archive_id,
+                    request.args.get('archived_file', ''), expected_target=target)
+            except (ModelEditorError, OSError) as exc:
+                error = str(exc)
+        if loaded_checkpoint is not None:
+            try:
+                review = review_model_parameter_edit(basepath, model_relpath=source_path,
+                    file_relpath=file_relpath, expected_digest=str(file_record['digest']),
+                    contents=str(loaded_checkpoint['contents']))
             except ModelEditorError as exc:
                 error = str(exc)
     if request.method == "POST":
@@ -285,6 +319,7 @@ def model_parameters(source_path: str):
         contents=contents,
         expected_digest=expected_digest,
         checkpoints=checkpoints,
+        checkpoint_history_source=checkpoint_history_source,
         loaded_checkpoint=loaded_checkpoint,
         review=review,
         error=error,
