@@ -26,26 +26,39 @@
       <div class="col-md-3"><label class="form-label" for="run-iterations">Main iterations</label><input class="form-control form-control-sm" type="number" min="1" id="run-iterations" name="iterations" value="{{ options.iterations or '' }}" placeholder="Use IN_ITS"><div class="form-text">Additional iterations in this invocation.</div></div>
       <div class="col-md-2"><label class="form-label" for="run-threads">Threads</label><input class="form-control form-control-sm" type="number" min="1" id="run-threads" name="threads" value="{{ options.threads or '' }}" placeholder="Configured default"></div>
     </div>
-    <div class="border rounded p-2 mt-3">
-      <label class="small"><input class="form-check-input me-1" type="checkbox" name="lte_initialization" value="1" {% if options.lte_initialization %}checked{% endif %}> LTE initial populations (fresh main/test startup)</label>
-      <label class="small ms-3" for="run-t-exc">Minimum initial excitation temperature (10⁴ K)</label>
-      <input class="form-control form-control-sm mt-1" style="max-width: 12rem" id="run-t-exc" name="t_exc" type="number" min="0.000001" step="any" value="{{ options.t_exc|default(1.0) }}">
-      <p class="small text-muted mb-0 mt-1">Temporarily uses DC_METH=LTE and T_EXC (1.0 = 10,000 K), then restores VADAT. For unreliable starting populations; review suitability for cooler atmospheres. Existing checkpoints require an explicit fresh start. This does not establish convergence.</p>
-    </div>
-    <div class="form-check mt-3">
-      <input type="hidden" name="recovery_setting" value="1">
-      <input class="form-check-input" type="checkbox" id="keep-large-files" name="keep_large_files" value="1" {% if options.keep_large_files %}checked{% endif %}>
-      <label class="form-check-label small" for="keep-large-files">Keep large recovery files and full diagnostic logs</label>
-      <div class="form-text">Unchecked: recovery files above 2 MiB are omitted and large logs keep beginning/end excerpts. Run history, small snapshots, and working model outputs remain available.</div>
-    </div>
-    <details class="workflow-help mt-3" {% if options.timeout or options.memory_mib or options.fresh_start or options.no_core_dumps %}open{% endif %}>
-      <summary>Startup and resource settings</summary>
+    <details class="workflow-help mt-3" {% if options.lte_initialization %}open{% endif %}>
+      <summary>Initial populations</summary>
+      <div class="row g-3 align-items-end mt-0">
+        <div class="col-md-7 col-lg-8">
+          <div class="form-check mb-1">
+            <input class="form-check-input" type="checkbox" id="run-lte-initialization" name="lte_initialization" value="1" {% if options.lte_initialization %}checked{% endif %}>
+            <label class="form-check-label small" for="run-lte-initialization">Use LTE initial populations for fresh main/test startup</label>
+          </div>
+        </div>
+        <div class="col-md-5 col-lg-4">
+          <label class="form-label small mb-1" for="run-t-exc">Minimum excitation temperature (T_EXC)</label>
+          <div class="input-group input-group-sm">
+            <input class="form-control" id="run-t-exc" name="t_exc" type="number" min="0.000001" step="any" value="{{ options.t_exc|default(1.0) }}" aria-describedby="run-t-exc-unit">
+            <span class="input-group-text" id="run-t-exc-unit">10⁴ K</span>
+          </div>
+        </div>
+      </div>
+      <p class="small text-muted mb-0 mt-2">Temporarily uses DC_METH=LTE and T_EXC (1.0 = 10,000 K), then restores VADAT. For unreliable starting populations; review suitability for cooler atmospheres. Existing checkpoints require Fresh start in the settings below. This does not establish convergence.</p>
+    </details>
+    <details class="workflow-help mt-3" {% if options.timeout or options.memory_mib or options.fresh_start or options.no_core_dumps or options.keep_large_files %}open{% endif %}>
+      <summary>Startup and recovery settings</summary>
       <div class="row g-3 mt-0">
         <div class="col-md-3"><label class="form-label" for="run-timeout">Timeout (seconds)</label><input class="form-control form-control-sm" type="number" min="0.001" step="any" id="run-timeout" name="timeout" value="{{ options.timeout or '' }}" placeholder="Unlimited"></div>
         <div class="col-md-3"><label class="form-label" for="run-memory">Memory limit (MiB)</label><input class="form-control form-control-sm" type="number" min="128" id="run-memory" name="memory_mib" value="{{ options.memory_mib or '' }}" placeholder="No added limit"></div>
         <div class="col-md-6 align-self-end"><label class="small me-3"><input class="form-check-input me-1" type="checkbox" name="fresh_start" value="1" {% if options.fresh_start %}checked{% endif %}> Fresh start</label><label class="small"><input class="form-check-input me-1" type="checkbox" name="no_core_dumps" value="1" {% if options.no_core_dumps %}checked{% endif %}> Disable core dumps</label></div>
       </div>
       <p class="small text-muted mt-2 mb-0">Usable checkpoints are continued by default. Fresh start retires them; large recovery copies are optional. Timeout is shared across native stages.</p>
+      <div class="form-check mt-3">
+        <input type="hidden" name="recovery_setting" value="1">
+        <input class="form-check-input" type="checkbox" id="keep-large-files" name="keep_large_files" value="1" {% if options.keep_large_files %}checked{% endif %}>
+        <label class="form-check-label small" for="keep-large-files">Keep large recovery files and full diagnostic logs</label>
+        <div class="form-text">Unchecked: recovery files above 2 MiB are omitted and large logs keep beginning/end excerpts. Run history, small snapshots, and working model outputs remain available.</div>
+      </div>
     </details>
     <details class="workflow-help mt-3"><summary>Custom ordered stages</summary>
       <label class="small mt-2" for="custom-stages">Overrides the stage preset; separate stage names with commas.</label>
