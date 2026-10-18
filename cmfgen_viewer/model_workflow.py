@@ -998,7 +998,9 @@ def _atomic_write(destination: Path, contents: bytes, mode: int) -> None:
                 pass
 
 
-def cleanup_lte_workspace(basepath: str, *, model_relpath: str, keep_large_files: bool = False) -> dict:
+def cleanup_lte_workspace(
+    basepath: str, *, model_relpath: str, keep_large_files: bool = False, expected_entries=None,
+) -> dict:
     model_dir = _resolve_model(basepath, model_relpath)[1]
     with MODEL_WRITE_LOCK, model_mutation_guard(model_dir, ModelWorkflowError):
         archive_root = model_dir / MODEL_EDITOR_BACKUP_DIR
@@ -1006,7 +1008,7 @@ def cleanup_lte_workspace(basepath: str, *, model_relpath: str, keep_large_files
         archive_dir = archive_root / "lte-cleanup" / timestamp
         try:
             mkdir_readable(archive_root, exist_ok=True)
-            result = archive_lte_temporaries(model_dir / "lte", archive_dir)
+            result = archive_lte_temporaries(model_dir / "lte", archive_dir, expected_entries=expected_entries)
             result["recovery"] = compact_recovery(archive_dir, keep_large_files=keep_large_files)
             return result
         except (OSError, LteCleanupError) as exc:

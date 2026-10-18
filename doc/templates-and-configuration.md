@@ -193,3 +193,34 @@ Manifest sources are included in plan snapshots and rechecked before launch.
 Targets must stay within the configured atomic root; missing required atomic
 data, duplicate destinations, and unsafe workspace links remain blockers.
 Changing terminal launcher files alone does not invalidate LTE output freshness.
+
+## Command-line model maintenance
+
+`cmfgen_model.py` exposes the same model-maintenance operations as the UI without starting a web server. It does not require `cmfgen_root` or `atomic_root`. An explicit mutating subcommand authorizes writes; the viewer's `read_write` setting does not enable or disable this standalone tool. Model activity checks and cooperative write locks still apply. `show` and `get` are read-only. Mutating subcommands support `--plan` for read-only inspection; every subcommand supports `--json` for machine-readable reports.
+
+```bash
+python3 cmfgen_model.py show /path/to/model
+python3 cmfgen_model.py show /path/to/model --file IN_ITS --json
+luminosity=$(python3 cmfgen_model.py get /path/to/model LSTAR)
+python3 cmfgen_model.py get /path/to/model NUM_ITS --file IN_ITS
+python3 cmfgen_model.py copy /path/to/model /path/to/new_model --plan
+python3 cmfgen_model.py cleanup /path/to/model --plan
+python3 cmfgen_model.py cleanup /path/to/model --lte --plan
+python3 cmfgen_model.py set /path/to/model LSTAR=4e5 --keep-teff-logg --plan
+python3 cmfgen_model.py set /path/to/model MDOT=2e-6 VINF=1800 --plan
+python3 cmfgen_model.py set /path/to/model --file IN_ITS NUM_ITS=10
+```
+
+Omit `--plan` to apply a planned operation. Plans describe the current files; each executing invocation validates its own inputs again. Exit status is `0` for success, a ready plan, or an unchanged operation; `2` for invalid inputs or blocked preflight; `1` for execution failure; and `130` for interruption. Operational errors are reported as JSON when `--json` is selected; argument syntax errors use argparse's normal error output.
+
+**Copy** creates a new directory with `*OUT` copied to `*_IN`, `GAMMAS` copied to `GAMMAS_IN`, and the UI's selected controls and observer setup. Original files are preserved. Binary restart files, old calculated products, archives, and the LTE workspace are omitted. The destination parent must already exist, and the destination cannot already exist or lie inside the source model. `--template-root` overrides the shared `.cmfgenrc` template setting. Templates are resolved through the same source/model-tree/package search as the UI. No shell script is run.
+
+**Cleanup** uses the runner's conservative top-level candidate policy by default, retaining its normal run journal. Repeat `--file NAME` to select specific main-folder candidates. Top-level atomic links are cleanup candidates, but their targets are left untouched. `--lte` instead applies the LTE-workspace policy, preserving controls, population inputs, handoff products, and retained diagnostics, with recovery files under `.cmfgen-viewer-backups/lte-cleanup/`. `--file` and `--lte` cannot be combined. An empty valid selection is an unchanged operation. Both modes use `.cmfgenrc` `keep_large_files`, defaulting to compact storage; explicit `--keep-large-files` or `--no-keep-large-files` overrides it. This cleans working files, not old recovery archives; use **History** for archive housekeeping.
+
+**Get** reads one explicit control, for example `get MODEL LSTAR` or `get MODEL NUM_ITS --file IN_ITS`. Keys are case-insensitive. It accepts any uniquely present control in the selected file, including controls not exposed for quick editing, such as `TEFF`. Successful plain output is exactly the value followed by a newline: no label, unit, warning, or status line. The original notation is preserved (`1.0D5`, `F`, or comma-separated values); implicit native defaults are not evaluated. Missing, empty, or repeated controls return exit status `2`, with a diagnostic on stderr and empty stdout, so shell substitution cannot mistake an error message for a value. `--json` instead returns the normal structured value/error report on stdout. Reading requires no idle-model check and creates no checkpoints.
+
+**Set** accepts one or more `KEY=VALUE` assignments in a single quick-editable file: `VADAT` by default, or `--file IN_ITS`. Use **show** to discover available keys. Values use the same validation, comment/newline preservation, concurrency checks, and checkpoint creation as the UI. Unsupported or duplicate keys are rejected. Ordinary numeric and Fortran `D` notation are accepted where supported by the control. The plan shows a unified diff; execution saves the same reviewed contents and reports its backup path. A no-op creates no backup.
+
+`--keep-teff-logg` requires an explicit positive `LSTAR` assignment in `VADAT`. For luminosity ratio `f = L_new / L_old`, it scales `RSTAR` by `sqrt(f)` and `MASS` by `f`, leaving `TEFF` and `LOGG` unchanged, exactly as the UI does. Luminosity is in solar units. Do not combine this mode with explicit `RSTAR`, `MASS`, or `LOGG` assignments. Existing mass/gravity inconsistencies are preserved and reported by the shared scaling checks.
+
+Parameter editing marks the solution stale as appropriate. It does not regenerate the LTE/hydro structure, change existing population estimates or restart checkpoints, launch a calculation, or guarantee scientific suitability. Choose the subsequent preparation/fresh-start/continuation workflow explicitly, just as after editing in the UI.

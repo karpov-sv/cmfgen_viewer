@@ -121,6 +121,40 @@ cancellation, and best-fit overlays. See [Model Grids](MODEL_GRIDS.md) for
 TLUSTY downloads, local BOSZ/PHOENIX imports, flux conventions, quality checks,
 and fitting performance.
 
+## Command-line Model Maintenance
+
+`cmfgen_model.py` uses the same copying, cleanup, and quick-parameter operations
+as the UI, without starting a web server or requiring CMFGEN installation paths.
+Use `--plan` to inspect any mutating command before executing it; `--json`
+provides structured output.
+
+```bash
+# List available quick parameters and their current values
+python3 cmfgen_model.py show /path/to/model
+
+# Capture one explicit parameter value (original CMFGEN notation)
+luminosity=$(python3 cmfgen_model.py get /path/to/model LSTAR)
+
+# Seed a fresh model from the current solution (*OUT -> *_IN, GAMMAS -> GAMMAS_IN)
+python3 cmfgen_model.py copy /path/to/model /path/to/new_model --plan
+
+# Review cleanup of the main folder or LTE workspace
+python3 cmfgen_model.py cleanup /path/to/model --plan
+python3 cmfgen_model.py cleanup /path/to/model --lte --plan
+
+# Review a luminosity change with radius and mass scaled to preserve Teff and log g
+python3 cmfgen_model.py set /path/to/model LSTAR=4e5 --keep-teff-logg --plan
+
+# Change the number of iterations requested per invocation
+python3 cmfgen_model.py set /path/to/model --file IN_ITS NUM_ITS=10
+```
+
+Omit `--plan` to apply the operation. Copying never overwrites an existing model;
+parameter edits create checkpoints and mark affected solutions stale. Cleanup
+follows the compact recovery policy, with full-size recovery available through
+`--keep-large-files` or `.cmfgenrc`. See the in-app **Templates and configuration**
+guide for details.
+
 ## Command-line Runner
 
 `cmfgen_run.py` inspects model state and runs a reviewed subset of the ostar
@@ -285,6 +319,7 @@ and exit codes. Execution checks do not establish scientific convergence.
 
 - `viewer.py`: executable entry point.
 - `cmfgen_run.py`: standalone model status, preflight, and execution entry point.
+- `cmfgen_model.py`: standalone model copying, cleanup, and quick-parameter maintenance.
 - `MODEL_GRIDS.md`: model-grid preparation, import, conventions, and fitting guide.
 - `cmfgen_viewer/`:
   - `app.py`, `cli.py`: app factory and CLI configuration.
