@@ -6,11 +6,15 @@ import shutil
 
 from .detached_jobs import JOB_DIR, snapshot_job
 from .lte_cleanup import inspect_lte_cleanup
-from .model_activity import inspect_model_activity, model_mutation_guard
+from .model_activity import inspect_model_activity, model_mutation_guard, LOCK_NAME, RUN_LOCK_NAME
 from .model_history import _tree, tree_signature
 from .model_staging import MODEL_WRITE_LOCK, _build_cleanup_plan, _human_size
 
 ARCHIVE_DIRS = ('.cmfgen-runs', '.cmfgen-viewer-backups')
+METADATA_FILES = {LOCK_NAME, RUN_LOCK_NAME, '.cmfgen-viewer-input-modified.json'}
+TEMP_PREFIXES = ('.cmfgen-edit-', '.cmfgen-promote-', '.cmfgen-lte-',
+                 '.cmfgen-create-', '.recovery-compaction-', '.runner-control-',
+                 '.runner-product-', '.report-', '.diagnostic-')
 
 
 class FullCleanupError(ValueError):
@@ -82,6 +86,9 @@ def build_full_cleanup_plan(model):
             cleanup = inspect_lte_cleanup(folder) if workspace == 'lte' else _build_cleanup_plan(workspace or model.name, folder)
             for entry in cleanup['entries']:
                 include(folder / entry['name'], entry['reason'])
+            for path in folder.iterdir():
+                if path.name in METADATA_FILES or path.name.startswith(TEMP_PREFIXES):
+                    include(path, 'Viewer/runner metadata, lock, or temporary workspace')
             job_root = folder / JOB_DIR
             if job_root.is_dir() and not job_root.is_symlink() and not any(job_root.iterdir()):
                 include(job_root, 'Empty detached runner job store')
@@ -111,10 +118,17 @@ def run_full_cleanup(plan):
         current = build_full_cleanup_plan(model)
         if not current['ready']:
             raise FullCleanupError('; '.join(current['errors']))
-        if current['entries'] != plan['entries']:
+        lock_path = model / LOCK_NAME
+        # Acquiring the guard may create a lock absent from the reviewed plan.
+        planned_lock = any(entry['path'] == str(lock_path) for entry in plan['entries'])
+        compared = current['entries'] if planned_lock else [
+            entry for entry in current['entries'] if entry['path'] != str(lock_path)]
+        if compared != plan['entries']:
             raise FullCleanupError('Cleanup targets changed after planning; inspect a fresh plan.')
         removed, failures = [], []
-        for entry in current['entries']:
+        for entry in compared:
+            if entry['path'] == str(lock_path):
+                continue
             path = Path(entry['path'])
             try:
                 if path.is_symlink() or not path.is_dir():
@@ -134,5 +148,13 @@ def run_full_cleanup(plan):
                 root.rmdir()
             except OSError:
                 pass
+        # Last mutation: release the pathname while still holding its inode.
+        # Writers that opened it earlier must reject that detached inode.
+        try:
+            lock_path.unlink()
+            if planned_lock:
+                removed.append(LOCK_NAME)
+        except OSError as exc:
+            failures.append({'name': LOCK_NAME, 'error': str(exc)})
         return {'status': 'failed' if failures else 'succeeded' if removed else 'unchanged',
                 'removed': removed, 'removed_count': len(removed), 'failures': failures}

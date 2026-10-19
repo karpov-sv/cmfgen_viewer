@@ -94,6 +94,14 @@ def _activity_payload(root, processes, uncertainties):
             "processes": processes, "uncertainties": uncertainties, "model_path": str(root)}
 
 
+def validate_lock_inode(descriptor, path):
+    """Reject a lock opened before full cleanup removed/replaced its inode."""
+    held = os.fstat(descriptor)
+    current = Path(path).lstat()
+    if (held.st_dev, held.st_ino) != (current.st_dev, current.st_ino):
+        raise OSError("Model lock changed; retry the operation.")
+
+
 @contextmanager
 def model_mutation_guard(model_dir: Path, error_type=ValueError):
     """Lock cooperating writers and recheck external activity before mutation."""
@@ -113,6 +121,7 @@ def model_mutation_guard(model_dir: Path, error_type=ValueError):
             fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as exc:
             raise error_type("Another viewer process is changing this model; retry after it finishes.") from exc
+        validate_lock_inode(descriptor, root / LOCK_NAME)
         activity = inspect_model_activity(root)
         if not activity["safe_to_modify"]:
             raise error_type(activity["reason"])
@@ -122,4 +131,5 @@ def model_mutation_guard(model_dir: Path, error_type=ValueError):
     finally:
         if descriptor is not None:
             os.close(descriptor)
-        # Never unlink: removing an advisory lock file can create two lock inodes.
+        # Ordinary writes retain the inode. Full cleanup removes it only after
+        # its last mutation; later writers validate the inode after locking.

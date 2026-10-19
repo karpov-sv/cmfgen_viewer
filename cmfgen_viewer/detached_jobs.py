@@ -16,7 +16,7 @@ import uuid
 import psutil
 
 from .workflow_permissions import make_readable, mkdir_readable, open_readable
-from .model_activity import model_mutation_guard, RUN_LOCK_NAME, fcntl
+from .model_activity import model_mutation_guard, RUN_LOCK_NAME, fcntl, validate_lock_inode
 from .runner_recipe import RunnerError
 
 JOB_DIR = ".cmfgen-runner-jobs"
@@ -188,6 +188,7 @@ def launch_job(base, model, options, build_plan, expected_fingerprint):
                 fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError as exc:
                 raise RunnerError("Another runner job owns this model") from exc
+            validate_lock_inode(lock_fd, model / RUN_LOCK_NAME)
             root = base / JOB_DIR
             if root.is_symlink():
                 raise RunnerError("Refusing symlinked job archive")

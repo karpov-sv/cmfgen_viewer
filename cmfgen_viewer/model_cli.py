@@ -262,7 +262,7 @@ def build_parser():
     copy.add_argument('--template-root', type=Path, help='Override the shared cmfgenrc template_root')
     cleanup = commands.add_parser('cleanup', help='Clean known temporary files, preserving scientific products and checkpoints')
     cleanup.add_argument('model', type=Path)
-    cleanup.add_argument('--full', action='store_true', help="Permanently remove temporary files in all workspaces, recovery archives, and this model's run/job history; no new recovery archive")
+    cleanup.add_argument('--full', action='store_true', help="Permanently remove temporary files in all workspaces, recovery archives, script metadata and locks, and this model's run/job history; no new recovery archive")
     cleanup.add_argument('--lte', action='store_true', help='Clean the LTE workspace instead of the main folder')
     cleanup.add_argument('--file', action='append', metavar='NAME', help='Select a main-folder candidate; repeat to select more')
     cleanup.add_argument('--keep-large-files', action=argparse.BooleanOptionalAction, default=None,

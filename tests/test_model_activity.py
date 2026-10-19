@@ -94,3 +94,16 @@ def test_lock_excludes_other_processes_and_child_workspaces(tmp_path, monkeypatc
         process.communicate(timeout=5)
     with activity.model_mutation_guard(tmp_path / "lte"):
         pass
+
+
+def test_guard_rejects_inode_removed_by_full_cleanup_before_lock_acquisition(tmp_path, monkeypatch):
+    monkeypatch.setattr(activity, 'inspect_model_activity', lambda _: {'safe_to_modify': True})
+    original = activity.fcntl.flock
+    def acquire_detached_inode(descriptor, flags):
+        original(descriptor, flags)
+        (tmp_path / activity.LOCK_NAME).unlink()
+        (tmp_path / activity.LOCK_NAME).touch()
+    monkeypatch.setattr(activity.fcntl, 'flock', acquire_detached_inode)
+    with pytest.raises(ValueError, match='Model lock changed'):
+        with activity.model_mutation_guard(tmp_path):
+            pytest.fail('A detached lock inode must not authorize writes')

@@ -60,10 +60,12 @@ def test_full_plan_is_read_only_and_execution_does_not_create_another_archive(so
         folder = solution / workspace
         assert not (folder / '.cmfgen-runs').exists()
         assert not (folder / '.cmfgen-viewer-backups').exists()
+    assert not (solution / MODEL_INPUT_MODIFIED_MARKER).exists()
+    assert not (solution / model_activity.LOCK_NAME).exists()
     assert not (solution / 'BAMAT').exists()
     assert not (solution / 'lte/POPHYD').exists()
     assert not (solution / 'obs/fort.63').exists()
-    for name in ('VADAT', 'MODEL_SPEC', 'POINT1', 'SCRTEMP', 'HeIOUT', 'GAMMAS', MODEL_INPUT_MODIFIED_MARKER):
+    for name in ('VADAT', 'MODEL_SPEC', 'POINT1', 'SCRTEMP', 'HeIOUT', 'GAMMAS'):
         assert (solution / name).exists()
     for name in ('VADAT', 'HeI_IN', 'OUTLTE', 'RVSIG_COL_NEW', 'ROSSELAND_LTE_TAB'):
         assert (solution / 'lte' / name).exists()
@@ -262,3 +264,31 @@ def test_full_cleanup_removes_file_directory_and_broken_links_in_every_workspace
     assert target.read_text() == 'retain atomic data' and target.stat().st_mode & 0o777 == 0o600
     assert (directory / 'keep').read_text() == 'retain directory contents'
     assert directory.stat().st_mode & 0o777 == 0o700
+
+
+@pytest.mark.parametrize('workspace', ['', 'lte', 'obs'])
+def test_full_cleanup_removes_script_metadata_locks_and_temporary_trees(solution, tmp_path, workspace):
+    _populate(solution)
+    folder = solution / workspace
+    for name in (model_activity.LOCK_NAME, model_activity.RUN_LOCK_NAME,
+                 MODEL_INPUT_MODIFIED_MARKER, '.cmfgen-edit-leftover', '.cmfgen-promote-leftover',
+                 '.runner-control-leftover', '.runner-product-leftover', '.report-leftover',
+                 '.diagnostic-leftover', '.recovery-compaction-leftover'):
+        (folder / name).write_text('stale')
+    temporary = folder / '.cmfgen-lte-leftover'
+    temporary.mkdir()
+    (temporary / 'scratch').write_text('discard')
+    external = tmp_path / 'retain'
+    external.write_text('retain')
+    (temporary / 'link').symlink_to(external)
+    (folder / '.cmfgenrc').write_text('retain configuration')
+    (folder / '.unrelated').write_text('retain unrelated data')
+    plan = build_full_cleanup_plan(solution)
+    assert plan['ready'], plan['errors']
+    names = {entry['path'] for entry in plan['entries']}
+    assert str(temporary) in names
+    assert str(folder / model_activity.LOCK_NAME) in names
+    assert not run_full_cleanup(plan)['failures']
+    assert {path.name for path in folder.iterdir() if path.name.startswith('.')} == {'.cmfgenrc', '.unrelated'}
+    assert external.read_text() == 'retain'
+    assert (folder / '.cmfgenrc').exists() and (folder / '.unrelated').exists()

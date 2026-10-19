@@ -20,7 +20,7 @@
     </form>
     <div class="alert alert-warning py-2 small">
       {% if full_cleanup %}
-        Full cleanup permanently removes all listed temporary files, recovery archives, editor checkpoints, and run/job history. No new recovery archive is created. Current model inputs, scientific results, and continuation checkpoints are retained under the usual cleanup policies. Symbolic-link targets are never followed.
+        Full cleanup permanently removes all listed temporary files, recovery archives, editor checkpoints, run/job history, script temporary workspaces, status markers, and lock files. No new recovery archive is created. Current model inputs, scientific results, and continuation checkpoints are retained under the usual cleanup policies. Symbolic-link targets are never followed.
       {% else %}
         Cleanup is permanent. It only considers direct children of the model directory; subdirectories are not traversed.
         All top-level symlinks are candidates. The commented-out <code>EDDFACTOR*</code> commands are not applied.
