@@ -108,6 +108,36 @@ def inspect_quality(model_dir, records, run_text, started_epoch, requested, corr
                 "Inspect the depth distribution, including populations important to your spectral lines.",
                 "CORRECTION_SUM")
 
+    link = model_dir / "CORRECTION_LINK"
+    if link.is_file():
+        from .parsers.correction_link import read_correction_link
+
+        if not _current_for_run(link, started_epoch):
+            add("correction_drivers", "Species driving solver corrections", "unknown",
+                "CORRECTION_LINK predates the latest recorded run.",
+                "Inspect a fresh correction snapshot.", "CORRECTION_LINK")
+        else:
+            snapshot = read_correction_link(link)
+            entries = snapshot["entries"]
+            if not entries or snapshot["warnings"]:
+                add("correction_drivers", "Species driving solver corrections", "unknown",
+                    " ".join(snapshot["warnings"]),
+                    "Inspect CORRECTION_LINK directly; incomplete rows cannot establish the largest correction.",
+                    "CORRECTION_LINK")
+            else:
+                ranked = sorted(entries, key=lambda e: abs(e["change_percent"]), reverse=True)
+                detail = "; ".join(
+                    f"{e['species']} SL {e['superlevel']} (equation {e['equation']}): "
+                    f"{e['change_percent']:+.4g}% at depth {e['depth']}" for e in ranked[:3]
+                )
+                add("correction_drivers", "Species driving solver corrections",
+                    "warning" if abs(ranked[0]["change_percent"]) > 1 else "info",
+                    "Largest listed solver corrections: " + detail + ".",
+                    "These are selected ranked entries, before damping/scaling, not an applied-change "
+                    "or convergence verdict. Review the listed species, superlevels and depths alongside "
+                    "CORRECTION_SUM and the iteration history. T/Ne denote temperature/electron density.",
+                    "CORRECTION_LINK")
+
     hydro_blocks = re.findall(
         r"large error in photosphere(.*?)(?:\*{5,}|\Z)", run_text, re.I | re.S)
     if hydro_blocks:

@@ -79,6 +79,14 @@ Current `J_COMP` data provide maximum absolute outer-boundary `J(mom)`/`J(ray)` 
 
 Native photospheric hydrostatic warnings expose their mean, RMS, and maximum residuals from the latest warning block in the latest run. Native limits include RMS above 5%, maximum above 20%, or disagreement in photospheric gravity; review `HYDRO` and structure preparation if the warning persists after further convergence. `OBSFLUX` supplies the normalized luminosity profile through the depth grid, and `MEANOPAC` supplies the innermost Rosseland optical depth (native guidance: at least 50, preferably 100). Missing, stale, unsupported, or unreadable auxiliary measurements remain **Unassessed**. All checks are read-only and provide source links and suggested review actions.
 
-Opening `OUTGEN` itself in **Parsed** mode exposes the same latest-run cards as tables, the full per-iteration diagnostic table, both plots, current correction thresholds, quality checks, and grouped diagnostics. This view shares the workflow parser rather than independently interpreting the output; its cache also follows changes to `IN_ITS`, `MODEL_SPEC`, `TIMING`, `CORRECTION_SUM`, `WARNINGS`, `J_COMP`, `HYDRO`, `OBSFLUX`, and `MEANOPAC`.
+Opening `OUTGEN` itself in **Parsed** mode exposes the same latest-run cards as tables, the full per-iteration diagnostic table, both plots, current correction thresholds, quality checks, and grouped diagnostics. This view shares the workflow parser rather than independently interpreting the output; its cache also follows changes to `IN_ITS`, `MODEL_SPEC`, `TIMING`, `CORRECTION_SUM`, `CORRECTION_LINK`, `WARNINGS`, `J_COMP`, `HYDRO`, `OBSFLUX`, and `MEANOPAC`.
 
 After an external run, the workflow links to available `MOD_SUM`, `OUTGEN`, `batch.log`, `MODEL`, and `RVTJ` files. `MOD_SUM` is current only when it is newer than the relevant model inputs and no newer modified-input marker exists.
+
+
+When a current `CORRECTION_LINK` is present, quality checks identify the three largest
+listed solver corrections with species/variable, superlevel, equation index and depth.
+The dedicated parsed file also provides ranked entries and a species overview. These
+are selected solver corrections before damping or scaling, not an exhaustive depth
+survey. The 1% warning threshold is advisory; stale or malformed snapshots remain
+unassessed. Editing `CORRECTION_LINK` refreshes the parsed `OUTGEN` diagnostics.

@@ -685,7 +685,7 @@ def inspect_model_convergence(
         "warnings": _warning_summary(model_dir, run_text, started_epoch),
         "diagnostic_links": [
             name
-            for name in ("OUTGEN", "CORRECTION_SUM", "WARNINGS", "TIMING", "J_COMP", "HYDRO", "OBSFLUX", "MEANOPAC")
+            for name in ("OUTGEN", "CORRECTION_SUM", "CORRECTION_LINK", "WARNINGS", "TIMING", "J_COMP", "HYDRO", "OBSFLUX", "MEANOPAC")
             if (model_dir / name).is_file()
         ],
         "message": (

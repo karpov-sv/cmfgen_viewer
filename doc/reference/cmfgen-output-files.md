@@ -159,6 +159,28 @@ Solver correction depth summary
 - Viewer relevance: medium-high for convergence-quality diagnostics by depth.
 
 
+Solver correction species links
+- File: `CORRECTION_LINK`; writer: `new_main/subs/sum_steq_sol.f`.
+- The dedicated parsed view reads ranked reductions/increases at selected depths, with
+  `SOL(J,L)`, species, superlevel (`SL`), and statistical-equilibrium equation index (`I(STEQ)`).
+- Solver change in percent is `-100 * SOL(J,L)`: positive denotes an increase.
+  Section labels are retained independently: a reduction section can contain a negative entry.
+  Corrections precede any damping or scaling; they are not necessarily the applied changes.
+- Tables rank the listed corrections by magnitude and summarize each species/variable.
+- Interactive scatter plots show absolute correction magnitude (log scale) and signed
+  correction versus depth. Colors identify species; upward/downward triangles denote
+  increases/reductions. Hover for superlevel, equation index, signed correction and rank.
+  Zero corrections appear only in the signed plot. Missing depths are not interpolated
+  or filled with zero; the first depth is the outer boundary.
+  `T` and `Ne` denote temperature and electron density; `SL=0` is not a population superlevel.
+- The main computation quality checks and parsed `OUTGEN` identify the three largest
+  listed corrections, their species, superlevels, equation indices, and depths. Magnitudes
+  above 1% trigger an advisory warning. This snapshot contains selected entries only:
+  it cannot establish that other depths are converged or diagnose a recurring cycle alone.
+- Files older than the latest run are excluded. Empty, unreadable, malformed, or oversized
+  snapshots remain unassessed; valid rows are still available in the file's parsed view.
+
+
 Restart/State/Continuation Files (not viewer-first)
 =======================================================
 

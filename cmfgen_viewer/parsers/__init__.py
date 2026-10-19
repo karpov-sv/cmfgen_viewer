@@ -30,6 +30,7 @@ from .diagnostic_text import (
     parse_time_pointer,
     parse_trans_info,
 )
+from .correction_link import parse_correction_link
 from .correction_sum import parse_correction_sum
 from .mod_sum import parse_mod_sum
 from .obsflux import parse_obsflux
@@ -109,7 +110,7 @@ PARSERS = {
     "NEG_OPAC": parse_named_numeric,
     "NEW_CALC_GRID": parse_named_numeric,
     "NON_THERM_COOL": parse_named_numeric,
-    "CORRECTION_LINK": parse_named_log,
+    "CORRECTION_LINK": parse_correction_link,
     "COLLISION_SUMMARY": parse_named_log,
     "HYDRO_ITERATION_INFO": parse_named_log,
     "HYDRO_OLD_MODEL": parse_named_log,
@@ -175,7 +176,7 @@ GAMMA_VERBOSE_NAMES = {
 
 MAX_PARSE_FILE_BYTES = 256 * 1024 * 1024
 PARSER_CACHE_DEPENDENCIES = {
-    "OUTGEN": ("IN_ITS", "MODEL_SPEC", "CORRECTION_SUM", "WARNINGS", "TIMING", "J_COMP", "HYDRO", "OBSFLUX", "MEANOPAC"),
+    "OUTGEN": ("IN_ITS", "MODEL_SPEC", "CORRECTION_SUM", "CORRECTION_LINK", "WARNINGS", "TIMING", "J_COMP", "HYDRO", "OBSFLUX", "MEANOPAC"),
     "OUTLTE": (
         "ML_COUNTER",
         "ltebat.log",
