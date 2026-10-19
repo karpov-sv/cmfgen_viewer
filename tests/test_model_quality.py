@@ -161,3 +161,29 @@ def test_results_page_expands_quality_review_and_renders_source_links(tmp_path):
     assert "59.38%" in page
     assert '/view/model/J_COMP' in page
     assert "Screening thresholds below are advisory" in page
+
+
+def test_workflow_and_outgen_show_large_correction_counts(tmp_path):
+    model = _model(tmp_path)
+    (model / "CORRECTION_SUM").write_text(
+        "NT= 2233\n"
+        "Depth 100.0% 10.0% 1.0% 0.1% 0.01%\n"
+        "1 2 511 1959 2202 2228\n"
+        "2 3 622 1972 2206 2231\n"
+        "3 12 800 2046 2213 2232\n")
+    thresholds = inspect_model_convergence(model)["correction_summary"]["thresholds"]
+    assert thresholds[:2] == [
+        {"threshold": "100.0%", "maximum_count": 12, "depth": 3, "nonzero_depths": 3},
+        {"threshold": "10.0%", "maximum_count": 800, "depth": 3, "nonzero_depths": 3},
+    ]
+    table = next(t for t in parse_outgen(model / "OUTGEN")["tables"]
+                 if t["title"] == "Current CORRECTION_SUM thresholds")
+    assert table["rows"][:2] == [["100.0%", "12", "3", "3"], ["10.0%", "800", "3", "3"]]
+    app = create_app(basepath=str(tmp_path), read_write_enabled=True, secret_key="test")
+    page = app.test_client().get("/model-actions/main-computation/model")
+    assert page.status_code == 200
+    text = page.data.decode()
+    assert "Above 100.0%:" in text
+    assert "Above 10.0%:" in text
+    assert "<code>12</code> max" in text
+    assert "<code>800</code> max" in text

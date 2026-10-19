@@ -133,7 +133,7 @@ def test_outgen_parser_exposes_shared_convergence_analysis(tmp_path: Path) -> No
     assert len(iterations["rows"]) == 3
     assert iterations["rows"][1][0:2] == ["2", "21"]
     assert "lambda" in iterations["rows"][1][-1]
-    assert tables["Current CORRECTION_SUM thresholds"]["rows"][0] == [
+    assert tables["Current CORRECTION_SUM thresholds"]["rows"][2] == [
         "1.0%",
         "1",
         "2",
@@ -156,6 +156,11 @@ def test_correction_and_warning_summaries_are_compact_and_grouped(tmp_path: Path
     assert correction["nt"] == 100
     assert correction["depth_rows"] == 2
     by_threshold = {item["threshold"]: item for item in correction["thresholds"]}
+    assert list(by_threshold) == ["100.0%", "10.0%", "1.0%", "0.1%", "0.01%"]
+    for label in ("100.0%", "10.0%"):
+        assert by_threshold[label]["maximum_count"] == 0
+        assert by_threshold[label]["depth"] is None
+        assert by_threshold[label]["nonzero_depths"] == 0
     assert by_threshold["1.0%"]["maximum_count"] == 1
     assert by_threshold["1.0%"]["depth"] == 2
     assert by_threshold["0.1%"]["maximum_count"] == 3

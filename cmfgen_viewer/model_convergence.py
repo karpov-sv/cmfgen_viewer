@@ -526,7 +526,7 @@ def _correction_summary(
                 continue
             rows.append((int(tokens[0]), [int(token) for token in tokens[1:]]))
     selected: list[dict[str, object]] = []
-    for wanted in ("1.0%", "0.1%", "0.01%"):
+    for wanted in ("100.0%", "10.0%", "1.0%", "0.1%", "0.01%"):
         if wanted not in labels or not rows:
             continue
         column = labels.index(wanted)
