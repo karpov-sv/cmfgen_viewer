@@ -20,7 +20,8 @@ RETAINED_FILES = {
     "OUTLTE", "WIND_HYD", "OUT_PARAMS", "ML_COUNTER", "TIMING", "ltebat.log",
     "ltebat.sh", "clean.sh", "atomic_links.json",
 }
-SIGNATURE_KEYS = ("name", "size", "modified_ns", "changed_ns", "device", "inode")
+FILE_SIGNATURE_KEYS = ("size", "modified_ns", "changed_ns", "device", "inode")
+SIGNATURE_KEYS = ("name", *FILE_SIGNATURE_KEYS, "kind", "target")
 
 
 def _reason(name: str) -> str | None:
@@ -44,18 +45,25 @@ def inspect_lte_cleanup(lte_dir: Path) -> dict:
     entries = []
     if lte_dir.is_dir() and not lte_dir.is_symlink():
         for child in lte_dir.iterdir():
-            reason = _reason(child.name)
-            if reason is None:
-                continue
             try:
                 info = child.lstat()
+                is_link = stat.S_ISLNK(info.st_mode)
+                target = os.readlink(child) if is_link else ""
             except FileNotFoundError:
                 continue
-            # Never traverse links, directories, or shared hard-linked inputs.
-            if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            # Remove the directory entry for a link, never inspect its target.
+            # Regular shared inputs and real subdirectories remain excluded.
+            if is_link:
+                reason = "Top-level symlink (clean.sh rmlinks)"
+            elif stat.S_ISREG(info.st_mode) and info.st_nlink == 1:
+                reason = _reason(child.name)
+            else:
+                continue
+            if reason is None:
                 continue
             entries.append({
                 "name": child.name, "reason": reason, "size": info.st_size,
+                "kind": "Symlink" if is_link else "File", "target": target,
                 "human_size": _human_size(info.st_size), "modified_ns": info.st_mtime_ns,
                 "changed_ns": info.st_ctime_ns, "device": info.st_dev, "inode": info.st_ino,
             })
@@ -88,9 +96,13 @@ def archive_lte_temporaries(lte_dir: Path, archive_dir: Path, *, expected_entrie
         for entry in entries:
             source = lte_dir / entry["name"]
             info = source.lstat()
-            if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1
+            is_link = stat.S_ISLNK(info.st_mode)
+            kind = "Symlink" if is_link else "File"
+            target = os.readlink(source) if is_link else ""
+            if ((not is_link and (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1))
+                    or kind != entry["kind"] or target != entry["target"]
                     or (info.st_size, info.st_mtime_ns, info.st_ctime_ns, info.st_dev, info.st_ino)
-                    != tuple(entry[key] for key in SIGNATURE_KEYS[1:])):
+                    != tuple(entry[key] for key in FILE_SIGNATURE_KEYS)):
                 raise LteCleanupError(f"LTE temporary file changed while cleaning: {source.name}")
             destination = archive_dir / source.name
             os.replace(source, destination)

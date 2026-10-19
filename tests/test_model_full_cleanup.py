@@ -238,3 +238,27 @@ def test_ui_full_cleanup_is_blocked_for_readonly_and_active_models(solution, mon
     assert b'A model calculation is active' in page.data
     assert b'type="submit" disabled>Delete All Listed Items' in page.data
     assert (solution / '.cmfgen-runs').exists()
+
+
+@pytest.mark.parametrize('workspace', ['', 'lte', 'obs'])
+def test_full_cleanup_removes_file_directory_and_broken_links_in_every_workspace(solution, tmp_path, workspace):
+    _populate(solution)
+    folder = solution / workspace
+    target = tmp_path / 'atomic-data'
+    target.write_text('retain atomic data')
+    target.chmod(0o600)
+    directory = tmp_path / 'atomic-directory'
+    directory.mkdir(mode=0o700)
+    (directory / 'keep').write_text('retain directory contents')
+    targets = {'HYD_L_DATA': target, 'He2_IN': target,
+               'directory-link': directory, 'broken-link': tmp_path / 'missing'}
+    for name, destination in targets.items():
+        (folder / name).symlink_to(destination)
+    plan = build_full_cleanup_plan(solution)
+    planned = {entry['path'] for entry in plan['entries']}
+    assert all(str(folder / name) in planned for name in targets)
+    assert not run_full_cleanup(plan)['failures']
+    assert all(not (folder / name).is_symlink() for name in targets)
+    assert target.read_text() == 'retain atomic data' and target.stat().st_mode & 0o777 == 0o600
+    assert (directory / 'keep').read_text() == 'retain directory contents'
+    assert directory.stat().st_mode & 0o777 == 0o700

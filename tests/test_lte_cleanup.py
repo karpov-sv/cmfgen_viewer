@@ -21,7 +21,7 @@ def _temporary_files(lte):
     return names
 
 
-def test_candidate_policy_preserves_results_diagnostics_links_and_nested_files(tmp_path):
+def test_candidate_policy_removes_links_and_preserves_regular_results_and_nested_files(tmp_path):
     lte = tmp_path / 'lte'
     lte.mkdir()
     names = _temporary_files(lte)
@@ -35,17 +35,20 @@ def test_candidate_policy_preserves_results_diagnostics_links_and_nested_files(t
     (lte / 'POPLINK').symlink_to(external)
     os.link(external, lte / 'POPHARDLINK')
     plan = inspect_lte_cleanup(lte)
-    assert set(item['name'] for item in plan['entries']) == set(names)
-    assert plan['total_size'] == sum(len(name) for name in names)
+    assert set(item['name'] for item in plan['entries']) == {*names, 'POPLINK'}
+    assert plan['total_size'] == sum(len(name) for name in names) + (lte / 'POPLINK').lstat().st_size
     result = archive_lte_temporaries(lte, tmp_path / 'archive', expected_entries=plan['entries'])
-    assert set(result['removed_files']) == set(names)
+    assert set(result['removed_files']) == {*names, 'POPLINK'}
     for name in names:
         assert not (lte / name).exists()
         assert (tmp_path / 'archive' / name).read_text() == name
     for name in lte_cleanup.RETAINED_FILES:
         assert (lte / name).read_text() == 'retain'
     assert (lte / 'POP_DIRECTORY' / 'HIOUT').read_text() == 'nested'
-    assert (lte / 'POPLINK').is_symlink()
+    assert not (lte / 'POPLINK').is_symlink()
+    assert (tmp_path / 'archive/POPLINK').is_symlink()
+    assert os.readlink(tmp_path / 'archive/POPLINK') == str(external)
+    assert external.read_text() == 'atomic data'
     assert external.stat().st_mode & 0o777 == 0o600
     assert inspect_lte_cleanup(lte)['entry_count'] == 0
 
@@ -177,3 +180,83 @@ def test_detached_promotion_review_includes_cleanup_candidates(promotable_model)
     after = build_promotion_plan(promotable_model)
     assert before['inputs'] == after['inputs']
     assert fingerprint(before) != fingerprint(after)
+
+
+def test_lte_cleanup_archives_every_top_level_symlink_without_following_targets(tmp_path):
+    lte = tmp_path / 'lte'
+    lte.mkdir()
+    target = tmp_path / 'external-data'
+    target.write_text('atomic data')
+    target.chmod(0o600)
+    directory = tmp_path / 'external-directory'
+    directory.mkdir(mode=0o700)
+    (directory / 'keep').write_text('keep nested data')
+    targets = {'HYD_L_DATA': str(target), 'He2_IN': '../external-data',
+               'GRID_PARAMS': str(target), 'directory-link': str(directory),
+               'broken-link': str(tmp_path / 'missing')}
+    for name, destination in targets.items():
+        (lte / name).symlink_to(destination)
+    (lte / 'VADAT').write_text('retained control')
+    plan = inspect_lte_cleanup(lte)
+    assert {entry['name'] for entry in plan['entries']} == set(targets)
+    assert all(entry['kind'] == 'Symlink' for entry in plan['entries'])
+    archive = tmp_path / 'archive/deeper'
+    result = archive_lte_temporaries(lte, archive, expected_entries=plan['entries'])
+    assert set(result['removed_files']) == set(targets)
+    for name, destination in targets.items():
+        assert not (lte / name).is_symlink()
+        assert (archive / name).is_symlink()
+        assert os.readlink(archive / name) == destination
+    assert target.read_text() == 'atomic data' and target.stat().st_mode & 0o777 == 0o600
+    assert (directory / 'keep').read_text() == 'keep nested data'
+    assert directory.stat().st_mode & 0o777 == 0o700
+    assert (lte / 'VADAT').read_text() == 'retained control'
+
+
+def test_lte_cleanup_restores_relative_and_broken_links_if_a_move_fails(tmp_path, monkeypatch):
+    lte = tmp_path / 'lte'
+    lte.mkdir()
+    (tmp_path / 'atomic').write_text('retain')
+    targets = {'A_LINK': '../atomic', 'B_BROKEN': '../missing'}
+    for name, target in targets.items():
+        (lte / name).symlink_to(target)
+    (lte / 'POPHYD').write_text('population data')
+    original = lte_cleanup.os.replace
+    def fail(source, destination):
+        if Path(source) == lte / 'POPHYD':
+            raise OSError('simulated move failure')
+        return original(source, destination)
+    monkeypatch.setattr(lte_cleanup.os, 'replace', fail)
+    with pytest.raises(OSError, match='simulated'):
+        archive_lte_temporaries(lte, tmp_path / 'archive')
+    for name, target in targets.items():
+        assert (lte / name).is_symlink() and os.readlink(lte / name) == target
+    assert (lte / 'POPHYD').read_text() == 'population data'
+
+
+def test_lte_cleanup_rejects_retargeted_links_since_preview(tmp_path):
+    lte = tmp_path / 'lte'
+    lte.mkdir()
+    link = lte / 'HYD_L_DATA'
+    link.symlink_to('../original')
+    plan = inspect_lte_cleanup(lte)
+    link.unlink()
+    link.symlink_to('../different')
+    with pytest.raises(LteCleanupError, match='changed since review'):
+        archive_lte_temporaries(lte, tmp_path / 'archive', expected_entries=plan['entries'])
+    assert os.readlink(link) == '../different'
+    assert not (tmp_path / 'archive').exists()
+
+
+def test_promotion_cleanup_removes_lte_atomic_links(promotable_model, tmp_path):
+    target = tmp_path / 'atomic-data'
+    target.write_text('unchanged')
+    target.chmod(0o600)
+    link = promotable_model / 'lte/HYD_L_DATA'
+    link.symlink_to(target)
+    result = run_plan(build_promotion_plan(promotable_model))
+    assert result['status'] == 'succeeded', result
+    assert not link.is_symlink()
+    archive = Path(result['promotion']['lte_cleanup']['archive_path'])
+    assert (archive / 'HYD_L_DATA').is_symlink()
+    assert target.read_text() == 'unchanged' and target.stat().st_mode & 0o777 == 0o600
