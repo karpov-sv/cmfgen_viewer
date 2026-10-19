@@ -3,8 +3,13 @@
 from __future__ import annotations
 
 from pathlib import Path
+import hashlib
+import json
 
 from flask import abort, current_app, redirect, render_template, request
+from itsdangerous import BadSignature, URLSafeTimedSerializer
+
+from .model_full_cleanup import FullCleanupError, build_full_cleanup_plan, run_full_cleanup
 
 from .browser import is_model_directory, make_breadcrumb, resolve_path
 from .model_staging import (
@@ -202,16 +207,38 @@ def model_cleanup(source_path: str):
 
     error = ""
     result: dict[str, object] | None = None
+    values = request.form if request.method == "POST" else request.args
+    full_cleanup = values.get("full") == "1"
+    signer = URLSafeTimedSerializer(current_app.secret_key, salt="model-full-cleanup")
+
+    def current_plan():
+        if full_cleanup:
+            return {**build_full_cleanup_plan(source), "model_path": str(source)}
+        return plan_model_cleanup(basepath, model_relpath=source_path)
+
+    def signature(plan):
+        return hashlib.sha256(json.dumps(plan["entries"], sort_keys=True).encode()).hexdigest()
+
     try:
-        plan = plan_model_cleanup(basepath, model_relpath=source_path)
+        plan = current_plan()
         if request.method == "POST":
             if request.form.get("confirm_cleanup") != "1":
                 raise ModelStagingError("Confirm that the selected files may be permanently deleted.")
-            result = cleanup_model_directory(
-                basepath,
-                model_relpath=source_path,
-                selected_names=request.form.getlist("entries"),
-            )
+            if full_cleanup:
+                try:
+                    reviewed = signer.loads(request.form.get("review_token", ""), max_age=1800)
+                except BadSignature as exc:
+                    raise FullCleanupError("Full cleanup preview expired or is invalid; review the list again.") from exc
+                if reviewed.get("model") != str(source) or reviewed.get("signature") != signature(plan):
+                    raise FullCleanupError("Full cleanup targets changed or belong to another model; review the list again.")
+                result = run_full_cleanup(plan)
+                result["failed_count"] = len(result["failures"])
+            else:
+                result = cleanup_model_directory(
+                    basepath,
+                    model_relpath=source_path,
+                    selected_names=request.form.getlist("entries"),
+                )
             try:
                 if not (source / "VADAT").is_file() or not (source / "MOD_SUM").is_file():
                     delete_model_summary_entries(
@@ -239,15 +266,18 @@ def model_cleanup(source_path: str):
                 str(item.get("name", "")) for item in failures if isinstance(item, dict)
             )
             error = f"Some files could not be removed: {failed_names}."
-            plan = plan_model_cleanup(basepath, model_relpath=source_path)
-    except ModelStagingError as exc:
+            plan = current_plan()
+    except (ModelStagingError, FullCleanupError, OSError) as exc:
         error = str(exc)
-        plan = plan_model_cleanup(basepath, model_relpath=source_path)
+        plan = current_plan()
 
+    review_token = signer.dumps({"model": str(source), "signature": signature(plan)}) if full_cleanup and plan["ready"] else ""
     return render_template(
         "model_cleanup.html",
         source_path=source_path,
         plan=plan,
+        full_cleanup=full_cleanup,
+        review_token=review_token,
         result=result,
         error=error,
         breadcrumb=_model_action_breadcrumb(source_path, "Cleanup model"),

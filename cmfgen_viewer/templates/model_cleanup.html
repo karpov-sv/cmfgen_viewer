@@ -9,14 +9,27 @@
 
   <section class="mb-4">
     <h2 class="h4 mb-3">Cleanup Model</h2>
-    <p class="text-muted">
-      Remove completed-run workspace and diagnostic files from <code>{{ source_path }}</code>.
-      The policy follows the active commands in <code>cur_cmf/com/clean.sh</code>.
-    </p>
+    <p class="text-muted">Review files to remove from <code>{{ source_path }}</code>.</p>
+    <form method="get" class="border rounded p-2 mb-3">
+      <div class="form-check">
+        <input class="form-check-input" type="checkbox" name="full" value="1" id="full-cleanup" {% if full_cleanup %}checked{% endif %} onchange="this.form.submit()" aria-describedby="full-cleanup-help">
+        <label class="form-check-label" for="full-cleanup">Full cleanup — include recovery archives and run history</label>
+        <div class="form-text" id="full-cleanup-help">Also cleans temporary files in LTE and observer workspaces and removes this model's saved job records. Changing this option refreshes the preview; nothing is deleted.</div>
+      </div>
+      <noscript><button class="btn btn-sm btn-outline-secondary mt-2">Update preview</button></noscript>
+    </form>
     <div class="alert alert-warning py-2 small">
-      Cleanup is permanent. It only considers direct children of the model directory; subdirectories are not traversed.
-      All top-level symlinks are candidates. The commented-out <code>EDDFACTOR*</code> commands are not applied.
+      {% if full_cleanup %}
+        Full cleanup permanently removes all listed temporary files, recovery archives, editor checkpoints, and run/job history. No new recovery archive is created. Current model inputs, scientific results, and continuation checkpoints are retained under the usual cleanup policies. Symbolic-link targets are never followed.
+      {% else %}
+        Cleanup is permanent. It only considers direct children of the model directory; subdirectories are not traversed.
+        All top-level symlinks are candidates. The commented-out <code>EDDFACTOR*</code> commands are not applied.
+      {% endif %}
     </div>
+    {% if full_cleanup %}
+      {% for issue in plan.errors %}<div class="alert alert-danger py-2 small">{{ issue }}</div>{% endfor %}
+      {% for warning in plan.warnings[1:] %}<div class="alert alert-warning py-2 small">{{ warning }}</div>{% endfor %}
+    {% endif %}
 
     {% if error %}<div class="alert alert-danger py-2">{{ error }}</div>{% endif %}
     {% if result and result.removed_count %}
@@ -33,18 +46,22 @@
         </dl>
 
         {% if plan.entries %}
-          <form method="post" onsubmit="return window.confirm('Permanently delete the selected model files?');">
-            <div class="table-responsive mb-3">
+          <form method="post" onsubmit="return window.confirm('{{ "Permanently delete all listed files, recovery archives, and run history?" if full_cleanup else "Permanently delete the selected model files?" }}');">
+            {% if full_cleanup %}
+              <input type="hidden" name="full" value="1">
+              <input type="hidden" name="review_token" value="{{ review_token }}">
+            {% endif %}
+            <div class="table-responsive mb-3" style="max-height: 28rem">
               <table class="table table-sm table-striped align-middle mb-0">
                 <thead>
-                  <tr><th>Remove</th><th>Name</th><th>Type</th><th>Reason</th><th class="text-end">Size</th></tr>
+                  <tr>{% if not full_cleanup %}<th>Remove</th>{% endif %}<th>Name</th><th>Type</th><th>Reason</th><th class="text-end">Size</th></tr>
                 </thead>
                 <tbody>
                   {% for item in plan.entries %}
                     <tr>
-                      <td><input class="form-check-input" type="checkbox" name="entries" value="{{ item.name }}" checked></td>
+                      {% if not full_cleanup %}<td><input class="form-check-input" type="checkbox" name="entries" value="{{ item.name }}" checked></td>{% endif %}
                       <td>
-                        <code>{{ item.name }}</code>
+                        <code class="text-break">{{ item.name }}</code>
                         {% if item.target %}<div class="small text-muted">→ <code>{{ item.target }}</code></div>{% endif %}
                       </td>
                       <td>{{ item.kind }}</td>
@@ -59,10 +76,10 @@
             <div class="form-check mb-3">
               <input class="form-check-input" type="checkbox" name="confirm_cleanup" value="1" id="confirm-cleanup" required>
               <label class="form-check-label" for="confirm-cleanup">
-                I understand that the selected files and symlinks will be permanently deleted.
+                I understand that {{ "all listed items, including recovery archives and run history," if full_cleanup else "the selected files and symlinks" }} will be permanently deleted.
               </label>
             </div>
-            <button class="btn btn-danger" type="submit">Delete Selected Items</button>
+            <button class="btn btn-danger" type="submit" {% if full_cleanup and not plan.ready %}disabled{% endif %}>{{ "Delete All Listed Items" if full_cleanup else "Delete Selected Items" }}</button>
           </form>
         {% else %}
           <div class="alert alert-success mb-0">No cleanup candidates were found. This model is already clean.</div>

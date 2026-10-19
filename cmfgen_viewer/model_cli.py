@@ -15,6 +15,7 @@ from .model_quick_editor import (QUICK_PARAMETER_FILES, load_quick_model_paramet
 from .model_staging import ModelStagingError, plan_model_from_solution, create_model_from_solution
 from .model_workflow import ModelWorkflowError, cleanup_lte_workspace
 from .lte_cleanup import inspect_lte_cleanup
+from .model_full_cleanup import build_full_cleanup_plan, run_full_cleanup
 from .runner import run_plan
 from .runner_cleanup import build_cleanup_plan
 from .runner_config import resolve_recovery_policy, resolve_viewer_defaults
@@ -113,6 +114,16 @@ def _copy(args):
 
 def _cleanup(args):
     model = _model(args.model)
+    if args.full:
+        if args.lte or args.file or args.keep_large_files is not None:
+            raise ModelStagingError('--full cannot be combined with --lte, --file, or recovery-retention flags.')
+        plan = build_full_cleanup_plan(model)
+        if args.plan or not plan['ready']:
+            return plan, 0 if plan['ready'] else 2
+        if not plan['entry_count']:
+            return {**plan, 'status': 'unchanged'}, 0
+        result = _execute(run_full_cleanup, plan)
+        return {**plan, 'status': result['status'], 'result': result}, 1 if result['failures'] else 0
     keep = resolve_recovery_policy(args.keep_large_files)
     if args.lte:
         if args.file:
@@ -211,7 +222,7 @@ def _text(report):
             print('Checkpoint: ' + report['backup'])
     elif command == 'cleanup':
         print(f"Cleanup: {report['model']} ({report['workspace']})")
-        print('Recovery: ' + ('full-size files and logs' if report['keep_large_files'] else 'compact; omit artifacts above 2 MiB and retain log excerpts'))
+        print('Recovery: ' + ('none; permanently delete temporary files, recovery data, and history' if report.get('full') else 'full-size files and logs' if report['keep_large_files'] else 'compact; omit artifacts above 2 MiB and retain log excerpts'))
         for entry in report['entries']:
             print(f"  {entry['name']} ({entry['human_size']}) — {entry['reason']}")
         print(f"{report['entry_count']} candidates, {report['human_size']}")
@@ -224,6 +235,7 @@ def _text(report):
     if command == 'cleanup':
         recovery = result.get('recovery', result.get('cleanup', {}).get('recovery', {}))
         problems.extend(recovery.get('warnings', []))
+        problems.extend(f"{failure['name']}: {failure['error']}" for failure in result.get('failures', []))
         for step in result.get('passes', []):
             problems.extend(step.get('problems', []))
     for warning in dict.fromkeys([*report.get('warnings', []), *problems]):
@@ -250,6 +262,7 @@ def build_parser():
     copy.add_argument('--template-root', type=Path, help='Override the shared cmfgenrc template_root')
     cleanup = commands.add_parser('cleanup', help='Clean known temporary files, preserving scientific products and checkpoints')
     cleanup.add_argument('model', type=Path)
+    cleanup.add_argument('--full', action='store_true', help="Permanently remove temporary files in all workspaces, recovery archives, and this model's run/job history; no new recovery archive")
     cleanup.add_argument('--lte', action='store_true', help='Clean the LTE workspace instead of the main folder')
     cleanup.add_argument('--file', action='append', metavar='NAME', help='Select a main-folder candidate; repeat to select more')
     cleanup.add_argument('--keep-large-files', action=argparse.BooleanOptionalAction, default=None,

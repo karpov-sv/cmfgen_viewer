@@ -142,6 +142,9 @@ python3 cmfgen_model.py copy /path/to/model /path/to/new_model --plan
 python3 cmfgen_model.py cleanup /path/to/model --plan
 python3 cmfgen_model.py cleanup /path/to/model --lte --plan
 
+# Review permanent cleanup including recovery archives and run/job history
+python3 cmfgen_model.py cleanup /path/to/model --full --plan
+
 # Review a luminosity change with radius and mass scaled to preserve Teff and log g
 python3 cmfgen_model.py set /path/to/model LSTAR=4e5 --keep-teff-logg --plan
 
