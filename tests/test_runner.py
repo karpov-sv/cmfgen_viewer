@@ -126,7 +126,7 @@ def test_main_progress_reports_current_run_count_and_requested_total(tmp_path):
 
     assert _progress("main", tmp_path) == {
         "phase": "iterations",
-        "current": 2,
+        "current": 1,
         "total": 3,
     }
 
@@ -868,3 +868,25 @@ def test_native_products_and_journals_readable_under_restrictive_umask(workspace
             assert path.stat().st_mode & 0o555 == 0o555
         elif path.is_file() and not path.is_symlink():
             assert path.stat().st_mode & 0o444 == 0o444
+
+
+@pytest.mark.parametrize(("started", "finished", "completed"), [
+    (1, False, 0), (1, True, 1), (2, False, 1), (5, False, 4), (5, True, 5),
+])
+def test_cli_and_workflow_count_completed_main_iterations(tmp_path, started, finished, completed):
+    from cmfgen_viewer.model_runtime import _main_progress
+
+    (tmp_path / "IN_ITS").write_text("5 [NUM_ITS]\n")
+    text = ("Model started on: 01-Jan-2026 10:00:00\n"
+            "Current great iteration count is 40\n"
+            "Maximm changes as returned by SOLVEBA_V13 is 1.0\n"
+            "Model started on: 02-Jan-2026 10:00:00\n")
+    text += "".join(f"Current great iteration count is {100 + i*2}\n" for i in range(started))
+    if finished:
+        text += "Maximm changes as returned by SOLVEBA_V13 is 0.2\n"
+    (tmp_path / "OUTGEN").write_text(text)
+    cli = _progress("main", tmp_path)
+    ui = _main_progress(tmp_path)
+    assert cli == {"phase": "iterations", "current": completed, "total": 5}
+    assert ui["completed"] == completed
+    assert ui["percent"] == completed * 20.0

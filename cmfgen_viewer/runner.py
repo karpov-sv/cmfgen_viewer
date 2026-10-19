@@ -187,7 +187,10 @@ def _progress(stage, cwd):
         if total and counter:
             return {"phase": "frequencies", "current": int(counter[-1]), "total": int(total[-1])}
     elif stage == "main":
-        counters = re.findall(r"Current great iteration count is\s+(\d+)", text)
+        from .model_runtime import _completed_main_iterations, _read_from_latest_marker
+
+        text, _ = _read_from_latest_marker(cwd / "OUTGEN", b"Model started on:")
+        counters = list(re.finditer(r"Current great iteration count is\s+(\d+)", text))
         if counters:
             requested = re.findall(
                 r"^\s*(\d+)\s+\[NUM_ITS\]",
@@ -197,10 +200,10 @@ def _progress(stage, cwd):
             if requested and int(requested[-1]) > 0:
                 return {
                     "phase": "iterations",
-                    "current": len(counters),
+                    "current": _completed_main_iterations(len(counters), text[counters[-1].end():]),
                     "total": int(requested[-1]),
                 }
-            return {"phase": "iteration", "current": int(counters[-1])}
+            return {"phase": "iteration", "current": int(counters[-1].group(1))}
     elif stage == "hydro":
         text = _tail(cwd / "RVSIG_COL_NEW", 512*1024)
         expected = re.search(r"^\s*(\d+)\s*!\s*Number of depth points", text, re.M | re.I)

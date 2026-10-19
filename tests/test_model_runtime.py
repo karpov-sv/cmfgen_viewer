@@ -121,7 +121,7 @@ def test_main_progress_reads_iterations_and_convergence_metrics(tmp_path: Path) 
     assert progress is not None
     assert progress["current"] == 12
     assert progress["maximum"] == 20
-    assert progress["percent"] == 60.0
+    assert progress["percent"] == 55.0
     metrics = {item["label"]: item["value"] for item in progress["metrics"]}
     assert metrics["Luminosity difference"] == "+0.5%"
     assert metrics["Latest maximum change"] == "0.425"
@@ -148,7 +148,7 @@ def test_main_progress_counts_only_iterations_in_latest_appended_run(tmp_path: P
     assert progress is not None
     assert progress["current"] == 1
     assert progress["maximum"] == 30
-    assert progress["percent"] == pytest.approx(3.3)
+    assert progress["percent"] == 0.0
     assert progress["detail"] == "Run iteration 1 of 30 requested"
     metrics = {item["label"]: item["value"] for item in progress["metrics"]}
     assert metrics["Current run iteration"] == "1"
@@ -176,7 +176,7 @@ def test_main_run_progress_counts_markers_instead_of_skipped_global_numbers(
 
     assert progress is not None
     assert progress["current"] == 3
-    assert progress["percent"] == 100.0
+    assert progress["percent"] == pytest.approx(66.7)
     metrics = {item["label"]: item["value"] for item in progress["metrics"]}
     assert metrics["Global great iteration"] == "4"
 
@@ -774,3 +774,26 @@ def test_main_diagnostic_rejects_results_from_before_latest_batch_start(
 
     assert diagnostic["status"] == "incomplete"
     assert {detail["path"] for detail in diagnostic["details"]} == {"MOD_SUM", "RVTJ"}
+
+
+@pytest.mark.parametrize(("started", "solver_finished", "expected"), [
+    (1, False, 0.0), (1, True, 20.0), (2, False, 20.0),
+    (5, False, 80.0), (5, True, 100.0),
+])
+def test_main_progress_counts_completed_steps(tmp_path, started, solver_finished, expected):
+    model = tmp_path / "model"
+    model.mkdir()
+    (model / "IN_ITS").write_text("5 [NUM_ITS]\n")
+    # Ignore completion evidence from an earlier appended run.
+    output = ("Model started on: 01-Jan-2026 10:00:00\n"
+              "Current great iteration count is 12\n"
+              "Maximm changes as returned by SOLVEBA_V13 is 0.2\n"
+              "Model started on: 02-Jan-2026 10:00:00\n")
+    output += "".join(f"Current great iteration count is {20 + 2*i}\n" for i in range(started))
+    if solver_finished:
+        output += "Maximm changes as returned by SOLVEBA_V13 is 0.2\n"
+    (model / "OUTGEN").write_text(output)
+    progress = inspect_workflow_runtime(model, "main", proc_root=_empty_proc(tmp_path))["progress"]
+    assert progress["percent"] == expected
+    assert progress["completed"] == started - 1 + int(solver_finished)
+    assert progress["current"] == started

@@ -233,26 +233,38 @@ def _control_integer(path: Path, key: str) -> int | None:
     return int(match.group(1)) if match else None
 
 
+def _completed_main_iterations(started: int, latest_iteration_output: str) -> int:
+    """Count prior steps plus the latest step once its solver has returned."""
+    last_completed = bool(re.search(r"Maximm changes .*? is\s+\S+", latest_iteration_output))
+    return max(0, started - 1) + int(last_completed)
+
+
 def _main_progress(target_dir: Path) -> dict[str, object] | None:
     output, run_boundary_found = _read_from_latest_marker(
         target_dir / "OUTGEN",
         b"Model started on:",
     )
-    iterations = re.findall(r"Current great iteration count is\s+(\d+)", output)
+    iterations = list(re.finditer(r"Current great iteration count is\s+(\d+)", output))
     if not iterations:
-        iterations = re.findall(r"\(iteration\s+(\d+)\)", output, flags=re.IGNORECASE)
+        iterations = list(re.finditer(r"\(iteration\s+(\d+)\)", output, flags=re.IGNORECASE))
     if not iterations:
         return None
-    global_iteration = int(iterations[-1])
+    global_iteration = int(iterations[-1].group(1))
     current = len(iterations) if run_boundary_found else global_iteration
     requested = _control_integer(target_dir / "IN_ITS", "NUM_ITS")
-    percent = min(100.0, 100.0 * current / requested) if requested and requested > 0 else None
+    # A great-iteration marker announces the start, not completion. Starting the
+    # next iteration confirms the previous one; the solver return marks the last
+    # recorded step complete even before another iteration starts.
+    last_iteration_output = output[iterations[-1].end():]
+    completed = _completed_main_iterations(current, last_iteration_output)
+    percent = min(100.0, 100.0 * completed / requested) if requested and requested > 0 else None
     metrics: list[dict[str, str]] = [
         {
             "label": "Current run iteration" if run_boundary_found else "Current iteration",
             "value": str(current),
         }
     ]
+    metrics.append({"label": "Completed iterations", "value": str(completed)})
     if run_boundary_found:
         metrics.append({"label": "Global great iteration", "value": str(global_iteration)})
     if requested is not None:
@@ -274,6 +286,7 @@ def _main_progress(target_dir: Path) -> dict[str, object] | None:
     return {
         "label": "CMFGEN iterations",
         "current": current,
+        "completed": completed,
         "maximum": requested,
         "percent": round(percent, 1) if percent is not None else None,
         "detail": (
