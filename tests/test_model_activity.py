@@ -1,4 +1,6 @@
 from pathlib import Path
+import errno
+import os
 import subprocess
 import sys
 
@@ -50,6 +52,67 @@ def test_unreadable_matching_process_is_unknown(tmp_path, monkeypatch):
     proc = _proc(tmp_path, tmp_path)
     monkeypatch.setattr(activity.os, "readlink", lambda _: (_ for _ in ()).throw(PermissionError()))
     assert activity.inspect_model_activity(tmp_path, proc_root=proc)["state"] == "unknown"
+
+
+@pytest.mark.parametrize('workspace', ['', 'obs'])
+def test_runner_reservation_is_active_until_released(tmp_path, workspace):
+    (tmp_path / 'VADAT').touch()
+    (tmp_path / 'MODEL_SPEC').touch()
+    workspace_path = tmp_path / workspace
+    workspace_path.mkdir(exist_ok=True)
+    proc = _proc(tmp_path, tmp_path, name='unrelated.exe')
+    lock = tmp_path / activity.RUN_LOCK_NAME
+    lock.write_text('reservation')
+    script = "import fcntl,sys; f=open(sys.argv[1], 'r+'); fcntl.flock(f, fcntl.LOCK_EX); print('ready', flush=True); sys.stdin.read()"
+    process = subprocess.Popen([sys.executable, '-c', script, str(lock)],
+                               stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+    try:
+        assert process.stdout.readline().strip() == 'ready'
+        # Inspection must work without write access to the reservation file.
+        lock.chmod(0o444)
+        state = activity.inspect_model_activity(workspace_path, proc_root=proc)
+        assert state['state'] == 'active'
+        assert not state['safe_to_modify']
+        assert not state['uncertainties']
+    finally:
+        process.communicate(timeout=5)
+    state = activity.inspect_model_activity(workspace_path, proc_root=proc)
+    assert state['state'] == 'idle'
+    assert state['safe_to_modify']
+    assert not state['uncertainties']
+    assert lock.read_text() == 'reservation'
+    assert lock.stat().st_mode & 0o777 == 0o444
+
+
+def test_read_only_reservation_probe_supports_nfs(tmp_path, monkeypatch):
+    proc = _proc(tmp_path, tmp_path, name='unrelated.exe')
+    lock = tmp_path / activity.RUN_LOCK_NAME
+    lock.touch(mode=0o444)
+    original = activity.fcntl.flock
+
+    def nfs_flock(descriptor, flags):
+        access = activity.fcntl.fcntl(descriptor, activity.fcntl.F_GETFL) & os.O_ACCMODE
+        if flags & activity.fcntl.LOCK_EX and access == os.O_RDONLY:
+            raise OSError(errno.EBADF, 'Exclusive NFS locks require a writable descriptor')
+        return original(descriptor, flags)
+
+    monkeypatch.setattr(activity.fcntl, 'flock', nfs_flock)
+    state = activity.inspect_model_activity(tmp_path, proc_root=proc)
+    assert state['state'] == 'idle'
+    assert state['safe_to_modify']
+
+
+def test_reservation_probe_errors_remain_unknown(tmp_path, monkeypatch):
+    (tmp_path / activity.RUN_LOCK_NAME).touch()
+
+    def unavailable(*args):
+        raise OSError(errno.EIO, 'Lock service unavailable')
+
+    monkeypatch.setattr(activity.fcntl, 'flock', unavailable)
+    state = activity.inspect_model_activity(tmp_path)
+    assert state['state'] == 'unknown'
+    assert not state['safe_to_modify']
+    assert 'Lock service unavailable' in state['reason']
 
 
 def test_guard_rechecks_after_lock_and_retains_inode(tmp_path, monkeypatch):

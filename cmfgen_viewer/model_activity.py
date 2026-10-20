@@ -41,7 +41,10 @@ def inspect_model_activity(model_dir: Path, *, proc_root: Path | None = None) ->
             info = os.fstat(descriptor)
             if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
                 raise OSError("Unsafe runner reservation lock")
-            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            # A shared probe detects the runner's exclusive reservation while
+            # keeping inspection read-only. Exclusive locks need a writable
+            # descriptor on NFS, even when the file is otherwise readable.
+            fcntl.flock(descriptor, fcntl.LOCK_SH | fcntl.LOCK_NB)
         except BlockingIOError:
             return {"state": "active", "safe_to_modify": False,
                     "reason": "A detached runner job owns this model; wait for the sequence to finish.",

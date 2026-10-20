@@ -426,7 +426,8 @@ def test_lock_remains_held_in_executable(workspace):
     _, make_plan = workspace
     code = """
 import fcntl
-f=open('.cmfgen-viewer-write.lock','r')
+# An exclusive-lock probe needs a writable descriptor on NFS.
+f=open('.cmfgen-viewer-write.lock','r+')
 try:
     fcntl.flock(f, fcntl.LOCK_EX|fcntl.LOCK_NB)
 except BlockingIOError:
