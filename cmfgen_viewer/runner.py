@@ -1113,7 +1113,7 @@ def main(argv=None):
     parser.add_argument(
         "--cleanup-file",
         action="append",
-        help="Restrict cleanup to this current candidate (repeatable; default: all)",
+        help="Restrict cleanup by model-relative candidate path, e.g. lte/POPHYD (repeatable; default: all workspaces)",
     )
     parser.add_argument("--json", action="store_true", help="Emit the full JSON status/plan/result on stdout (default: readable terminal summary)")
     parser.add_argument("--verbose", action="store_true", help="Show all reported warnings and captured diagnostic tails")

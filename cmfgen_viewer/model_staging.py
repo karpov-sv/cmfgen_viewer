@@ -471,7 +471,28 @@ def _build_cleanup_plan(model_relpath: str, model_dir: Path) -> dict[str, object
 
 def plan_model_cleanup(basepath: str, *, model_relpath: str) -> dict[str, object]:
     normalized, model_dir = _cleanup_model_source(basepath, model_relpath)
-    return _build_cleanup_plan(normalized, model_dir)
+    return _build_model_cleanup_plan(normalized, model_dir)
+
+
+def _build_model_cleanup_plan(model_relpath: str, model_dir: Path) -> dict[str, object]:
+    # Imported here because the LTE policy shares the main cleanup constants.
+    from .lte_cleanup import inspect_lte_cleanup
+
+    plan = _build_cleanup_plan(model_relpath, model_dir)
+    entries = plan["entries"]
+    for workspace in ("lte", "obs"):
+        folder = model_dir / workspace
+        if folder.is_symlink() or not folder.is_dir():
+            continue
+        cleanup = (inspect_lte_cleanup(folder) if workspace == "lte"
+                   else _build_cleanup_plan(workspace, folder))
+        for item in cleanup["entries"]:
+            entries.append({**item, "name": f"{workspace}/{item['name']}",
+                            "path": str(folder / item["name"])})
+    entries.sort(key=lambda item: str(item["name"]).lower())
+    total_size = sum(int(item["size"]) for item in entries)
+    return {**plan, "entries": entries, "entry_count": len(entries),
+            "total_size": total_size, "human_size": _human_size(total_size)}
 
 
 def cleanup_model_directory(
@@ -487,7 +508,10 @@ def cleanup_model_directory(
     for raw_name in selected_names:
         name = str(raw_name)
         name_path = Path(name)
-        if not name or name in {".", ".."} or len(name_path.parts) != 1 or name_path.name != name:
+        if (not name or name_path.is_absolute() or ".." in name_path.parts
+                or name_path.as_posix() != name or name == "."
+                or not (len(name_path.parts) == 1 or (
+                    len(name_path.parts) == 2 and name_path.parts[0] in {"lte", "obs"}))):
             raise ModelStagingError("Cleanup selection contains an invalid file name.")
         if name not in seen:
             requested.append(name)
@@ -497,7 +521,7 @@ def cleanup_model_directory(
 
     with MODEL_WRITE_LOCK, model_mutation_guard(_cleanup_model_source(basepath, model_relpath)[1], ModelStagingError):
         normalized, model_dir = _cleanup_model_source(basepath, model_relpath)
-        plan = _build_cleanup_plan(normalized, model_dir)
+        plan = _build_model_cleanup_plan(normalized, model_dir)
         candidates = {str(item["name"]): item for item in plan["entries"] if isinstance(item, dict)}
         if expected_entries is not None:
             expected = {
@@ -537,12 +561,15 @@ def cleanup_model_directory(
                 continue
             try:
                 source = model_dir / name
+                if source.parent != model_dir and source.parent.is_symlink():
+                    raise ModelStagingError("Cleanup workspace changed into a symbolic link.")
                 if resolved_archive is None:
                     source.unlink()
                 else:
                     destination = resolved_archive / name
                     if destination.exists() or destination.is_symlink():
                         raise FileExistsError(f"Cleanup archive target already exists: {destination}")
+                    mkdir_readable(destination.parent, parents=True, exist_ok=True)
                     os.replace(source, destination)
                     make_readable(destination)
             except OSError as exc:

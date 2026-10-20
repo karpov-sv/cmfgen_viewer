@@ -128,7 +128,7 @@ def _cleanup(args):
     keep = resolve_recovery_policy(args.keep_large_files)
     if args.lte:
         if args.file:
-            raise ModelStagingError('--file is only available for main-folder cleanup; LTE cleanup uses its reviewed candidate policy.')
+            raise ModelStagingError('--file cannot be combined with --lte; use workspace-relative paths such as lte/POPHYD without --lte.')
         lte = model / 'lte'
         if lte.is_symlink() or not lte.is_dir():
             raise ModelWorkflowError('LTE workspace must be a real directory.')
@@ -145,7 +145,7 @@ def _cleanup(args):
     plan = build_cleanup_plan(model, selected_names=args.file)
     # Empty cleanup is an idempotent no-op, provided no other preflight failed.
     plan['errors'] = [error for error in plan['errors'] if error != 'No model cleanup candidates were found.']
-    plan.update(command='cleanup', workspace='model', keep_large_files=keep,
+    plan.update(command='cleanup', workspace='all', keep_large_files=keep,
                 ready=not plan['errors'])
     if args.plan or not plan['ready']:
         return plan, 0 if plan['ready'] else 2
@@ -278,11 +278,11 @@ def build_parser():
     copy.add_argument('source', type=Path)
     copy.add_argument('destination', type=Path)
     copy.add_argument('--template-root', type=Path, help='Override the shared cmfgenrc template_root')
-    cleanup = commands.add_parser('cleanup', help='Clean known temporary files, preserving scientific products and checkpoints')
+    cleanup = commands.add_parser('cleanup', help='Clean main, LTE, and observer workspaces, preserving scientific products and checkpoints')
     cleanup.add_argument('model', type=Path)
     cleanup.add_argument('--full', action='store_true', help="Permanently remove temporary files in all workspaces, recovery archives, script metadata and locks, and this model's run/job history; no new recovery archive")
-    cleanup.add_argument('--lte', action='store_true', help='Clean the LTE workspace instead of the main folder')
-    cleanup.add_argument('--file', action='append', metavar='NAME', help='Select a main-folder candidate; repeat to select more')
+    cleanup.add_argument('--lte', action='store_true', help='Restrict cleanup to the LTE workspace')
+    cleanup.add_argument('--file', action='append', metavar='NAME', help='Select a candidate by model-relative path, e.g. BAMAT, lte/POPHYD, obs/fort.63; repeatable')
     cleanup.add_argument('--keep-large-files', action=argparse.BooleanOptionalAction, default=None,
                          help='Keep recovery artifacts above 2 MiB and full logs (otherwise use cmfgenrc, default compact)')
     out2in = commands.add_parser('out2in', help='Refresh *_IN and GAMMAS_IN from outputs and retire binary checkpoints')

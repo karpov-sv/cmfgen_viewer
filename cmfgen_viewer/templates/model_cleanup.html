@@ -9,12 +9,12 @@
 
   <section class="mb-4">
     <h2 class="h4 mb-3">Cleanup Model</h2>
-    <p class="text-muted">Review files to remove from <code>{{ source_path }}</code>.</p>
+    <p class="text-muted">Review files to remove across the main, LTE, and observer workspaces of <code>{{ source_path }}</code>.</p>
     <form method="get" class="border rounded p-2 mb-3">
       <div class="form-check">
         <input class="form-check-input" type="checkbox" name="full" value="1" id="full-cleanup" {% if full_cleanup %}checked{% endif %} onchange="this.form.submit()" aria-describedby="full-cleanup-help">
         <label class="form-check-label" for="full-cleanup">Full cleanup — include recovery archives and run history</label>
-        <div class="form-text" id="full-cleanup-help">Also cleans temporary files in LTE and observer workspaces and removes this model's saved job records. Changing this option refreshes the preview; nothing is deleted.</div>
+        <div class="form-text" id="full-cleanup-help">Also removes this model's recovery archives, saved job records, metadata, locks, and script temporary workspaces. Changing this option refreshes the preview; nothing is deleted.</div>
       </div>
       <noscript><button class="btn btn-sm btn-outline-secondary mt-2">Update preview</button></noscript>
     </form>
@@ -22,8 +22,8 @@
       {% if full_cleanup %}
         Full cleanup permanently removes all listed temporary files, recovery archives, editor checkpoints, run/job history, script temporary workspaces, status markers, and lock files. No new recovery archive is created. Current model inputs, scientific results, and continuation checkpoints are retained under the usual cleanup policies. Symbolic-link targets are never followed.
       {% else %}
-        Cleanup is permanent. It only considers direct children of the model directory; subdirectories are not traversed.
-        All top-level symlinks are candidates. The commented-out <code>EDDFACTOR*</code> commands are not applied.
+        Cleanup is permanent. It considers known temporary files and symbolic links in the main, LTE, and observer workspaces.
+        Other subdirectories and symbolic-link targets are not traversed. Recovery archives and history are retained. The commented-out <code>EDDFACTOR*</code> commands are not applied.
       {% endif %}
     </div>
     {% if full_cleanup %}

@@ -351,7 +351,7 @@ def test_rename_model_directory_falls_back_to_cross_filesystem_move(tmp_path: Pa
     assert (tmp_path / "model_b" / "MODEL_SPEC").is_file()
 
 
-def test_model_cleanup_plans_and_removes_only_canonical_top_level_candidates(tmp_path: Path) -> None:
+def test_model_cleanup_plans_canonical_candidates_across_workspaces(tmp_path: Path) -> None:
     source = tmp_path / "model_a"
     _write_solution(source)
     for name in ("BAION", "BAMAT", "BA_ASCI_N_D7", "RUN_SCRATCH_1", "fort.63", "EDDFACTOR"):
@@ -369,6 +369,7 @@ def test_model_cleanup_plans_and_removes_only_canonical_top_level_candidates(tmp
     assert "EDDFACTOR" not in names
     assert "SCRTEMP" not in names
     assert "obs" not in names
+    assert "obs/BAMAT" in names
 
     result = cleanup_model_directory(
         str(tmp_path),
@@ -381,7 +382,7 @@ def test_model_cleanup_plans_and_removes_only_canonical_top_level_candidates(tmp
     assert all(not (source / name).exists() for name in names)
     assert (source / "EDDFACTOR").is_file()
     assert (source / "SCRTEMP").is_file()
-    assert (nested / "BAMAT").is_file()
+    assert not (nested / "BAMAT").exists()
     assert (source / "MODEL_SPEC").is_file()
     assert link_target.is_file()
 
@@ -395,7 +396,7 @@ def test_model_cleanup_requires_a_valid_explicit_selection(tmp_path: Path) -> No
         cleanup_model_directory(
             str(tmp_path),
             model_relpath="model_a",
-            selected_names=["obs/BAMAT"],
+            selected_names=["obs/nested/BAMAT"],
         )
 
 
