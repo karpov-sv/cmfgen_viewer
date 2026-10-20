@@ -91,7 +91,8 @@ class TemporaryControl:
         original = control_occurrences((self.original or b'').decode('utf-8'))
         conflicts, values = [], {}
         for key in sorted(self.owned):
-            if len(rows.get(key, [])) != 1 or _value(rows, key) != _value(expected, key):
+            # A temporarily removed control is unchanged while it stays absent.
+            if len(rows.get(key, [])) > 1 or _value(rows, key) != _value(expected, key):
                 conflicts.append(f'{self.path.name}: [{key}] changed during execution; preserving external edit')
             else:
                 values[key] = _value(original, key)

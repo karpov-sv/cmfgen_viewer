@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 
+from cmfgen_viewer.control_files import control_occurrences
 from cmfgen_viewer.runner import _write_control, run_plan
 from cmfgen_viewer.runner_controls import TemporaryControl
 from cmfgen_viewer.runner_recipe import RunnerError
@@ -96,7 +97,7 @@ def test_runner_stops_before_next_pass_on_conflict(workspace):
     assert (model / 'IN_ITS').read_text() == '9 [NUM_ITS]\n'
 
 
-@pytest.mark.parametrize('edit', ['unrelated', 'owned', 'template'])
+@pytest.mark.parametrize('edit', ['none', 'unrelated', 'owned', 'template', 'failure'])
 def test_flux_patches_active_controls_between_passes(workspace, edit):
     import sys
     from cmfgen_viewer.runner_recipe import build_run_plan
@@ -108,26 +109,35 @@ def test_flux_patches_active_controls_between_passes(workspace, edit):
     obs.mkdir()
     template = ''.join(f'1 [{key}]\n' for key in (
         'VTURB_FIX', 'VTURB_MIN', 'VTURB_MAX', 'NUM_ES', 'DO_SOB_LINES', 'GLOBAL_LINE'))
+    template = template.replace('1 [GLOBAL_LINE]', 'BLANK [GLOBAL_LINE]')
+    template = template.replace('1 [DO_SOB_LINES]', 'T [DO_SOB_LINES]')
+    template = template.replace('1 [NUM_ES]', '3 [NUM_ES]')
     (obs / 'CMF_FLUX_PARAM_INIT').write_text(template + '1 [CUSTOM]\n! template\n')
-    active = template + '7 [CUSTOM]\n! active\n'
+    # The previous continuum pass left a different active configuration.
+    active = template.replace('BLANK [GLOBAL_LINE]', 'SOB [GLOBAL_LINE]')
+    active = active.replace('T [DO_SOB_LINES]', 'F [DO_SOB_LINES]')
+    active = active.replace('3 [NUM_ES]', '1 [NUM_ES]')
+    active += '7 [CUSTOM]\n9 [ACTIVE_ONLY]\n! active\n'
     (obs / 'CMF_FLUX_PARAM').write_text(active)
+    original_mtime = (obs / 'CMF_FLUX_PARAM').stat().st_mtime_ns
     (obs / 'IN_FILE').write_text('../RVTJ [RVTJ]\n1 [MASS]\nF [ONLY_OBS_LINES]\n')
     for name in ('batobs.sh', 'bat_ins.sh'):
         (obs / name).write_text('# reviewed test script\n')
     (model / 'RVTJ').write_text(RVTJ_CORE)
     (model / 'MODEL').write_text('input')
     exe = model.parent / 'cmf/exe/cmf_flux.exe'
-    exe.write_text(f'#!{sys.executable}\n' + """
+    code = "raise SystemExit(9)" if edit == 'failure' else """
 from pathlib import Path
 Path('OUT_FLUX').write_text('CMF_FLUX has finished')
 Path('OBSFRAME').write_text('Continuum Frequencies (2)\\n1 2\\nObserved intensity (Janskys)\\n3 4\\n')
-""")
+"""
+    exe.write_text(f'#!{sys.executable}\n' + code)
     exe.chmod(0o755)
     plan = build_run_plan(model, stage='flux', cmfgen_root=model.parent / 'cmf',
                           atomic_root=model.parent / 'atomic')
     assert plan['ready'], plan['errors']
     def change(event):
-        if event['event'] == 'stage_finished' and event['stage'] == 'flux-15':
+        if edit not in {'none', 'failure'} and event['event'] == 'stage_finished' and event['stage'] == 'flux-15':
             path = obs / ('CMF_FLUX_PARAM_INIT' if edit == 'template' else 'CMF_FLUX_PARAM')
             text = path.read_text()
             if edit == 'owned':
@@ -136,12 +146,30 @@ Path('OBSFRAME').write_text('Continuum Frequencies (2)\\n1 2\\nObserved intensit
                 text += '8 [MANUAL]\n'
             path.write_text(text)
     result = run_plan(plan, change)
-    if edit == 'unrelated':
+    for record in result['passes']:
+        effective = Path(result['journal']) / record['id'] / 'CMF_FLUX_PARAM'
+        rows = control_occurrences(effective.read_text())
+        continuum = record['id'] == 'continuum'
+        assert rows['GLOBAL_LINE'][0]['value'] == ('SOB' if continuum else 'BLANK')
+        assert rows['DO_SOB_LINES'][0]['value'] == ('F' if continuum else 'T')
+        assert rows['NUM_ES'][0]['value'] == ('1' if continuum else '3')
+        assert rows['CUSTOM'][0]['value'] == '1'
+        assert 'ACTIVE_ONLY' not in rows
+    if edit in {'none', 'failure'}:
+        assert result['status'] == ('failed' if edit == 'failure' else 'succeeded'), result
+        assert len(result['passes']) == (1 if edit == 'failure' else 4)
+        assert (obs / 'CMF_FLUX_PARAM').read_text() == active
+        assert (obs / 'CMF_FLUX_PARAM').stat().st_mtime_ns == original_mtime
+    elif edit == 'unrelated':
         assert result['status'] == 'succeeded', result
-        assert (obs / 'CMF_FLUX_PARAM').read_text() == active + '8 [MANUAL]\n'
+        restored = (obs / 'CMF_FLUX_PARAM').read_text()
+        expected_rows = control_occurrences(active + '8 [MANUAL]\n')
+        assert {key: rows[0]['value'] for key, rows in control_occurrences(restored).items()} == {
+            key: rows[0]['value'] for key, rows in expected_rows.items()}
+        assert '! active' in restored
         effective = Path(result['journal']) / 'continuum/CMF_FLUX_PARAM'
         assert '1 [VTURB_FIX]' in effective.read_text()  # previous pass reset
-        assert '7 [CUSTOM]' in effective.read_text() and '8 [MANUAL]' in effective.read_text()
+        assert '1 [CUSTOM]' in effective.read_text() and '8 [MANUAL]' in effective.read_text()
     else:
         assert result['status'] == 'runner_error', result
         assert len(result['passes']) == 1

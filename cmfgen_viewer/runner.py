@@ -535,9 +535,17 @@ def run_plan(plan: dict, emit=None) -> dict:
                         if (cwd / "CMF_FLUX_PARAM_INIT").read_bytes() != flux_template:
                             raise RunnerError("CMF_FLUX_PARAM_INIT changed during execution; rebuild the plan")
                         template_rows = control_occurrences(flux_template.decode())
-                        if control.effective is not None:
+                        if step_number == 1:
+                            # Use the reviewed template even when an old active
+                            # file remains from a continuum calculation. Track
+                            # every change so the original can be restored.
+                            original_rows = control_occurrences((control.original or b'').decode())
+                            values = ({key: None for key in original_rows.keys() - template_rows.keys()}
+                                      | {key: rows[0]['value'] for key, rows in template_rows.items()}
+                                      | values)
+                        elif control.effective is not None:
                             # Reset the preceding pass's overrides without copying the template.
-                            values = {key: template_rows[key][0]["value"]
+                            values = {key: template_rows[key][0]["value"] if key in template_rows else None
                                       for key in control.owned - values.keys()} | values
                     else:
                         original_rows = control_occurrences(control.original.decode())
