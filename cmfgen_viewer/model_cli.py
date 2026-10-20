@@ -19,7 +19,7 @@ from .model_full_cleanup import build_full_cleanup_plan, run_full_cleanup
 from .model_reseed import build_reseed_plan, run_reseed_plan
 from .runner import run_plan
 from .runner_cleanup import build_cleanup_plan
-from .runner_config import resolve_recovery_policy, resolve_viewer_defaults
+from .runner_config import resolve_viewer_defaults
 
 
 class MaintenanceExecutionError(RuntimeError):
@@ -116,8 +116,8 @@ def _copy(args):
 def _cleanup(args):
     model = _model(args.model)
     if args.full:
-        if args.lte or args.file or args.keep_large_files is not None:
-            raise ModelStagingError('--full cannot be combined with --lte, --file, or recovery-retention flags.')
+        if args.lte or args.file:
+            raise ModelStagingError('--full cannot be combined with --lte or --file.')
         plan = build_full_cleanup_plan(model)
         if args.plan or not plan['ready']:
             return plan, 0 if plan['ready'] else 2
@@ -125,7 +125,6 @@ def _cleanup(args):
             return {**plan, 'status': 'unchanged'}, 0
         result = _execute(run_full_cleanup, plan)
         return {**plan, 'status': result['status'], 'result': result}, 1 if result['failures'] else 0
-    keep = resolve_recovery_policy(args.keep_large_files)
     if args.lte:
         if args.file:
             raise ModelStagingError('--file cannot be combined with --lte; use workspace-relative paths such as lte/POPHYD without --lte.')
@@ -134,18 +133,18 @@ def _cleanup(args):
             raise ModelWorkflowError('LTE workspace must be a real directory.')
         cleanup = inspect_lte_cleanup(lte)
         plan = _activity({**cleanup, 'command': 'cleanup', 'model': str(model),
-            'workspace': 'lte', 'keep_large_files': keep, 'warnings': []}, model)
+            'workspace': 'lte', 'warnings': []}, model)
         if args.plan or not plan['ready']:
             return plan, 0 if plan['ready'] else 2
         if not plan['entry_count']:
             return {**plan, 'status': 'unchanged'}, 0
         result = _execute(cleanup_lte_workspace, str(model.parent), model_relpath=model.name,
-            keep_large_files=keep, expected_entries=cleanup['entries'])
+             expected_entries=cleanup['entries'])
         return {**plan, 'status': 'succeeded', 'result': result}, 0
     plan = build_cleanup_plan(model, selected_names=args.file)
     # Empty cleanup is an idempotent no-op, provided no other preflight failed.
     plan['errors'] = [error for error in plan['errors'] if error != 'No model cleanup candidates were found.']
-    plan.update(command='cleanup', workspace='all', keep_large_files=keep,
+    plan.update(command='cleanup', workspace='all',
                 ready=not plan['errors'])
     if args.plan or not plan['ready']:
         return plan, 0 if plan['ready'] else 2
@@ -157,7 +156,7 @@ def _cleanup(args):
 
 def _out2in(args):
     model = _model(args.model)
-    plan = build_reseed_plan(model, keep_large_files=resolve_recovery_policy(args.keep_large_files))
+    plan = build_reseed_plan(model)
     if args.plan or not plan['ready']:
         return plan, 0 if plan['ready'] else 2
     result = _execute(run_reseed_plan, plan)
@@ -240,7 +239,7 @@ def _text(report):
             print('Recovery: ' + report['result']['archive_path'])
     elif command == 'cleanup':
         print(f"Cleanup: {report['model']} ({report['workspace']})")
-        print('Recovery: ' + ('none; permanently delete temporary files, recovery data, and history' if report.get('full') else 'full-size files and logs' if report['keep_large_files'] else 'compact; omit artifacts above 2 MiB and retain log excerpts'))
+        print('Recovery: ' + ('none; permanently delete temporary files, recovery data, and history' if report.get('full') else 'compact; keep fresh inputs, history, and log excerpts; omit calculated state'))
         for entry in report['entries']:
             print(f"  {entry['name']} ({entry['human_size']}) — {entry['reason']}")
         print(f"{report['entry_count']} candidates, {report['human_size']}")
@@ -283,12 +282,8 @@ def build_parser():
     cleanup.add_argument('--full', action='store_true', help="Permanently remove temporary files in all workspaces, recovery archives, script metadata and locks, and this model's run/job history; no new recovery archive")
     cleanup.add_argument('--lte', action='store_true', help='Restrict cleanup to the LTE workspace')
     cleanup.add_argument('--file', action='append', metavar='NAME', help='Select a candidate by model-relative path, e.g. BAMAT, lte/POPHYD, obs/fort.63; repeatable')
-    cleanup.add_argument('--keep-large-files', action=argparse.BooleanOptionalAction, default=None,
-                         help='Keep recovery artifacts above 2 MiB and full logs (otherwise use cmfgenrc, default compact)')
     out2in = commands.add_parser('out2in', help='Refresh *_IN and GAMMAS_IN from outputs and retire binary checkpoints')
     out2in.add_argument('model', type=Path)
-    out2in.add_argument('--keep-large-files', action=argparse.BooleanOptionalAction, default=None,
-                         help='Keep large previous inputs and binary checkpoints in recovery storage (default: cmfgenrc, otherwise compact)')
     edit = commands.add_parser('set', help='Change quick parameters, with backups and stale-solution marking')
     edit.add_argument('model', type=Path)
     edit.add_argument('assignments', nargs='+', metavar='KEY=VALUE')

@@ -28,7 +28,7 @@ To request five additional iterations while preserving the saved IN_ITS settings
 python cmfgen_run.py /path/to/model --stage main --iterations 5
 ```
 
-The runner backs up existing checkpoints before updating them. Add `--plan` to inspect the detected startup mode and readiness without launching a calculation. Use `--fresh-start` explicitly to archive checkpoints and start from the initial inputs. Promoting new LTE/hydro results also archives and removes incompatible old checkpoints, so the next main run starts fresh. See [Command-line runner](/documentation/command-line-runner#continuation-and-fresh-starts) for checkpoint checks, recovery, and native fallback reporting.
+The runner continues from live checkpoints without archiving their binary state. Recovery retains saved inputs for a fresh run. Add `--plan` to inspect the detected startup mode and readiness without launching a calculation. Use `--fresh-start` explicitly to remove checkpoints and start from the initial inputs. Promoting new LTE/hydro results also retires incompatible old checkpoints, so the next main run starts fresh. See [Command-line runner](/documentation/command-line-runner#continuation-and-fresh-starts) for checkpoint checks, recovery, and native fallback reporting.
 
 ## Input checks and monitoring
 

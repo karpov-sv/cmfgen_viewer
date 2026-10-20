@@ -15,7 +15,6 @@ CONFIG_KEY_ALIASES: dict[str, str] = {
     "lambda_max": "lambda_max",
     "fit_pool_size": "fit_pool_size",
     "read_write": "read_write",
-    "keep_large_files": "keep_large_files",
     "read_write_enabled": "read_write",
     "upload_dir": "upload_root",
     "upload_root": "upload_root",
@@ -87,7 +86,7 @@ def _parse_float_config_value(name: str, value: object) -> float:
 
 
 def normalize_config_value(name: str, value: object) -> object:
-    if name in {"show_all", "debug", "read_write", "keep_large_files"}:
+    if name in {"show_all", "debug", "read_write"}:
         return _parse_bool_config_value(name, value)
     if name in {"port", "fit_pool_size"}:
         return _parse_int_config_value(name, value)

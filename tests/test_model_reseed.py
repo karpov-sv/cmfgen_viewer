@@ -33,7 +33,7 @@ def test_cli_plan_is_read_only_and_execution_seeds_then_retires_checkpoints(solu
     assert (solution / 'GAMMAS_IN').read_bytes() == (solution / 'GAMMAS').read_bytes()
     assert (archive / 'previous/HeI_IN').read_text() == 'old input\n'
     assert (archive / 'previous/GAMMAS_IN').read_text() == 'old gamma'
-    assert (archive / 'previous/SCRTEMP').read_text() == 'restart state\n'
+    assert not (archive / 'previous/SCRTEMP').exists()
     assert (archive / 'operation.json').is_file()
     assert all(not (solution / name).exists() for name in ('POINT1', 'POINT2', 'SCRTEMP'))
     assert (solution / 'MOD_SUM').read_text() == 'old summary\n'
@@ -103,15 +103,14 @@ def test_failure_retiring_checkpoint_rolls_back_all_inputs(solution, monkeypatch
     assert (solution / 'HeIOUT').read_text() == 'helium-state\n'
 
 
-@pytest.mark.parametrize('keep', [False, True])
-def test_recovery_policy_only_compacts_previous_files_after_success(solution, capsys, keep):
+def test_recovery_policy_only_compacts_previous_files_after_success(solution, capsys):
     (solution / 'SCRTEMP').write_bytes(b'x' * (RECOVERY_FILE_LIMIT + 1))
-    flags = ['--keep-large-files'] if keep else []
+    flags = []
     assert main(['out2in', str(solution), '--json', *flags]) == 0
     saved = result(capsys)
     archive = Path(saved['result']['archive_path'])
-    assert (archive / 'previous/SCRTEMP').exists() == keep
-    assert (archive / 'previous/POINT1').exists()
+    assert (archive / 'previous/SCRTEMP').exists() is False
+    assert (archive / 'previous/POINT1').exists() is False
     assert (solution / 'HeI_IN').read_bytes() == (solution / 'HeIOUT').read_bytes()
     assert not (solution / 'SCRTEMP').exists()
 

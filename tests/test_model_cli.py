@@ -124,12 +124,11 @@ def test_copy_reads_template_root_from_shared_rc(solution, tmp_path, capsys):
     assert (destination / 'IN_ITS').read_text() == '99 [NUM_ITS]\n'
 
 
-@pytest.mark.parametrize('keep', [False, True])
-def test_cleanup_preserves_working_products_and_uses_retention_policy(solution, capsys, keep):
+def test_cleanup_preserves_working_products_and_uses_retention_policy(solution, capsys):
     scratch = solution / 'BAMAT'
     scratch.write_bytes(b'x' * (RECOVERY_FILE_LIMIT + 1))
     original_checkpoint = (solution / 'SCRTEMP').read_bytes()
-    flags = ['--keep-large-files'] if keep else []
+    flags = []
     assert main(['cleanup', str(solution), '--file', 'BAMAT', '--plan', '--json', *flags]) == 0
     assert report(capsys)['entry_count'] == 1
     assert scratch.exists() and not (solution / '.cmfgen-runs').exists()
@@ -137,7 +136,7 @@ def test_cleanup_preserves_working_products_and_uses_retention_policy(solution, 
     cleaned = report(capsys)
     journal = Path(cleaned['result']['journal'])
     assert not scratch.exists()
-    assert (journal / 'removed/BAMAT').exists() == keep
+    assert (journal / 'removed/BAMAT').exists() is False
     assert (journal / 'result.json').exists()
     assert (solution / 'SCRTEMP').read_bytes() == original_checkpoint
     assert (solution / 'HeIOUT').exists()
@@ -161,7 +160,8 @@ def test_cleanup_lte_preserves_controls_and_results_and_rechecks_candidates(solu
     monkeypatch.setattr(model_cli, 'cleanup_lte_workspace', original)
     assert main(['cleanup', str(solution), '--lte', '--json']) == 0
     cleaned = report(capsys)
-    assert (Path(cleaned['result']['archive_path']) / 'POPHYD').exists()
+    assert not (Path(cleaned['result']['archive_path']) / 'POPHYD').exists()
+    assert (Path(cleaned['result']['archive_path']) / '.recovery-policy.json').exists()
     for name in ['VADAT', 'MODEL_SPEC', 'OUTLTE', 'RVSIG_COL_NEW', 'HeI_IN']:
         assert (lte / name).exists()
 
@@ -173,11 +173,9 @@ def test_cleanup_noop_unknown_selection_and_rc_override(solution, tmp_path, caps
     assert main(['cleanup', str(solution), '--file', 'SCRTEMP', '--json']) == 2
     assert 'Not a current cleanup candidate' in report(capsys)['errors'][0]
     (solution / 'BAMAT').write_text('scratch')
-    (tmp_path / '.cmfgenrc').write_text('keep_large_files = true\n')
     assert main(['cleanup', str(solution), '--plan', '--json']) == 0
-    assert report(capsys)['keep_large_files'] is True
-    assert main(['cleanup', str(solution), '--plan', '--json', '--no-keep-large-files']) == 0
-    assert report(capsys)['keep_large_files'] is False
+    assert 'keep_large_files' not in report(capsys)
+
 
 
 @pytest.mark.parametrize('command', ['copy', 'cleanup', 'set'])

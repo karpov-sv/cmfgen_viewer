@@ -40,11 +40,6 @@ def model_lte_hydro(source_path: str):
     submitted_controls: dict[str, str] = {}
     submitted_filename = ""
     submitted_card_key = "lte_quick_control_cards"
-    keep_large_files = (
-        request.form.get("keep_large_files") == "1"
-        if "recovery_setting" in request.form
-        else bool(config.get("keep_large_files", False))
-    )
     try:
         if request.method == "POST":
             action = str(request.form.get("action", "")).strip().lower()
@@ -136,7 +131,7 @@ def model_lte_hydro(source_path: str):
                 )
             if action == "cleanup_lte":
                 cleaned = cleanup_lte_workspace(
-                    basepath, model_relpath=source_path, keep_large_files=keep_large_files,
+                    basepath, model_relpath=source_path,
                 )
                 return redirect(_notification_url(
                     "viewer.model_lte_hydro", source_path=source_path, _anchor="result-review",
@@ -150,7 +145,7 @@ def model_lte_hydro(source_path: str):
                         "Confirm that RVSIG_COL_NEW has the intended luminosity and radius ratio."
                     )
                 result = promote_lte_hydro_results(
-                    basepath, model_relpath=source_path, keep_large_files=keep_large_files,
+                    basepath, model_relpath=source_path,
                 )
                 try:
                     delete_model_summary_entries(
@@ -194,8 +189,6 @@ def model_lte_hydro(source_path: str):
                 if key in submitted_controls:
                     field["value"] = submitted_controls[key]
 
-    if request.method == "POST" and request.form.get("action") in {"cleanup_lte", "promote"}:
-        state["keep_large_files_default"] = keep_large_files
     return render_template(
         "model_lte_hydro.html",
         source_path=source_path,

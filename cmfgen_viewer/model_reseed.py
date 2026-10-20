@@ -28,7 +28,7 @@ def _signature(path, *, required=False):
     return [info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns]
 
 
-def build_reseed_plan(model, *, keep_large_files=False):
+def build_reseed_plan(model):
     model = Path(model).resolve()
     entries, checkpoints, errors = [], [], []
     try:
@@ -58,7 +58,7 @@ def build_reseed_plan(model, *, keep_large_files=False):
     if not activity['safe_to_modify']:
         errors.append(activity['reason'] or 'Model activity is uncertain.')
     return {'command': 'out2in', 'model': str(model), 'entries': entries,
-            'checkpoints': checkpoints, 'keep_large_files': keep_large_files,
+            'checkpoints': checkpoints,
             'activity': activity, 'errors': errors, 'ready': not errors,
             'warnings': ['The next main run starts from refreshed text inputs, not the binary checkpoint. '
                          'Outputs are preserved. Review population/grid and atomic-data compatibility before running.']}
@@ -67,7 +67,7 @@ def build_reseed_plan(model, *, keep_large_files=False):
 def run_reseed_plan(plan):
     model = Path(plan['model'])
     with MODEL_WRITE_LOCK, model_mutation_guard(model):
-        current = build_reseed_plan(model, keep_large_files=plan['keep_large_files'])
+        current = build_reseed_plan(model)
         if not current['ready']:
             raise ValueError('; '.join(current['errors']))
         if any(current[key] != plan[key] for key in ('entries', 'checkpoints')):
@@ -116,7 +116,7 @@ def run_reseed_plan(plan):
             shutil.rmtree(archive)
             raise
         staged.rmdir()
-        recovery = compact_recovery(archive, keep_large_files=plan['keep_large_files'])
+        recovery = compact_recovery(archive)
         return {'status': 'succeeded', 'archive_path': str(archive),
                 'updated_inputs': installed, 'retired_checkpoints': [e['name'] for e in current['checkpoints']],
                 'recovery': recovery}

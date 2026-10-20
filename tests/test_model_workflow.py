@@ -560,7 +560,7 @@ def test_stale_outputs_are_blocked_and_fresh_results_are_promoted_with_backups(t
     assert (backup / "RVSIG_COL").read_text(encoding="utf-8") == "original RVSIG_COL\n"
     assert (backup / "ROSSELAND_LTE_TAB").read_text(encoding="utf-8") == "old table\n"
     for name, contents in stale_state.items():
-        assert (backup / name).read_text(encoding="utf-8") == contents
+        assert not (backup / name).exists()
     assert "[RMAX]" not in (backup / "lte" / "VADAT").read_text(encoding="utf-8")
     assert (model / MODEL_INPUT_MODIFIED_MARKER).is_file()
     app = create_app(basepath=str(tmp_path), read_write_enabled=True, secret_key="test")

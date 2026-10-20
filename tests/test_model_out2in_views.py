@@ -9,10 +9,10 @@ from test_model_cli import solution, isolated_config
 from test_model_staging import _write_solution
 
 
-def client(model, *, writable=True, keep=False):
+def client(model, *, writable=True):
     app = create_app(basepath=str(model.parent), read_write_enabled=writable, secret_key='out2in-ui-tests')
     app.testing = True
-    app.config['CMFGEN_VIEWER'].update(summary_cache_db=str(model.parent / 'summary.sqlite'), keep_large_files=keep)
+    app.config['CMFGEN_VIEWER'].update(summary_cache_db=str(model.parent / 'summary.sqlite'))
     return app.test_client()
 
 
@@ -30,7 +30,7 @@ def test_preview_and_confirmed_execution(solution):
     assert b'Prepare inputs (out2in)' in preview.data
     assert (solution / 'SCRTEMP').exists()
     assert not (solution / '.cmfgen-viewer-backups').exists()
-    post = {'review_token': token(preview), 'recovery_setting': '1'}
+    post = {'review_token': token(preview)}
     unconfirmed = browser.post(url, data=post)
     assert b'Confirm replacing' in unconfirmed.data
     assert (solution / 'SCRTEMP').exists()
@@ -44,16 +44,13 @@ def test_preview_and_confirmed_execution(solution):
     assert list((solution / '.cmfgen-viewer-backups/out2in').glob('*/operation.json'))
 
 
-@pytest.mark.parametrize('mutation', ['output', 'checkpoint', 'recovery'])
+@pytest.mark.parametrize('mutation', ['output', 'checkpoint'])
 def test_rejects_changed_review(solution, mutation):
     browser = client(solution)
     url = '/model-actions/out2in/' + solution.name
     preview = browser.get(url)
-    data = {'review_token': token(preview), 'recovery_setting': '1', 'confirm_out2in': '1'}
-    if mutation == 'recovery':
-        data['keep_large_files'] = '1'
-    else:
-        (solution / ('HeIOUT' if mutation == 'output' else 'SCRTEMP')).write_text('changed')
+    data = {'review_token': token(preview), 'confirm_out2in': '1'}
+    (solution / ('HeIOUT' if mutation == 'output' else 'SCRTEMP')).write_text('changed')
     response = browser.post(url, data=data)
     assert response.status_code == 200 and b'changed' in response.data
     assert (solution / 'HeI_IN').read_text() == 'old input\n'
@@ -74,14 +71,11 @@ def test_forged_and_other_model_reviews_are_rejected(solution, tmp_path):
         assert (other / 'SCRTEMP').exists()
 
 
-def test_recovery_option_uses_viewer_default_and_refreshes_preview_only(solution):
-    browser = client(solution, keep=True)
-    url = '/model-actions/out2in/' + solution.name
-    preview = browser.get(url)
-    assert b'Full files are retained' in preview.data
-    compact = browser.get(url + '?recovery_setting=1')
-    assert b'Files above 2 MiB' in compact.data
-    assert token(preview) != token(compact)
+def test_ui_has_one_fixed_recovery_policy(solution):
+    browser = client(solution)
+    preview = browser.get('/model-actions/out2in/' + solution.name)
+    assert b'Previous initial inputs are retained in full' in preview.data
+    assert b'name="keep_large_files"' not in preview.data
     assert (solution / 'SCRTEMP').exists()
     assert not (solution / '.cmfgen-viewer-backups').exists()
 

@@ -839,7 +839,6 @@ def inspect_lte_hydro_workflow(basepath: str, *, model_relpath: str, config: dic
         "model_path": str(model_dir),
         "lte_path": str(lte_dir),
         "lte_cleanup": inspect_lte_cleanup(lte_dir),
-        "keep_large_files_default": bool((config or {}).get("keep_large_files", False)),
         "template_root": str(Path(template_root).expanduser().resolve()) if template_root is not None else None,
         "root_files": root_files,
         "template_files": template_files,
@@ -999,7 +998,7 @@ def _atomic_write(destination: Path, contents: bytes, mode: int) -> None:
 
 
 def cleanup_lte_workspace(
-    basepath: str, *, model_relpath: str, keep_large_files: bool = False, expected_entries=None,
+    basepath: str, *, model_relpath: str, expected_entries=None,
 ) -> dict:
     model_dir = _resolve_model(basepath, model_relpath)[1]
     with MODEL_WRITE_LOCK, model_mutation_guard(model_dir, ModelWorkflowError):
@@ -1009,14 +1008,14 @@ def cleanup_lte_workspace(
         try:
             mkdir_readable(archive_root, exist_ok=True)
             result = archive_lte_temporaries(model_dir / "lte", archive_dir, expected_entries=expected_entries)
-            result["recovery"] = compact_recovery(archive_dir, keep_large_files=keep_large_files)
+            result["recovery"] = compact_recovery(archive_dir)
             return result
         except (OSError, LteCleanupError) as exc:
             raise ModelWorkflowError(f"Could not clean LTE temporary files: {exc}") from exc
 
 
 def promote_lte_hydro_results(
-    basepath: str, *, model_relpath: str, expected_cleanup_entries=None, keep_large_files: bool = False,
+    basepath: str, *, model_relpath: str, expected_cleanup_entries=None,
 ) -> dict[str, object]:
     with MODEL_WRITE_LOCK, model_mutation_guard(_resolve_model(basepath, model_relpath)[1], ModelWorkflowError):
         state = inspect_lte_hydro_workflow(basepath, model_relpath=model_relpath)
@@ -1156,7 +1155,7 @@ def promote_lte_hydro_results(
             except OSError:
                 pass
             raise ModelWorkflowError(f"Could not promote LTE/hydro results: {exc}") from exc
-    recovery = compact_recovery(backup_dir, keep_large_files=keep_large_files)
+    recovery = compact_recovery(backup_dir)
     result = inspect_lte_hydro_workflow(basepath, model_relpath=model_relpath)
     result["recovery"] = recovery
     result["backup_relpath"] = backup_relpath

@@ -443,7 +443,7 @@ def test_fresh_start_archives_checkpoint_instead_of_deleting(workspace):
     assert not make_plan()["ready"]
     result = run_plan(make_plan(fresh_start=True))
     assert result["status"] == "tested"
-    assert (Path(result["journal"]) / "restart-before/POINT1").read_text() == "old restart"
+    assert not (Path(result["journal"]) / "restart-before/POINT1").exists()
 
 
 def test_main_continues_by_default_and_backs_up_checkpoint(workspace):
@@ -473,7 +473,7 @@ assert (p/'SCRTEMP').read_bytes() == b'checkpoint'*500
     assert events[0]["event"] == "startup"
     assert "Continuation" in events[0]["message"]
     assert (model / "SCRTEMP").read_bytes() == b"updated checkpoint"
-    assert (Path(result["journal"]) / "restart-before/SCRTEMP").read_bytes() == original
+    assert not (Path(result["journal"]) / "restart-before/SCRTEMP").exists()
 
 
 def test_main_rejects_poisoned_checkpoint_before_launch(workspace):
@@ -627,7 +627,8 @@ print('hydro completed')
     assert (Path(result["journal"]) / "effective/HYDRO_PARAMS").is_file()
     archive = Path(result["journal"]) / "hydro"
     assert (archive / "stdin.txt").read_text() == "/null\ne\n2\n\n"
-    assert (archive / "RVSIG_COL_NEW").is_file()
+    assert not (archive / "RVSIG_COL_NEW").exists()
+    assert (lte / "RVSIG_COL_NEW").is_file()
     assert (archive / "WIND_HYD").is_file()
 
 
@@ -754,10 +755,10 @@ Path('OBSFRAME').write_text('Continuum Frequencies (2)\\n1 2\\nObserved intensit
     assert all(item["total"] == 4 for item in flux_progress)
     assert not (obs / "CMF_FLUX_PARAM").exists()
     assert (obs / "obs_cont").exists() != fail_first
-    assert (Path(result["journal"]) / "flux-15/before/EDDFACTOR_INFO").read_text() == "incompatible old cache"
+    assert not (Path(result["journal"]) / "flux-15/before/EDDFACTOR_INFO").exists()
     if not fail_first:
         assert result["passes"][-1]["output"] == str(obs / "obs_cont")
-        assert (Path(result["journal"]) / "flux-10/before/EDDFACTOR_INFO").read_text() == "current pass cache"
+        assert not (Path(result["journal"]) / "flux-10/before/EDDFACTOR_INFO").exists()
         effective = (Path(result["journal"]) / "continuum/CMF_FLUX_PARAM").read_text()
         assert ("[SOB_EW_LAM_BEG]" in effective) == (ew_controls == "present")
     # Numeric failure of the parent model is a preflight error, not a native

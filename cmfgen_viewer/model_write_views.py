@@ -67,16 +67,14 @@ def model_out2in(source_path: str):
     if not is_model_directory(source):
         abort(404)
     values = request.form if request.method == "POST" else request.args
-    keep = (values.get("keep_large_files") == "1" if "recovery_setting" in values
-            else bool(config.get("keep_large_files", False)))
     signer = URLSafeTimedSerializer(current_app.secret_key, salt="model-out2in")
 
     def review_data(plan):
         signature = hashlib.sha256(json.dumps({key: plan[key] for key in
-            ("entries", "checkpoints", "keep_large_files")}, sort_keys=True).encode()).hexdigest()
+            ("entries", "checkpoints")}, sort_keys=True).encode()).hexdigest()
         return {"model": str(source), "signature": signature}
 
-    plan = build_reseed_plan(source, keep_large_files=keep)
+    plan = build_reseed_plan(source)
     error = ""
     if request.method == "POST":
         try:
@@ -96,7 +94,7 @@ def model_out2in(source_path: str):
                 warning=" ".join(warnings)))
         except (ValueError, OSError) as exc:
             error = str(exc)
-            plan = build_reseed_plan(source, keep_large_files=keep)
+            plan = build_reseed_plan(source)
     token = signer.dumps(review_data(plan)) if plan["ready"] else ""
     return render_template("model_out2in.html", source_path=source_path, plan=plan,
         error=error, review_token=token,

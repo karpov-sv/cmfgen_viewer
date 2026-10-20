@@ -106,7 +106,7 @@ def test_copy_fills_setup_from_templates_without_fabricating_physical_inputs(tmp
     assert cleanup['origin'] == 'packaged templates'
     create_model_from_solution(str(tmp_path), source_relpath='source', destination_relpath='copy', template_root=str(explicit))
     assert (tmp_path / 'copy/batch.sh').read_bytes() == batch.read_bytes()
-    assert (tmp_path / 'copy/batch.sh').stat().st_mode & 0o777 == 0o750
+    assert (tmp_path / 'copy/batch.sh').stat().st_mode & 0o777 == 0o755
     assert (tmp_path / 'copy/obs/CMF_FLUX_PARAM_INIT').is_file()
     assert (tmp_path / 'copy/VADAT').read_bytes() == (model / 'VADAT').read_bytes()
     assert not (tmp_path / 'copy/lte').exists()

@@ -16,14 +16,14 @@ from .model_editor import (
 )
 from .model_activity import model_mutation_guard
 from .model_staging import MODEL_WRITE_LOCK
-from .recovery_files import compact_recovery, RECOVERY_FILE_LIMIT, DIAGNOSTIC_FILES
+from .recovery_files import compact_recovery, RECOVERY_FILE_LIMIT, DIAGNOSTIC_FILES, retention_action
 from .workflow_permissions import open_readable
 
 RUNS = '.cmfgen-runs'
 BACKUPS = MODEL_EDITOR_BACKUP_DIR
 BACKUP_LABELS = {'lte-hydro': 'LTE / Hydro promotion', 'lte-cleanup': 'LTE cleanup',
                  'hydro-alignment': 'Hydro alignment', 'history-restore': 'Restart recovery',
-                 'out2in': 'Restart from text outputs'}
+                 'out2in': 'Restart from text outputs', 'input-restore': 'Fresh-input recovery'}
 BACKUP_GROUPS = set(BACKUP_LABELS)
 STAGES = {'main', 'test', 'lte', 'hydro', 'continuum', 'flux-10', 'flux-15', 'flux-20'}
 
@@ -116,6 +116,9 @@ def _describe(path, model, kind):
     options = plan.get('stage_options')
     policy = plan.get('keep_large_files', options.get('keep_large_files') if isinstance(options, dict) else None)
     compaction = _json(path / '.recovery-compaction.json') if path.is_dir() else {}
+    policy_record = _json(path / '.recovery-policy.json') if path.is_dir() else {}
+    if 'keep_large_files' in policy_record:
+        policy = policy_record['keep_large_files']
     compacted = bool(compaction)
     if policy is None and path.is_dir():
         policy = _json(path / 'restore.json').get('keep_large_files')
@@ -126,7 +129,8 @@ def _describe(path, model, kind):
         'size': sum(row['size'] for row in rows if row['kind'] == 'file'),
         'count': sum(row['kind'] != 'directory' for row in rows),
         'status': str(result.get('status', 'Saved')).replace('_', ' ').capitalize(), 'stage': plan.get('stage', ''),
-        'policy': 'Partly compacted' if compacted and compaction.get('warnings') else 'Compacted' if compacted else 'Full-size' if policy is True else 'Compact' if policy is False else 'Unrecorded',
+        'policy': 'Partly compacted' if compacted and compaction.get('warnings') else 'Compacted' if compacted else 'Inputs and history' if policy_record.get('policy') == 'fresh-inputs' else 'Full-size' if policy is True else 'Compact' if policy is False else 'Unrecorded',
+        'fresh_inputs': _json(path / 'fresh-inputs.json').get('complete', False) if path.is_dir() else False,
         'signature': tree_signature(rows)}
 
 
@@ -191,6 +195,8 @@ def control_target(model, archive_id, archived_file):
         group = local[1] if len(local) > 1 else ''
         if group == 'lte-hydro':
             relative = member
+        elif group == 'input-restore' and member.parts[:1] == ('before',):
+            relative = Path(*member.parts[1:])
         elif group == 'hydro-alignment' and member.as_posix() == 'HYDRO_PARAMS':
             relative = Path('lte/HYDRO_PARAMS')
         else:
@@ -280,9 +286,14 @@ def preview_housekeeping(model, archive_ids, action):
         if action == 'delete':
             released = entry['size']
         else:
-            released = sum(row['size'] - (RECOVERY_FILE_LIMIT if Path(row['path']).name in DIAGNOSTIC_FILES or Path(row['path']).suffix == '.log' else 0)
-                           for row in rows if row['kind'] == 'file' and row['links'] == 1
-                           and row['size'] > RECOVERY_FILE_LIMIT and Path(row['path']).suffix not in {'.json', '.jsonl'})
+            released = 0
+            for row in rows:
+                if row['kind'] != 'file' or row['links'] != 1:
+                    continue
+                relative = row['path'] if row['path'] != '.' else path.name
+                policy = retention_action(Path(relative), row['size'], relative=relative)
+                if policy != 'keep':
+                    released += row['size'] - (RECOVERY_FILE_LIMIT if policy == 'excerpt' else 0)
         entries.append({**entry, 'signature': tree_signature(rows), 'reclaimable': released})
         size += released
     return {'action': action, 'entries': entries, 'reclaimable': size}
@@ -311,6 +322,6 @@ def apply_housekeeping(model, review):
                     os.replace(temporary, path / '.recovery-compaction.json')
                 finally:
                     temporary.unlink(missing_ok=True)
-            elif path.stat().st_size > RECOVERY_FILE_LIMIT:
+            elif retention_action(path, path.stat().st_size) == 'discard':
                 path.unlink()
         return warnings

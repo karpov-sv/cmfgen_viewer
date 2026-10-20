@@ -211,7 +211,7 @@ def test_real_filesystem_sequence_runs_cleanup_then_promotion(tmp_path: Path) ->
     assert not (model / "BAMAT").exists()
     assert (model / "RVSIG_COL").is_file()
     cleanup_result, promotion_result = result["stage_results"]
-    assert Path(cleanup_result["cleanup"]["archive_path"], "BAMAT").is_file()
+    assert not Path(cleanup_result["cleanup"]["archive_path"], "BAMAT").exists()
     assert promotion_result["promotion"]["synchronized_rmax"] == 2.0
 
 

@@ -99,11 +99,11 @@ def test_runtime_stream_uses_output_progress_and_final_diagnostics(app, monkeypa
         "Model started on: now\nCurrent great iteration count is 1\nCurrent great iteration count is 2\n")
     runtime = frame(response)[1]["runtime"]
     assert runtime["active"] is True
-    assert runtime["progress"]["percent"] == 20
+    assert runtime["progress"]["percent"] == 10
     (model / "OUTGEN").write_text(
         "Model started on: now\n" + "".join(
             f"Current great iteration count is {index}\n" for index in range(1, 9))
-        + "Program finished on: now\n")
+        + "Maximm changes as returned by SOLVEBA_V13 is 0.01\nProgram finished on: now\n")
     (model / "MOD_SUM").write_text("Model Finalized on: 09-Aug-2026 01:00:00\n")
     (model / "RVTJ").write_text("restart\n")
     active[0] = False

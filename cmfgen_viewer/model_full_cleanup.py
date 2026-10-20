@@ -106,7 +106,7 @@ def build_full_cleanup_plan(model):
     ordered = sorted(entries.values(), key=lambda entry: entry['path'])
     total = sum(entry['size'] for entry in ordered)
     return {'command': 'cleanup', 'model': str(model), 'workspace': 'all', 'full': True,
-            'keep_large_files': False, 'entries': ordered, 'entry_count': len(ordered),
+            'entries': ordered, 'entry_count': len(ordered),
             'total_size': total, 'human_size': _human_size(total), 'activity': activity,
             'warnings': ['Full cleanup permanently removes the listed recovery data and run history; no new recovery archive is created.', *warnings],
             'errors': errors, 'ready': not errors}

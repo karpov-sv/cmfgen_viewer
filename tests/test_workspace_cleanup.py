@@ -49,7 +49,10 @@ def test_default_cli_cleans_all_workspaces_and_archives_qualified_paths(solution
     archive = Path(saved['result']['cleanup']['archive_path'])
     for name in names:
         assert not (solution / name).exists() and not (solution / name).is_symlink()
-        assert (archive / name).exists() or (archive / name).is_symlink()
+        if name.endswith(('atomic-link', 'broken-link')):
+            assert (archive / name).is_symlink()
+        else:
+            assert not (archive / name).exists()
     for workspace in ('', 'lte', 'obs'):
         for name in ('VADAT', 'MODEL_SPEC', 'HeI_IN', 'POINT1', 'SCRTEMP',
                      '.cmfgen-viewer-input-modified.json', '.cmfgen-runs/old', '.cmfgen-viewer-backups/old'):
