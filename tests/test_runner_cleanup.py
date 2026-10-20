@@ -57,7 +57,8 @@ def test_cleanup_run_archives_files_and_symlink_without_touching_target(
     model, external = cleanup_model
     events: list[dict[str, object]] = []
 
-    result = run_plan(build_cleanup_plan(model), events.append)
+    plan = build_cleanup_plan(model)
+    result = run_plan(plan, events.append)
 
     assert result["status"] == "succeeded"
     assert [item["event"] for item in events] == [
@@ -74,8 +75,8 @@ def test_cleanup_run_archives_files_and_symlink_without_touching_target(
     assert (model / "SCRTEMP").is_file()
 
     archive = Path(result["cleanup"]["archive_path"])
-    assert (archive / "BAMAT").read_text(encoding="utf-8") == "matrix state\n"
-    assert (archive / "fort.63").is_file()
+    assert not (archive / "BAMAT").exists()
+    assert not (archive / "fort.63").exists()
     assert (archive / "atomic_link").is_symlink()
     assert (archive / "atomic_link").resolve() == external
     report = json.loads((Path(result["journal"]) / "result.json").read_text())

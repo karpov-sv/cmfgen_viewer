@@ -16,9 +16,10 @@ from .model_staging import ModelStagingError, plan_model_from_solution, create_m
 from .model_workflow import ModelWorkflowError, cleanup_lte_workspace
 from .lte_cleanup import inspect_lte_cleanup
 from .model_full_cleanup import build_full_cleanup_plan, run_full_cleanup
+from .model_reseed import build_reseed_plan, run_reseed_plan
 from .runner import run_plan
 from .runner_cleanup import build_cleanup_plan
-from .runner_config import resolve_recovery_policy, resolve_viewer_defaults
+from .runner_config import resolve_viewer_defaults
 
 
 class MaintenanceExecutionError(RuntimeError):
@@ -115,8 +116,8 @@ def _copy(args):
 def _cleanup(args):
     model = _model(args.model)
     if args.full:
-        if args.lte or args.file or args.keep_large_files is not None:
-            raise ModelStagingError('--full cannot be combined with --lte, --file, or recovery-retention flags.')
+        if args.lte or args.file:
+            raise ModelStagingError('--full cannot be combined with --lte or --file.')
         plan = build_full_cleanup_plan(model)
         if args.plan or not plan['ready']:
             return plan, 0 if plan['ready'] else 2
@@ -124,27 +125,26 @@ def _cleanup(args):
             return {**plan, 'status': 'unchanged'}, 0
         result = _execute(run_full_cleanup, plan)
         return {**plan, 'status': result['status'], 'result': result}, 1 if result['failures'] else 0
-    keep = resolve_recovery_policy(args.keep_large_files)
     if args.lte:
         if args.file:
-            raise ModelStagingError('--file is only available for main-folder cleanup; LTE cleanup uses its reviewed candidate policy.')
+            raise ModelStagingError('--file cannot be combined with --lte; use workspace-relative paths such as lte/POPHYD without --lte.')
         lte = model / 'lte'
         if lte.is_symlink() or not lte.is_dir():
             raise ModelWorkflowError('LTE workspace must be a real directory.')
         cleanup = inspect_lte_cleanup(lte)
         plan = _activity({**cleanup, 'command': 'cleanup', 'model': str(model),
-            'workspace': 'lte', 'keep_large_files': keep, 'warnings': []}, model)
+            'workspace': 'lte', 'warnings': []}, model)
         if args.plan or not plan['ready']:
             return plan, 0 if plan['ready'] else 2
         if not plan['entry_count']:
             return {**plan, 'status': 'unchanged'}, 0
         result = _execute(cleanup_lte_workspace, str(model.parent), model_relpath=model.name,
-            keep_large_files=keep, expected_entries=cleanup['entries'])
+             expected_entries=cleanup['entries'])
         return {**plan, 'status': 'succeeded', 'result': result}, 0
     plan = build_cleanup_plan(model, selected_names=args.file)
     # Empty cleanup is an idempotent no-op, provided no other preflight failed.
     plan['errors'] = [error for error in plan['errors'] if error != 'No model cleanup candidates were found.']
-    plan.update(command='cleanup', workspace='model', keep_large_files=keep,
+    plan.update(command='cleanup', workspace='all',
                 ready=not plan['errors'])
     if args.plan or not plan['ready']:
         return plan, 0 if plan['ready'] else 2
@@ -152,6 +152,15 @@ def _cleanup(args):
         return {**plan, 'status': 'unchanged'}, 0
     result = _execute(run_plan, plan)
     return {**plan, 'status': result['status'], 'result': result}, 0 if result['status'] == 'succeeded' else 1
+
+
+def _out2in(args):
+    model = _model(args.model)
+    plan = build_reseed_plan(model)
+    if args.plan or not plan['ready']:
+        return plan, 0 if plan['ready'] else 2
+    result = _execute(run_reseed_plan, plan)
+    return {**plan, 'status': result['status'], 'result': result}, 0
 
 
 def _set(args):
@@ -220,9 +229,17 @@ def _text(report):
             print(line['text'])
         if report.get('backup'):
             print('Checkpoint: ' + report['backup'])
+    elif command == 'out2in':
+        print(f"Out2in: {report['model']}")
+        for entry in report['entries']:
+            print(f"  Copy {entry['source']} -> {entry['destination']}")
+        for entry in report['checkpoints']:
+            print(f"  Retire {entry['name']}")
+        if report.get('result', {}).get('archive_path'):
+            print('Recovery: ' + report['result']['archive_path'])
     elif command == 'cleanup':
         print(f"Cleanup: {report['model']} ({report['workspace']})")
-        print('Recovery: ' + ('none; permanently delete temporary files, recovery data, and history' if report.get('full') else 'full-size files and logs' if report['keep_large_files'] else 'compact; omit artifacts above 2 MiB and retain log excerpts'))
+        print('Recovery: ' + ('none; permanently delete temporary files, recovery data, and history' if report.get('full') else 'compact; keep fresh inputs, history, and log excerpts; omit calculated state'))
         for entry in report['entries']:
             print(f"  {entry['name']} ({entry['human_size']}) — {entry['reason']}")
         print(f"{report['entry_count']} candidates, {report['human_size']}")
@@ -232,7 +249,7 @@ def _text(report):
             print('Recovery: ' + archive)
     result = report.get('result', {})
     problems = []
-    if command == 'cleanup':
+    if command in {'cleanup', 'out2in'}:
         recovery = result.get('recovery', result.get('cleanup', {}).get('recovery', {}))
         problems.extend(recovery.get('warnings', []))
         problems.extend(f"{failure['name']}: {failure['error']}" for failure in result.get('failures', []))
@@ -260,21 +277,21 @@ def build_parser():
     copy.add_argument('source', type=Path)
     copy.add_argument('destination', type=Path)
     copy.add_argument('--template-root', type=Path, help='Override the shared cmfgenrc template_root')
-    cleanup = commands.add_parser('cleanup', help='Clean known temporary files, preserving scientific products and checkpoints')
+    cleanup = commands.add_parser('cleanup', help='Clean main, LTE, and observer workspaces, preserving scientific products and checkpoints')
     cleanup.add_argument('model', type=Path)
     cleanup.add_argument('--full', action='store_true', help="Permanently remove temporary files in all workspaces, recovery archives, script metadata and locks, and this model's run/job history; no new recovery archive")
-    cleanup.add_argument('--lte', action='store_true', help='Clean the LTE workspace instead of the main folder')
-    cleanup.add_argument('--file', action='append', metavar='NAME', help='Select a main-folder candidate; repeat to select more')
-    cleanup.add_argument('--keep-large-files', action=argparse.BooleanOptionalAction, default=None,
-                         help='Keep recovery artifacts above 2 MiB and full logs (otherwise use cmfgenrc, default compact)')
+    cleanup.add_argument('--lte', action='store_true', help='Restrict cleanup to the LTE workspace')
+    cleanup.add_argument('--file', action='append', metavar='NAME', help='Select a candidate by model-relative path, e.g. BAMAT, lte/POPHYD, obs/fort.63; repeatable')
+    out2in = commands.add_parser('out2in', help='Refresh *_IN and GAMMAS_IN from outputs and retire binary checkpoints')
+    out2in.add_argument('model', type=Path)
     edit = commands.add_parser('set', help='Change quick parameters, with backups and stale-solution marking')
     edit.add_argument('model', type=Path)
     edit.add_argument('assignments', nargs='+', metavar='KEY=VALUE')
     edit.add_argument('--file', choices=QUICK_PARAMETER_FILES, default='VADAT')
     edit.add_argument('--keep-teff-logg', action='store_true', help='Scale RSTAR and MASS with LSTAR, preserving Teff and log g')
-    for command in (copy, cleanup, edit):
+    for command in (copy, cleanup, out2in, edit):
         command.add_argument('--plan', action='store_true', help='Show the planned operation without modifying files')
-    for command in (show, get, copy, cleanup, edit):
+    for command in (show, get, copy, cleanup, out2in, edit):
         command.add_argument('--json', action='store_true', help='Print a structured JSON report')
     return parser
 
@@ -282,7 +299,7 @@ def build_parser():
 def main(argv=None):
     args = build_parser().parse_args(argv)
     try:
-        report, code = {'show': _show, 'get': _get, 'copy': _copy, 'cleanup': _cleanup, 'set': _set}[args.command](args)
+        report, code = {'show': _show, 'get': _get, 'copy': _copy, 'cleanup': _cleanup, 'out2in': _out2in, 'set': _set}[args.command](args)
     except MaintenanceExecutionError as exc:
         report, code = {'command': args.command, 'status': 'failed', 'error': str(exc)}, 1
     except (ValueError, OSError) as exc:

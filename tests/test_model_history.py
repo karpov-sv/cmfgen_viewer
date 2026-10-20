@@ -1,4 +1,4 @@
-"""Archive access, reviewed control/native recovery, and guarded housekeeping."""
+"""Archive access, reviewed control recovery, and guarded housekeeping."""
 import json
 from pathlib import Path
 import re
@@ -7,15 +7,12 @@ from urllib.parse import urlencode
 import pytest
 
 from cmfgen_viewer.app import create_app
-from cmfgen_viewer import model_activity, history_restart
-from cmfgen_viewer.model_editor import load_model_parameter_file, save_model_parameter_edit, MODEL_INPUT_MODIFIED_MARKER
+from cmfgen_viewer import model_activity
+from cmfgen_viewer.model_editor import load_model_parameter_file, save_model_parameter_edit
 from cmfgen_viewer.model_history import (HistoryError, list_archives, archive_files, control_versions,
     load_archived_control, preview_housekeeping, apply_housekeeping, safe_path)
-from cmfgen_viewer.history_restart import preview_restart, apply_restart
-from cmfgen_viewer.runner import run_plan
 from cmfgen_viewer.recovery_files import RECOVERY_FILE_LIMIT
 from test_model_editor import _write_model
-from test_runner import workspace, RVTJ_CORE, SUCCESS
 
 
 @pytest.fixture
@@ -154,70 +151,14 @@ def test_editor_always_shows_history_and_loads_runner_controls_for_review(model,
     assert b'Saved versions (0)' in empty.data and b'No saved versions for this file' in empty.data
 
 
-@pytest.fixture
-def restart_journal(workspace):
-    model, make_plan = workspace
-    (model / 'POINT1').write_text('1 7 1 -1000\n')
-    (model / 'SCRTEMP').write_bytes(b'original checkpoint' * 1000)
-    (model / 'MODEL').write_text('original MODEL')
-    (model / 'RVTJ').write_text(RVTJ_CORE)
-    (model / 'HYD_L_DATA').symlink_to(model.parent / 'atomic/test.dat')
-    code = SUCCESS + "\n(p/'POINT1').write_text('1 8 1 -1000\\n')\n(p/'SCRTEMP').write_bytes(b'updated checkpoint' * 1000)\n"
-    result = run_plan(make_plan(code, keep_large_files=True))
-    assert result['status'] == 'tested', result
-    return model, Path(result['journal'])
 
 
-def test_restart_restore_moves_current_state_and_preserves_source(restart_journal):
-    model, journal = restart_journal
-    prior = (journal / 'restart-before/SCRTEMP').read_bytes()
-    working = (model / 'SCRTEMP').read_bytes()
-    review = preview_restart(model, str(journal.relative_to(model)), keep_large_files=True)
-    assert review['restart']['pointer']['iterations'] == 7
-    assert (model / 'SCRTEMP').read_bytes() == working
-    result = apply_restart(model, review)
-    assert (model / 'SCRTEMP').read_bytes() == prior
-    assert (model / 'POINT1').read_text() == '1 7 1 -1000\n'
-    assert (model / result['backup'] / 'before/SCRTEMP').read_bytes() == working
-    assert (journal / 'restart-before/SCRTEMP').read_bytes() == prior
-    assert (model / MODEL_INPUT_MODIFIED_MARKER).is_file()
-    assert not (model / 'MOD_SUM').exists()
 
 
-@pytest.mark.parametrize('problem', ['missing_scratch', 'controls', 'changed_pointer', 'atomic_link'])
-def test_restart_restore_refuses_incomplete_or_incompatible_sources(restart_journal, problem):
-    model, journal = restart_journal
-    if problem == 'missing_scratch':
-        (journal / 'restart-before/SCRTEMP').unlink()
-    elif problem == 'controls':
-        (model / 'VADAT').write_text('2 [RSTAR]\n')
-    elif problem == 'changed_pointer':
-        (journal / 'restart-before/POINT1').write_text('1 9 1 -1000\n')
-    else:
-        (model / 'HYD_L_DATA').unlink()
-    with pytest.raises(HistoryError):
-        preview_restart(model, str(journal.relative_to(model)))
-    assert (model / 'SCRTEMP').read_bytes().startswith(b'updated')
 
 
-def test_restart_restore_rolls_back_after_marker_failure(restart_journal, monkeypatch):
-    model, journal = restart_journal
-    before = {name: (model / name).read_bytes() for name in ('POINT1', 'SCRTEMP', 'MODEL', 'RVTJ', 'MOD_SUM')}
-    review = preview_restart(model, str(journal.relative_to(model)))
-    def fail(*args, **kwargs):
-        raise HistoryError('simulated marker failure')
-    monkeypatch.setattr(history_restart, 'mark_model_inputs_modified', fail)
-    with pytest.raises(HistoryError, match='simulated'):
-        apply_restart(model, review)
-    assert all((model / name).read_bytes() == data for name, data in before.items())
 
 
-def test_restart_review_expires_when_current_output_changes(restart_journal):
-    model, journal = restart_journal
-    review = preview_restart(model, str(journal.relative_to(model)))
-    (model / 'MODEL').write_text('changed after preview')
-    with pytest.raises(HistoryError, match='changed'):
-        apply_restart(model, review)
 
 
 def test_lte_editor_discovers_parent_workflow_snapshots(model):
@@ -236,18 +177,6 @@ def test_lte_editor_discovers_parent_workflow_snapshots(model):
     assert (lte / 'VADAT').read_text().startswith('1.0')
 
 
-def test_restart_route_requires_signed_model_scoped_confirmation(restart_journal):
-    model, journal = restart_journal
-    client = _app(model).test_client()
-    url = '/model-actions/history/' + model.name
-    archive_id = str(journal.relative_to(model))
-    preview = client.post(url, data={'action': 'preview_restart', 'archive': archive_id, 'keep_large_files': '1'})
-    assert preview.status_code == 200
-    assert b'Restore reviewed restart' in preview.data
-    assert (model / 'POINT1').read_text().startswith('1 8')
-    response = client.post(url, data={'action': 'restore_restart', 'review_token': _token(preview)})
-    assert response.status_code == 302
-    assert (model / 'POINT1').read_text().startswith('1 7')
 
 
 def test_review_token_cannot_delete_another_models_archives(model, journal):
@@ -266,42 +195,3 @@ def test_compacted_archive_label_does_not_claim_full_recovery(model, journal):
     entries, _ = list_archives(model)
     assert entries[0]['policy'] == 'Compacted'
     assert json.loads((journal / 'plan.json').read_text())['keep_large_files'] is True
-
-
-def test_native_recovery_is_blocked_during_an_active_run(restart_journal, monkeypatch):
-    model, journal = restart_journal
-    review = preview_restart(model, str(journal.relative_to(model)))
-    monkeypatch.setattr(model_activity, 'inspect_model_activity', lambda _: {'safe_to_modify': False, 'reason': 'active run'})
-    with pytest.raises(HistoryError, match='active run'):
-        apply_restart(model, review)
-    assert (model / 'POINT1').read_text().startswith('1 8')
-
-
-def test_native_recovery_rolls_back_a_partial_install(restart_journal, monkeypatch):
-    model, journal = restart_journal
-    before = {name: (model / name).read_bytes() for name in ('POINT1', 'SCRTEMP', 'MODEL', 'RVTJ', 'MOD_SUM')}
-    (model / MODEL_INPUT_MODIFIED_MARKER).write_text('{"previous": true}')
-    review = preview_restart(model, str(journal.relative_to(model)))
-    original = history_restart.os.replace
-    failed = False
-    def replace(source, target):
-        nonlocal failed
-        if not failed and Path(source).parent.name == 'staged' and Path(target).name == 'MODEL':
-            failed = True
-            raise OSError('simulated partial install failure')
-        return original(source, target)
-    monkeypatch.setattr(history_restart.os, 'replace', replace)
-    with pytest.raises(HistoryError, match='simulated partial'):
-        apply_restart(model, review)
-    assert failed
-    assert all((model / name).read_bytes() == data for name, data in before.items())
-    assert (model / MODEL_INPUT_MODIFIED_MARKER).read_text() == '{"previous": true}'
-
-
-def test_native_recovery_removes_a_newer_pointer_that_was_not_in_the_archive(restart_journal):
-    model, journal = restart_journal
-    (model / 'POINT2').write_text('1 8 1 -1000\n')
-    review = preview_restart(model, str(journal.relative_to(model)), keep_large_files=True)
-    result = apply_restart(model, review)
-    assert not (model / 'POINT2').exists()
-    assert (model / result['backup'] / 'before/POINT2').exists()

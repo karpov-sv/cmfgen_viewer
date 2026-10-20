@@ -132,7 +132,7 @@ def test_matching_jobs_are_found_in_ancestor_and_workspace_stores(solution, tmp_
     assert not (solution / 'lte' / JOB_DIR).exists()
 
 
-@pytest.mark.parametrize('flags', [['--lte'], ['--file', 'BAMAT'], ['--keep-large-files'], ['--no-keep-large-files']])
+@pytest.mark.parametrize('flags', [['--lte'], ['--file', 'BAMAT']])
 def test_full_cleanup_rejects_conflicting_options(solution, capsys, flags):
     assert main(['cleanup', str(solution), '--full', *flags, '--json']) == 2
     assert 'cannot be combined' in json.loads(capsys.readouterr().out)['error']
@@ -140,7 +140,6 @@ def test_full_cleanup_rejects_conflicting_options(solution, capsys, flags):
 
 def test_full_cleanup_ignores_retention_default_and_reports_partial_failures(solution, tmp_path, capsys, monkeypatch):
     _populate(solution)
-    (tmp_path / '.cmfgenrc').write_text('keep_large_files = true\n')
     original = model_full_cleanup.shutil.rmtree
     def fail(path, *args, **kwargs):
         if Path(path) == solution / '.cmfgen-runs':
@@ -149,7 +148,7 @@ def test_full_cleanup_ignores_retention_default_and_reports_partial_failures(sol
     monkeypatch.setattr(model_full_cleanup.shutil, 'rmtree', fail)
     assert main(['cleanup', str(solution), '--full', '--json']) == 1
     result = json.loads(capsys.readouterr().out)
-    assert result['keep_large_files'] is False
+    assert 'keep_large_files' not in result
     assert result['result']['failures']
     assert (solution / '.cmfgen-runs/old/data').exists()
     assert not (solution / '.cmfgen-viewer-backups').exists()

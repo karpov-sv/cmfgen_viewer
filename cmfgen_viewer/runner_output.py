@@ -167,7 +167,7 @@ class TerminalOutput:
             self.line("ERROR", "Preflight failed — nothing launched")
 
     def plan(self, plan):
-        self.line("INFO", "Recovery: " + ("full-size artifacts and logs" if plan.get("keep_large_files", False) else "compact; omit artifacts above 2 MiB and retain log excerpts"))
+        self.line("INFO", "Recovery: " + "keep fresh inputs, history, and log excerpts; omit calculated state")
         if plan.get("kind") == "sequence":
             self.line("INFO", f"CMFGEN multi-stage run — {plan['model']}")
             self.line("INFO", "Sequence: " + " → ".join(plan["stages"]))

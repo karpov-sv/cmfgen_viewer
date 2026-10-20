@@ -20,7 +20,6 @@ from .parsers.common import parse_float_token
 from .hydro_lte_alignment import preview_lte_hydro_alignment
 from .runner_validation import validate_rosseland_table, validate_rvtj_core
 from .runner_restart import RESTART_FILES, inspect_restart
-from .recovery_files import RECOVERY_FILE_LIMIT
 from .model_templates import resolve_model_template
 
 
@@ -137,7 +136,7 @@ def resolve_atomic_links(model: Path, stage: str, atomic: Path):
 
 def build_run_plan(model: Path, *, stage: str, cmfgen_root: Path, atomic_root: Path,
                    threads=None, timeout=None, memory_mib=None, iterations=None, fresh_start=False,
-                   no_core_dumps=False, lte_initialization=False, t_exc=1.0, keep_large_files=False) -> dict:
+                   no_core_dumps=False, lte_initialization=False, t_exc=1.0) -> dict:
     if stage not in PROGRAMS:
         raise RunnerError("Supported stages: test, main, lte, hydro, flux")
     if (threads is not None and threads < 1) or (memory_mib is not None and memory_mib < 128):
@@ -178,11 +177,6 @@ def build_run_plan(model: Path, *, stage: str, cmfgen_root: Path, atomic_root: P
     if restart:
         errors.extend(restart["errors"])
         warnings.extend(restart["warnings"])
-        backup_sizes = [(model / name).stat().st_size for name in restart["present_files"]
-                        if (model / name).is_file()]
-        backup_bytes = sum(size for size in backup_sizes if keep_large_files or size <= RECOVERY_FILE_LIMIT)
-        if not fresh_start and shutil.disk_usage(model).free < backup_bytes + 1024**3:
-            errors.append("Insufficient free space for checkpoint backup plus 1 GiB working headroom")
     activity = inspect_model_activity(model)
     if not activity["safe_to_modify"]:
         errors.append(activity["reason"])
@@ -384,9 +378,9 @@ def build_run_plan(model: Path, *, stage: str, cmfgen_root: Path, atomic_root: P
             "executable": str(exe), "executable_snapshot": snapshot(exe), "links": kept, "passes": passes,
             "inputs": [snapshot(path) for path in sorted(paths)], "threads": threads, "timeout": timeout,
             "memory_mib": memory_mib, "no_core_dumps": no_core_dumps, "errors": errors, "warnings": warnings,
-            "fresh_start": fresh_start, "initialization": initialization, "keep_large_files": keep_large_files,
+            "fresh_start": fresh_start, "initialization": initialization,
             "restart": restart,
             "permitted_links": sorted(permitted_links),
             "cache_files": list(FLUX_CACHE_FILES) if stage == "flux" else [],
-            "ready": not errors, "cleanup": "retire flux caches before each pass; retain diagnostics and atomic links; large recovery files require keep_large_files",
+            "ready": not errors, "cleanup": "retire flux caches before each pass; retain diagnostics and atomic links; recovery retains fresh inputs, history, and diagnostic excerpts",
             "scientific_acceptance": "not assessed", "launches_legacy_scripts": False}

@@ -15,7 +15,7 @@ import time
 import uuid
 
 from .workflow_permissions import copy_readable, make_readable, mkdir_readable, open_readable, readable_mode
-from .recovery_files import compact_recovery, copy_recovery, retire_recovery
+from .recovery_files import compact_recovery, copy_recovery, retire_recovery, retention_action
 from .model_activity import model_mutation_guard
 from .model_initialization import lte_initialization_controls
 from .control_files import control_occurrences
@@ -232,7 +232,6 @@ def _build_requested_stage_plan(
     template_root: Path | None = None,
     lte_initialization: bool = False,
     t_exc: float = 1.0,
-    keep_large_files: bool = False,
 ) -> dict[str, object]:
     """Build one stage, applying sequence-wide options only where relevant."""
     if stage == "prepare-lte":
@@ -256,10 +255,9 @@ def _build_requested_stage_plan(
             fresh_start=fresh_start if stage in {"main", "test"} else False,
             lte_initialization=lte_initialization if stage in {"main", "test"} else False,
             t_exc=t_exc,
-            keep_large_files=keep_large_files,
+
         )
         sources = configuration_sources
-    plan["keep_large_files"] = keep_large_files
     plan["configuration_sources"] = sources
     return plan
 
@@ -279,7 +277,6 @@ def build_sequence_plan(
     template_root: Path | None = None,
     lte_initialization: bool = False,
     t_exc: float = 1.0,
-    keep_large_files: bool = False,
 ) -> dict[str, object]:
     """Build the initial preflight and a serializable just-in-time stage recipe."""
     if lte_initialization and (not math.isfinite(t_exc) or t_exc <= 0):
@@ -304,7 +301,6 @@ def build_sequence_plan(
         iterations=iterations,
         fresh_start=stages[0] == fresh_start_stage,
         lte_initialization=lte_initialization, t_exc=t_exc,
-        keep_large_files=keep_large_files,
         cleanup_files=cleanup_files,
         template_root=template_root,
     )
@@ -322,7 +318,6 @@ def build_sequence_plan(
         "cwd": str(model_path),
         "stages": stages,
         "initial_plan": initial,
-        "keep_large_files": keep_large_files,
         "stage_options": {
             "native_config": serialized_config,
             "timeout": timeout,
@@ -332,7 +327,6 @@ def build_sequence_plan(
             "fresh_start": fresh_start,
             "fresh_start_stage": fresh_start_stage,
             "lte_initialization": lte_initialization, "t_exc": t_exc,
-            "keep_large_files": keep_large_files,
             "cleanup_files": cleanup_files,
             "template_root": str(template_root.expanduser().resolve()) if template_root is not None else None,
         },
@@ -373,7 +367,6 @@ def _sequence_stage_plan(
         no_core_dumps=options.get("no_core_dumps", False),
         iterations=options.get("iterations"),
         fresh_start=stage == options.get("fresh_start_stage"),
-        keep_large_files=options.get("keep_large_files", False),
         lte_initialization=options.get("lte_initialization", False),
         t_exc=options.get("t_exc", 1.0),
         cleanup_files=options.get("cleanup_files"),
@@ -437,10 +430,14 @@ def run_plan(plan: dict, emit=None) -> dict:
             mkdir_readable(inputs_dir)
             for record in plan["inputs"]:
                 path = Path(record["path"])
-                if record.get("sha256") and path.is_relative_to(model):
+                if (record.get("sha256") and path.is_relative_to(model)
+                        and (retention_action(path, record["size"]) == "keep")):
                     target = inputs_dir / path.relative_to(model)
                     mkdir_readable(target.parent, parents=True, exist_ok=True)
                     copy_readable(path, target)
+            if stage in {"main", "test"}:
+                from .history_inputs import capture_inputs
+                result["fresh_inputs"] = capture_inputs(model, journal, plan)
             if stage == "hydro" and plan.get("lte_composition_alignment"):
                 from .hydro_lte_alignment import apply_lte_hydro_alignment
                 alignment = apply_lte_hydro_alignment(model, plan["lte_composition_alignment"]["digest"])
@@ -450,17 +447,13 @@ def run_plan(plan: dict, emit=None) -> dict:
                 copy_readable(cwd / "HYDRO_PARAMS", effective / "HYDRO_PARAMS")
                 event("lte_composition_aligned", **alignment)
             if stage in {"main", "test"} and plan.get("restart", {}).get("present_files"):
-                restart_backup = journal / "restart-before"
-                mkdir_readable(restart_backup)
+                # Continue from live files, retiring them only on explicit fresh startup.
                 for name in RESTART_FILES:
                     path = model / name
                     if path.is_symlink() or (path.exists() and (not path.is_file() or path.stat().st_nlink != 1)):
                         raise RunnerError(f"Refusing unsafe restart file: {path}")
-                    if path.is_file():
-                        if plan.get("fresh_start"):
-                            retire_recovery(path, restart_backup / name, keep_large_files=plan.get("keep_large_files", False))
-                        else:
-                            copy_recovery(path, restart_backup / name, keep_large_files=plan.get("keep_large_files", False))
+                    if plan.get("fresh_start") and path.is_file():
+                        path.unlink()
             if plan.get("initialization"):
                 path = cwd / "VADAT"
                 if path.is_symlink() or path.stat().st_nlink != 1:
@@ -530,9 +523,9 @@ def run_plan(plan: dict, emit=None) -> dict:
                         raise RunnerError(f"Refusing unsafe output target: {path}")
                     if path.is_file():
                         if name in retired:
-                            retire_recovery(path, previous / name, keep_large_files=plan.get("keep_large_files", False))
+                            retire_recovery(path, previous / name)
                         else:
-                            copy_recovery(path, previous / name, keep_large_files=plan.get("keep_large_files", False))
+                            copy_recovery(path, previous / name)
                 before = {name: snapshot(cwd / name) for name in products}
                 if step["overrides"] or stage == "flux" or (
                         cwd / control_name in controls and controls[cwd / control_name].owned):
@@ -645,7 +638,7 @@ def run_plan(plan: dict, emit=None) -> dict:
                     path = cwd / name
                     if path.is_file() and not path.is_symlink():
                         make_readable(path)
-                        copy_recovery(path, pass_dir / name, keep_large_files=plan.get("keep_large_files", False))
+                        copy_recovery(path, pass_dir / name)
                 if record["status"] == "succeeded" and stage in {"main", "lte", "hydro"}:
                     final_progress = _progress(stage, cwd)
                     if final_progress.get("total") is not None:
@@ -659,7 +652,7 @@ def run_plan(plan: dict, emit=None) -> dict:
                     if destination.is_symlink():
                         raise RunnerError(f"Refusing symlinked spectrum target: {destination}")
                     if destination.exists():
-                        copy_recovery(destination, previous / destination.name, keep_large_files=plan.get("keep_large_files", False))
+                        copy_recovery(destination, previous / destination.name)
                     _publish(cwd / "OBSFRAME", destination)
                     record["output"] = str(destination)
                     event(
@@ -692,7 +685,7 @@ def run_plan(plan: dict, emit=None) -> dict:
             for record in result["passes"]:
                 if record["status"] == "running":
                     record["status"] = result["status"]
-            result["recovery"] = compact_recovery(journal, keep_large_files=plan.get("keep_large_files", False))
+            result["recovery"] = compact_recovery(journal)
             result["finished_at"] = datetime.now(timezone.utc).isoformat()
             _json(journal / "result.json", result)
             event("run_finished", stage=stage, status=result["status"], journal=str(journal))
@@ -749,7 +742,7 @@ def _run_promotion_plan(plan: dict, emit=None) -> dict:
             str(model.parent),
             model_relpath=model.name,
             expected_cleanup_entries=plan["lte_cleanup"]["entries"],
-            keep_large_files=plan.get("keep_large_files", False),
+
         )
         result["promotion"] = {
             "backup_relpath": promotion["backup_relpath"],
@@ -836,7 +829,7 @@ def _run_cleanup_plan(plan: dict, emit=None) -> dict:
             for item in cleanup["failures"]
         ]
         failures.extend(f"Candidate was no longer available: {name}" for name in cleanup["skipped"])
-        recovery = compact_recovery(archive, keep_large_files=plan.get("keep_large_files", False))
+        recovery = compact_recovery(archive)
         result["cleanup"] = {
             "recovery": recovery,
             "archive_path": str(archive),
@@ -1108,12 +1101,11 @@ def main(argv=None):
     parser.add_argument("--iterations", type=int)
     parser.add_argument("--lte-initialization", action="store_true", help="Use LTE initial departure coefficients for fresh main/test startup; temporarily override VADAT and restore it afterward")
     parser.add_argument("--t-exc", type=float, help="Minimum initial excitation temperature in 10^4 K with --lte-initialization (default: 1.0)")
-    parser.add_argument("--keep-large-files", action=argparse.BooleanOptionalAction, default=None, help="Keep full-size recovery artifacts and logs (default: .cmfgenrc keep_large_files, otherwise omit artifacts above 2 MiB and keep log excerpts)")
     parser.add_argument("--fresh-start", action="store_true", help="Retire POINT1/POINT2/SCRTEMP and force *_IN startup (default: continue when checkpoints are usable)")
     parser.add_argument(
         "--cleanup-file",
         action="append",
-        help="Restrict cleanup to this current candidate (repeatable; default: all)",
+        help="Restrict cleanup by model-relative candidate path, e.g. lte/POPHYD (repeatable; default: all workspaces)",
     )
     parser.add_argument("--json", action="store_true", help="Emit the full JSON status/plan/result on stdout (default: readable terminal summary)")
     parser.add_argument("--verbose", action="store_true", help="Show all reported warnings and captured diagnostic tails")
@@ -1192,8 +1184,6 @@ def main(argv=None):
             raise RunnerError("--template-root applies only to prepare-lte")
         if args.cleanup_file and "cleanup" not in stages:
             raise RunnerError("--cleanup-file applies only to the cleanup stage")
-        from .runner_config import resolve_recovery_policy
-        keep_large_files = resolve_recovery_policy(args.keep_large_files)
         if len(stages) == 1:
             plan = _build_requested_stage_plan(
                 args.model,
@@ -1207,7 +1197,6 @@ def main(argv=None):
                 fresh_start=args.fresh_start,
                 lte_initialization=args.lte_initialization,
                 t_exc=args.t_exc if args.t_exc is not None else 1.0,
-                keep_large_files=keep_large_files,
                 cleanup_files=args.cleanup_file,
                 template_root=args.template_root,
             )
@@ -1224,7 +1213,6 @@ def main(argv=None):
                 fresh_start=args.fresh_start,
                 lte_initialization=args.lte_initialization,
                 t_exc=args.t_exc if args.t_exc is not None else 1.0,
-                keep_large_files=keep_large_files,
                 cleanup_files=args.cleanup_file,
                 template_root=args.template_root,
             )

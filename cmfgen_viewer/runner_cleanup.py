@@ -23,7 +23,7 @@ def build_cleanup_plan(
     *,
     selected_names: list[str] | None = None,
 ) -> dict[str, object]:
-    """Return canonical cleanup candidates, optionally narrowed by name."""
+    """Return canonical cleanup candidates, across main, LTE, and observer workspaces, optionally narrowed by relative path."""
     model = model.expanduser().resolve()
     if not model.is_dir():
         raise RunnerError("Not a model workspace")
@@ -72,7 +72,7 @@ def build_cleanup_plan(
         "passes": [{"id": "cleanup", "overrides": {}}],
         "warnings": [
             "Runner cleanup archives candidates in its run journal; inspect the plan's "
-            "top-level file and symlink list before running it."
+            "file and symlink list across the main, LTE, and observer workspaces before running it."
         ],
         "errors": errors,
         "ready": not errors,

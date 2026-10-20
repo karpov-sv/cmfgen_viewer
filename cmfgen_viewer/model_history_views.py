@@ -6,7 +6,7 @@ from .browser import make_breadcrumb
 from .model_editor import _resolve_model, ModelEditorError
 from .model_history import (HistoryError, list_archives, archive_files, load_archived_control,
                             preview_housekeeping, apply_housekeeping)
-from .history_restart import preview_restart, apply_restart
+from .history_inputs import preview_inputs, apply_inputs
 from .model_activity import inspect_model_activity
 from .view_common import bp, _viewer_config, _notification_url
 
@@ -24,8 +24,7 @@ def model_history(source_path):
         abort(404)
     writable = bool(config.get('read_write_enabled'))
     error, review, token = '', None, None
-    restart_review, restart_token = None, None
-    restart_problem = ''
+    inputs_review, inputs_token, inputs_problem = None, None, ''
     try:
         days = int(request.args.get('older_than', '0'))
         if days < 0:
@@ -36,23 +35,22 @@ def model_history(source_path):
         if not writable:
             abort(403)
         try:
-            if request.form.get('action') == 'preview_restart':
-                restart_review = preview_restart(model, request.form.get('archive', ''),
-                    keep_large_files=request.form.get('keep_large_files') == '1')
-                restart_token = history_signer().dumps({'model': str(model), 'restart': restart_review})
-            elif request.form.get('action') == 'restore_restart':
+            if request.form.get('action') == 'preview_inputs':
+                inputs_review = preview_inputs(model, request.form.get('archive', ''))
+                inputs_token = history_signer().dumps({'model': str(model), 'inputs': inputs_review})
+            elif request.form.get('action') == 'restore_inputs':
                 signed = history_signer().loads(request.form.get('review_token', ''), max_age=1800)
                 if signed['model'] != str(model):
                     raise HistoryError('Recovery preview belongs to another model.')
-                result = apply_restart(model, signed['restart'])
+                result = apply_inputs(model, signed['inputs'])
                 try:
                     from .summary_cache import delete_model_summary_entries
                     delete_model_summary_entries(str(config['summary_cache_db']),
                         basepath=str(config['basepath']), relpaths=[source_path])
                 except Exception:
-                    current_app.logger.warning('Could not invalidate summary after restart recovery', exc_info=True)
-                return redirect(_notification_url('viewer.model_history', source_path=source_path,
-                    message='Native restart restored. Previous working state was archived under ' + result['backup'] + '.',
+                    current_app.logger.warning('Could not invalidate summary after input recovery', exc_info=True)
+                return redirect(_notification_url('viewer.model_main_computation', source_path=source_path,
+                    message='Saved inputs restored for a fresh run. Previous inputs and derived state were archived under ' + result['backup'] + '. No calculation was started.',
                     warning=' '.join(result['recovery']['warnings'])))
             elif request.form.get('action') == 'apply':
                 signed = history_signer().loads(request.form.get('review_token', ''), max_age=1800)
@@ -78,17 +76,16 @@ def model_history(source_path):
                 comparison = load_archived_control(model, archive_id, request.args['file'])
     except (ModelEditorError, OSError) as exc:
         error = str(exc)
-    if selected and selected.get('stage') in {'main', 'test'} and restart_review is None:
+    if selected and selected.get('stage') in {'main', 'test'} and inputs_review is None:
         try:
-            preview_restart(model, archive_id)
+            preview_inputs(model, archive_id)
         except (ModelEditorError, OSError) as exc:
-            restart_problem = str(exc)
+            inputs_problem = str(exc)
     activity = inspect_model_activity(model)
     return render_template('model_history.html', source_path=source_path,
         archives=[entry for entry in archives if entry['age_days'] >= days], older_than=days,
         total_size=sum(entry['size'] for entry in archives), total_count=len(archives),
         error=error, warnings=warnings, selected=selected, files=files, comparison=comparison,
         review=review, review_token=token, writable=writable, activity=activity,
-        restart_review=restart_review, restart_token=restart_token, restart_problem=restart_problem,
-        keep_large_files_default=bool(config.get("keep_large_files", False)),
+        inputs_review=inputs_review, inputs_token=inputs_token, inputs_problem=inputs_problem,
         breadcrumb=make_breadcrumb(source_path) + [{'name': 'History and recovery', 'path': None}])

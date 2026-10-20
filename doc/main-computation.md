@@ -18,6 +18,8 @@ Main computation can continue an existing model from its saved checkpoints. Nati
 python cmfgen_run.py /path/to/model --stage main
 ```
 
+To deliberately start from the latest text population outputs instead, use `python cmfgen_model.py out2in /path/to/model --plan`, then omit `--plan` to apply it. This copies `*OUT → *_IN` and `GAMMAS → GAMMAS_IN`, preserves the outputs, and retires `POINT1`/`POINT2`/`SCRTEMP`. The next ordinary main run then starts from the refreshed inputs. By comparison, runner `--fresh-start` only retires checkpoints; it does not refresh existing `*_IN` files. See [Templates and configuration](/documentation/templates-and-configuration) for recovery storage and compatibility considerations.
+
 Without `--iterations`, the runner uses `IN_ITS [NUM_ITS]`. This is the number of iterations requested **for this invocation**, including when continuing a model. For example, `NUM_ITS=20` requests **20 additional iterations** from the saved checkpoint, regardless of how many iterations the model has already completed. CMFGEN may stop earlier if its native stopping conditions are met.
 
 To request five additional iterations while preserving the saved IN_ITS settings, use a temporary runner override:
@@ -26,7 +28,7 @@ To request five additional iterations while preserving the saved IN_ITS settings
 python cmfgen_run.py /path/to/model --stage main --iterations 5
 ```
 
-The runner backs up existing checkpoints before updating them. Add `--plan` to inspect the detected startup mode and readiness without launching a calculation. Use `--fresh-start` explicitly to archive checkpoints and start from the initial inputs. Promoting new LTE/hydro results also archives and removes incompatible old checkpoints, so the next main run starts fresh. See [Command-line runner](/documentation/command-line-runner#continuation-and-fresh-starts) for checkpoint checks, recovery, and native fallback reporting.
+The runner continues from live checkpoints without archiving their binary state. Recovery retains saved inputs for a fresh run. Add `--plan` to inspect the detected startup mode and readiness without launching a calculation. Use `--fresh-start` explicitly to remove checkpoints and start from the initial inputs. Promoting new LTE/hydro results also retires incompatible old checkpoints, so the next main run starts fresh. See [Command-line runner](/documentation/command-line-runner#continuation-and-fresh-starts) for checkpoint checks, recovery, and native fallback reporting.
 
 ## Input checks and monitoring
 

@@ -24,11 +24,12 @@
   </div>
   {{ toolbar_link('history', true, 'viewer.model_history', 'History', 'history') }}
   <div class="dropdown model-folder-actions">
-    <button class="btn btn-sm {{ 'btn-secondary' if nav.active in ['create', 'rename', 'cleanup'] else 'btn-outline-secondary' }} dropdown-toggle" type="button" id="model-folder-actions" data-bs-toggle="dropdown" aria-expanded="false">Model actions</button>
+    <button class="btn btn-sm {{ 'btn-secondary' if nav.active in ['create', 'rename', 'out2in', 'cleanup'] else 'btn-outline-secondary' }} dropdown-toggle" type="button" id="model-folder-actions" data-bs-toggle="dropdown" aria-expanded="false">Model actions</button>
     <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="model-folder-actions">
       {% for section, enabled, endpoint, label, icon in [
         ('create', nav.read_write and nav.supports_staging, 'viewer.model_create_from_solution', 'New Model from Current', 'files-o'),
         ('rename', nav.read_write, 'viewer.model_rename', 'Rename / Move Model', 'pencil'),
+        ('out2in', nav.read_write, 'viewer.model_out2in', 'Outputs to Inputs (out2in)', 'exchange'),
         ('cleanup', nav.read_write, 'viewer.model_cleanup', 'Cleanup Model', 'trash')
       ] %}
         <li>

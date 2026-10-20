@@ -104,7 +104,7 @@ def test_runner_promotion_archives_temporary_files_and_keeps_results(promotable_
     assert cleanup['removed_count'] == len(names)
     archive = Path(cleanup['archive_path'])
     assert archive.parent.name == 'lte' and archive.name == 'temporary'
-    assert all((archive / name).read_text() == name for name in names)
+    assert all(not (archive / name).exists() for name in names)
     assert (lte / 'ROSSELAND_LTE_TAB').read_bytes() == before
     assert model_workflow.inspect_lte_hydro_workflow(str(promotable_model.parent), model_relpath=promotable_model.name)['promoted']
 
@@ -166,7 +166,7 @@ def test_cleanup_ui_works_after_promotion_and_is_read_write_gated(promotable_mod
     assert b'Clean LTE Temporary Files' not in response.data
     assert all(not (promotable_model / 'lte' / name).exists() for name in names)
     archive = next((promotable_model / '.cmfgen-viewer-backups/lte-cleanup').iterdir())
-    assert all((archive / name).read_text() == name for name in names)
+    assert all(not (archive / name).exists() for name in names)
     assert archive.stat().st_mode & 0o777 == 0o755
     read_only = create_app(basepath=str(promotable_model.parent), secret_key='test')
     assert read_only.test_client().post(url, data={'action': 'cleanup_lte'}).status_code == 403

@@ -114,7 +114,7 @@ def system_status():
         ["Model base directory", basepath],
         ["Model directory access", "Read-write" if read_write_enabled else "Read-only"],
         ["Model directory access source", str(cmfgen_sources.get("read_write") or "default")],
-        ["Large recovery files by default", "Keep full files" if config.get("keep_large_files", False) else "Omit above 2 MiB; retain diagnostic excerpts"],
+        ["Recovery", "Keep fresh inputs and diagnostic excerpts; omit calculated state"],
         ["CMFGEN root", str(config.get("cmfgen_root") or "Not configured")],
         ["CMFGEN root source", str(cmfgen_sources.get("cmfgen_root") or "None")],
         ["Atomic-data root", str(config.get("atomic_root") or "Not configured")],

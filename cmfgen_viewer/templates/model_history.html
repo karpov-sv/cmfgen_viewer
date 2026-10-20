@@ -8,7 +8,7 @@
   <h1 class="h4 mb-0">History and recovery</h1>
   <div class="small"><span class="text-muted me-3">{{ total_count }} archives · {{ size(total_size) }}</span><a href="{{ url_for('viewer.documentation', slug='getting-started', _anchor='history-and-recovery') }}">Recovery guide</a></div>
 </div>
-<p class="small text-muted">Browse saved controls and run evidence, compare historical controls with current files, or review archive cleanup. Archives are kept indefinitely. Compact archives can omit large recovery files; they are not full model snapshots.</p>
+<p class="small text-muted">Browse saved controls and run evidence, compare historical controls with current files, or review archive cleanup. Archives are kept indefinitely. New recovery archives retain fresh-run inputs and run evidence, omitting binary checkpoints, calculated products, and scratch files. They are not full model snapshots.</p>
 {% if error %}<div class="alert alert-danger py-2">{{ error }}</div>{% endif %}
 {% for warning in warnings %}<div class="alert alert-warning py-2">{{ warning }}</div>{% endfor %}
 {% if not activity.safe_to_modify %}<div class="alert alert-info py-2 small">{{ activity.reason }} Archive browsing remains available; cleanup and saving restored controls require an idle model.</div>{% endif %}
@@ -42,27 +42,27 @@
     </table></div>
     {% if selected.stage in ['main', 'test'] %}
       <div class="border-top mt-3 pt-2">
-        <strong class="small">Recover the pre-run native checkpoint</strong>
-        {% if restart_problem %}<p class="small text-muted mb-0">{{ restart_problem }} Retained files remain available for inspection and manual recovery.</p>
+        <strong class="small">Restore inputs for a fresh run</strong>
+        {% if inputs_problem %}<p class="small text-muted mb-0">{{ inputs_problem }}</p>
         {% elif writable %}<form method="post" class="mt-2">
-          <input type="hidden" name="action" value="preview_restart"><input type="hidden" name="archive" value="{{ selected.id }}">
-          <label class="small me-2"><input class="form-check-input me-1" type="checkbox" name="keep_large_files" value="1" {% if keep_large_files_default %}checked{% endif %}>Keep large recovery files for the current state</label>
-          <button class="btn btn-sm btn-outline-primary" {% if not activity.safe_to_modify %}disabled{% endif %}>Preview restart recovery</button>
+          <input type="hidden" name="action" value="preview_inputs"><input type="hidden" name="archive" value="{{ selected.id }}">
+          <button class="btn btn-sm btn-outline-primary" {% if not activity.safe_to_modify %}disabled{% endif %}>Preview input restoration</button>
         </form>{% endif %}
       </div>
     {% endif %}
   </div>
 </section>
 {% endif %}
-{% if restart_review %}
-<section class="card border-warning mb-3" id="restart-review">
-  <div class="card-header"><strong>Review native restart recovery</strong></div>
+{% if inputs_review %}
+<section class="card border-warning mb-3" id="inputs-review">
+  <div class="card-header"><strong>Restore inputs for a fresh run</strong></div>
   <div class="card-body">
-    <p class="small"><code>{{ restart_review.archive_id }}</code> · {{ restart_review.restart.message }}</p>
-    <p class="small">Restore {{ restart_review.restore.keys()|join(', ') }} as one set. Current checkpoints, atmosphere outputs, and radiation caches will move to a new recovery archive. Controls stay as reviewed; the solution is marked stale. No calculation starts.</p>
-    <p class="small">Recovery of the current state: {{ 'full-size files' if restart_review.keep_large_files else 'compact, omitting artifacts above 2 MiB' }}.</p>
-    {% for warning in restart_review.restart.warnings %}<div class="small text-muted mb-1">{{ warning }}</div>{% endfor %}
-    <form method="post" class="mt-3"><input type="hidden" name="action" value="restore_restart"><input type="hidden" name="review_token" value="{{ restart_token }}"><button class="btn btn-sm btn-danger" {% if not activity.safe_to_modify %}disabled{% endif %}>Restore reviewed restart</button> <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('viewer.model_history', source_path=source_path) }}">Cancel</a></form>
+    <p class="small">Restore the saved pre-run input set from <code>{{ inputs_review.archive_id }}</code>. Current binary checkpoints, populations, derived atmosphere/spectrum outputs, and old atomic links are retired. The solution is marked stale. No calculation starts.</p>
+    <div class="table-responsive mb-2" style="max-height: 18rem"><table class="table table-sm mb-0"><thead><tr><th>Restore input</th><th class="text-end">Size</th></tr></thead><tbody>{% for file in inputs_review.files %}<tr><td><code>{{ file.target }}</code></td><td class="text-end">{{ size(file.size) }}</td></tr>{% endfor %}</tbody></table></div>
+    <details class="mb-2"><summary class="small">Current files to retire</summary><ul class="small mb-0">{% for name, record in inputs_review.current.items() if record %}<li><code>{{ name }}</code></li>{% endfor %}</ul></details>
+    <p class="small">Current-state recovery: input files and diagnostic evidence; calculated state omitted.</p>
+    {% for warning in inputs_review.warnings %}<p class="small text-muted">{{ warning }}</p>{% endfor %}
+    <form method="post"><input type="hidden" name="action" value="restore_inputs"><input type="hidden" name="review_token" value="{{ inputs_token }}"><button class="btn btn-primary" {% if not activity.safe_to_modify %}disabled{% endif %}>Restore reviewed inputs</button> <a class="btn btn-outline-secondary" href="{{ url_for('viewer.model_history', source_path=source_path) }}">Cancel</a></form>
   </div>
 </section>
 {% endif %}
@@ -71,8 +71,8 @@
   <div class="card-header"><strong>Review {{ 'compaction' if review.action == 'compact' else 'archive deletion' }}</strong></div>
   <div class="card-body">
     <p>{{ review.entries|length }} archive(s) selected · approximately {{ size(review.reclaimable) }} removable.</p>
-    {% if review.action == 'compact' %}<p class="small">Remove artifacts above 2 MiB and shorten large diagnostic logs to beginning/end excerpts. JSON history and small files remain.</p>{% else %}<p class="small">Permanently delete the selected archives, including their logs and recovery copies. This cannot be undone. Working model files are outside this operation.</p>{% endif %}
-    {% if review.action == 'compact' and not review.reclaimable %}<p class="small text-muted">No large artifacts need compaction in these archives.</p>{% endif %}
+    {% if review.action == 'compact' %}<p class="small">Keep fresh-run inputs and JSON history; shorten large diagnostic logs to beginning/end excerpts. Remove calculated state, binary checkpoints, and scratch files regardless of size.</p>{% else %}<p class="small">Permanently delete the selected archives, including their logs and recovery copies. This cannot be undone. Working model files are outside this operation.</p>{% endif %}
+    {% if review.action == 'compact' and not review.reclaimable %}<p class="small text-muted">No disposable artifacts need compaction in these archives.</p>{% endif %}
     <ul class="small" style="max-height: 14rem; overflow: auto">{% for entry in review.entries %}<li><code>{{ entry.id }}</code> · {{ size(entry.reclaimable) }}</li>{% endfor %}</ul>
     <form method="post"><input type="hidden" name="action" value="apply"><input type="hidden" name="review_token" value="{{ review_token }}"><button class="btn btn-sm btn-danger" {% if not activity.safe_to_modify or (review.action == 'compact' and not review.reclaimable) %}disabled{% endif %}>Confirm {{ 'compaction' if review.action == 'compact' else 'deletion' }}</button> <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('viewer.model_history', source_path=source_path) }}">Cancel</a></form>
   </div>
@@ -85,14 +85,14 @@
   </div>
   <div class="card-body">
     <form method="post">
-      {% if writable and archives %}<div class="d-flex flex-wrap align-items-center gap-2 mb-3"><label class="small" for="cleanup-action">For selected archives</label><select class="form-select form-select-sm" style="width: auto" name="cleanup_action" id="cleanup-action"><option value="compact">Remove large artifacts; keep history</option><option value="delete">Delete complete archives</option></select><button class="btn btn-sm btn-outline-danger" {% if not activity.safe_to_modify %}disabled{% endif %}>Preview cleanup</button><span class="small text-muted" data-history-selection>0 selected</span></div>{% endif %}
+      {% if writable and archives %}<div class="d-flex flex-wrap align-items-center gap-2 mb-3"><label class="small" for="cleanup-action">For selected archives</label><select class="form-select form-select-sm" style="width: auto" name="cleanup_action" id="cleanup-action"><option value="compact">Keep inputs and history; remove calculated state</option><option value="delete">Delete complete archives</option></select><button class="btn btn-sm btn-outline-danger" {% if not activity.safe_to_modify %}disabled{% endif %}>Preview cleanup</button><span class="small text-muted" data-history-selection>0 selected</span></div>{% endif %}
       <div class="table-responsive"><table class="table table-sm align-middle">
         <thead><tr>{% if writable %}<th><input class="form-check-input" type="checkbox" data-history-select-all aria-label="Select all visible archives" {% if not activity.safe_to_modify %}disabled{% endif %}></th>{% endif %}<th>Saved</th><th>Archive</th><th>Recorded status / retention</th><th class="text-end">Size</th></tr></thead>
         <tbody>{% for entry in archives %}<tr>
           {% if writable %}<td><input class="form-check-input" type="checkbox" name="archive_id" value="{{ entry.id }}" aria-label="Select {{ entry.id }}" {% if not activity.safe_to_modify %}disabled{% endif %}></td>{% endif %}
           <td class="small text-nowrap">{{ entry.created_label }}</td>
           <td class="small"><a href="{{ url_for('viewer.model_history', source_path=source_path, archive=entry.id, _anchor='archive-files') }}">{{ entry.kind }}{% if entry.stage %} · {{ entry.stage }}{% endif %}</a><div class="font-monospace text-muted text-break">{{ entry.id }}</div></td>
-          <td class="small">{{ entry.status }}<div class="text-muted">{{ entry.policy }}</div></td>
+          <td class="small">{{ entry.status }}<div class="text-muted">{{ entry.policy }}</div>{% if entry.fresh_inputs %}<div class="text-muted">Fresh-run input bundle saved</div>{% endif %}</td>
           <td class="text-end text-nowrap small">{{ size(entry.size) }}<div class="text-muted">{{ entry.count }} files</div></td>
         </tr>{% else %}<tr><td colspan="5" class="small text-muted">No archives match this filter.</td></tr>{% endfor %}</tbody>
       </table></div>

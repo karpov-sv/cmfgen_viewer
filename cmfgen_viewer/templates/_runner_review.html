@@ -3,7 +3,7 @@
     {% set first = plan.initial_plan|default(plan) %}
     {% if first.restart %}<p>{{ first.restart.message }}</p>{% endif %}
     <p class="small">{% if 'main' in options.stages %}Main iterations: {{ options.iterations or 'from IN_ITS' }} · {% endif %}Threads: {{ options.threads or 'configured default' }} · Timeout: {{ options.timeout or 'unlimited' }}{% if options.timeout %} seconds{% endif %} · Memory: {{ options.memory_mib or 'no added limit' }}{% if options.memory_mib %} MiB{% endif %}{% if options.fresh_start %} · Fresh start{% endif %}</p>
-    <p class="small">Recovery files: {{ "full-size artifacts and logs" if options.keep_large_files else "compact — artifacts up to 2 MiB and diagnostic log excerpts" }}.</p>
+    <p class="small">Recovery files: complete fresh-run inputs, history, and diagnostic excerpts.</p>
     {% if options.lte_initialization %}<p class="small">LTE initial populations: DC_METH=LTE · T_EXC={{ options.t_exc }} (10⁴ K); VADAT restored afterward.</p>{% endif %}
     {% for issue in plan.errors %}<div class="alert alert-danger py-2">{{ issue }}</div>{% endfor %}
     {% set warnings = plan.warnings + (first.warnings if plan.initial_plan is defined else []) %}
