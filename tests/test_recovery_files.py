@@ -57,6 +57,23 @@ def test_copy_and_retire_follow_explicit_policy(tmp_path, keep):
         assert compact_recovery(tmp_path, keep_large_files=True)['bytes_released'] == 0
 
 
+def test_retire_readable_shared_log_does_not_require_ownership(tmp_path, monkeypatch):
+    source = tmp_path / 'OUT_FLUX'
+    source.write_text('previous flux log')
+    source.chmod(0o666)
+    destination = tmp_path / 'before' / source.name
+    destination.parent.mkdir()
+
+    def deny_chmod(*args, **kwargs):
+        raise PermissionError('Only the owner may change permissions')
+
+    monkeypatch.setattr(Path, 'chmod', deny_chmod)
+    retire_recovery(source, destination)
+    assert not source.exists()
+    assert destination.read_text() == 'previous flux log'
+    assert destination.stat().st_mode & 0o777 == 0o666
+
+
 @pytest.mark.parametrize('keep', [False, True])
 def test_native_run_keeps_working_output_with_optional_journal_copy(workspace, keep):
     model, make_plan = workspace

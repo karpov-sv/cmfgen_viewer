@@ -17,7 +17,11 @@ def make_readable(path: Path) -> None:
     """Add public read/traverse access to regular artifacts, skipping symlinks."""
     info = path.lstat()
     if stat.S_ISREG(info.st_mode) or stat.S_ISDIR(info.st_mode):
-        path.chmod(readable_mode(info.st_mode, directory=stat.S_ISDIR(info.st_mode)))
+        mode = readable_mode(info.st_mode, directory=stat.S_ISDIR(info.st_mode))
+        # Writable shared artifacts may belong to another account: even a
+        # chmod that leaves permissions unchanged would require ownership.
+        if stat.S_IMODE(info.st_mode) != mode:
+            path.chmod(mode)
 
 
 def mkdir_readable(path: Path, *, parents: bool = False, exist_ok: bool = False) -> None:
@@ -42,7 +46,10 @@ def copy_readable(source, destination, *, follow_symlinks: bool = True):
 def open_readable(path: Path, mode: str):
     stream = path.open(mode)
     try:
-        os.fchmod(stream.fileno(), readable_mode(os.fstat(stream.fileno()).st_mode))
+        current_mode = os.fstat(stream.fileno()).st_mode
+        desired_mode = readable_mode(current_mode)
+        if stat.S_IMODE(current_mode) != desired_mode:
+            os.fchmod(stream.fileno(), desired_mode)
     except BaseException:
         stream.close()
         raise
