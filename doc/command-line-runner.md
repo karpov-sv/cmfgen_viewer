@@ -50,6 +50,8 @@ This method requires `LIN_INT=F` and, if present, `LTE_EST=F`. These controls se
 
 For a persistent choice, **Edit parameters → Quick parameters → Initialization**, below the abundance groups, provides a `DC_METH` selector and a `T_EXC` field. The section is collapsed initially. Missing controls remain unset until explicitly filled, so ordinary stellar/abundance edits do not add initialization settings. Selecting `LTE` requires a positive `T_EXC`; `1.0` means 10,000 K for initial estimates. Review and save the diff through the usual backup workflow.
 
+The selector also supports `POP` (population fractions interpolated in radius) for the locally patched CMFGEN. It requires `LIN_INT=T` and `POP_SCALE=T`; existing `DC_METH=POP` values remain editable and are preserved when changing other parameters. The consolidated source-fix summary in `doc/developer/cmfgen-source-fixes.md` records the native implementation and validation.
+
 Population-initialization failures now receive suggested LTE recovery steps. Named `SCALE_POPS`/`CNVT_FR_DC` crash frames or the native zero-RGU safeguard provide specific evidence. An opaque fatal crash during fresh initialization is labeled **Possible initial population failure**; `SIGILL` alone is insufficient. On macOS, available `.ips` crash reports are correlated by process name, PID, and report freshness, and only their symbol names are used. Crash reports can arrive after the runner finishes, so a later web/status refresh may provide more specific evidence. A failure after iteration has begun is not assigned this initialization diagnosis. The analyzer does not change model inputs or restart a failed run automatically.
 
 ## Continuation and fresh starts

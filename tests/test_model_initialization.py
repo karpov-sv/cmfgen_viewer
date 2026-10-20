@@ -144,6 +144,31 @@ def test_initialization_selector_is_below_abundances_and_luminosity(workspace):
     assert 'Preview LTE initialization settings' not in page
 
 
+def test_population_method_is_editable_and_preserved_during_other_edits(workspace):
+    model, _ = workspace
+    with (model / "VADAT").open("a") as stream:
+        stream.write("T [LIN_INT]\nT [POP_SCALE]\nPOP [DC_METH] !population regrid\n")
+    root = str(model.parent)
+    card = load_quick_model_parameter_cards(root, model_relpath="model")[0]
+    field = next(field for field in card["fields"] if field["key"] == "DC_METH")
+    assert field["value"] == "POP"
+    assert ("POP", "Population fractions / radius") in field["choices"]
+    assert not any("[DC_METH]" in issue for issue in card["issues"])
+    values = {field["key"]: field["value"] for field in card["fields"]}
+    values.update(RSTAR="2", DC_METH="pop")
+    review = review_quick_model_parameter_edit(root, model_relpath="model", file_relpath="VADAT",
+                                              expected_digest=card["digest"], values=values)
+    assert "POP [DC_METH] !population regrid" in review["contents"]
+    app = create_app(basepath=root, read_write_enabled=True, secret_key="test")
+    page = app.test_client().get("/model-actions/edit/model").data.decode()
+    assert 'POP — Population fractions / radius' in page
+    assert '[DC_METH] has an unsupported value' not in page
+    values["DC_METH"] = "UNKNOWN"
+    with pytest.raises(ModelEditorError, match="Unsupported.*DC_METH"):
+        review_quick_model_parameter_edit(root, model_relpath="model", file_relpath="VADAT",
+                                          expected_digest=card["digest"], values=values)
+
+
 def test_population_postmortem_distinguishes_confirmed_and_suspected(tmp_path):
     (tmp_path / "VADAT").write_text("F [LIN_INT]\nT [IT_ON_T]\n")
     startup = "Starting a new model.\nCalling AUTO_ADD_ION\n"

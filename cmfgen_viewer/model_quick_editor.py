@@ -70,12 +70,14 @@ QUICK_PARAMETER_DEFINITIONS: dict[str, dict[str, dict[str, object]]] = {
             "kind": "token",
             "unit": "",
             "notice": "Fresh initialization only. Leave unset to preserve the native default "
-                      "(ED with LIN_INT=F, R with LIN_INT=T). LTE is a fallback, not a convergence guarantee.",
+                      "(ED with LIN_INT=F, R with LIN_INT=T). POP requires the patched CMFGEN "
+                      "with LIN_INT=T and POP_SCALE=T. LTE is a fallback, not a convergence guarantee.",
             "choices": [
                 ("ED", "Electron density"), ("R", "Radius"),
                 ("TR", "Temperature / radius"), ("RTX", "Excitation temperature / radius"),
                 ("SPH_TAU", "Spherical optical depth"), ("RNS", "Unscaled radius"),
                 ("LTE", "LTE initial populations"),
+                ("POP", "Population fractions / radius"),
             ],
         },
         "T_EXC": {
@@ -247,7 +249,7 @@ def _validate_quick_parameter_value(field: dict[str, object], raw_value: object)
     if kind == "token":
         if len(value) > 64 or QUICK_TOKEN_RE.fullmatch(value) is None:
             raise ModelEditorError(f"[{key}] must be a single control token.")
-        if key == "DC_METH" and value.upper() not in {"ED", "R", "RNS", "TR", "RTX", "SPH_TAU", "LTE"}:
+        if key == "DC_METH" and value.upper() not in {choice[0] for choice in field["choices"]}:
             raise ModelEditorError("Unsupported [DC_METH] interpolation method")
         return value.upper() if key == "DC_METH" else value
     raise ModelEditorError(f"[{key}] has an unsupported quick-editor field type.")
