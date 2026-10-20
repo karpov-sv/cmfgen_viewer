@@ -22,7 +22,8 @@ from .workflow_permissions import open_readable
 RUNS = '.cmfgen-runs'
 BACKUPS = MODEL_EDITOR_BACKUP_DIR
 BACKUP_LABELS = {'lte-hydro': 'LTE / Hydro promotion', 'lte-cleanup': 'LTE cleanup',
-                 'hydro-alignment': 'Hydro alignment', 'history-restore': 'Restart recovery'}
+                 'hydro-alignment': 'Hydro alignment', 'history-restore': 'Restart recovery',
+                 'out2in': 'Restart from text outputs'}
 BACKUP_GROUPS = set(BACKUP_LABELS)
 STAGES = {'main', 'test', 'lte', 'hydro', 'continuum', 'flux-10', 'flux-15', 'flux-20'}
 

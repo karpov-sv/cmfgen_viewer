@@ -225,7 +225,7 @@ def test_standalone_entry_point_help():
     script = Path(__file__).resolve().parents[1] / 'cmfgen_model.py'
     result = subprocess.run([sys.executable, str(script), '--help'], capture_output=True, text=True)
     assert result.returncode == 0
-    assert '{show,get,copy,cleanup,set}' in result.stdout
+    assert '{show,get,copy,cleanup,out2in,set}' in result.stdout
 
 
 def test_get_prints_only_the_raw_value_and_never_mutates(tmp_path, capsys, monkeypatch):

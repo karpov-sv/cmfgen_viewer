@@ -196,7 +196,7 @@ Changing terminal launcher files alone does not invalidate LTE output freshness.
 
 ## Command-line model maintenance
 
-`cmfgen_model.py` exposes the same model-maintenance operations as the UI without starting a web server. It does not require `cmfgen_root` or `atomic_root`. An explicit mutating subcommand authorizes writes; the viewer's `read_write` setting does not enable or disable this standalone tool. Model activity checks and cooperative write locks still apply. `show` and `get` are read-only. Mutating subcommands support `--plan` for read-only inspection; every subcommand supports `--json` for machine-readable reports.
+`cmfgen_model.py` exposes the same model-maintenance operations as the UI without starting a web server. It does not require `cmfgen_root` or `atomic_root`. An explicit mutating subcommand authorizes writes; the viewer's `read_write` setting does not enable or disable this standalone tool. Model activity checks and cooperative write locks still apply. `show` and `get` are read-only. `out2in` prepares a new native startup in the existing model folder without launching a calculation. Mutating subcommands support `--plan` for read-only inspection; every subcommand supports `--json` for machine-readable reports.
 
 ```bash
 python3 cmfgen_model.py show /path/to/model
@@ -215,6 +215,17 @@ python3 cmfgen_model.py set /path/to/model --file IN_ITS NUM_ITS=10
 Omit `--plan` to apply a planned operation. Plans describe the current files; each executing invocation validates its own inputs again. Exit status is `0` for success, a ready plan, or an unchanged operation; `2` for invalid inputs or blocked preflight; `1` for execution failure; and `130` for interruption. Operational errors are reported as JSON when `--json` is selected; argument syntax errors use argparse's normal error output.
 
 **Copy** creates a new directory with `*OUT` copied to `*_IN`, `GAMMAS` copied to `GAMMAS_IN`, and the UI's selected controls and observer setup. Original files are preserved. Binary restart files, old calculated products, archives, and the LTE workspace are omitted. The destination parent must already exist, and the destination cannot already exist or lie inside the source model. `--template-root` overrides the shared `.cmfgenrc` template setting. Templates are resolved through the same source/model-tree/package search as the UI. No shell script is run.
+
+**Out2in** refreshes the existing model's initial populations and removes its binary continuation state:
+
+```bash
+python cmfgen_model.py out2in /path/to/model --plan
+python cmfgen_model.py out2in /path/to/model
+```
+
+This copies every top-level `*OUT` to its corresponding `*_IN`, and `GAMMAS` to `GAMMAS_IN`, preserving the outputs. Existing `POINT1`, `POINT2`, and `SCRTEMP` are retired so the next main run uses the refreshed text inputs. It also works when those checkpoints are already absent. Use this when deliberately restarting the solver from the latest text solution, recovering without usable binary checkpoints, or reseeding after compatible model changes. Normal continuation needs none of these steps. This operation does not change `VADAT`, `MODEL_SPEC`, `IN_ITS`, or existing scientific results, and does not start CMFGEN. Population/grid and atomic-data compatibility still need review; a fresh solver startup does not imply convergence.
+
+The model must be idle. Missing/empty outputs, symlinked or shared files, unsafe archive paths, and a changed reviewed inventory block the operation. All replacement inputs are staged before live changes; failures during replacement restore the previous inputs and checkpoints. Previous inputs and retired checkpoints are stored under `.cmfgen-viewer-backups/out2in/`, visible in **History**. The usual compact recovery policy applies only after success: files larger than 2 MiB are omitted by default, including large `SCRTEMP` files. Use `--keep-large-files` (or the shared `.cmfgenrc` setting) to retain complete recovery data; `--no-keep-large-files` explicitly selects compact storage. `--json` provides the copy mapping, retired checkpoint list, archive path, and recovery details.
 
 **Cleanup** uses the runner's conservative top-level candidate policy by default, retaining its normal run journal. Repeat `--file NAME` to select specific main-folder candidates. Top-level atomic links are cleanup candidates, but their targets are left untouched. `--lte` instead applies the LTE-workspace policy, preserving regular controls, population inputs, handoff products, and retained diagnostics, with recovery files under `.cmfgen-viewer-backups/lte-cleanup/`. LTE cleanup also removes all top-level symbolic links, including broken links and directory links, without following their targets; ordinary cleanup archives the links themselves. `--full` applies the same link-removal rule in the main, LTE, and observer workspaces. `--file` and `--lte` cannot be combined. An empty valid selection is an unchanged operation. Both modes use `.cmfgenrc` `keep_large_files`, defaulting to compact storage; explicit `--keep-large-files` or `--no-keep-large-files` overrides it. Ordinary cleanup cleans working files, not old recovery archives; use **History** for selective archive housekeeping or `--full` as described below.
 
