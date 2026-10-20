@@ -10,6 +10,7 @@ from flask import abort, current_app, redirect, render_template, request
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 
 from .model_full_cleanup import FullCleanupError, build_full_cleanup_plan, run_full_cleanup
+from .model_reseed import build_reseed_plan, run_reseed_plan
 
 from .browser import is_model_directory, make_breadcrumb, resolve_path
 from .model_staging import (
@@ -52,6 +53,54 @@ def _model_action_breadcrumb(source_relpath: str, action_name: str) -> list[dict
         breadcrumb[-1]["path"] = source_relpath
     breadcrumb.append({"name": action_name, "path": None})
     return breadcrumb
+
+
+@bp.route("/model-actions/out2in/<path:source_path>", methods=["GET", "POST"])
+def model_out2in(source_path: str):
+    config = _viewer_config()
+    if not config.get("read_write_enabled", False):
+        abort(403)
+    try:
+        source = resolve_path(str(config.get("basepath", ".")), source_path)
+    except FileNotFoundError:
+        abort(404)
+    if not is_model_directory(source):
+        abort(404)
+    values = request.form if request.method == "POST" else request.args
+    keep = (values.get("keep_large_files") == "1" if "recovery_setting" in values
+            else bool(config.get("keep_large_files", False)))
+    signer = URLSafeTimedSerializer(current_app.secret_key, salt="model-out2in")
+
+    def review_data(plan):
+        signature = hashlib.sha256(json.dumps({key: plan[key] for key in
+            ("entries", "checkpoints", "keep_large_files")}, sort_keys=True).encode()).hexdigest()
+        return {"model": str(source), "signature": signature}
+
+    plan = build_reseed_plan(source, keep_large_files=keep)
+    error = ""
+    if request.method == "POST":
+        try:
+            if values.get("confirm_out2in") != "1":
+                raise ValueError("Confirm replacing the initial inputs and retiring the listed checkpoints.")
+            try:
+                reviewed = signer.loads(values.get("review_token", ""), max_age=1800)
+            except BadSignature as exc:
+                raise ValueError("Out2in preview expired or is invalid; review the list again.") from exc
+            if reviewed != review_data(plan):
+                raise ValueError("Out2in files or recovery settings changed, or the preview belongs to another model; review again.")
+            result = run_reseed_plan(plan)
+            warnings = result["recovery"]["warnings"]
+            return redirect(_notification_url("viewer.model_main_computation", source_path=source_path,
+                message=f"Out2in refreshed {len(result['updated_inputs'])} initial inputs and retired "
+                        f"{len(result['retired_checkpoints'])} binary checkpoints. The next main run starts from text inputs.",
+                warning=" ".join(warnings)))
+        except (ValueError, OSError) as exc:
+            error = str(exc)
+            plan = build_reseed_plan(source, keep_large_files=keep)
+    token = signer.dumps(review_data(plan)) if plan["ready"] else ""
+    return render_template("model_out2in.html", source_path=source_path, plan=plan,
+        error=error, review_token=token,
+        breadcrumb=_model_action_breadcrumb(source_path, "Outputs to inputs (out2in)"))
 
 
 @bp.route("/model-actions/create/<path:source_path>", methods=["GET", "POST"])

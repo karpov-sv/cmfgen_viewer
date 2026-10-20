@@ -20,6 +20,7 @@ def make_model(path: Path):
     ("viewer.model_create_from_solution", "create"),
     ("viewer.model_rename", "rename"),
     ("viewer.model_cleanup", "cleanup"),
+    ("viewer.model_out2in", "out2in"),
 ])
 def test_workspace_navigation_returns_to_parent_model(tmp_path, endpoint, section):
     make_model(tmp_path / "grid" / "star")

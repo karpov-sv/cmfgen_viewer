@@ -216,6 +216,8 @@ Omit `--plan` to apply a planned operation. Plans describe the current files; ea
 
 **Copy** creates a new directory with `*OUT` copied to `*_IN`, `GAMMAS` copied to `GAMMAS_IN`, and the UI's selected controls and observer setup. Original files are preserved. Binary restart files, old calculated products, archives, and the LTE workspace are omitted. The destination parent must already exist, and the destination cannot already exist or lie inside the source model. `--template-root` overrides the shared `.cmfgenrc` template setting. Templates are resolved through the same source/model-tree/package search as the UI. No shell script is run.
 
+**Model actions → Outputs to Inputs (out2in)** opens the same operation in the UI, with a preview of input replacements and checkpoint retirement. Choose the recovery policy, confirm the reviewed changes, then use Main Computation to start the calculation. Changed or expired previews must be reviewed again.
+
 **Out2in** refreshes the existing model's initial populations and removes its binary continuation state:
 
 ```bash
