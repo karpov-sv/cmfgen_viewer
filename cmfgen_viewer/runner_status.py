@@ -51,7 +51,7 @@ def _latest_native_run(model, warnings):
     return None
 
 
-def inspect_model_status(model: Path) -> dict:
+def inspect_model_status(model: Path, *, diagnose=False) -> dict:
     """Inspect existing evidence without launching processes or creating files."""
     model = model.expanduser().resolve()
     if not model.is_dir():
@@ -80,6 +80,10 @@ def inspect_model_status(model: Path) -> dict:
         restart = {"mode": "unknown", "pointer": None, "message": f"Checkpoint inspection unavailable: {exc}"}
     activity = inspect_model_activity(model)
     latest_run = _latest_native_run(model, warnings)
+    from .retrospective_diagnostics import inspect_main_recommendations
+    native = diagnose_main_run(model, active=activity['state'] == 'active')
+    recommendations = inspect_main_recommendations(
+        model, active=activity['state'] != 'idle', force=diagnose, native=native)
     evidence = [
         name for name in ("OUTGEN", "batch.log", "RVTJ", "MODEL", "MOD_SUM", "POINT1", "POINT2", "SCRTEMP")
         if (model / name).is_file() and (model / name).stat().st_size
@@ -107,7 +111,8 @@ def inspect_model_status(model: Path) -> dict:
             "has_run": bool(evidence) or bool(latest_run and latest_run["executed"]),
             "evidence_files": evidence,
             "activity": activity,
-            "main_result": diagnose_main_run(model),
+            "main_result": native,
+            "main_diagnostics": recommendations,
             "latest_run": latest_run,
             "restart": restart,
             "saved_iterations": pointer["iterations"] if pointer else None,

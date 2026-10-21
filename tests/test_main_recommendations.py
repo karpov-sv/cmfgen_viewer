@@ -184,3 +184,45 @@ def test_detached_main_job_displays_recommendations(auto_workspace):
         assert page.status_code == 200
         assert b'Auto remedy available' in page.data
         assert b'N_FIX_BA=0' in page.data
+
+
+@pytest.mark.parametrize('options',[[],['--plan'],['--json']])
+def test_no_stage_summary_displays_current_recommendations_without_mutation(auto_workspace,monkeypatch,capsys,options):
+    from cmfgen_viewer import runner
+    from cmfgen_viewer.runner_recipe import snapshot
+    model, make=auto_workspace
+    result=run_plan(ordinary(make()))
+    before={p.relative_to(model):snapshot(p) for p in model.rglob('*')}
+    monkeypatch.setattr(runner,'run_plan',lambda *args,**kwargs: pytest.fail('status must not execute a model'))
+    code=runner.main([str(model),'--cmfgen-root',str(model.parent/'cmf'),
+        '--atomic-root',str(model.parent/'atomic'),*options])
+    assert code==0
+    captured=capsys.readouterr()
+    assert captured.err==''
+    if '--json' in options:
+        status=json.loads(captured.out)
+        assert status['state']['main_diagnostics']==result['main_diagnostics']
+    else:
+        assert 'Latest end-of-run check:' in captured.out
+        assert 'Suggested controls:' in captured.out
+        assert 'N_FIX_BA' in captured.out
+        assert 'no remedy applied' in captured.out
+    assert {p.relative_to(model):snapshot(p) for p in model.rglob('*')}==before
+
+
+def test_status_hides_recommendations_after_output_change(auto_workspace):
+    from cmfgen_viewer.runner_status import inspect_model_status
+    model, make=auto_workspace
+    run_plan(ordinary(make()))
+    assert inspect_model_status(model)['state']['main_diagnostics']
+    (model/'OUTGEN').write_text((model/'OUTGEN').read_text()+'! later output\n')
+    assert inspect_model_status(model)['state']['main_diagnostics']['mode']=='retrospective'
+
+
+@pytest.mark.parametrize('activity',['active','unknown'])
+def test_status_hides_recommendations_unless_idle(auto_workspace,monkeypatch,activity):
+    from cmfgen_viewer import runner_status
+    model, make=auto_workspace
+    run_plan(ordinary(make()))
+    monkeypatch.setattr(runner_status,'inspect_model_activity',lambda model:{'state':activity})
+    assert runner_status.inspect_model_status(model)['state']['main_diagnostics'] is None

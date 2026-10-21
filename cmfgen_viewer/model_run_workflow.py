@@ -138,8 +138,8 @@ def inspect_main_model_workflow(basepath: str, *, model_relpath: str, config: di
     else:
         result_status = "stale"
     runtime = inspect_workflow_runtime(model_dir, "main")
-    from .main_recommendations import current_main_recommendations
-    recommendations = current_main_recommendations(
+    from .retrospective_diagnostics import inspect_main_recommendations
+    recommendations = inspect_main_recommendations(
         model_dir, active=runtime["active"] or stage_preflight["activity"]["state"] != "idle")
     return {
         "main_diagnostics": recommendations,

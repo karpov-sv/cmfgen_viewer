@@ -1,8 +1,9 @@
 {% macro main_recommendations(report) -%}
   {% if report %}
     <div class="border rounded p-3 mb-3">
-      <strong>End-of-run diagnostic and recommendations</strong>
+      <strong>{{ "Recomputed model diagnostics and recommendations" if report.mode == "retrospective" else "End-of-run diagnostic and recommendations" }}</strong>
       <p class="small mt-2 mb-2">{{ report.summary }}</p>
+      {% for limitation in report.limitations|default([]) %}<p class="small text-muted mb-1">{{ limitation }}</p>{% endfor %}
       {% if report.evidence_error %}<p class="small text-warning-emphasis">{{ report.evidence_error }}</p>{% endif %}
       {% for finding in report.findings %}
         <div class="border-top pt-2 mt-2">

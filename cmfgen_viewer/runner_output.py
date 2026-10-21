@@ -3,6 +3,8 @@
 from datetime import datetime
 import os
 import json
+import shutil
+import textwrap
 
 from tqdm import tqdm
 
@@ -44,6 +46,21 @@ class TerminalOutput:
             tqdm.write(rendered, file=self.stream)
         else:
             print(rendered, file=self.stream, flush=True)
+
+    def paragraph(self, label, prefix, message):
+        columns = shutil.get_terminal_size(fallback=(100, 24)).columns
+        width = max(40, min(columns, 120) - 7)  # Account for the status tag.
+        for line in textwrap.wrap(prefix + str(message), width=width,
+                                  subsequent_indent=" " * len(prefix),
+                                  break_long_words=False, break_on_hyphens=False):
+            self.line(label, line)
+
+    def section(self, title):
+        if self.progress_bars:
+            tqdm.write("", file=self.stream)
+        else:
+            print(file=self.stream, flush=True)
+        self.line("INFO", f"--- {title} ---")
 
     def _close_progress(self, stage=None):
         keys = list(self.progress_bars) if stage is None else [stage]
@@ -132,13 +149,49 @@ class TerminalOutput:
             other.extend(skipped)
         self.details("WARN", other)
 
+    def recommendations(self, advice, *, heading="End-of-run check"):
+        if not advice:
+            return
+        self.section("Diagnostics and recommendations")
+        self.line("INFO", heading + ": " + advice["summary"])
+        for index, finding in enumerate(advice["findings"], 1):
+            if index > 1:
+                print(file=self.stream, flush=True)
+            self.line("WARN", f"{index}. {finding['title']}")
+            self.paragraph("INFO", "   Finding: ", finding["message"])
+            self.paragraph("INFO", "   Next: ", finding["recommendation"])
+            if finding.get("automatic_eligible"):
+                self.line("INFO", "   Auto mode: remedy available when restart prerequisites are satisfied")
+            proposal = finding.get("proposal", {})
+            if proposal.get("changes"):
+                self.line("INFO", "   Suggested controls: " + json.dumps(proposal["changes"], sort_keys=True))
+            if proposal.get("caches"):
+                self.line("INFO", "   Retire caches: " + ", ".join(proposal["caches"]))
+            for step in proposal.get("steps", []):
+                self.line("INFO", f"   Recovery step: {step['name']} ({step['iterations']} iterations)")
+                options = step.get("native_options", {})
+                if options.get("pop_initialization"):
+                    self.line("INFO", "   Temporary DC_METH=POP with existing LIN_INT=T, POP_SCALE=T; restore normal controls for continuation")
+                if options.get("lte_initialization"):
+                    self.line("INFO", f"   Temporary DC_METH=LTE, T_EXC={options.get('t_exc', 1.0)}; restore normal controls for continuation")
+                if options.get("hydro_recovery_probe"):
+                    self.line("INFO", "   Temporary STOP_IF_MW=F; restore the guard and verify the follow-up")
+        if advice.get("limitations") or advice.get("evidence_error"):
+            self.line("INFO", "Assessment limits:")
+            if advice.get("evidence_error"):
+                self.line("WARN", "   " + advice["evidence_error"])
+            self.details("INFO", ["   - " + text for text in advice.get("limitations", [])])
+        self.line("INFO", "Advisory only: no remedy applied. See main-computation.md, Automatic convergence and recovery rules.")
+
     def status(self, report):
         self.line("INFO", f"CMFGEN model — {report['model']}")
+        self.section("Model information")
         self.line("INFO", "Read-only status; select --stage main to run or --stage test for a zero-iteration startup check")
         for label, key in (("VADAT", "parameters"), ("MODEL_SPEC", "dimensions")):
             values = report[key]
             self.line("INFO", f"{label}: " + (", ".join(f"{name}={value}" for name, value in values.items()) or "unavailable"))
         state = report["state"]
+        self.section("Run status and checkpoint")
         self.line("INFO", "Run evidence: " + (", ".join(state["evidence_files"]) if state["evidence_files"] else "runner journal" if state["has_run"] else "none recorded"))
         self.line("INFO", f"Model activity: {state['activity']['state']}")
         if state["activity"].get("reason"):
@@ -156,12 +209,17 @@ class TerminalOutput:
             self.line("INFO", f"Run report: {latest['journal']}/result.json")
         main_result = state["main_result"]
         self.line("INFO", f"Main solution: {main_result['status_label']} — {main_result['summary']}")
+        if main_result.get("findings"):
+            self.section("Native diagnostics")
         self.findings(main_result.get("findings", []))
         if self.verbose:
             for detail in main_result.get("details", []):
                 self.line("INFO", detail["message"])
         self.warnings(report.get("warnings", []))
-        self.line("INFO", "Main-stage preflight:")
+        self.recommendations(state.get("main_diagnostics"), heading=(
+            "Recomputed model checks" if (state.get("main_diagnostics") or {}).get("mode") == "retrospective"
+            else "Latest end-of-run check"))
+        self.section("Main-stage preflight")
         preflight = report["preflight"]
         if preflight.get("executable"):
             self.plan(preflight)
@@ -422,29 +480,6 @@ class TerminalOutput:
                 f"{'Cleaned' if cleanup.get('recovery', {}).get('discarded_files') else 'Archived'} {cleanup['removed_count']} cleanup candidate(s)",
             )
             self.line("INFO", f"Recovery archive: {cleanup['archive_path']}")
-        advice = result.get("main_diagnostics")
-        if advice:
-            self.line("INFO", "End-of-run check: " + advice["summary"])
-            if advice.get("evidence_error"):
-                self.line("WARN", advice["evidence_error"])
-            for finding in advice["findings"]:
-                self.line("WARN", finding["message"])
-                self.line("INFO", finding["recommendation"])
-                proposal = finding.get("proposal", {})
-                if proposal.get("changes"):
-                    self.line("INFO", "Suggested controls: " + json.dumps(proposal["changes"], sort_keys=True))
-                if proposal.get("caches"):
-                    self.line("INFO", "Retire caches: " + ", ".join(proposal["caches"]))
-                for step in proposal.get("steps", []):
-                    self.line("INFO", f"Recovery step: {step['name']} ({step['iterations']} iterations)")
-                    options = step.get("native_options", {})
-                    if options.get("pop_initialization"):
-                        self.line("INFO", "Temporary DC_METH=POP with existing LIN_INT=T, POP_SCALE=T; restore normal controls for continuation")
-                    if options.get("lte_initialization"):
-                        self.line("INFO", f"Temporary DC_METH=LTE, T_EXC={options.get('t_exc', 1.0)}; restore normal controls for continuation")
-                    if options.get("hydro_recovery_probe"):
-                        self.line("INFO", "Temporary STOP_IF_MW=F; restore the guard and verify the follow-up")
-            self.line("INFO", "Advisory only: no remedy applied. See main-computation.md, Automatic convergence and recovery rules.")
         if result.get("error"):
             self.line("ERROR", result["error"])
         self.details("ERROR", result.get("restore_errors", []))
@@ -477,6 +512,7 @@ class TerminalOutput:
             self.line("INFO", "Startup mode has no explicit native confirmation; see the saved report.")
         if result.get("journal"):
             self.line("INFO", f"Run report: {result['journal']}/result.json")
+        self.recommendations(result.get("main_diagnostics"))
 
     def findings(self, findings, *, prefix=""):
         """Show causes and recovery guidance without requiring --verbose."""

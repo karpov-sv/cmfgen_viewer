@@ -220,3 +220,19 @@ def test_pop_accepts_different_source_and_target_depth_counts(pop_workspace):
     evidence=pop_source_evidence(model,ordinary(make('pop_good')))
     assert evidence['source_depths']==2
     assert evidence['source_atoms']==['He2_IN']
+
+
+def test_no_stage_summary_shows_pop_remedy_even_when_next_preflight_is_blocked(pop_workspace,monkeypatch,capsys):
+    from cmfgen_viewer import runner
+    from cmfgen_viewer.runner_recipe import snapshot
+    model, make=pop_workspace
+    assert run_plan(ordinary(make('pop_good')))['status']=='failed'
+    before={p.relative_to(model):snapshot(p) for p in model.rglob('*')}
+    monkeypatch.setattr(runner,'run_plan',lambda *a,**kw: pytest.fail('inspection must not launch a run'))
+    assert runner.main([str(model),'--cmfgen-root',str(model.parent/'cmf'),
+        '--atomic-root',str(model.parent/'atomic')])==2
+    text=capsys.readouterr().out
+    assert 'Latest end-of-run check:' in text
+    assert 'Recovery step: pop_initialization' in text
+    assert 'DC_METH=POP' in text
+    assert {p.relative_to(model):snapshot(p) for p in model.rglob('*')}==before

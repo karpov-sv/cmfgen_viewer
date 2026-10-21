@@ -152,10 +152,16 @@ def ng_accelerations(text):
 
 def assess(model, run, before, solution_offset, requested, *, hydro_revisions=()):
     """Reject stale or ambiguous evidence rather than declaring success."""
-    from .runner import _tail
     for name in ('OUTGEN', 'CORRECTION_SUM', 'RVTJ'):
         if snapshot(model / name) == before.get(name):
             raise RunnerError(f'{name} was not refreshed by this attempt')
+    from datetime import datetime
+    started = datetime.fromisoformat(run['started_at']).timestamp()
+    return _assess_outputs(model, solution_offset, requested, hydro_revisions, started)
+
+
+def _assess_outputs(model, solution_offset, requested, hydro_revisions, started):
+    from .runner import _tail
     validate_rvtj_core(model / 'RVTJ', model / 'MODEL_SPEC', finite_all=True)
     restart = inspect_restart(model)
     if restart['mode'] != 'continuation' or restart['errors']:
@@ -180,7 +186,8 @@ def assess(model, run, before, solution_offset, requested, *, hydro_revisions=()
     if eps is None or eps <= 0:
         raise RunnerError('Automatic convergence requires a positive explicit [EPS_TERM]')
     counts = correction_counts(model)
-    steps = raw_temperature_steps(model / 'STEQ_VALS', solution_offset, counts['nt'], counts['nd'])
+    steps = (raw_temperature_steps(model / 'STEQ_VALS', solution_offset, counts['nt'], counts['nd'])
+             if solution_offset is not None else [])
     # Match only complete printed vectors to the corresponding final records.
     thermal = []
     for record, vector in zip(records[-len(steps):] if steps else [], steps):
@@ -195,8 +202,6 @@ def assess(model, run, before, solution_offset, requested, *, hydro_revisions=()
                                   if float(label.removesuffix('%')) >= eps)
     candidate = candidate and not any(r['global_iteration'] in adjusted_counters
                                       for r in records[-2:])
-    from datetime import datetime
-    started = datetime.fromisoformat(run['started_at']).timestamp()
     quality = inspect_quality(model, records, text, started, requested,
                               _correction_summary(model, started))
     return {'records': records, 'full_iterations': len(full), 'iterations': len(records),
@@ -236,3 +241,32 @@ def recovery_action(run):
     if re.search(r'incorrect reading of EDDFACTOR\b', text, re.I):
         return 'radiation_cache'
     return None
+
+
+def assess_existing(model):
+    """Timestamp-screened historical evidence, never invocation/acceptance proof."""
+    from .model_convergence import _read_limited_tail, _run_segments, _parse_run_started_epoch
+    from .model_editor import model_inputs_modified_since_solution
+    from .auto_hydro import revisions
+    text, _ = _read_limited_tail(model/'OUTGEN', 32 * 1024**2)
+    runs = _run_segments(text)
+    started = _parse_run_started_epoch(runs[-1][0]) if runs else None
+    if started is None or started > (model/'OUTGEN').stat().st_mtime + 2:
+        raise RunnerError('No reliable latest native start timestamp; numerical policy checks need more provenance')
+    for name in ('RVTJ', 'CORRECTION_SUM', 'MOD_SUM'):
+        path = model/name
+        if not path.is_file() or path.stat().st_mtime + 2 < started:
+            raise RunnerError(f'{name} is missing or predates the latest native start')
+    with (model/'MOD_SUM').open(errors='replace') as handle:
+        if 'Model Finalized on:' not in handle.read(16384):
+            raise RunnerError('MOD_SUM does not establish a completed run')
+    if model_inputs_modified_since_solution(model):
+        raise RunnerError('Inputs were edited after the solution; review historical evidence manually')
+    anchor = max((model/name).stat().st_mtime for name in ('OUTGEN', 'MOD_SUM', 'RVTJ'))
+    controls = ['VADAT', 'MODEL_SPEC', 'ADJUST_CORRECTIONS', 'RVSIG_COL', 'HYDRO_DEFAULTS']
+    controls += [p.name for p in model.glob('*_IN')]
+    if any((model/name).is_file() and (model/name).stat().st_mtime > anchor+2 for name in controls):
+        raise RunnerError('A current input is newer than the saved solution')
+    evidence = _assess_outputs(model, None, 0, revisions(runs[-1][1]), started)
+    evidence['fresh_verified'] = False  # Historical evidence cannot certify an independent verification phase.
+    return evidence

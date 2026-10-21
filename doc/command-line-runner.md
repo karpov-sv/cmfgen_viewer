@@ -23,6 +23,17 @@ python3 cmfgen_run.py /path/to/model --json
 
 No stage means read-only inspection, including when `--plan` is supplied. Model information remains available if installation configuration or preflight is incomplete. Exit status reflects main-stage preflight readiness (`0` ready, `2` blocked), independently of whether a previous run failed. A saved checkpoint iteration count and the latest logged iteration are shown separately: an attempted iteration can fail before saving a checkpoint. Recorded execution success does not establish convergence.
 
+The summary also shows the latest ordinary main run's end-of-run diagnostics and suggestions when its saved evidence is still current, including proposed control changes, cache retirement, and POP/LTE/hydro recovery steps. This uses the same read-only report as the workflow page. Stale advice is hidden after model/output/executable or policy changes, and while activity is running or cannot be established as idle. With `--json`, the report is available as `state.main_diagnostics` (`null` when unavailable). Inspection applies no remedy.
+
+For older models without a current saved report, the summary automatically recomputes read-only checks from the latest visible native run and existing outputs. To force a new assessment even when a saved report exists:
+
+```bash
+python cmfgen_run.py /path/to/model --diagnose
+python cmfgen_run.py /path/to/model --diagnose --json
+```
+
+`--diagnose` cannot be combined with `--stage`. It creates no journal or recommendation file. Historical reports are marked `mode: retrospective`: they include recognizable native failures, correction/quality warnings, and timestamp-screened numerical candidates where possible. Missing dates, stale outputs, edited inputs, or inconsistent checkpoints are reported explicitly. Original startup mode and recovery baselines cannot be recovered from those files, so automatic eligibility remains unverified. Multi-batch stall rules and invocation-aligned temperature oscillations are not inferred from an undated aggregate log. Candidates still need a new independent verification run. The workflow page uses the same fallback; active or uncertain process state suppresses it.
+
 Preview a startup check without changing the model:
 
 ```bash
@@ -249,6 +260,8 @@ Execution resource controls are opt-in. By default, the runner adds no memory or
 These settings apply to each native child in single-stage and multi-stage runs and are recorded in the JSON plans. Unset memory, timeout, and thread overrides are represented by `null`; `no_core_dumps` defaults to `false`.
 
 Each child has an owned process group. Timeout, Ctrl-C, and SIGTERM stop that group; the inherited workspace lock remains held while the native executable is alive. This requires a POSIX environment and usable native process visibility through `psutil` (Linux or macOS). Run on the same host/PID namespace as other model jobs: hidden external jobs cannot be reliably excluded.
+
+The no-stage summary separates model information, run status/checkpoint, diagnostics/recommendations, and main-stage preflight with visible headings and blank lines. Findings are numbered with a title, measured evidence, and a `Next:` suggestion; assessment limits follow the findings. This formatting also works without terminal colors and does not change JSON output.
 
 Default output is human-readable: a preflight summary, stage updates, and a final result with elapsed time, pass counts, diagnostics, saved spectrum paths, and the run-report location. `[OK]`, `[WARN]`, and `[ERROR]` distinguish success, warnings, and failures. Colors are enabled automatically on terminals; redirected output stays plain. `--color never` disables colors, `--color always` forces them, and automatic mode respects `NO_COLOR` and `TERM=dumb`.
 

@@ -1163,6 +1163,7 @@ def main(argv=None):
         help="Restrict cleanup by model-relative candidate path, e.g. lte/POPHYD (repeatable; default: all workspaces)",
     )
     parser.add_argument("--json", action="store_true", help="Emit the full JSON status/plan/result on stdout (default: readable terminal summary)")
+    parser.add_argument("--diagnose", action="store_true", help="Recompute read-only diagnostics from existing outputs; no stage may be specified")
     parser.add_argument("--verbose", action="store_true", help="Show all reported warnings and captured diagnostic tails")
     parser.add_argument("--color", choices=("auto", "always", "never"), default="auto", help="Status-label colors (default: auto; respects NO_COLOR)")
     parser.add_argument("--progress", choices=("text", "json", "none"), help="Live stderr output (default: text, or none with --json)")
@@ -1186,8 +1187,10 @@ def main(argv=None):
             raise RunnerError("--auto-max-attempts/--auto-max-iterations require --auto")
         if args.auto_hydro_recovery and not args.auto:
             raise RunnerError('--auto-hydro-recovery requires --auto')
+        if args.diagnose and not inspection:
+            raise RunnerError('--diagnose is read-only and cannot be combined with --stage')
         if inspection:
-            status_report = inspect_model_status(args.model)
+            status_report = inspect_model_status(args.model, diagnose=args.diagnose)
         if len(set(stages)) != len(stages):
             raise RunnerError("A multi-stage run cannot contain duplicate stages")
         native_stages = [stage for stage in stages if stage in NATIVE_STAGES]
