@@ -2,7 +2,7 @@
 from pathlib import Path
 
 from . import auto_policies as policies
-from .auto_diagnostics import assess_existing
+from .auto_diagnostics import assess_existing, convergence_status
 from .main_recommendations import current_main_recommendations
 from .model_convergence import inspect_model_convergence, _parse_run_started_epoch
 from .model_run_diagnostics import diagnose_main_run
@@ -17,6 +17,11 @@ def inspect_main_recommendations(model, *, active=False, force=False, native=Non
     if not force:
         saved = current_main_recommendations(model)
         if saved:
+            if not saved.get('convergence') and saved.get('evidence_status') == 'validated':
+                try:
+                    saved = {**saved, 'convergence': convergence_status(assess_existing(model), historical=True)}
+                except (OSError, ValueError, KeyError):
+                    pass
             return saved
     if not any((model/name).is_file() for name in ('OUTGEN', 'batch.log', 'MOD_SUM', 'RVTJ')):
         return None
@@ -29,6 +34,7 @@ def inspect_main_recommendations(model, *, active=False, force=False, native=Non
         before = signature()
         report = _recompute(model, native)
         if before != signature():
+            report.pop('convergence', None)
             report['findings'] = []
             report['evidence_status'] = 'unavailable'
             report['evidence_error'] = 'Model outputs or controls changed during inspection; recheck when idle.'
@@ -45,7 +51,7 @@ def _recompute(model, native):
                   'No original pre-run snapshots or confirmed startup mode: recovery eligibility cannot be certified.',
                   'No compatible batch history: multi-batch stall and fixed-temperature rules cannot be established.',
                   'Historical STEQ_VALS vectors cannot be tied to this invocation: local oscillation damping is not inferred.',
-                  'Numerical candidates still require a new independent fresh-Jacobian verification.'],
+                  'Candidates without two final fresh-Jacobian steps require independent verification.'],
               'policies': policies.manifest()}
     native = native if native is not None else diagnose_main_run(model)
     for finding in native.get('findings', []):
@@ -85,6 +91,7 @@ def _recompute(model, native):
             return report
         evidence = assess_existing(model)
         report['evidence_status'] = 'historical_screened'
+        report['convergence'] = convergence_status(evidence, historical=True)
         ctx = policies.Context(model, 'success', {}, {}, {}, evidence, [evidence], 'advisory', [], '')
         for policy in policies.POLICIES:
             if policy.when != 'success':

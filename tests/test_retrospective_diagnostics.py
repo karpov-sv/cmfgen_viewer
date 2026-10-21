@@ -128,3 +128,39 @@ def test_legacy_cache_signature_gets_conditional_remedy(tmp_path):
     assert not finding['automatic_eligible']
     assert finding['proposal']['caches']==['EDDFACTOR','EDDFACTOR_INFO']
     assert 'checkpoint' in finding['recommendation']
+
+
+def test_legacy_fresh_native_convergence_is_visible_with_quality_warnings(legacy_model):
+    import io
+    from cmfgen_viewer.app import create_app
+    from cmfgen_viewer.runner_output import TerminalOutput
+    model = legacy_model()
+    log = (model/'OUTGEN').read_text().replace('BA matrix **NOT** computed', 'BA matrix computed')
+    (model/'OUTGEN').write_text(log)
+    report = inspect_main_recommendations(model)
+    assert report['convergence']['status'] == 'converged'
+    assert 'saved outputs' in report['convergence']['detail']
+    stream = io.StringIO()
+    TerminalOutput(stream).recommendations(report)
+    assert 'Numerically converged (native criterion)' in stream.getvalue()
+    with create_app(basepath=str(model.parent), read_write_enabled=True).test_client() as client:
+        page = client.get('/model-actions/main-computation/model')
+        assert b'Numerically converged (native criterion)' in page.data
+        assert b'Physical-quality warnings are assessed separately' in page.data
+
+
+def test_display_native_criterion_does_not_weaken_auto_acceptance():
+    from cmfgen_viewer.auto_diagnostics import convergence_status
+    evidence = {'candidate': False, 'epsilon_percent': 0.02, 'checkpoint': 272,
+                'counts': {'totals': {'0.1%': 0, '0.01%': 213}},
+                'records': [dict(global_iteration=271, solver_maximum_change=0.0147,
+                                 maximum_increase_percent=0.0172, maximum_decrease_percent=0.0201, ba_computed=True),
+                            dict(global_iteration=272, solver_maximum_change=0.0133,
+                                 maximum_increase_percent=0.0184, maximum_decrease_percent=0.00785, ba_computed=True)]}
+    assert convergence_status(evidence)['status'] == 'converged'
+    assert evidence['candidate'] is False
+    evidence['records'][-1]['maximum_increase_percent'] = 1.0
+    assert convergence_status(evidence)['status'] == 'not_converged'
+    evidence['records'][-1]['maximum_increase_percent'] = 0.0184
+    evidence['records'][-1]['temperature_fixed'] = True
+    assert convergence_status(evidence)['status'] == 'not_converged'

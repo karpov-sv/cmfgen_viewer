@@ -168,3 +168,14 @@ The dedicated parsed file also provides ranked entries and a species overview. T
 are selected solver corrections before damping or scaling, not an exhaustive depth
 survey. The 1% warning threshold is advisory; stale or malformed snapshots remain
 unassessed. Editing `CORRECTION_LINK` refreshes the parsed `OUTGEN` diagnostics.
+
+Model diagnostics show a separate **numerical convergence** status in the workflow
+and command-line model summary. The native criterion requires the final two full,
+variable-temperature steps to meet `EPS_TERM` in the ranked solver metric, with
+the latest raw increase/decrease and correction counts also passing screening.
+The status identifies fresh Jacobians when both steps computed them. Older models
+are checked from timestamp-screened saved outputs; this does not establish the
+original invocation or an independent verification phase. Missing, stale, edited,
+or inconsistent evidence cannot establish convergence. Physical-quality warnings
+remain visible even when the native iteration has converged. The automatic
+controller retains its stricter two-step raw-correction acceptance rule.

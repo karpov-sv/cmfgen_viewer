@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 
 from . import auto_policies as policies
-from .auto_diagnostics import assess
+from .auto_diagnostics import assess, convergence_status
 from .auto_hydro import revisions
 from .runner_recipe import snapshot
 from .recovery_files import INPUT_FILES
@@ -106,6 +106,7 @@ def analyze_main_end(model, plan, result, before, solution_offset):
             if (plan['restart']['mode'] == 'continuation' and
                     result.get('startup_observed', {}).get('mode') != 'continuation'):
                 raise ValueError('Native continuation was not confirmed')
+            report['convergence'] = convergence_status(evidence)
             key = _history_key(model, plan)
             history = _history(model, plan, result, key, before) + [evidence]
             # Only bounded summaries needed for cross-batch trend/profile rules.

@@ -270,3 +270,36 @@ def assess_existing(model):
     evidence = _assess_outputs(model, None, 0, revisions(runs[-1][1]), started)
     evidence['fresh_verified'] = False  # Historical evidence cannot certify an independent verification phase.
     return evidence
+
+
+def convergence_status(evidence, *, historical=False):
+    """Describe numerical evidence independently of physical-quality warnings."""
+    records = evidence['records'][-2:]
+    eps = evidence['epsilon_percent']
+    # Native termination uses the ranked SOLVEBA metric. Report that criterion
+    # separately from the controller's stricter two-step raw acceptance rule.
+    native = len(records) == 2 and all(
+        not r.get('lambda_iteration') and not r.get('temperature_fixed') and
+        r['global_iteration'] not in evidence.get('hydro_revisions', []) and
+        r.get('solver_maximum_change') is not None and
+        math.isfinite(r['solver_maximum_change']) and abs(r['solver_maximum_change']) < eps
+        for r in records)
+    latest_raw = bool(records) and all(
+        records[-1].get(k) is not None and math.isfinite(records[-1][k]) and abs(records[-1][k]) < eps
+        for k in ('maximum_increase_percent', 'maximum_decrease_percent'))
+    counts_ok = all(total == 0 for label, total in evidence['counts']['totals'].items()
+                    if float(label.removesuffix('%')) >= eps)
+    candidate = native and latest_raw and counts_ok
+    fresh = all(r.get('ba_computed') for r in records)
+    if candidate and fresh:
+        status, label = 'converged', 'Numerically converged (native criterion) — fresh Jacobians'
+    elif candidate:
+        status, label = 'candidate', 'Convergence candidate — fresh-Jacobian verification needed'
+    else:
+        status, label = 'not_converged', 'Numerical convergence not reached'
+    detail = (f"Final two full steps evaluated against the native ranked tolerance and the latest raw corrections checked against EPS_TERM={evidence['epsilon_percent']:g}%; "
+              f"saved checkpoint {evidence['checkpoint']}.")
+    if historical:
+        detail += ' Based on timestamp-screened saved outputs; the original invocation and independent verification phase are unconfirmed.'
+    detail += ' Physical-quality warnings are assessed separately.'
+    return {'status': status, 'label': label, 'detail': detail}

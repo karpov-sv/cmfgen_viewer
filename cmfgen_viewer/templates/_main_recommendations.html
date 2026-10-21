@@ -1,5 +1,15 @@
-{% macro main_recommendations(report) -%}
+{% macro main_convergence(report) -%}
+  {% if report and report.convergence %}
+      <div class="alert {{ 'alert-success' if report.convergence.status == 'converged' else 'alert-warning' }}" role="status">
+        <strong>{{ report.convergence.label }}</strong>
+        <p class="small mb-0 mt-1">{{ report.convergence.detail }}</p>
+      </div>
+  {% endif %}
+{%- endmacro %}
+
+{% macro main_recommendations(report, show_convergence=true) -%}
   {% if report %}
+    {% if show_convergence %}{{ main_convergence(report) }}{% endif %}
     <div class="border rounded p-3 mb-3">
       <strong>{{ "Recomputed model diagnostics and recommendations" if report.mode == "retrospective" else "End-of-run diagnostic and recommendations" }}</strong>
       <p class="small mt-2 mb-2">{{ report.summary }}</p>

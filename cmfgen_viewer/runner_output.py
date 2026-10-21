@@ -152,6 +152,11 @@ class TerminalOutput:
     def recommendations(self, advice, *, heading="End-of-run check"):
         if not advice:
             return
+        convergence = advice.get('convergence')
+        if convergence:
+            self.section("Numerical convergence")
+            self.line('OK' if convergence['status'] == 'converged' else 'INFO', convergence['label'])
+            self.line('INFO', convergence['detail'])
         self.section("Diagnostics and recommendations")
         self.line("INFO", heading + ": " + advice["summary"])
         for index, finding in enumerate(advice["findings"], 1):
