@@ -227,7 +227,7 @@ configured thread settings); host limits still apply. Terminal progress bars
 appear when an estimate is available. `--json` returns structured status,
 plans, or results, and executed actions retain logs under `.cmfgen-runs/`.
 
-Optional `--auto` is available for a single main stage. It runs batches of 5
+Optional `--auto` applies to the main stage, optionally followed by spectra (`--stage main --stage flux --auto`). The UI exposes the same loop through the **Automatic mode** checkbox on Main Computation or **Automatic main convergence** in Model runner. It runs batches of 5
 iterations (override with `--iterations`), with defaults of 100 attempts and 500
 total iterations. All tested remedies are selected automatically from a
 versioned policy registry: matrix refresh, local damping, radiation-cache

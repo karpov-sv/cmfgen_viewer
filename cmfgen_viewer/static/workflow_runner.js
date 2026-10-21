@@ -75,6 +75,13 @@
     }
   };
   states.forEach(state => {
+    const automatic = query(state, "automatic");
+    if (automatic) automatic.addEventListener("change", () => {
+      const iterations = state.panel.querySelector('[name="iterations"]');
+      iterations.min = automatic.checked ? "2" : "1";
+      state.panel.querySelector(`label[for="${iterations.id}"]`).textContent = automatic.checked ? "Iterations per batch" : "Additional iterations";
+      iterations.placeholder = automatic.checked ? "5 per batch" : "Use IN_ITS";
+    });
     state.panel.addEventListener("submit", async event => {
       const form = event.target;
       if (!form.matches("[data-inline-start]")) return;
@@ -84,13 +91,22 @@
       const submitter = event.submitter;
       if (submitter?.dataset.inlineSequence) {
         values.set("stage_sequence", submitter.dataset.inlineSequence);
-        values.set("start_token", submitter.dataset.inlineToken);
       }
-      const label = submitter?.dataset.inlineLabel || state.panel.dataset.label;
+      if (submitter?.dataset.inlineToken) values.set("start_token", submitter.dataset.inlineToken);
+      const automaticControl = query(state, "automatic");
+      const automatic = automaticControl?.checked === true;
+      if (automatic) {
+        values.set("automatic", "1");
+        values.set("start_token", submitter?.dataset.inlineAutoToken || automaticControl.dataset.startToken);
+      }
+      else values.delete("automatic");
+      const baseLabel = submitter?.dataset.inlineLabel || state.panel.dataset.label;
+      const label = automatic ? `${baseLabel} (automatic main)` : baseLabel;
       const iterations = values.get("iterations");
       const threads = values.get("threads");
       const settings = [
-        state.panel.dataset.stage === "main" ? `Additional iterations: ${iterations || "IN_ITS"}` : "",
+        state.panel.dataset.stage === "main" ? (automatic ? `Iterations per batch: ${iterations || "5"}` : `Additional iterations: ${iterations || "IN_ITS"}`) : "",
+        automatic ? "Automatic limits: 100 attempts / 500 total iterations. Eligible solver adjustments and recovery enabled; independent verification required. Selected spectra run only after verified convergence." : "",
         `Threads: ${threads || "configured default"}`,
       ].filter(Boolean).join("\n");
       if (!window.confirm(`Start ${label} for ${state.panel.dataset.model}?\n\n${settings}\n\nThe run will continue if you close the page or restart the viewer.`)) return;

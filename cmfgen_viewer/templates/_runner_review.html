@@ -1,9 +1,12 @@
 {% from "_runner_ui.html" import stage_sequence with context %}
-    <h2 class="h6">{{ stage_sequence(options.stages) }}</h2>
+    <h2 class="h6">{{ ("Automatic main convergence → spectra" if "flux" in options.stages else "Automatic main convergence") if options.automatic else stage_sequence(options.stages) }}</h2>
     {% set first = plan.initial_plan|default(plan) %}
     {% if first.restart %}<p>{{ first.restart.message }}</p>{% endif %}
-    <p class="small">{% if 'main' in options.stages %}Main iterations: {{ options.iterations or 'from IN_ITS' }} · {% endif %}Threads: {{ options.threads or 'configured default' }} · Timeout: {{ options.timeout or 'unlimited' }}{% if options.timeout %} seconds{% endif %} · Memory: {{ options.memory_mib or 'no added limit' }}{% if options.memory_mib %} MiB{% endif %}{% if options.fresh_start %} · Fresh start{% endif %}</p>
-    <p class="small">Recovery files: complete fresh-run inputs, history, and diagnostic excerpts.</p>
+    <p class="small">{% if 'main' in options.stages %}{{ 'Iterations per batch' if options.automatic else 'Main iterations' }}: {{ options.iterations or (5 if options.automatic else 'from IN_ITS') }} · {% endif %}Threads: {{ options.threads or 'configured default' }} · Timeout: {{ options.timeout or 'unlimited' }}{% if options.timeout %} seconds{% endif %} · Memory: {{ options.memory_mib or 'no added limit' }}{% if options.memory_mib %} MiB{% endif %}{% if options.fresh_start %} · Fresh start{% endif %}</p>
+    {% if options.automatic %}
+    <p class="small">Work limits: {{ plan.auto.max_attempts }} attempts and {{ plan.auto.max_iterations }} total iterations, including recovery and independent verification. Stops earlier for verified convergence or an unresolved problem.</p>
+    <p class="small">All registered remedies are enabled. Accepted solver adjustments remain installed; temporary initialization/guard changes are restored. A rolling checkpoint/control snapshot supports recovery. Physical quality remains a separate assessment. {% if "flux" in options.stages %}Spectra start only after verified main convergence; a failure or exhausted automatic budget skips spectra.{% endif %}</p>
+    {% else %}<p class="small">Recovery files: complete fresh-run inputs, history, and diagnostic excerpts.</p>{% endif %}
     {% if options.lte_initialization %}<p class="small">LTE initial populations: DC_METH=LTE · T_EXC={{ options.t_exc }} (10⁴ K); VADAT restored afterward.</p>{% endif %}
     {% for issue in plan.errors %}<div class="alert alert-danger py-2">{{ issue }}</div>{% endfor %}
     {% set warnings = plan.warnings + (first.warnings if plan.initial_plan is defined else []) %}

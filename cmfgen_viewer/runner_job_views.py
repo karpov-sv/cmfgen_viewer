@@ -21,8 +21,8 @@ def signer():
 
 @bp.app_context_processor
 def workflow_runner_context():
-    return {"workflow_runner_token": lambda source_path, stage: signer().dumps(
-        {"start_model": source_path, "start_stage": stage})}
+    return {"workflow_runner_token": lambda source_path, stage, automatic=False: signer().dumps(
+        {"start_model": source_path, "start_stage": stage, "automatic": automatic})}
 
 
 def require_write():
@@ -50,10 +50,10 @@ def parse_options(form, defaults):
     stages = [stage.strip() for stage in sequence.split(",")] if sequence else form.getlist("stage") or defaults
     if not stages or len(set(stages)) != len(stages) or any(stage not in STAGE_CHOICES for stage in stages):
         raise RunnerError("Choose supported stages without duplicates")
-    options = {"stages": stages, "fresh_start": form.get("fresh_start") == "1",
+    options = {"stages": stages, "automatic": form.get("automatic") == "1", "fresh_start": form.get("fresh_start") == "1",
                "no_core_dumps": form.get("no_core_dumps") == "1",
                "lte_initialization": form.get("lte_initialization") == "1", "t_exc": 1.0}
-    for name in ("iterations", "threads", "timeout", "memory_mib"):
+    for name in ("iterations", "threads", "timeout", "memory_mib", "auto_max_attempts", "auto_max_iterations"):
         raw = form.get(name, "").strip()
         try:
             value = (float(raw) if name == "timeout" else int(raw)) if raw else None
@@ -62,6 +62,14 @@ def parse_options(form, defaults):
         if value is not None and (not math.isfinite(value) or value <= 0 or (name == "memory_mib" and value < 128)):
             raise RunnerError(f"{name} must be positive (memory minimum: 128 MiB)")
         options[name] = value
+    if options["automatic"] and stages not in (["main"], ["main", "flux"]):
+        raise RunnerError("Automatic mode supports main or main followed by spectra")
+    if not options["automatic"] and any(options[name] is not None for name in ("auto_max_attempts", "auto_max_iterations")):
+        raise RunnerError("Automatic work limits require automatic mode")
+    if options["automatic"]:
+        for name in ("iterations", "auto_max_attempts", "auto_max_iterations"):
+            if options[name] is not None and options[name] < 2:
+                raise RunnerError("Automatic batch size and work limits must be at least 2")
     if options["lte_initialization"]:
         if not any(stage in {"main", "test"} for stage in stages):
             raise RunnerError("LTE initialization applies only to main/test")
@@ -90,9 +98,19 @@ def runner_plan(config, model, options):
         no_core_dumps=options["no_core_dumps"], cleanup_files=None,
         lte_initialization=options.get("lte_initialization", False), t_exc=options.get("t_exc", 1.0),
         template_root=Path(config["template_root"]) if config.get("template_root") and "prepare-lte" in options["stages"] else None)
+    if options.get("automatic") and options["stages"] not in (["main"], ["main", "flux"]):
+        raise RunnerError("Automatic mode supports main or main followed by spectra")
     if len(options["stages"]) == 1:
-        return _build_requested_stage_plan(model, options["stages"][0], **kwargs)
-    return build_sequence_plan(model, options["stages"], **kwargs)
+        plan = _build_requested_stage_plan(model, options["stages"][0], **kwargs)
+    else:
+        plan = build_sequence_plan(model, options["stages"], **kwargs)
+    if options.get("automatic"):
+        from .runner_auto import configure_auto
+        from .auto_policies import DEFAULT_MAX_ATTEMPTS, DEFAULT_MAX_ITERATIONS
+        plan = configure_auto(plan, cmfgen_root=native['cmfgen_root'], atomic_root=native['atomic_root'],
+            max_attempts=options.get('auto_max_attempts') or DEFAULT_MAX_ATTEMPTS,
+            max_iterations=options.get('auto_max_iterations') or DEFAULT_MAX_ITERATIONS)
+    return plan
 
 
 @bp.route("/model-actions/run/<path:source_path>", methods=["GET", "POST"])
@@ -105,7 +123,8 @@ def model_runner_launch(source_path):
         defaults = suggested
     error, plan, token = "", None, None
     inline = request.args.get("format") == "json"
-    options = {"stages": defaults, "iterations": None, "threads": None, "timeout": None,
+    options = {"stages": defaults, "automatic": request.args.get("automatic") == "1",
+               "auto_max_attempts": None, "auto_max_iterations": None, "iterations": None, "threads": None, "timeout": None,
                "memory_mib": None, "fresh_start": False, "no_core_dumps": False, "lte_initialization": False, "t_exc": 1.0}
     try:
         if request.method == "POST" and inline and request.form.get("action") == "start":
@@ -117,6 +136,8 @@ def model_runner_launch(source_path):
             options = parse_options(request.form, defaults)
             if options["stages"] != signed["start_stage"].split(",") or signed["start_stage"] not in {"main", "main,flux", "flux", "lte", "hydro"}:
                 raise RunnerError("Run confirmation belongs to another stage")
+            if options['automatic'] != bool(signed.get('automatic', False)):
+                raise RunnerError("Run confirmation belongs to another execution mode")
             plan = runner_plan(config, model, options)
             if not plan["ready"]:
                 raise RunnerError("; ".join(plan["errors"]) or "Stage preflight is blocked")

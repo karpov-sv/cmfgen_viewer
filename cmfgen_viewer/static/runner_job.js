@@ -19,6 +19,8 @@
       if (stopButton) stopButton.disabled = !job.can_cancel;
       const nativeOutput = panel.querySelector("[data-runner-native-output]");
       if (nativeOutput) nativeOutput.classList.toggle("d-none", !job.native_log);
+      const autoNote = panel.querySelector("[data-runner-auto-note]");
+      if (autoNote) autoNote.textContent = job.auto_action ? `Latest automatic action: ${job.auto_action}` : (job.auto_reason || "Eligible recovery and independent verification are enabled.");
       const badge = panel.querySelector("[data-runner-state]");
       badge.textContent = job.status_label;
       badge.className = `badge ${job.status_class}`;

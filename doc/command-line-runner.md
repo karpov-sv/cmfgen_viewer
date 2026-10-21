@@ -95,7 +95,9 @@ Ordinary finite main runs also perform a read-only end-of-run diagnostic. Recogn
 
 ## Automatic main-stage convergence
 
-Opt in from the command line with an explicit, single `--stage main`:
+The viewer also exposes this same controller through the **Automatic mode** checkbox on Main Computation and **Automatic main convergence** on the Model runner page. See [Automatic runs in the UI](/documentation/main-computation#automatic-runs-in-the-ui) for detached monitoring, cancellation, and configurable limits.
+
+Opt in from the command line with an explicit `--stage main`:
 
 ```bash
 # Read-only preview of the policy, starting state, and budgets:
@@ -112,6 +114,14 @@ python3 cmfgen_run.py /path/to/model --stage main --auto --iterations 5 \
 Automatic mode is currently a CLI option; the viewer's ordinary launch form continues to launch the selected finite stage/sequence. Existing native progress remains live, and automatic attempt summaries, decisions, and correction counts are printed between runs. `--json --progress json` exposes both native progress and structured automatic events for other clients.
 
 The default batch size is **5 additional iterations**, independently of the saved `IN_ITS`. With `--auto`, `--iterations` sets the batch size and must be at least 2. Defaults are **100 native attempts** and **500 total iterations**, including verification. Failed attempts conservatively consume their entire requested batch allowance. Attempts stop at either budget; a configured `--timeout` applies to the complete automatic operation. A remaining budget too small to finish a remedy and its verification stops without installing that remedy. `Ctrl-C` or `SIGTERM` stops the child and ends the controller. There is no unlimited retry mode or automatic relaunch after controller/machine failure.
+
+To compute spectra only after verified automatic main convergence, use:
+
+```bash
+python cmfgen_run.py MODEL --stage main --stage flux --auto
+```
+
+The main-stage batch/work limits apply to automatic main attempts; the wall-clock timeout is shared with spectra. A review-needed stop, exhausted main budget, timeout, or cancellation skips spectra. The model remains reserved across the stage transition. Other automatic stage orders are rejected.
 
 `--auto` is the single switch for unattended operation. **Every registered, tested remedy is enabled automatically**, including hydro-startup recovery; the controller diagnoses the current evidence and chooses the applicable one. No problem-specific recovery flags are needed. The prototype `--auto-hydro-recovery` argument remains accepted as a hidden compatibility alias and adds no behavior. A run proceeds without interactive questions until independently verified numerical convergence, an explicit work limit, cancellation, or a problem with no applicable tested remedy.
 

@@ -30,8 +30,16 @@ def configure_auto(plan, *, cmfgen_root, atomic_root,
                    max_attempts=policies.DEFAULT_MAX_ATTEMPTS,
                    max_iterations=policies.DEFAULT_MAX_ITERATIONS):
     """Attach an explicit policy and budget to a read-only main-stage preview."""
+    if plan.get('kind') == 'sequence' and plan.get('stages') == ['main', 'flux']:
+        initial = configure_auto(plan['initial_plan'], cmfgen_root=cmfgen_root, atomic_root=atomic_root,
+                                 max_attempts=max_attempts, max_iterations=max_iterations)
+        result = {**plan, 'initial_plan': initial, 'auto': initial['auto']}
+        result['stage_options'] = {**plan['stage_options'], 'automatic_main': {
+            'max_attempts': max_attempts, 'max_iterations': max_iterations,
+            'policies': initial['auto']['policies']}}
+        return result
     if plan.get('kind') or plan.get('stage') != 'main':
-        raise RunnerError('--auto supports a single main stage only')
+        raise RunnerError('--auto supports main or main followed by flux')
     if max_attempts < 2 or max_iterations < 2:
         raise RunnerError('Automatic mode requires at least 2 attempts and 2 total iterations')
     model = Path(plan['model'])

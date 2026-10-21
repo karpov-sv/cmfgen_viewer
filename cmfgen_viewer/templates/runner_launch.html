@@ -1,5 +1,6 @@
 {% extends "base.html" %}
-{% block title %}Model runner - {{ source_path }}{% endblock %}
+{% block title %}Model runner - {{ source_path }}<script src="{{ url_for('static', filename='runner_launch.js') }}"></script>
+{% endblock %}
 {% from "_runner_ui.html" import stage_sequence, status_badge with context %}
 {% block body %}
 {% include '_breadcrumb.html' %}
@@ -23,8 +24,18 @@
           {% for value, label in presets %}<option value="{{ value }}" {% if options.stages|join(',') == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
         </select>
       </div>
-      <div class="col-md-3"><label class="form-label" for="run-iterations">Main iterations</label><input class="form-control form-control-sm" type="number" min="1" id="run-iterations" name="iterations" value="{{ options.iterations or '' }}" placeholder="Use IN_ITS"><div class="form-text">Additional iterations in this invocation.</div></div>
+      <div class="col-md-3"><label class="form-label" for="run-iterations">Main iterations</label><input class="form-control form-control-sm" type="number" min="1" id="run-iterations" name="iterations" value="{{ options.iterations or '' }}" placeholder="Use IN_ITS"><div class="form-text">Additional iterations in a finite run; iterations per batch in automatic mode.</div></div>
       <div class="col-md-2"><label class="form-label" for="run-threads">Threads</label><input class="form-control form-control-sm" type="number" min="1" id="run-threads" name="threads" value="{{ options.threads or '' }}" placeholder="Configured default"></div>
+    </div>
+    <div class="form-check mt-3">
+      <input class="form-check-input" type="checkbox" name="automatic" value="1" id="run-automatic" {% if options.automatic %}checked{% endif %}>
+      <label class="form-check-label" for="run-automatic">Automatic main convergence</label>
+      <div class="form-text">Applies to main computation, optionally followed by spectra. Repeats batches, applies eligible recovery remedies, and checks convergence with fresh Jacobians before starting spectra. Default batch: 5 iterations.</div>
+    </div>
+    <div class="row g-3 mt-0" id="run-auto-limits" {% if not options.automatic %}hidden{% endif %}>
+      <div class="col-md-3"><label class="form-label small" for="run-auto-attempts">Maximum attempts</label><input class="form-control form-control-sm" id="run-auto-attempts" name="auto_max_attempts" type="number" min="2" placeholder="100" value="{{ options.auto_max_attempts or '' }}" {% if not options.automatic %}disabled{% endif %}></div>
+      <div class="col-md-3"><label class="form-label small" for="run-auto-iterations">Maximum total iterations</label><input class="form-control form-control-sm" id="run-auto-iterations" name="auto_max_iterations" type="number" min="2" placeholder="500" value="{{ options.auto_max_iterations or '' }}" {% if not options.automatic %}disabled{% endif %}></div>
+      <p class="small text-muted mb-0">Limits include failed attempts, recovery, and verification. Eligible remedies can adjust solver controls; physical quality still needs review. <a href="{{ url_for('viewer.documentation', slug='main-computation') }}#automatic-convergence-and-recovery-rules">Rules and remedies</a>.</p>
     </div>
     <details class="workflow-help mt-3" {% if options.lte_initialization %}open{% endif %}>
       <summary>Initial populations</summary>
@@ -52,8 +63,8 @@
         <div class="col-md-3"><label class="form-label" for="run-memory">Memory limit (MiB)</label><input class="form-control form-control-sm" type="number" min="128" id="run-memory" name="memory_mib" value="{{ options.memory_mib or '' }}" placeholder="No added limit"></div>
         <div class="col-md-6 align-self-end"><label class="small me-3"><input class="form-check-input me-1" type="checkbox" name="fresh_start" value="1" {% if options.fresh_start %}checked{% endif %}> Fresh start</label><label class="small"><input class="form-check-input me-1" type="checkbox" name="no_core_dumps" value="1" {% if options.no_core_dumps %}checked{% endif %}> Disable core dumps</label></div>
       </div>
-      <p class="small text-muted mt-2 mb-0">Usable checkpoints are continued by default. Fresh start retires them; recovery saves input files rather than binary checkpoints. Timeout is shared across native stages.</p>
-      <p class="form-text mt-2">Recovery retains complete fresh-run inputs, history, and bounded diagnostic logs. Calculated state and scratch files are omitted.</p>
+      <p class="small text-muted mt-2 mb-0">Usable checkpoints are continued by default. Fresh start retires them and rebuilds initial estimates; automatic recovery also preserves its original checkpoint baseline. Timeout is shared across all stages or automatic attempts.</p>
+      <p class="form-text mt-2">Finite runs retain fresh-run inputs, history, and bounded logs. Automatic mode additionally keeps a rolling checkpoint/control snapshot for recovery.</p>
     </details>
     <details class="workflow-help mt-3"><summary>Custom ordered stages</summary>
       <label class="small mt-2" for="custom-stages">Overrides the stage preset; separate stage names with commas.</label>

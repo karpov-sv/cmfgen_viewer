@@ -2,21 +2,40 @@
 {% if model_navigation and model_navigation.read_write %}
 {% set terminal = caller() if caller is defined else '' %}
 <div class="workflow-runner border rounded p-2 {{ 'h-100' if fill else 'mt-3' if compact else 'mb-3' }}" data-workflow-runner data-stage="{{ stage }}" data-label="{{ label }}" data-model="{{ source_path }}" data-runner-url="{{ url_for('viewer.model_runner_launch', source_path=source_path, format='json') }}">
-  <div class="d-flex flex-wrap gap-2 align-items-end">
-  <form data-inline-start class="d-flex flex-wrap gap-2 align-items-end">
+  <form data-inline-start class="d-flex flex-column gap-2">
     <input type="hidden" name="stage_sequence" value="{{ stage }}">
     <input type="hidden" name="action" value="start">
     <input type="hidden" name="start_token" value="{{ workflow_runner_token(model_navigation.path, stage) }}">
-    {% if stage == 'main' %}<div><label for="inline-{{ stage }}-iterations" class="small form-label mb-1">Additional iterations</label><input id="inline-{{ stage }}-iterations" class="form-control form-control-sm" style="width:10rem" name="iterations" type="number" min="1" placeholder="Use IN_ITS"></div>{% endif %}
-    <div><label for="inline-{{ stage }}-threads" class="small form-label mb-1">Threads</label><input id="inline-{{ stage }}-threads" class="form-control form-control-sm" style="width:10rem" name="threads" type="number" min="1" placeholder="Configured default"></div>
-    {% if stage == 'main' %}
-    <div class="d-flex flex-wrap gap-2">
-      <button class="btn btn-sm btn-primary" type="submit" data-inline-run>Run main</button>
-      <button class="btn btn-sm btn-primary" type="submit" data-inline-run data-inline-sequence="main,flux" data-inline-token="{{ workflow_runner_token(model_navigation.path, 'main,flux') }}" data-inline-label="main + spectra">Run main + spectra</button>
+    <div class="d-flex flex-wrap gap-2 align-items-end">
+      {% if stage == 'main' %}
+      <div>
+        <label for="inline-{{ stage }}-iterations" class="small form-label mb-1">Additional iterations</label>
+        <input id="inline-{{ stage }}-iterations" class="form-control form-control-sm" style="width:10rem" name="iterations" type="number" min="1" placeholder="Use IN_ITS">
+      </div>
+      {% endif %}
+      <div>
+        <label for="inline-{{ stage }}-threads" class="small form-label mb-1">Threads</label>
+        <input id="inline-{{ stage }}-threads" class="form-control form-control-sm" style="width:10rem" name="threads" type="number" min="1" placeholder="Configured default">
+      </div>
+      {% if stage == 'main' %}
+      <div class="d-flex flex-wrap gap-2">
+        <button class="btn btn-sm btn-primary" type="submit" data-inline-run data-inline-auto-token="{{ workflow_runner_token(model_navigation.path, 'main', true) }}">Run main</button>
+        <button class="btn btn-sm btn-primary" type="submit" data-inline-run data-inline-sequence="main,flux" data-inline-token="{{ workflow_runner_token(model_navigation.path, 'main,flux') }}" data-inline-auto-token="{{ workflow_runner_token(model_navigation.path, 'main,flux', true) }}" data-inline-label="main + spectra">Run main + spectra</button>
+      </div>
+      {% else %}
+      <button class="btn btn-sm btn-primary" type="submit" data-inline-run>Run {{ label }}</button>
+      {% endif %}
     </div>
-    {% else %}<button class="btn btn-sm btn-primary" type="submit" data-inline-run>Run {{ label }}</button>{% endif %}
+    {% if stage == 'main' %}
+    <div class="d-flex flex-wrap gap-3 align-items-center">
+      <div class="form-check mb-0">
+        <input class="form-check-input" type="checkbox" id="inline-main-auto" name="automatic" value="1" data-inline-automatic data-start-token="{{ workflow_runner_token(model_navigation.path, 'main', true) }}">
+        <label class="form-check-label small" for="inline-main-auto">Automatic mode</label>
+      </div>
+      <a class="small" href="{{ url_for('viewer.model_runner_launch', source_path=source_path, automatic=1) }}">Auto settings and limits</a>
+    </div>
+    {% endif %}
   </form>
-  </div>
   <div data-inline-error class="alert alert-danger py-2 mt-2 mb-0 d-none" role="alert"></div>
   <div data-inline-job class="mt-2 d-none" aria-live="polite">
     <div class="d-flex flex-wrap align-items-center gap-2"><span data-inline-state class="badge bg-secondary"></span><span class="small" data-inline-stage></span><span class="small text-muted" data-inline-elapsed></span><a class="small" data-inline-details>Run details</a><a class="small d-none" data-inline-output target="_blank" rel="noopener">View output</a><button type="button" class="btn btn-sm btn-outline-danger d-none" data-inline-stop>Stop run</button></div>

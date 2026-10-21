@@ -48,9 +48,19 @@ Use the standalone runner's optional automatic mode for an unattended main-stage
 python cmfgen_run.py /path/to/model --stage main --auto
 ```
 
-Add `--plan` for a read-only preview. **All registered remedies are enabled automatically**; no per-problem flags are needed. The loop runs a batch, validates its output/checkpoint, diagnoses the result, applies an eligible tested remedy, and continues. Numerical success requires a separate fresh-Jacobian verification. The viewer's ordinary **Run main** button still launches its selected finite run; automatic mode currently uses the CLI.
+Add `--plan` for a read-only preview. **All registered remedies are enabled automatically**; no per-problem flags are needed. The loop runs a batch, validates its output/checkpoint, diagnoses the result, applies an eligible tested remedy, and continues. Numerical success requires a separate fresh-Jacobian verification. The **Automatic mode** checkbox on Main Computation applies the same bounded loop to the main stage of **Run main** or **Run main + spectra**. Leave it unchecked for finite main runs; **Auto settings and limits** opens the configurable preview.
 
 Defaults are **5 additional iterations per normal batch**, **100 native attempts**, and **500 total iterations**, including recovery and verification. Set these with `--iterations`, `--auto-max-attempts`, and `--auto-max-iterations`; `--timeout` supplies a shared wall-clock limit. Failed attempts conservatively consume their full requested allowance. A recovery procedure is started only when its complete sequence fits the remaining budgets. Cancellation, exhausted limits, or an unhandled problem ends the loop without claiming convergence.
+
+### Automatic runs in the UI
+
+On **Main Computation**, check **Automatic mode**, then use **Run main** or **Run main + spectra**. The entered iteration count becomes the batch size (default 5), with the standard 100-attempt/500-iteration limits. The confirmation identifies the automatic behavior and limits. Unchecking the box restores finite-run behavior for both buttons.
+
+For custom limits, open **Model runner** (or **Auto settings and limits**), select **Main computation** or **Main computation → spectra**, enable **Automatic main convergence**, and enter the batch size, maximum attempts, maximum total iterations, and optional shared timeout. Preview and launch the reviewed plan. With spectra selected, the main stage must pass independent convergence verification before spectra start. A review-needed stop, exhausted automatic budget, timeout, or cancellation skips spectra. Scientific-quality warnings remain advisory; review the resulting atmosphere and spectra.
+
+Automatic jobs run in the detached worker and retain the model reservation between attempts. Closing the page or restarting the viewer does not stop the loop. The workflow and job page show the current attempt, recovery/verification phase, and native progress; when spectra start, their own progress replaces the automatic-main attempt prefix; **Stop run** cancels the loop with the same control restoration and provisional checkpoint rollback as CLI cancellation. The completed report lists attempts, adjustments, convergence or stop reason, charged work, scientific-quality warnings, and the investigation report location when review is needed. **Needs review** and **Work limit reached** are distinct from successful convergence.
+
+Previews include the policy manifest and work budgets in their launch fingerprint. Inline automatic confirmation tokens are bound to automatic mode, so a finite-run confirmation cannot silently launch an automatic loop. Existing read-write gating and native preflight checks still apply.
 
 The following table lists every registered rule and the two fallback decisions. Policy identifiers also appear in previews, journals, and issue reports. More specific failure remedies are considered before the general unhandled-problem decision; verified convergence and verification candidates take priority over further numerical tuning.
 

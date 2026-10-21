@@ -43,6 +43,16 @@ def main(directory, descriptor):
             with open_readable(directory / "events.jsonl", "a") as stream:
                 import json
                 stream.write(json.dumps(event, allow_nan=False) + "\n")
+            if event["event"] == "sequence_stage_preflight" and event.get('stage') == 'flux':
+                state.pop('auto_attempt', None)
+                state.pop('auto_phase', None)
+                state['progress'] = {}
+            if event["event"] == "auto_attempt":
+                state.update(auto_attempt=event['attempt'], auto_phase=event['phase'], progress={})
+            if event["event"] == "auto_action":
+                state['auto_action'] = event['action']['reason']
+            if event["event"] == "auto_decision":
+                state['auto_reason'] = event['decision']['reason']
             if event["event"] == "progress":
                 state["progress"] = {key: value for key, value in event.items()
                                      if key not in {"event", "run_id", "time"}}

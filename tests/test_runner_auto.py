@@ -221,7 +221,7 @@ def test_cli_plan_is_read_only_and_describes_auto(auto_workspace,capsys):
     assert not (model/'attempts.txt').exists()
 
 
-@pytest.mark.parametrize('args',[['--auto'],['--stage','test','--auto'],['--stage','main','--stage','flux','--auto'],['--auto-max-attempts','2']])
+@pytest.mark.parametrize('args',[['--auto'],['--stage','test','--auto'],['--stage','flux','--stage','main','--auto'],['--auto-max-attempts','2']])
 def test_cli_rejects_inapplicable_auto_arguments(tmp_path,args,capsys):
     assert main([str(tmp_path),*args,'--json'])==2
     assert json.loads(capsys.readouterr().out)['status']=='preflight_failed'

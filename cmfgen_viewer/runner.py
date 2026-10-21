@@ -16,7 +16,7 @@ import uuid
 
 from .workflow_permissions import copy_readable, make_readable, mkdir_readable, open_readable, readable_mode
 from .recovery_files import compact_recovery, copy_recovery, retire_recovery, retention_action
-from .model_activity import model_mutation_guard
+from .model_activity import model_mutation_guard, model_run_reservation
 from .model_initialization import lte_initialization_controls
 from .pop_initialization import pop_initialization_controls, pop_source_evidence
 from .control_files import control_occurrences
@@ -358,7 +358,7 @@ def _sequence_stage_plan(
     for key in ("cmfgen_root", "atomic_root"):
         if key in native_config:
             native_config[key] = Path(str(native_config[key]))
-    return _build_requested_stage_plan(
+    plan = _build_requested_stage_plan(
         Path(str(sequence["model"])),
         stage,
         native_config=native_config,
@@ -373,6 +373,15 @@ def _sequence_stage_plan(
         cleanup_files=options.get("cleanup_files"),
         template_root=Path(options["template_root"]) if options.get("template_root") else None,
     )
+    if stage == 'main' and options.get('automatic_main'):
+        from .runner_auto import configure_auto
+        from .auto_policies import manifest
+        automatic = options['automatic_main']
+        if automatic['policies'] != manifest():
+            raise RunnerError('Automatic policies changed since sequence preview; preview again')
+        plan = configure_auto(plan, cmfgen_root=native_config['cmfgen_root'], atomic_root=native_config['atomic_root'],
+                              max_attempts=automatic['max_attempts'], max_iterations=automatic['max_iterations'])
+    return plan
 
 
 def run_plan(plan: dict, emit=None, *, diagnose_main=True) -> dict:
@@ -380,6 +389,9 @@ def run_plan(plan: dict, emit=None, *, diagnose_main=True) -> dict:
         from .runner_auto import run_auto_plan
         return run_auto_plan(plan, emit)
     if plan.get("kind") == "sequence":
+        if plan.get('auto'):
+            with model_run_reservation(Path(plan['model']), RunnerError):
+                return _run_sequence_plan(plan, emit)
         return _run_sequence_plan(plan, emit)
     if plan["stage"] not in STAGE_CHOICES:
         raise RunnerError(f"Unsupported stage: {plan['stage']}")
@@ -913,6 +925,12 @@ def _run_sequence_plan(plan: dict, emit=None) -> dict:
     if not plan["ready"]:
         raise RunnerError("Preflight failed: " + "; ".join(plan["errors"]))
     model = Path(plan["model"])
+    if plan.get('auto'):
+        with model_mutation_guard(model, RunnerError):
+            initial = plan['initial_plan']
+            for old in [*initial['inputs'], initial['executable_snapshot']]:
+                if snapshot(Path(old['path'])) != old:
+                    raise RunnerError(f"Input changed since automatic sequence preview: {old['path']}")
     root = model / ".cmfgen-runs"
     if root.is_symlink():
         raise RunnerError("Refusing symlinked run archive")
@@ -1148,7 +1166,7 @@ def main(argv=None):
     )
     parser.add_argument("--no-core-dumps", action="store_true", help="Disable core dumps in native children (default: inherit host policy)")
     parser.add_argument("--iterations", type=int)
-    parser.add_argument("--auto", action="store_true", help="Bounded automatic convergence for an explicitly selected main stage; numerical changes are journaled")
+    parser.add_argument("--auto", action="store_true", help="Bounded automatic main convergence, optionally followed by --stage flux; numerical changes are journaled")
     parser.add_argument("--auto-max-attempts", type=int, default=None, help="Maximum automatic native launches including verification (default: 100)")
     parser.add_argument("--auto-max-iterations", type=int, default=None, help="Total automatic iteration budget including verification (default: 500)")
     # Compatibility with the initial prototype: --auto now selects this
@@ -1181,8 +1199,8 @@ def main(argv=None):
             live.event(item)
     old_handler = signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
     try:
-        if args.auto and (args.stage != ["main"]):
-            raise RunnerError("--auto requires an explicit single --stage main")
+        if args.auto and args.stage not in (["main"], ["main", "flux"]):
+            raise RunnerError("--auto requires --stage main, optionally followed by --stage flux")
         if not args.auto and (args.auto_max_attempts is not None or args.auto_max_iterations is not None):
             raise RunnerError("--auto-max-attempts/--auto-max-iterations require --auto")
         if args.auto_hydro_recovery and not args.auto:

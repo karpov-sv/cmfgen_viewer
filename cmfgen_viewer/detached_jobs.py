@@ -25,6 +25,7 @@ STATUS_LABELS = {"starting": "Starting", "running": "Running", "stopping": "Stop
     "unknown": "Monitoring unavailable", "orphaned": "Native process still active",
     "interrupted": "Interrupted", "tested": "Startup tested", "succeeded": "Succeeded",
     "cancelled": "Cancelled", "runner_error": "Runner failed", "failed": "Execution failed",
+    "needs_review": "Needs review", "limit_reached": "Work limit reached",
     "invalid_output": "Output validation failed", "preflight_failed": "Preflight blocked", "timeout": "Timed out"}
 STAGE_LABELS = {"prepare-lte": "Prepare LTE", "lte": "LTE", "hydro": "Hydro",
     "promote-hydro": "Promote hydro", "main": "Main computation", "flux": "Spectra",
@@ -41,7 +42,7 @@ def timestamp_label(value):
 STATUS_CLASSES = {status: css for statuses, css in [
     (('succeeded', 'tested', 'running'), 'bg-success'),
     (('failed', 'runner_error', 'invalid_output', 'preflight_failed', 'timeout'), 'bg-danger'),
-    (('starting', 'stopping', 'unknown', 'orphaned'), 'bg-warning text-dark'),
+    (('starting', 'stopping', 'unknown', 'orphaned', 'needs_review', 'limit_reached'), 'bg-warning text-dark'),
 ] for status in statuses}
 _CHILDREN = {}
 _CHILDREN_LOCK = threading.Lock()
@@ -79,6 +80,7 @@ def fingerprint(plan):
     initial = plan.get("initial_plan", plan)
     evidence = {key: initial.get(key) for key in ("inputs", "executable_snapshot", "copies", "entries", "hydro_alignment", "lte_composition_alignment", "lte_cleanup")}
     evidence["options"] = plan.get("stage_options")
+    evidence["automatic"] = plan.get("auto")
     evidence["passes"] = initial.get("passes")
     evidence["initialization"] = initial.get("initialization")
     evidence["configuration"] = plan.get("configuration_sources")
@@ -132,11 +134,15 @@ def snapshot_job(base, job_id, *, include_result=True):
         progress_label = f"{progress.get('phase', 'Progress')}: {progress['current']}"
         if progress.get("total"):
             progress_label += f" / {progress['total']}"
-    return {**request, **state, "status": status, "active": status in ACTIVE,
+    automatic = request.get('options', {}).get('automatic', False)
+    if automatic and state.get('auto_attempt'):
+        phase = state.get('auto_phase', 'iterate').replace('_', ' ')
+        progress_label = f"Attempt {state['auto_attempt']} · {phase} · {progress_label}"
+    return {**request, **state, "automatic": automatic, "status": status, "active": status in ACTIVE,
             "status_label": STATUS_LABELS.get(status, status.replace("_", " ").capitalize()),
             "status_class": STATUS_CLASSES.get(status, "bg-secondary"),
             "progress_label": progress_label, "can_cancel": process is not None,
-            "sequence_label": " → ".join(STAGE_LABELS.get(stage, stage) for stage in request["stages"]),
+            "sequence_label": ("Automatic main computation → spectra" if request["stages"] == ["main", "flux"] else "Automatic main computation") if automatic else " → ".join(STAGE_LABELS.get(stage, stage) for stage in request["stages"]),
             "stage_label": STAGE_LABELS.get(state.get("stage"), state.get("stage", "Starting")),
             "created_label": timestamp_label(request["created_at"]),
             "job_id": job_id, "result": result}
