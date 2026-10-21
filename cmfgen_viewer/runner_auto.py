@@ -302,14 +302,16 @@ def run_auto_plan(plan, emit=None):
                 with model_mutation_guard(model, RunnerError):
                     check_inputs()
                     step_options = step.native_options if step else {}
-                    if set(step_options) - {'hydro_recovery_probe', 'lte_initialization', 't_exc'}:
+                    if set(step_options) - {'hydro_recovery_probe', 'lte_initialization', 't_exc', 'pop_initialization'}:
                         raise RunnerError('Recovery step requested unsupported native options')
                     kwargs = {key: plan.get(key) for key in ('threads', 'memory_mib', 'no_core_dumps')}
                     native = build_run_plan(model, stage='main', cmfgen_root=Path(options['cmfgen_root']),
                         atomic_root=Path(options['atomic_root']), iterations=batch,
                         fresh_start=bool(initializing and plan.get('fresh_start')),
                         lte_initialization=bool(step_options.get('lte_initialization',
-                            initializing and plan.get('initialization'))),
+                            initializing and (plan.get('initialization') or {}).get('method') == 'LTE')),
+                        pop_initialization=bool(step_options.get('pop_initialization',
+                            initializing and (plan.get('initialization') or {}).get('method') == 'POP')),
                         t_exc=step_options.get('t_exc', (plan.get('initialization') or {}).get('t_exc', 1.0)),
                         timeout=max(0.001, deadline-time.monotonic()) if deadline is not None else None,
                         **kwargs)

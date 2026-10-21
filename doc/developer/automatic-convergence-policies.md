@@ -9,6 +9,7 @@ after investigation, the validated remedy becomes another registered policy.
 
 - `auto_diagnostics.py`: invocation-specific correction evidence, raw temperature
   vectors, finite-core/restart validation, and convergence candidates.
+- `pop_initialization.py`: executable capability and original saved-source grid/level checks for the bounded POP trial.
 - `auto_hydro.py`: native hydro handoff evidence and profile/scheduling checks.
 - `auto_policies.py`: ordered, versioned `POLICIES` and read-only decision functions.
 - `runner_auto.py`: shared execution engine, locks, budgets, recovery snapshots,
@@ -73,7 +74,8 @@ validator receiving `Context`, and supported `native_options`. Its validator
 returns optional JSON metadata or raises an error. The normal native-output,
 checkpoint and finite-core checks always run before the custom validator.
 The hydro temporary guard override and the existing temporary LTE initialization
-(`lte_initialization`/`t_exc` builder options) are reviewed native options;
+(`lte_initialization`/`t_exc` and `pop_initialization` builder options) are reviewed native options;
+POP requires the exact native completion marker and a normal-continuation check;
 additional native options require corresponding runner validation/restoration support.
 
 The entire recipe is budgeted before applying it. Initial control changes and
@@ -122,3 +124,5 @@ outputs or authentication of binary populations.
 
 
 Ordinary main runs reuse each registered evaluator through `main_recommendations.py` in advisory mode. Evaluators must remain read-only: recommendations are persisted and displayed but never executed. Success rules run only on validated fresh evidence; trend rules receive consecutive compatible batch summaries, not synthetic subdivisions of one invocation. Native children of an automatic run suppress this extra advisory assessment because the controller already owns diagnosis and recovery. Add coverage for both automatic selection and ordinary-run advice when introducing a rule.
+
+`tests/test_auto_pop.py` covers temporary POP recovery, native compatibility refusals, missing capability/source inputs, coefficient formats, original-control restoration, full rollback, and ordinary-run recommendations. A compiled POP success marker establishes capability; native completion evidence is still required at runtime. Source files are checked against the pre-failure plan so AUTO_ADD-created or changed estimates cannot silently qualify as original inputs.

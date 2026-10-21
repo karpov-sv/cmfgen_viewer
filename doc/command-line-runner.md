@@ -54,6 +54,8 @@ The selector also supports `POP` (population fractions interpolated in radius) f
 
 Population-initialization failures receive suggested LTE recovery steps. Named `SCALE_POPS`/`CNVT_FR_DC` crash frames or the native zero-RGU safeguard provide specific evidence. An opaque fatal crash during fresh initialization is labeled **Possible initial population failure**; `SIGILL` alone is insufficient. On macOS, available `.ips` crash reports are correlated by process name, PID, and report freshness, and only their symbol names are used. Crash reports can arrive after the runner finishes, so a later web/status refresh may provide more specific evidence. A failure after iteration has begun is not assigned this initialization diagnosis. The analyzer is read-only; with `--auto`, its confirmed diagnosis can select the bounded LTE recovery rule below. Ordinary finite runs do not restart themselves.
 
+The automatic registry also supports a bounded **POP initialization** trial for confirmed fresh-start population failures when `LIN_INT=T` and `POP_SCALE=T` are already selected. It requires the patched executable and compatible original saved-model inputs, then verifies ordinary continuation with the original controls restored. It never automatically converts a continuation into a fresh POP start. See [POP initialization recovery](/documentation/main-computation#pop-initialization-recovery) for conditions and limitations. Ordinary runs show the recommendation without applying it.
+
 ## Continuation and fresh starts
 
 No `--resume` flag is needed:

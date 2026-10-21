@@ -14,6 +14,7 @@ from .auto_diagnostics import control_value, number, oscillating_region, recover
 from .auto_hydro import bridge_evidence, enabled, guard_measurements, revisions
 from .control_files import control_occurrences
 from .model_initialization import lte_initialization_controls
+from .pop_initialization import POP_MARKER, pop_source_evidence
 from .runner_recipe import RunnerError
 
 DEFAULT_MAX_ATTEMPTS = 100
@@ -76,6 +77,53 @@ class Declined(Exception):
     """Recognized problem, but this remedy's prerequisites are not established."""
 
 
+def _pop_bootstrap_check(ctx):
+    text = '\n'.join([ctx.log, *(p.get('diagnostic_tail', '') for p in ctx.native_result.get('passes', []))])
+    if ((ctx.native_plan.get('initialization') or {}).get('method') != 'POP' or
+            (ctx.native_result.get('initialization') or {}).get('method') != 'POP' or
+            POP_MARKER not in text):
+        raise RunnerError('POP recovery did not confirm native population interpolation and charge conservation')
+    return {'pop_bootstrap_completed': True}
+
+
+def _pop_continuation_check(ctx):
+    if (ctx.native_plan.get('initialization') or
+            ctx.native_plan['restart']['mode'] != 'continuation' or
+            ctx.native_result.get('startup_observed', {}).get('mode') != 'continuation'):
+        raise RunnerError('POP recovery did not verify continuation with normal initialization controls')
+    return {'pop_recovery_verified': True}
+
+
+def _pop(ctx):
+    findings = [f for p in ctx.native_result.get('passes', [])
+                for f in p.get('diagnostic_findings', []) if f.get('severity') == 'error']
+    if (not any(f['code'] == 'initial_population_scaling' for f in findings) or
+            control_value(ctx.model, 'VADAT', 'LIN_INT', '').upper().strip('.') not in {'T', 'TRUE'}):
+        return None
+    if {f['code'] for f in findings} != {'initial_population_scaling'}:
+        raise Declined('Population initialization failure is accompanied by another diagnosed error')
+    if ctx.native_plan['restart']['mode'] != 'fresh':
+        raise Declined('POP recovery applies only to fresh startup; preserving the continuation checkpoint')
+    texts = [ctx.log, *(p.get('diagnostic_tail', '') for p in ctx.native_result.get('passes', []))]
+    if any(re.search(r'Current great iteration count is\s+\d+', text, re.I) for text in texts):
+        raise Declined('Iteration already began; POP reseeding is not a continuation remedy')
+    method = control_value(ctx.model, 'VADAT', 'DC_METH', '').upper()
+    if ctx.native_plan.get('initialization') or ctx.native_result.get('initialization') or method == 'POP':
+        raise Declined('Explicit initialization was already in use; another POP retry is unsupported')
+    if method not in {'R', 'TR', 'ED', 'SPH_TAU'}:
+        raise Declined('POP recovery requires an explicit legacy departure-coefficient interpolation method')
+    try:
+        evidence = pop_source_evidence(ctx.model, ctx.native_plan)
+    except (OSError, ValueError) as exc:
+        raise Declined(str(exc)) from exc
+    return Decision('action', 'Confirmed fresh-start population failure with interpolation enabled; '
+                    'try temporary DC_METH=POP and verify normal continuation',
+                    action='pop_initialization', evidence=evidence,
+                    steps=(RecoveryStep('pop_initialization', 2, _pop_bootstrap_check,
+                                        {'pop_initialization': True}),
+                           RecoveryStep('pop_continuation', 2, _pop_continuation_check)))
+
+
 def _lte_bootstrap_check(ctx):
     if ((ctx.native_plan.get('initialization') or {}).get('method') != 'LTE' or
             (ctx.native_result.get('initialization') or {}).get('method') != 'LTE'):
@@ -93,6 +141,10 @@ def _lte_continuation_check(ctx):
 
 
 def _lte(ctx):
+    # Interpolating source models belong to the POP rule; do not recommend
+    # disabling interpolation as an alternative LTE recovery.
+    if control_value(ctx.model, 'VADAT', 'LIN_INT', '').upper().strip('.') in {'T', 'TRUE'}:
+        return None
     findings = [f for p in ctx.native_result.get('passes', [])
                 for f in p.get('diagnostic_findings', []) if f.get('severity') == 'error']
     if not any(f['code'] == 'initial_population_scaling' for f in findings):
@@ -235,7 +287,8 @@ def _fixed(ctx):
 # Order is explicit. Add a tested Policy here; the controller needs no new
 # diagnosis branches. Version changes make saved previews require review again.
 POLICIES = (
-    Policy('lte_initialization', 1, 'failure', 'Confirmed fresh-start population failure: temporary LTE and verified continuation', _lte, 1),
+    Policy('pop_initialization', 1, 'failure', 'Compatible saved-model population interpolation and verified continuation', _pop, 1),
+    Policy('lte_initialization', 2, 'failure', 'Confirmed fresh-start population failure: temporary LTE and verified continuation', _lte, 1),
     Policy('hydro_bootstrap', 1, 'failure', 'Scheduled hydro recovery with guard restoration and follow-up', _hydro, 1),
     Policy('radiation_cache', 1, 'failure', 'Explicit EDDFACTOR mismatch recovery', _cache, 1),
     Policy('verified_convergence', 1, 'success', 'Independent fresh-Jacobian convergence acceptance', _verified),

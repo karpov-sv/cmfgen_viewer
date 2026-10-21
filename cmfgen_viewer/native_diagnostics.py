@@ -77,6 +77,18 @@ def analyze_main_diagnostics(
     zero_rgu = re.search(r"Error in SETPOP_WLD_V\d+\s*--\s*zero RGU", combined, re.I)
     initial_phase = ("Starting a new model" in combined and "Calling AUTO_ADD_ION" in combined
                      and "Current great iteration count" not in combined)
+    population_error = re.search(r"(?im)^\s*Population initialization:\s*(.+)$", combined)
+    if population_error and not completed:
+        findings.append({
+            "code": "population_initialization_validation", "title": "Population initialization validation failed",
+            "severity": "error", "message": population_error.group(1).strip(),
+            "path": next((name for name, text in sources.items() if population_error.group(0).strip() in text), "OUTGEN"),
+            "evidence": population_error.group(0).strip(),
+            "suggestions": ["Review the native validation error and supply compatible source atoms and a common saved grid. Do not bypass the POP compatibility or conservation checks.",
+                            "POP does not repair missing source files, incompatible full-level mappings, or failed occupation-probability reconstruction."],
+            "links": [name for name in ("VADAT", "MODEL_SPEC", "T_IN") if (model/name).is_file()],
+            "controls": {"DC_METH": control("DC_METH"), "LIN_INT": control("LIN_INT"), "POP_SCALE": control("POP_SCALE")},
+        })
     if not completed and "Current great iteration count" not in combined and (zero_rgu or (fatal and (stack or initial_phase))):
         confirmed = bool(stack or zero_rgu)
         evidence = (stack or zero_rgu or fatal).group(0).strip()
@@ -87,6 +99,12 @@ def analyze_main_diagnostics(
             "Usable checkpoints are continued by default. Select --fresh-start explicitly only when you intend to archive them and rebuild from initial estimates.",
             "Review the source model's convergence and the *_IN populations, T_IN, and density changes such as MDOT. LTE initialization does not guarantee convergence.",
         ]
+        if control("LIN_INT") in {"T", "TRUE", ".TRUE."}:
+            suggestions[0] = ("For compatible saved-model inputs on the patched CMFGEN, consider DC_METH=POP with LIN_INT=T and POP_SCALE=T. "
+                              "It requires complete explicit-ion *_IN files on the same saved T/Ne/radius/clumping grid; do not mix atomic setups. "
+                              "Automatic mode can assess a bounded POP trial for a confirmed fresh-start failure.")
+        if dc == "POP":
+            suggestions.insert(0, "DC_METH is already POP; inspect the native source-model compatibility or reconstruction error before retrying.")
         if dc == "LTE":
             suggestions.insert(0, "DC_METH is already LTE in the current settings. Inspect T_EXC, temperature/density inputs, and the native backtrace before retrying.")
         findings.append({
@@ -98,7 +116,7 @@ def analyze_main_diagnostics(
             "path": next((name for name, text in sources.items() if evidence in text), "OUTGEN"),
             "evidence": evidence, "suggestions": suggestions,
             "links": [name for name in ("VADAT", "T_IN", "MODEL_SPEC") if (model / name).is_file()],
-            "controls": {"DC_METH": dc, "T_EXC": control("T_EXC"), "LIN_INT": control("LIN_INT"), "IT_ON_T": it_on_t},
+            "controls": {"DC_METH": dc, "T_EXC": control("T_EXC"), "LIN_INT": control("LIN_INT"), "POP_SCALE": control("POP_SCALE"), "IT_ON_T": it_on_t},
         })
     signatures = (
         ("inner_optical_depth", "Inner boundary optical depth is too small",

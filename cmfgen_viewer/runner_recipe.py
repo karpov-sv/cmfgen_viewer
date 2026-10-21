@@ -13,6 +13,7 @@ import shutil
 import sys
 
 from .model_initialization import lte_initialization_controls
+from .pop_initialization import pop_initialization_controls, pop_source_evidence
 from .control_files import control_occurrences
 from .model_activity import inspect_model_activity
 from .model_preflight import inspect_model_preflight
@@ -136,7 +137,7 @@ def resolve_atomic_links(model: Path, stage: str, atomic: Path):
 
 def build_run_plan(model: Path, *, stage: str, cmfgen_root: Path, atomic_root: Path,
                    threads=None, timeout=None, memory_mib=None, iterations=None, fresh_start=False,
-                   no_core_dumps=False, lte_initialization=False, t_exc=1.0) -> dict:
+                   no_core_dumps=False, lte_initialization=False, t_exc=1.0, pop_initialization=False) -> dict:
     if stage not in PROGRAMS:
         raise RunnerError("Supported stages: test, main, lte, hydro, flux")
     if (threads is not None and threads < 1) or (memory_mib is not None and memory_mib < 128):
@@ -150,6 +151,10 @@ def build_run_plan(model: Path, *, stage: str, cmfgen_root: Path, atomic_root: P
         raise RunnerError("--iterations is a positive main-stage override only")
     if fresh_start and stage not in {"main", "test"}:
         raise RunnerError("--fresh-start applies only to main/test")
+    if pop_initialization and lte_initialization:
+        raise RunnerError("Select only one temporary initialization method")
+    if pop_initialization and stage not in {"main", "test"}:
+        raise RunnerError("POP initialization applies only to main/test")
     if lte_initialization and stage not in {"main", "test"}:
         raise RunnerError("--lte-initialization applies only to main/test")
     if lte_initialization and (not math.isfinite(t_exc) or t_exc <= 0):
@@ -174,6 +179,18 @@ def build_run_plan(model: Path, *, stage: str, cmfgen_root: Path, atomic_root: P
             errors.append("Refusing unsafe writable VADAT for LTE initialization")
         initialization = {"method": "LTE", "t_exc": t_exc, "temporary": True}
         warnings.append("Fresh LTE initial populations: DC_METH=LTE, T_EXC=" + str(t_exc) + " (10^4 K). VADAT will be restored afterward; convergence remains unassessed.")
+    if pop_initialization:
+        if continuing:
+            errors.append("POP initialization applies only to fresh startup; continuation checkpoints are preserved")
+        try:
+            pop_initialization_controls((model / "VADAT").read_text())
+        except (ValueError, OSError) as exc:
+            errors.append(str(exc))
+        vadat = model / "VADAT"
+        if vadat.is_symlink() or vadat.stat().st_nlink != 1:
+            errors.append("Refusing unsafe writable VADAT for POP initialization")
+        initialization = {"method": "POP", "temporary": True}
+        warnings.append("Fresh POP initialization: temporary DC_METH=POP; native source-model compatibility must be verified.")
     if restart:
         errors.extend(restart["errors"])
         warnings.extend(restart["warnings"])
@@ -380,7 +397,7 @@ def build_run_plan(model: Path, *, stage: str, cmfgen_root: Path, atomic_root: P
             paths.update(Path(name) for name in lte_alignment["file_digests"])
             if lte_alignment["changed"]:
                 warnings.append(f"Before hydro, align MU_ATOM with LTE: {lte_alignment['current']} -> {lte_alignment['proposed']}")
-    return {"lte_composition_alignment": lte_alignment, "schema_version": 1, "profile": "ostar-v1", "stage": stage, "model": str(model), "cwd": str(cwd),
+    plan = {"lte_composition_alignment": lte_alignment, "schema_version": 1, "profile": "ostar-v1", "stage": stage, "model": str(model), "cwd": str(cwd),
             "executable": str(exe), "executable_snapshot": snapshot(exe), "links": kept, "passes": passes,
             "inputs": [snapshot(path) for path in sorted(paths)], "threads": threads, "timeout": timeout,
             "memory_mib": memory_mib, "no_core_dumps": no_core_dumps, "errors": errors, "warnings": warnings,
@@ -390,3 +407,10 @@ def build_run_plan(model: Path, *, stage: str, cmfgen_root: Path, atomic_root: P
             "cache_files": list(FLUX_CACHE_FILES) if stage == "flux" else [],
             "ready": not errors, "cleanup": "retire flux caches before each pass; retain diagnostics and atomic links; recovery retains fresh inputs, history, and diagnostic excerpts",
             "scientific_acceptance": "not assessed", "launches_legacy_scripts": False}
+    if pop_initialization:
+        try:
+            plan['pop_source_evidence'] = pop_source_evidence(model, plan)
+        except (OSError, ValueError) as exc:
+            errors.append(str(exc))
+            plan['ready'] = False
+    return plan

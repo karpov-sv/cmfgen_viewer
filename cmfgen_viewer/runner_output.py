@@ -280,7 +280,10 @@ class TerminalOutput:
         if plan.get("restart"):
             self.line("INFO", plan["restart"]["message"])
         if plan.get("initialization"):
-            self.line("INFO", f"Fresh LTE initial populations: DC_METH=LTE, T_EXC={plan['initialization']['t_exc']} (10^4 K); VADAT restored afterward")
+            if plan["initialization"]["method"] == "POP":
+                self.line("INFO", "Fresh POP initial populations: temporary DC_METH=POP with existing LIN_INT=T, POP_SCALE=T; VADAT restored afterward")
+            else:
+                self.line("INFO", f"Fresh LTE initial populations: DC_METH=LTE, T_EXC={plan['initialization']['t_exc']} (10^4 K); VADAT restored afterward")
         passes = plan.get("passes", [])
         if passes:
             self.line("INFO", "Passes: " + " → ".join(step["id"] for step in passes))
@@ -435,6 +438,8 @@ class TerminalOutput:
                 for step in proposal.get("steps", []):
                     self.line("INFO", f"Recovery step: {step['name']} ({step['iterations']} iterations)")
                     options = step.get("native_options", {})
+                    if options.get("pop_initialization"):
+                        self.line("INFO", "Temporary DC_METH=POP with existing LIN_INT=T, POP_SCALE=T; restore normal controls for continuation")
                     if options.get("lte_initialization"):
                         self.line("INFO", f"Temporary DC_METH=LTE, T_EXC={options.get('t_exc', 1.0)}; restore normal controls for continuation")
                     if options.get("hydro_recovery_probe"):

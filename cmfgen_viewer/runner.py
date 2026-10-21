@@ -18,6 +18,7 @@ from .workflow_permissions import copy_readable, make_readable, mkdir_readable, 
 from .recovery_files import compact_recovery, copy_recovery, retire_recovery, retention_action
 from .model_activity import model_mutation_guard
 from .model_initialization import lte_initialization_controls
+from .pop_initialization import pop_initialization_controls, pop_source_evidence
 from .control_files import control_occurrences
 from .runner_controls import TemporaryControl
 from .native_diagnostics import analyze_main_diagnostics
@@ -481,8 +482,13 @@ def run_plan(plan: dict, emit=None, *, diagnose_main=True) -> dict:
                     raise RunnerError("Refusing unsafe writable VADAT")
                 controls[path] = TemporaryControl(path, _write_control)
                 # Validate compatibility before applying just the selected values.
-                lte_initialization_controls(controls[path].original.decode(), plan["initialization"]["t_exc"])
-                controls[path].apply({"DC_METH": "LTE", "T_EXC": f"{plan['initialization']['t_exc']:.12g}"})
+                if plan["initialization"]["method"] == "POP":
+                    pop_source_evidence(model, plan)
+                    changes = pop_initialization_controls(controls[path].original.decode())
+                else:
+                    lte_initialization_controls(controls[path].original.decode(), plan["initialization"]["t_exc"])
+                    changes = {"DC_METH": "LTE", "T_EXC": f"{plan['initialization']['t_exc']:.12g}"}
+                controls[path].apply(changes)
                 effective = journal / "effective"
                 mkdir_readable(effective, exist_ok=True)
                 copy_readable(path, effective / "VADAT")
