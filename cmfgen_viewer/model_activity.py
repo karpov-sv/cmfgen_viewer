@@ -5,6 +5,7 @@ claim that launching an external process concurrently can be made race-free.
 """
 
 from contextlib import contextmanager
+from contextvars import ContextVar
 import os
 from pathlib import Path
 import stat
@@ -20,6 +21,7 @@ LOCK_NAME = ".cmfgen-viewer-write.lock"
 RUN_LOCK_NAME = ".cmfgen-runner-job.lock"
 # Set only inside the independent, single-threaded runner worker.
 _OWNED_RUN_MODEL = None
+_RESERVED_MODEL = ContextVar("cmfgen_reserved_model", default=None)
 
 
 def model_workspace_root(path: Path) -> Path:
@@ -32,7 +34,7 @@ def model_workspace_root(path: Path) -> Path:
 
 def inspect_model_activity(model_dir: Path, *, proc_root: Path | None = None) -> dict:
     root = model_workspace_root(model_dir)
-    if root != _OWNED_RUN_MODEL and ((root / RUN_LOCK_NAME).exists() or (root / RUN_LOCK_NAME).is_symlink()):
+    if root not in (_OWNED_RUN_MODEL, _RESERVED_MODEL.get()) and ((root / RUN_LOCK_NAME).exists() or (root / RUN_LOCK_NAME).is_symlink()):
         descriptor = None
         try:
             if fcntl is None:
@@ -47,7 +49,7 @@ def inspect_model_activity(model_dir: Path, *, proc_root: Path | None = None) ->
             fcntl.flock(descriptor, fcntl.LOCK_SH | fcntl.LOCK_NB)
         except BlockingIOError:
             return {"state": "active", "safe_to_modify": False,
-                    "reason": "A detached runner job owns this model; wait for the sequence to finish.",
+                    "reason": "A runner owns this model; wait for the run to finish.",
                     "processes": [], "uncertainties": [], "model_path": str(root)}
         except OSError as exc:
             return _activity_payload(root, [], [str(exc)])
@@ -103,6 +105,36 @@ def validate_lock_inode(descriptor, path):
     current = Path(path).lstat()
     if (held.st_dev, held.st_ino) != (current.st_dev, current.st_ino):
         raise OSError("Model lock changed; retry the operation.")
+
+
+@contextmanager
+def model_run_reservation(model_dir: Path, error_type=ValueError):
+    """Reserve a complete automatic run, including gaps between native children."""
+    root = model_workspace_root(model_dir)
+    if root in (_OWNED_RUN_MODEL, _RESERVED_MODEL.get()):
+        yield
+        return
+    descriptor = None
+    token = None
+    try:
+        with model_mutation_guard(root, error_type):
+            descriptor = os.open(root / RUN_LOCK_NAME,
+                                 os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+            info = os.fstat(descriptor)
+            if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+                raise error_type("Unsafe model reservation lock")
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError as exc:
+                raise error_type("Another runner owns this model") from exc
+            validate_lock_inode(descriptor, root / RUN_LOCK_NAME)
+            token = _RESERVED_MODEL.set(root)
+        yield
+    finally:
+        if token is not None:
+            _RESERVED_MODEL.reset(token)
+        if descriptor is not None:
+            os.close(descriptor)
 
 
 @contextmanager

@@ -137,7 +137,12 @@ def inspect_main_model_workflow(basepath: str, *, model_relpath: str, config: di
         result_status = "current"
     else:
         result_status = "stale"
+    runtime = inspect_workflow_runtime(model_dir, "main")
+    from .main_recommendations import current_main_recommendations
+    recommendations = current_main_recommendations(
+        model_dir, active=runtime["active"] or stage_preflight["activity"]["state"] != "idle")
     return {
+        "main_diagnostics": recommendations,
         "model_relpath": normalized,
         "model_path": str(model_dir),
         "prerequisites": prerequisites,
@@ -153,5 +158,5 @@ def inspect_main_model_workflow(basepath: str, *, model_relpath: str, config: di
         "marker_stale": marker_stale,
         "lte_handoff_required": lte_handoff_required,
         "convergence": inspect_model_convergence(model_dir),
-        "runtime": inspect_workflow_runtime(model_dir, "main"),
+        "runtime": runtime,
     }

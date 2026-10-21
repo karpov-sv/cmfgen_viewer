@@ -209,6 +209,10 @@ def build_run_plan(model: Path, *, stage: str, cmfgen_root: Path, atomic_root: P
         except (OSError, ValueError, UnicodeError) as exc:
             errors.append(f"Invalid flux input RVTJ: {exc}. Regenerate a finite atmosphere before spectral synthesis.")
     if stage in {"main", "test"}:
+        adjustment = model / "ADJUST_CORRECTIONS"
+        if adjustment.is_symlink() or (adjustment.exists() and
+                (not adjustment.is_file() or adjustment.stat().st_nlink != 1)):
+            errors.append("ADJUST_CORRECTIONS must be an unshared regular file")
         for issue in inspect_model_preflight(model)["issues"]:
             if continuing and (issue["file"] == "RVSIG_COL" or issue["code"] in {"missing-gamma-input", "empty-gamma-input", "unpromoted-lte-result"}):
                 warnings.append("Fresh-start input check (not used by continuation): " + issue["message"])
@@ -351,6 +355,8 @@ def build_run_plan(model: Path, *, stage: str, cmfgen_root: Path, atomic_root: P
         if path.is_symlink() or (path.exists() and path.stat().st_nlink != 1):
             errors.append(f"Refusing symlinked writable control: {cwd / filename}")
     paths = {cwd / name for name in required} | set(recipe_files)
+    if stage in {"main", "test"}:
+        paths.add(model / "ADJUST_CORRECTIONS")
     paths.update(cwd.glob("*_IN"))
     if stage in {"main", "test"}:
         # Snapshot absent files too: a newly appeared checkpoint changes the

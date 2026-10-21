@@ -52,3 +52,15 @@ def test_rendered_documentation_links_resolve(tmp_path):
             assert response.status_code == 200, (doc["slug"], href)
             if url.fragment:
                 assert f'id="{url.fragment}"' in response.get_data(as_text=True), (doc["slug"], href)
+
+
+def test_main_computation_lists_every_automatic_policy(tmp_path):
+    from cmfgen_viewer.auto_policies import manifest
+
+    response = create_app(basepath=str(tmp_path)).test_client().get('/documentation/main-computation')
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert 'id="automatic-convergence-and-recovery-rules"' in html
+    for policy in manifest():
+        assert f"<code>{policy['id']}</code>" in html, policy['id']
+    assert '<code>continue</code>' in html and '<code>unhandled</code>' in html

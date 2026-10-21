@@ -113,7 +113,8 @@ def test_review_is_required_and_changed_inputs_rejected(workspace, monkeypatch):
     response = client.post('/model-actions/run/model', data={'action': 'preview', 'stage': 'test'})
     assert response.status_code == 200
     token = re.search(r'name="review_token" value="([^"]+)"', response.get_data(as_text=True))[1]
-    plan['inputs'][0]['size'] += 1
+    # Plans also snapshot absent optional controls, which have no size yet.
+    next(item for item in plan['inputs'] if item['exists'])['size'] += 1
     response = client.post('/model-actions/run/model', data={'action': 'launch', 'review_token': token})
     assert b'changed since preview' in response.data
     assert not (model.parent / detached_jobs.JOB_DIR).exists()

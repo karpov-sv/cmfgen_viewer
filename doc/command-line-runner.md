@@ -52,7 +52,7 @@ For a persistent choice, **Edit parameters → Quick parameters → Initializati
 
 The selector also supports `POP` (population fractions interpolated in radius) for the locally patched CMFGEN. It requires `LIN_INT=T` and `POP_SCALE=T`; existing `DC_METH=POP` values remain editable and are preserved when changing other parameters. The consolidated source-fix summary in `doc/developer/cmfgen-source-fixes.md` records the native implementation and validation.
 
-Population-initialization failures now receive suggested LTE recovery steps. Named `SCALE_POPS`/`CNVT_FR_DC` crash frames or the native zero-RGU safeguard provide specific evidence. An opaque fatal crash during fresh initialization is labeled **Possible initial population failure**; `SIGILL` alone is insufficient. On macOS, available `.ips` crash reports are correlated by process name, PID, and report freshness, and only their symbol names are used. Crash reports can arrive after the runner finishes, so a later web/status refresh may provide more specific evidence. A failure after iteration has begun is not assigned this initialization diagnosis. The analyzer does not change model inputs or restart a failed run automatically.
+Population-initialization failures receive suggested LTE recovery steps. Named `SCALE_POPS`/`CNVT_FR_DC` crash frames or the native zero-RGU safeguard provide specific evidence. An opaque fatal crash during fresh initialization is labeled **Possible initial population failure**; `SIGILL` alone is insufficient. On macOS, available `.ips` crash reports are correlated by process name, PID, and report freshness, and only their symbol names are used. Crash reports can arrive after the runner finishes, so a later web/status refresh may provide more specific evidence. A failure after iteration has begun is not assigned this initialization diagnosis. The analyzer is read-only; with `--auto`, its confirmed diagnosis can select the bounded LTE recovery rule below. Ordinary finite runs do not restart themselves.
 
 ## Continuation and fresh starts
 
@@ -72,11 +72,102 @@ When a recognizable `MODEL` is available, preflight cross-checks its depth count
 
 Continuation does not require the fresh-start `He2_IN`/`GAMMAS_IN` files and does not recreate `T_IN`. Fresh-start structure/gamma and pending LTE-promotion findings are reported as warnings for continuation: the checkpoint, not a newly prepared input structure, supplies the starting state. If native checkpoint loading falls back to startup, missing fresh-start inputs can still make that native run fail.
 
-Existing checkpoint files remain in place for CMFGEN to update during continuation. They are not copied into recovery storage. Explicit `--fresh-start` removes them instead. Snapshots include missing checkpoint paths so newly appeared files invalidate a previously prepared plan. Recovery stores pre-run input files and bounded diagnostic evidence; it does not provide an exact rollback to an earlier solver iteration.
+Existing checkpoint files remain in place for CMFGEN to update during continuation. Ordinary runs do not copy them into recovery storage; automatic mode retains a rolling full checkpoint as described below. Explicit `--fresh-start` removes them instead. Snapshots include missing checkpoint paths so newly appeared files invalidate a previously prepared plan. Ordinary recovery stores pre-run input files and bounded diagnostic evidence; it does not provide an exact rollback to an earlier solver iteration.
 
 After execution, `startup_observed` distinguishes native evidence from preflight expectations. A matching first iteration counter confirms continuation; the native fresh-start message identifies startup/fallback. A fallback emits a prominent progress warning and is recorded even if the computation otherwise succeeds. When neither marker is available (notably a zero-iteration continuation), the observed mode is `unconfirmed`, not an invented confirmation. Normal native-output validation still applies.
 
 The installation roots must be supplied by CLI options, environment, or configuration; shell setup is not sourced. Planning checks executable availability, required inputs, dimensions, active-ion atomic dependencies, workspace safety, process activity, and free disk space. Shell launchers are optional: their absence, executable permissions, interpreter, setup paths, and other shell commands do not block native execution. Atomic declarations come from an explicit `atomic_links.json`, existing literal atomic links, or packaged ostar defaults. Real missing atomic targets and unsafe destinations still block execution; no shell fallback is used.
+
+Ordinary finite main runs also perform a read-only end-of-run diagnostic. Recognized problems, suggested remedies, and automatic-remedy eligibility appear in the terminal and saved `main_diagnostics` report, without changing controls or restarting. See [End-of-run recommendations](/documentation/main-computation#end-of-run-recommendations) for evidence requirements and multi-batch rules.
+
+## Automatic main-stage convergence
+
+Opt in from the command line with an explicit, single `--stage main`:
+
+```bash
+# Read-only preview of the policy, starting state, and budgets:
+python3 cmfgen_run.py /path/to/model --stage main --auto --plan
+
+# Execute batches and corrective actions, including final verification:
+python3 cmfgen_run.py /path/to/model --stage main --auto
+
+# Set batch size, total work limits, threads, and a shared wall-clock limit:
+python3 cmfgen_run.py /path/to/model --stage main --auto --iterations 5 \
+  --auto-max-attempts 20 --auto-max-iterations 100 --threads 5 --timeout 86400
+```
+
+Automatic mode is currently a CLI option; the viewer's ordinary launch form continues to launch the selected finite stage/sequence. Existing native progress remains live, and automatic attempt summaries, decisions, and correction counts are printed between runs. `--json --progress json` exposes both native progress and structured automatic events for other clients.
+
+The default batch size is **5 additional iterations**, independently of the saved `IN_ITS`. With `--auto`, `--iterations` sets the batch size and must be at least 2. Defaults are **100 native attempts** and **500 total iterations**, including verification. Failed attempts conservatively consume their entire requested batch allowance. Attempts stop at either budget; a configured `--timeout` applies to the complete automatic operation. A remaining budget too small to finish a remedy and its verification stops without installing that remedy. `Ctrl-C` or `SIGTERM` stops the child and ends the controller. There is no unlimited retry mode or automatic relaunch after controller/machine failure.
+
+`--auto` is the single switch for unattended operation. **Every registered, tested remedy is enabled automatically**, including hydro-startup recovery; the controller diagnoses the current evidence and chooses the applicable one. No problem-specific recovery flags are needed. The prototype `--auto-hydro-recovery` argument remains accepted as a hidden compatibility alias and adds no behavior. A run proceeds without interactive questions until independently verified numerical convergence, an explicit work limit, cancellation, or a problem with no applicable tested remedy.
+
+The initial policy is deliberately limited to measured numerical conditions:
+
+| Evidence | Automatic response |
+| --- | --- |
+| Healthy continuation with corrections still decreasing | Continue from the saved checkpoint. |
+| Persistent, localized, sign-alternating temperature requests | With `SCALE_OPT=MAJOR`, install depth-local fractional relaxation: `RELAX=0.25`, then `0.125` if necessary. Set local `T_LIM=0.2` so a tighter temperature cap does not suppress the conditional native RELAX branch. |
+| Corrections stall across three batches | Request fresh matrices with `COMP_BA=T`, `N_FIX_BA=0`, `FIX_BA=0.0`, and retire `BAMAT`/`BAMATPNT`. Stop for review if already using fresh matrices. |
+| Native error explicitly says “incorrect reading of EDDFACTOR” | Restore the latest accepted checkpoint, invalidate generated caches, and retry once. Repeated errors stop. |
+| Confirmed fresh-start population failure before iteration | With compatible initialization controls, try temporary LTE estimates, restore normal controls, and verify continuation; at most one LTE recovery procedure. |
+| Luminosity safeguard prevents an explicitly scheduled hydro revision | If the documented eligibility checks below pass, run one temporary guard-off iteration and a mandatory guarded follow-up. |
+| Convergence candidate | Run a separate verification batch of up to 3 iterations with fresh Jacobians. |
+| Unknown crash, invalid/stale evidence, incompatible continuation, unsupported adjustment, external input edit, or exhausted budget | Stop and record the reason. |
+
+Oscillation detection uses complete temperature-request vectors appended to `STEQ_VALS`; with insufficient vectors it can use several completed-batch RVTJ profiles. It requires repeated sign reversals and a persistent amplitude above the numerical tolerance. A decaying alternating mode does not trigger damping. The affected depth interval must span at most one third of the grid. Existing simple correction ranges are preserved/extended within that limit; other scoped `ADJUST_CORRECTIONS` controls require review to avoid changing their meaning. Models without usable temperature-vector evidence can still continue and undergo convergence verification, but cannot receive an inferred local damping adjustment.
+
+This is a bounded numerical policy, not a general cure for every CMFGEN failure. It does not choose new physical parameters, change atomic data, heating/energy choices, source code, or the executable. Native hydrostatic revisions already requested with `DO_HYDRO=T` may update the structure and its coupled controls as described below. The only temporary safeguard bypass is the narrowly diagnosed hydro procedure below. LTE fallback is limited to confirmed fresh initialization failures and never reseeds a continuation checkpoint. Explicit `--fresh-start`/`--lte-initialization` still apply to initial startup; subsequent accepted checkpoints use continuation. Unrecognized physics or source problems require investigation and a new, specifically tested policy. The complete [automatic rule reference](/documentation/main-computation#automatic-convergence-and-recovery-rules) lists every policy, its conditions, remedy, and limits.
+
+### Automatic LTE initialization recovery
+
+The `lte_initialization` rule requires a confirmed `initial_population_scaling` diagnosis before any solver iteration, a fresh startup plan, and no other diagnosed error. It declines suspected/opaque crashes, failures on continuation checkpoints, and initialization already using LTE. It requires explicit `LIN_INT=F`, `LTE_EST=F` if present, and unambiguous compatible initialization controls; it does not rewrite the interpolation mode.
+
+Once per automatic invocation, it requests 2 iterations using the existing temporary LTE mechanism. A positive finite `VADAT [T_EXC]` is used when present; otherwise the trial uses 1.0 (10,000 K for initial excitation estimates). Original `DC_METH`/`T_EXC` values or absence are restored on every exit. A successful bootstrap must produce refreshed, finite model outputs and a usable checkpoint. Then 2 ordinary continuation iterations must complete with the original initialization controls. Only after both stages pass is the new state committed; failure/cancellation rolls the provisional checkpoint and coupled controls back together. Independent fresh-Jacobian numerical convergence verification remains required afterwards. The full procedure must fit the remaining budgets before it starts.
+
+### Automatic recovery before a scheduled hydrostatic revision
+
+The Bstar3500 investigation of 21 October 2026 identified a luminosity stop **before** a scheduled hydrostatic/grey-temperature revision could execute. One iteration with `STOP_IF_MW=F` allowed that revision; subsequent radiation iterations improved the luminosity consistency. This is a tested startup workaround, not a source patch or a demonstration of convergence. The report did not run the subsequent restored-guard test. The controller therefore requires an actual guarded follow-up before retaining the revised state.
+
+```bash
+python3 cmfgen_run.py /path/to/model --stage main --auto --plan
+```
+
+Remove `--plan` to run. Automatic mode selects this remedy itself. It permits at most one temporary guard-off iteration per automatic invocation, only after all of these checks:
+
+- Native execution returned zero but stopped with the specific factor-of-two luminosity safeguard; no other diagnosed safeguard/crash is present.
+- The invocation continued a previously reviewed checkpoint and stopped before its first population solve. Fresh-start failures are not automatically bridged.
+- `DO_HYDRO=T`, `STOP_IF_MW` is enabled, and explicit `HYDRO_DEFAULTS` counters/scheduling (`N_ITS`, `ITS_DONE`, `STRT_ITS`, `FREQ_ITS`) show a revision due at that iteration.
+- Fresh, complete, finite stellar `OBSFLUX` and `MEANOPAC` profiles corroborate the deficit and establish inner Rosseland optical depth **at least 30**. Unknown/shallow optical depth is refused because the same flag also disables that safeguard.
+- The remaining iteration/attempt budgets cover both the one-iteration bridge and a guarded follow-up.
+
+`STOP_IF_MW=F` is a temporary, journaled native-run override. The runner restores the original enabled setting (including its enabled native default if originally absent) on success, failure, timeout, or cancellation, preserving unrelated native control updates. The bridge must complete exactly one hydro revision, produce finite final output and a matching checkpoint, and show consistent hydro counters and a valid new `RVSIG_COL`. It cannot establish convergence.
+
+The next invocation requests two additional radiation/population iterations with the safeguard **enabled**. It must complete normally with fresh luminosity ratios all within `[0.5, 2]` and inner optical depth at least 30. The lesser 25% luminosity warning and other scientific-quality checks remain advisory. A failed/interrupted follow-up, or a budget stop before it completes, rolls back the provisional checkpoint **and its coupled controls** together. External edits that prevent safe rollback are reported for manual recovery. The controller never leaves the flag disabled merely to keep iterating.
+
+The automatic runner also supports ordinary scheduled native hydro revisions. It journals the native-owned `RSTAR`, `RMAX`, `MASS`, and applicable `LSTAR`/`TEFF` changes alongside `RVSIG_COL` and `HYDRO_DEFAULTS`. Only documented control changes backed by completion messages, valid grid output, and matching `ITS_DONE`/`N_ITS` deltas are adopted. Other edits stop for review. The extra saved counter for each hydro/grey revision is distinguished from a radiation/population iteration and does not consume another iteration allowance; unexplained counter gaps still stop the controller. Checkpoints immediately following a revision do not qualify as numerical convergence candidates.
+
+An initially fixed `VADAT [FIX_T]=T` is accepted only when `[DO_T_AUTO]=T` explicitly requests native automatic release. The controller can adopt that native T→F transition after a qualifying full solve; it does not change the release policy itself. Fixed-temperature and Lambda steps still cannot establish convergence.
+
+### Acceptance and scientific quality
+
+Automatic success requires two final, full, variable-temperature iterations in the independent verification batch, with BA computed on both. The native solver metric **and both absolute raw correction extrema** must be finite and strictly below the model's explicit positive `VADAT [EPS_TERM]` in percent. Relevant `CORRECTION_SUM` counts must agree. Lambda/fixed-temperature steps, small limiter-scaled applied updates, and a small ranked solver metric alone cannot establish convergence.
+
+Each accepted attempt must produce refreshed `OUTGEN`, `CORRECTION_SUM`, and finite RVTJ core vectors, a usable continuation checkpoint matching the logged solver iterations plus explicitly verified hydro/grey counter increments, and confirmed native continuation when continuation was requested. Missing or ambiguous evidence stops for review. Scientific-quality checks are reported separately: numerical success does not certify boundary transfer, hydrostatic structure, spectral stability, or energy closure.
+
+### Journals, recovery, and persistent controls
+
+An automatic run creates a parent `.cmfgen-runs/<timestamp>-auto-<id>/` journal. It contains the versioned policy manifest/plan, `events.jsonl`, `result.json`, per-attempt plans and links to native-run journals, `original-controls/`, and a numbered action directory with its policy identifier, reason, original controls, and exact changes. Each decision includes the ordered policy matches/refusals. The result distinguishes `succeeded`, `needs_review`, `limit_reached`, timeout, and cancellation. Only verified success returns exit code 0; budget/review stops return 1, preflight failures 2, timeout 124, and cancellation 130.
+
+Unhandled problems and budget/review stops also produce **`issue.json` and `issue.md`** containing the stopping reason, policy versions/decisions, executable identity, native diagnostic evidence, and journal/recovery locations. These provide a bounded handoff for reproducing a new problem and adding its validated remedy. The controller does not improvise an untested fix or silently accept an unconverged atmosphere.
+
+Automatic mode additionally keeps **one rolling full recovery snapshot**, including `POINT1`, `POINT2`, `SCRTEMP`, coupled `VADAT`/`RVSIG_COL`/`HYDRO_DEFAULTS`, `ADJUST_CORRECTIONS`, and associated diagnostic/model files. Multi-step remedies also use a temporary step snapshot, allowing a simple registered remedy such as EDDFACTOR recovery to retry a failed step without repeating an already completed guard-off iteration. The original baseline remains available until the complete procedure passes verification. Nested multi-step procedures are unsupported and stop for review. Temporary step snapshots are removed at run end. This is an exception to ordinary compact recovery. Each snapshot replacement requires enough free disk space for the new full copy plus a 64 MiB margin. `recovery.json` identifies the committed baseline. A failed/invalid native attempt restores the appropriate snapshot and invalidates generated BA/radiation caches. The snapshots validate only existing restart/finite-core checks; they do not certify every binary population. Never run an external shell job concurrently.
+
+`IN_ITS` batch overrides are temporary and restored by the native runner. Installed `VADAT` matrix controls and `ADJUST_CORRECTIONS` damping **remain installed**, including at a budget/review stop, so a later ordinary continuation retains the working numerical settings. Original controls are retained for manual comparison/reversal while the model is idle; use `plan.json` input snapshots to identify controls that were originally absent. Inspect `result.json` and the recorded recovery directory before manually restoring a checkpoint. External control/executable edits stop further automatic changes and are preserved. The controller reserves the model between attempts, blocking other cooperating launches and edits.
+
+The implementation separates evidence collection (`auto_diagnostics.py`, `auto_hydro.py`), diagnosis/remedy selection (`auto_policies.py`), and guarded execution (`runner_auto.py`). New diagnosed problems and tested remedies are added to the versioned `POLICIES` registry. A policy returns a declarative decision, optionally with a sequence of `RecoveryStep` validators; it never launches a process or writes model files itself. The controller supplies the shared lifecycle, application limits, work budgets, journaling, temporary-control restoration, and provisional rollback. Changes to policy versions invalidate saved previews.
+
+Correction trends restart after an adjustment so a remedy is assessed using new evidence. Slow but consistently decreasing corrections continue; a small rate of improvement alone is not treated as a stall. See `tests/test_auto_policies.py` for registry-only extension, multi-step rollback, and combined-remedy examples, and the developer guide `doc/developer/automatic-convergence-policies.md` for the extension contract.
 
 ## Configuration
 
@@ -140,7 +231,7 @@ Executable settings apply to every native stage in the sequence. `--iterations` 
 - `cleanup`: performs the viewer's conservative cleanup across the main, LTE, and observer workspaces without launching an executable or requiring CMFDIST/ATOMIC. Preview with `python3 cmfgen_run.py /path/to/model --plan --stage cleanup`; omit `--plan` to archive every listed candidate, or repeat `--cleanup-file NAME` to select model-relative paths such as `BAMAT`, `lte/POPHYD`, and `obs/fort.63`. Each workspace uses its established cleanup policy, including LTE population/scratch files and all top-level symlinks. Other subdirectories, recovery archives, run history, metadata, locks, checkpoints, main products, and the commented-out `EDDFACTOR*` legacy cleanup commands are excluded. Candidates are atomically moved under the run journal's `removed/` directory using model-relative workspace paths, then the input-based recovery policy is applied. Candidate identity and metadata are rechecked under the shared activity/write guard before anything moves.
 - `test` (zero-iteration startup check): temporarily sets `NUM_ITS=0` and runs `cmfgen_dev.exe`. It checks native startup and writes initial atmosphere/checkpoint outputs; it does not create or configure a model directory. Requires fresh `MODEL` and text `RVTJ`, matching depth count, and complete finite radius, velocity, temperature, and electron-density vectors. Radius, temperature, and electron density must also be positive. Returns **tested**, not a completed solution. Uncomputed auxiliary diagnostics can be nonfinite; no `MOD_SUM` finalization is required. Passing the startup test alone does not establish scientifically valid spectral-synthesis input.
 
-Successful execution is distinct from convergence or scientific acceptance. Every report explicitly leaves scientific acceptance unassessed. A zero exit code alone is insufficient: Fortran `STOP` can return zero after an error. Text `RVTJ` is supported; binary variants are not validated by this version.
+Successful ordinary execution is distinct from convergence or scientific acceptance. Automatic mode adds the numerical verification described above; scientific acceptance still requires separate review. A zero exit code alone is insufficient: Fortran `STOP` can return zero after an error. Text `RVTJ` is supported; binary variants are not validated by this version.
 
 Observer templates may omit `SOB_EW_LAM_BEG` and `SOB_EW_LAM_END`. The continuum pass overrides these only when present, matching the legacy script's replacement-only edits. Absent bounds retain CMF_FLUX's native defaults (900–50,000 Å in the inspected installation), with Sobolev EW calculations disabled for this pass. Missing required controls and duplicate active controls still fail preflight. Atomic-link extraction reads only literal declarations and ignores unrelated shell commands, including continued `sed` commands. Shell launchers and their hashes are not execution prerequisites.
 
@@ -179,7 +270,7 @@ The same modes apply to multi-stage runs. The final JSON object contains ordered
 
 No percentage is invented when native output lacks a reliable total. The structured Python event callback remains available for a future UI/progress adapter independently of the terminal renderer.
 
-Exit codes: `0` tested/succeeded (or ready read-only preflight), `1` execution or output-validation failure, `2` preflight/argument failure, `124` timeout, `130` cancellation.
+Exit codes: `0` tested/succeeded (or ready read-only preflight), `1` execution/output-validation failure or automatic budget/review stop, `2` preflight/argument failure, `124` timeout, `130` cancellation.
 
 ## Evidence and recovery
 

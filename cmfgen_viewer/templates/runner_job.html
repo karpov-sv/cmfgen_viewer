@@ -1,6 +1,8 @@
 {% extends 'base.html' %}
 {% block title %}Model runner - {{ job.model_relpath }}{% endblock %}
 {% from '_runner_ui.html' import status_badge with context %}
+{% from "_main_recommendations.html" import main_recommendations %}
+
 {% block body %}
 {% include '_breadcrumb.html' %}
 {% include '_model_toolbar.html' %}
@@ -47,6 +49,7 @@
             </td>
           </tr>{% endfor %}</tbody>
         </table></div>
+        {% for report in reports %}{{ main_recommendations(report.main_diagnostics) }}{% endfor %}
         {% if job.result.remaining_stages %}<p class="small text-muted">Not run: {% for stage in job.result.remaining_stages %}{{ stage_labels.get(stage, stage) }}{% if not loop.last %}, {% endif %}{% endfor %}.</p>{% endif %}
         <p class="small text-muted mb-0">Execution status is separate from convergence and scientific acceptance. Review the model's workflow results before accepting the solution.</p>
       {% else %}<p class="small text-muted mb-0">{{ 'The runner report will appear when execution finishes.' if job.active else 'No stage report was produced. Review the run status and logs.' }}</p>{% endif %}

@@ -11,7 +11,7 @@ from .workflow_permissions import copy_readable, make_readable
 RECOVERY_FILE_LIMIT = 2 * 1024 * 1024
 DIAGNOSTIC_FILES = {'OUTGEN', 'OUTLTE', 'OUT_FLUX', 'WIND_HYD', 'WARNINGS',
                     'TIMING', 'OUT_PARAMS', 'ML_COUNTER'}
-INPUT_FILES = {'VADAT', 'MODEL_SPEC', 'IN_ITS', 'GRID_PARAMS', 'HYDRO_PARAMS',
+INPUT_FILES = {'VADAT', 'MODEL_SPEC', 'IN_ITS', 'ADJUST_CORRECTIONS', 'GRID_PARAMS', 'HYDRO_PARAMS',
                'RVSIG_COL', 'ROSSELAND_LTE_TAB', 'HYDRO_DEFAULTS', 'ADJUST_R_DEFAULTS',
                'RDINR', 'IT_SPECIFIER', 'arnaud_rothenflug.dat', 'batch.sh', 'batch_ins.sh',
                'clean.sh', 'batobs.sh', 'bat_ins.sh', 'IN_FILE', 'CMF_FLUX_PARAM',

@@ -185,6 +185,9 @@ python3 cmfgen_run.py /path/to/model --stage main --plan
 # Run the model using its configured iteration controls
 python3 cmfgen_run.py /path/to/model --stage main
 
+# Continue with bounded automatic numerical adjustments and fresh-BA verification
+python3 cmfgen_run.py /path/to/model --stage main --auto
+
 # Run a zero-iteration native startup test
 python3 cmfgen_run.py /path/to/model --stage test
 ```
@@ -202,6 +205,19 @@ controls are opt-in through `--memory-mib`, `--timeout`, and `--threads` (or
 configured thread settings); host limits still apply. Terminal progress bars
 appear when an estimate is available. `--json` returns structured status,
 plans, or results, and executed actions retain logs under `.cmfgen-runs/`.
+
+Optional `--auto` is available for a single main stage. It runs batches of 5
+iterations (override with `--iterations`), with defaults of 100 attempts and 500
+total iterations. All tested remedies are selected automatically from a
+versioned policy registry: matrix refresh, local damping, radiation-cache
+recovery, confirmed fresh-start LTE fallback, and the verified hydro-startup procedure. No per-problem flags are
+needed. Unknown failures stop with an investigation report. Changes and a rolling full checkpoint are
+retained, and numerical convergence requires independent fresh-Jacobian
+verification. Scientific quality remains a separate assessment. Preview with
+`--auto --plan`; see the runner guide for limits and persistent control changes.
+New diagnosed problems and debugged remedies can be registered as policies
+without adding diagnosis branches to the controller. Multi-step remedies retain
+a rollback baseline until all verification steps pass.
 
 Workflow templates mirror the model layout under `templates/`, including
 `lte/` and `obs/`. Both the viewer and runner accept `--template-root`; missing

@@ -1,0 +1,295 @@
+"""Versioned diagnosis -> remedy registry for the unattended main-stage loop.
+
+Rules inspect evidence and return declarative decisions. They never mutate
+the workspace or launch processes. The controller owns locking, budgets,
+rollback, execution and journals, including provisional multi-step remedies.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, field, replace
+import re
+from typing import Callable
+
+from .auto_diagnostics import control_value, number, oscillating_region, recovery_action
+from .auto_hydro import bridge_evidence, enabled, guard_measurements, revisions
+from .control_files import control_occurrences
+from .model_initialization import lte_initialization_controls
+from .runner_recipe import RunnerError
+
+DEFAULT_MAX_ATTEMPTS = 100
+DEFAULT_MAX_ITERATIONS = 500
+
+
+@dataclass(frozen=True)
+class RecoveryStep:
+    name: str
+    iterations: int
+    validate: Callable
+    native_options: dict = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class Decision:
+    kind: str  # continue, action, stop, converged
+    reason: str
+    policy_id: str = ''
+    action: str = ''
+    changes: dict = field(default_factory=dict)
+    caches: tuple = ()
+    steps: tuple = ()
+    next_phase: str = 'iterate'
+    evidence: dict = field(default_factory=dict)
+
+    def summary(self):
+        return {'policy_id': self.policy_id, 'kind': self.kind, 'reason': self.reason,
+                'action': self.action, 'changes': self.changes, 'caches': list(self.caches),
+                'next_phase': self.next_phase, 'evidence': self.evidence,
+                'steps': [{'name': s.name, 'iterations': s.iterations,
+                           'native_options': s.native_options} for s in self.steps]}
+
+
+@dataclass(frozen=True)
+class Context:
+    model: object
+    when: str
+    native_plan: dict
+    native_result: dict
+    before: dict
+    evidence: dict
+    history: list
+    phase: str
+    actions: list
+    log: str
+
+
+@dataclass(frozen=True)
+class Policy:
+    id: str
+    version: int
+    when: str
+    description: str
+    evaluate: Callable
+    max_applications: int | None = None
+
+
+class Declined(Exception):
+    """Recognized problem, but this remedy's prerequisites are not established."""
+
+
+def _lte_bootstrap_check(ctx):
+    if ((ctx.native_plan.get('initialization') or {}).get('method') != 'LTE' or
+            (ctx.native_result.get('initialization') or {}).get('method') != 'LTE'):
+        raise RunnerError('LTE recovery did not install the temporary initialization controls')
+    return {'lte_bootstrap_completed': True,
+            'lte_t_exc': ctx.native_plan['initialization']['t_exc']}
+
+
+def _lte_continuation_check(ctx):
+    if (ctx.native_plan.get('initialization') or
+            ctx.native_plan['restart']['mode'] != 'continuation' or
+            ctx.native_result.get('startup_observed', {}).get('mode') != 'continuation'):
+        raise RunnerError('LTE recovery did not verify continuation with normal initialization controls')
+    return {'lte_recovery_verified': True}
+
+
+def _lte(ctx):
+    findings = [f for p in ctx.native_result.get('passes', [])
+                for f in p.get('diagnostic_findings', []) if f.get('severity') == 'error']
+    if not any(f['code'] == 'initial_population_scaling' for f in findings):
+        return None
+    if {f['code'] for f in findings} != {'initial_population_scaling'}:
+        raise Declined('Population initialization failure is accompanied by another diagnosed error')
+    if ctx.native_plan['restart']['mode'] != 'fresh':
+        raise Declined('LTE recovery applies only to fresh startup; preserving the continuation checkpoint')
+    texts = [ctx.log, *(p.get('diagnostic_tail', '') for p in ctx.native_result.get('passes', []))]
+    if any(re.search(r'Current great iteration count is\s+\d+', text, re.I) for text in texts):
+        raise Declined('Iteration already began; LTE reseeding is not a continuation remedy')
+    if (ctx.native_plan.get('initialization') or ctx.native_result.get('initialization') or
+            control_value(ctx.model, 'VADAT', 'DC_METH', '').upper() == 'LTE'):
+        raise Declined('LTE initialization was already in use; another LTE retry is unsupported')
+    if control_value(ctx.model, 'VADAT', 'LIN_INT', '').upper().strip('.') not in {'F', 'FALSE'}:
+        raise Declined('Automatic LTE recovery requires explicit LIN_INT=F; interpolation controls are preserved')
+    t_exc = number(ctx.model, 'VADAT', 'T_EXC', 1.0)
+    try:
+        lte_initialization_controls((ctx.model/'VADAT').read_text(), t_exc)
+    except (OSError, ValueError) as exc:
+        raise Declined(str(exc)) from exc
+    return Decision('action', 'Confirmed fresh-start population failure before iteration; '
+                    'retry with temporary LTE estimates and verify normal continuation',
+                    action='lte_initialization', evidence={'t_exc': t_exc, 't_exc_units': '10000 K',
+                        'diagnoses': list(dict.fromkeys(f['evidence'] for f in findings))},
+                    steps=(RecoveryStep('lte_initialization', 2, _lte_bootstrap_check,
+                                        {'lte_initialization': True, 't_exc': t_exc}),
+                           RecoveryStep('lte_continuation', 2, _lte_continuation_check)))
+
+
+def _hydro_bridge_check(ctx):
+    if len(revisions(ctx.log)) != 1:
+        raise RunnerError('Hydro bridge did not complete exactly one scheduled revision')
+    return {'hydro_bridge_completed': True}
+
+
+def _hydro_guarded_check(ctx):
+    measured = guard_measurements(ctx.model, ctx.before)
+    if not enabled(ctx.model, 'STOP_IF_MW', 'T') or not (
+            0.5 <= measured['luminosity_min'] <= measured['luminosity_max'] <= 2):
+        raise RunnerError('Guarded follow-up failed the luminosity checks')
+    return {'guarded_measurements': measured, 'hydro_recovery_verified': True}
+
+
+def _hydro(ctx):
+    codes = {f['code'] for p in ctx.native_result.get('passes', [])
+             for f in p.get('diagnostic_findings', []) if f.get('severity') == 'error'}
+    if 'inner_flux_accuracy' not in codes:
+        return None
+    try:
+        evidence = bridge_evidence(ctx.model, ctx.native_plan, ctx.native_result, ctx.before)
+    except (OSError, ValueError) as exc:
+        raise Declined(str(exc)) from exc
+    return Decision('action', 'One scheduled hydro iteration with temporary STOP_IF_MW=F; '
+                    'restore guard on every exit and require a guarded follow-up',
+                    action='hydro_bootstrap', evidence=evidence,
+                    steps=(RecoveryStep('hydro_bridge', 1, _hydro_bridge_check,
+                                        {'hydro_recovery_probe': True}),
+                           RecoveryStep('hydro_guarded', 2, _hydro_guarded_check)))
+
+
+def _cache(ctx):
+    if recovery_action(ctx.native_result) == 'radiation_cache':
+        return Decision('action', 'Native explicitly reported incorrect reading of EDDFACTOR; '
+                        'retry once from the restored checkpoint', action='radiation_cache',
+                        caches=('EDDFACTOR', 'EDDFACTOR_INFO'))
+
+
+def _verified(ctx):
+    if ctx.phase == 'verify' and ctx.evidence['fresh_verified']:
+        return Decision('converged', 'Verified with fresh Jacobians')
+
+
+def _candidate(ctx):
+    if ctx.evidence['candidate']:
+        return _matrix('Two full steps meet the raw and native correction tolerance; '
+                       'independently verify with fresh BA', next_phase='verify')
+
+
+def _matrix(reason, next_phase='iterate'):
+    return Decision('action', reason, action='fresh_jacobian', next_phase=next_phase,
+                    changes={'VADAT': {'COMP_BA': 'T', 'N_FIX_BA': '0', 'FIX_BA': '0.0'}},
+                    caches=('BAMAT', 'BAMATPNT'))
+
+
+def relaxation_changes(model, evidence, history):
+    region = oscillating_region(evidence, history)
+    if region is None:
+        return None
+    if control_value(model, 'VADAT', 'SCALE_OPT', '').upper() != 'MAJOR':
+        raise RunnerError('Measured oscillation requires review: automatic relaxation supports SCALE_OPT=MAJOR only')
+    adjustment = model/'ADJUST_CORRECTIONS'
+    keys = control_occurrences(adjustment.read_text()) if adjustment.exists() else {}
+    if set(keys) - {'L_ST', 'L_END', 'RELAX', 'T_LIM'}:
+        raise RunnerError('Existing ADJUST_CORRECTIONS contains other scoped controls; review before changing its depth range')
+    old = number(model, 'ADJUST_CORRECTIONS', 'RELAX', 1.0)
+    start = int(number(model, 'ADJUST_CORRECTIONS', 'L_ST', region[0]))
+    end = int(number(model, 'ADJUST_CORRECTIONS', 'L_END', region[1]))
+    start, end = min(start, region[0]), max(end, region[1])
+    if not 1 <= start <= end <= evidence['counts']['nd']:
+        raise RunnerError('Existing correction depth range is outside the model grid')
+    if end-start+1 > max(1, evidence['counts']['nd']//3):
+        raise RunnerError('Oscillation spans too much of the grid for automatic local relaxation')
+    if old <= 0 or old > 1:
+        raise RunnerError('Existing RELAX is outside the supported automatic under-relaxation range')
+    if old <= 0.125:
+        raise RunnerError('Persistent cycle at the minimum automatic RELAX; review physics/grid/linearization')
+    value = 0.25 if old > 0.25 else 0.125
+    return {'ADJUST_CORRECTIONS': {'L_ST': str(start), 'L_END': str(end),
+                                  'RELAX': str(value), 'T_LIM': '0.2'}}
+
+
+def _oscillation(ctx):
+    changes = relaxation_changes(ctx.model, ctx.evidence, ctx.history)
+    if changes:
+        return Decision('action', 'Persistent localized sign-alternating temperature requests; '
+                        'restore the pre-relaxation cap so RELAX can act',
+                        action='relaxation', changes=changes)
+
+
+def _stall(ctx):
+    if len(ctx.history) < 3:
+        return None
+    recent = [next((r.get('solver_maximum_change') for r in reversed(h['records'])
+                    if not r.get('lambda_iteration') and not r.get('temperature_fixed')), None)
+              for h in ctx.history[-3:]]
+    # Slow but consistent decay is progress, even when less than 10% per
+    # batch. Do not interrupt it merely because convergence needs patience.
+    if all(v is not None for v in recent) and not all(b < a for a, b in zip(recent, recent[1:])) and min(recent[1:]) >= 0.98*recent[0]:
+        if number(ctx.model, 'VADAT', 'N_FIX_BA', 0) != 0 or number(ctx.model, 'VADAT', 'FIX_BA', 0) != 0:
+            return _matrix('Corrections stalled; check the matrix before considering further changes')
+        return Decision('stop', 'Corrections stalled despite fresh matrices; no supported automatic adjustment')
+
+
+def _fixed(ctx):
+    if len(ctx.history) >= 3 and all(h['full_iterations'] == 0 for h in ctx.history[-3:]):
+        return Decision('stop', 'No variable-temperature full steps in three batches')
+
+
+# Order is explicit. Add a tested Policy here; the controller needs no new
+# diagnosis branches. Version changes make saved previews require review again.
+POLICIES = (
+    Policy('lte_initialization', 1, 'failure', 'Confirmed fresh-start population failure: temporary LTE and verified continuation', _lte, 1),
+    Policy('hydro_bootstrap', 1, 'failure', 'Scheduled hydro recovery with guard restoration and follow-up', _hydro, 1),
+    Policy('radiation_cache', 1, 'failure', 'Explicit EDDFACTOR mismatch recovery', _cache, 1),
+    Policy('verified_convergence', 1, 'success', 'Independent fresh-Jacobian convergence acceptance', _verified),
+    Policy('verify_candidate', 1, 'success', 'Fresh-Jacobian verification of a numerical candidate', _candidate),
+    Policy('local_relaxation', 1, 'success', 'Measured localized temperature oscillation damping', _oscillation, 2),
+    Policy('stalled_corrections', 1, 'success', 'Fresh-matrix test for a stalled correction sequence', _stall, 1),
+    Policy('fixed_temperature', 1, 'success', 'Detect absence of temperature-varying full steps', _fixed),
+)
+
+
+def manifest():
+    if len({p.id for p in POLICIES}) != len(POLICIES):
+        raise RunnerError('Duplicate automatic policy identifiers')
+    if any(p.when not in {'failure', 'success'} or p.version < 1 or
+           (p.max_applications is not None and p.max_applications < 1) for p in POLICIES):
+        raise RunnerError('Invalid automatic policy declaration')
+    return [{'id': p.id, 'version': p.version, 'when': p.when, 'description': p.description,
+             'max_applications': p.max_applications} for p in POLICIES]
+
+
+def choose(ctx):
+    """Return one decision and the ordered diagnosis/refusal trail."""
+    trail = []
+    for policy in POLICIES:
+        if policy.when != ctx.when:
+            continue
+        try:
+            decision = policy.evaluate(ctx)
+        except Declined as exc:
+            trail.append({'policy_id': policy.id, 'outcome': 'ineligible', 'reason': str(exc)})
+            continue
+        except (OSError, ValueError) as exc:
+            decision = Decision('stop', str(exc))
+        if decision is None:
+            trail.append({'policy_id': policy.id, 'outcome': 'not_matched'})
+            continue
+        if (decision.kind not in {'continue', 'action', 'stop', 'converged'} or
+                decision.next_phase not in {'iterate', 'verify'} or
+                (decision.steps and decision.kind != 'action') or
+                any(type(s.iterations) is not int or s.iterations < 1 or not callable(s.validate)
+                    for s in decision.steps)):
+            raise RunnerError(f'Invalid automatic decision from {policy.id}')
+        used = sum(a.get('policy_id') == policy.id for a in ctx.actions)
+        if decision.kind == 'action' and policy.max_applications is not None and used >= policy.max_applications:
+            decision = Decision('stop', f'Automatic remedy {policy.id} exhausted its {policy.max_applications} application(s)')
+        decision = replace(decision, policy_id=policy.id)
+        trail.append({'policy_id': policy.id, 'outcome': decision.kind, 'reason': decision.reason})
+        return decision, trail
+    if ctx.when == 'success':
+        return Decision('continue', 'Continue from the accepted checkpoint', policy_id='continue'), trail
+    titles = list(dict.fromkeys(f['title'] for p in ctx.native_result.get('passes', [])
+                               for f in p.get('diagnostic_findings', []) if f.get('severity') == 'error'))
+    reason = '; '.join(titles) or ctx.native_result.get('error') or 'Unrecognized native failure'
+    refused = [t['reason'] for t in trail if t['outcome'] == 'ineligible']
+    if refused:
+        reason += '; no applicable remedy: ' + '; '.join(refused)
+    return Decision('stop', reason, policy_id='unhandled'), trail

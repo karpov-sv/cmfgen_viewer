@@ -43,7 +43,7 @@ def _latest_native_run(model, warnings):
             "started_at": result.get("started_at"),
             "finished_at": result.get("finished_at"),
             "journal": str(journal),
-            "executed": any(
+            "executed": bool(result.get('kind') == 'auto' and result.get('attempts')) or any(
                 isinstance(step, dict) and (step.get("pid") or "returncode" in step)
                 for step in result.get("passes", [])
             ),

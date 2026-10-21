@@ -374,7 +374,10 @@ def _sequence_stage_plan(
     )
 
 
-def run_plan(plan: dict, emit=None) -> dict:
+def run_plan(plan: dict, emit=None, *, diagnose_main=True) -> dict:
+    if plan.get("kind") == "auto":
+        from .runner_auto import run_auto_plan
+        return run_auto_plan(plan, emit)
     if plan.get("kind") == "sequence":
         return _run_sequence_plan(plan, emit)
     if plan["stage"] not in STAGE_CHOICES:
@@ -422,6 +425,8 @@ def run_plan(plan: dict, emit=None) -> dict:
         _json(journal / "result.json", result)
         controls = {}
         process = None
+        main_before = None
+        solution_offset = 0
         try:
             if plan.get("restart"):
                 event("startup", **plan["restart"])
@@ -454,6 +459,22 @@ def run_plan(plan: dict, emit=None) -> dict:
                         raise RunnerError(f"Refusing unsafe restart file: {path}")
                     if plan.get("fresh_start") and path.is_file():
                         path.unlink()
+            if plan.get('hydro_recovery_probe'):
+                from .auto_hydro import enabled
+                if (stage != 'main' or len(plan['passes']) != 1 or
+                        str(plan['passes'][0]['overrides'].get('NUM_ITS')) != '1' or
+                        plan.get('restart', {}).get('mode') != 'continuation' or
+                        not enabled(model, 'DO_HYDRO') or not enabled(model, 'STOP_IF_MW', 'T')):
+                    raise RunnerError('Invalid one-iteration hydro recovery probe')
+                path = cwd/'VADAT'
+                controls[path] = TemporaryControl(path, _write_control)
+                controls[path].apply({'STOP_IF_MW': 'F'})
+                effective = journal/'effective'
+                mkdir_readable(effective, exist_ok=True)
+                copy_readable(path, effective/'VADAT')
+                result['hydro_recovery_probe'] = True
+                event('hydro_guard_override', stage='main',
+                      message='STOP_IF_MW=F for one hydro bridge iteration; restored on every exit')
             if plan.get("initialization"):
                 path = cwd / "VADAT"
                 if path.is_symlink() or path.stat().st_nlink != 1:
@@ -515,6 +536,10 @@ def run_plan(plan: dict, emit=None) -> dict:
                 products = (("MOD_SUM", "RVTJ", "MODEL") if stage in {"main", "test"} else
                             ("ROSSELAND_LTE_TAB",) if stage == "lte" else
                             ("RVSIG_COL_NEW",) if stage == "hydro" else ("OBSFRAME",))
+                if stage == "main" and diagnose_main and main_before is None:
+                    from .main_recommendations import EVIDENCE_FILES
+                    main_before = {name: snapshot(cwd / name) for name in EVIDENCE_FILES}
+                    solution_offset = (cwd / "STEQ_VALS").stat().st_size if (cwd / "STEQ_VALS").is_file() else 0
                 retired = (*logs, *plan.get("cache_files", []))
                 native_names = tuple(dict.fromkeys((*retired, *products, "TIMING", "OUT_PARAMS")))
                 for name in native_names:
@@ -693,6 +718,16 @@ def run_plan(plan: dict, emit=None) -> dict:
             for record in result["passes"]:
                 if record["status"] == "running":
                     record["status"] = result["status"]
+            if stage == "main" and diagnose_main and main_before is not None:
+                from .main_recommendations import analyze_main_end
+                try:
+                    result["main_diagnostics"] = analyze_main_end(model, plan, result, main_before, solution_offset)
+                except Exception as exc:  # Advice must never change native execution status.
+                    result["main_diagnostics"] = {
+                        "mode": "advisory", "evidence_status": "unavailable", "findings": [],
+                        "summary": "End-of-run recommendations unavailable; review native diagnostics.",
+                        "evidence_error": f"{type(exc).__name__}: {exc}"}
+                event("main_diagnostics", report=result["main_diagnostics"])
             result["recovery"] = compact_recovery(journal)
             result["finished_at"] = datetime.now(timezone.utc).isoformat()
             _json(journal / "result.json", result)
@@ -1107,6 +1142,12 @@ def main(argv=None):
     )
     parser.add_argument("--no-core-dumps", action="store_true", help="Disable core dumps in native children (default: inherit host policy)")
     parser.add_argument("--iterations", type=int)
+    parser.add_argument("--auto", action="store_true", help="Bounded automatic convergence for an explicitly selected main stage; numerical changes are journaled")
+    parser.add_argument("--auto-max-attempts", type=int, default=None, help="Maximum automatic native launches including verification (default: 100)")
+    parser.add_argument("--auto-max-iterations", type=int, default=None, help="Total automatic iteration budget including verification (default: 500)")
+    # Compatibility with the initial prototype: --auto now selects this
+    # remedy itself. Users never need to choose individual recovery flags.
+    parser.add_argument('--auto-hydro-recovery', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument("--lte-initialization", action="store_true", help="Use LTE initial departure coefficients for fresh main/test startup; temporarily override VADAT and restore it afterward")
     parser.add_argument("--t-exc", type=float, help="Minimum initial excitation temperature in 10^4 K with --lte-initialization (default: 1.0)")
     parser.add_argument("--fresh-start", action="store_true", help="Retire POINT1/POINT2/SCRTEMP and force *_IN startup (default: continue when checkpoints are usable)")
@@ -1133,6 +1174,12 @@ def main(argv=None):
             live.event(item)
     old_handler = signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
     try:
+        if args.auto and (args.stage != ["main"]):
+            raise RunnerError("--auto requires an explicit single --stage main")
+        if not args.auto and (args.auto_max_attempts is not None or args.auto_max_iterations is not None):
+            raise RunnerError("--auto-max-attempts/--auto-max-iterations require --auto")
+        if args.auto_hydro_recovery and not args.auto:
+            raise RunnerError('--auto-hydro-recovery requires --auto')
         if inspection:
             status_report = inspect_model_status(args.model)
         if len(set(stages)) != len(stages):
@@ -1224,6 +1271,12 @@ def main(argv=None):
                 cleanup_files=args.cleanup_file,
                 template_root=args.template_root,
             )
+        if args.auto:
+            from .runner_auto import configure_auto
+            from .auto_policies import DEFAULT_MAX_ATTEMPTS, DEFAULT_MAX_ITERATIONS
+            plan = configure_auto(plan, cmfgen_root=config['cmfgen_root'], atomic_root=config['atomic_root'],
+                max_attempts=args.auto_max_attempts if args.auto_max_attempts is not None else DEFAULT_MAX_ATTEMPTS,
+                max_iterations=args.auto_max_iterations if args.auto_max_iterations is not None else DEFAULT_MAX_ITERATIONS)
         if inspection:
             status_report["preflight"] = plan
             status_report["ready"] = plan["ready"]

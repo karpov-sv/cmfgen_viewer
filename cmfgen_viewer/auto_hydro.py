@@ -1,0 +1,185 @@
+"""Evidence and scope checks for native hydro updates and one startup bridge.
+
+The bridge follows the Bstar3500 investigation of 2026-10-21 and is selected
+by the automatic registry. STOP_IF_MW controls two safeguards, so shallow/unknown optical depth is never
+eligible. A successful bridge is provisional until an actual guarded run.
+"""
+import math
+import re
+
+from .auto_diagnostics import control_value, number
+from .control_files import control_occurrences
+from .model_convergence import _parse_iteration_records
+from .native_diagnostics import latest_main_log
+from .parsers.common import parse_float_token
+from .runner_recipe import RunnerError, snapshot
+from .runner_validation import validate_rvsig_structure
+
+COUPLED_CONTROLS = ('VADAT', 'RVSIG_COL', 'HYDRO_DEFAULTS')
+HYDRO_MESSAGE = 'Revised hydrostatic structure and output new RVSIG_COL file'
+
+
+def enabled(model, key, default='F'):
+    return control_value(model, 'VADAT', key, default).upper().strip('.') in {'T', 'TRUE'}
+
+
+def revisions(text):
+    """Return solver iterations followed by a completed native hydro revision."""
+    result, current = [], None
+    for line in text.splitlines():
+        match = re.search(r'Current great iteration count is\s+(\d+)', line)
+        if match:
+            current = int(match[1])
+        if HYDRO_MESSAGE in line:
+            if current is None or current in result:
+                raise RunnerError('Ambiguous native hydro completion evidence')
+            result.append(current)
+    return result
+
+
+def _values(text):
+    rows = control_occurrences(text)
+    if any(len(v) != 1 for v in rows.values()):
+        raise RunnerError('Ambiguous controls during native hydro handoff')
+    return {key: row[0]['value'] for key, row in rows.items()}
+
+
+def capture_controls(model):
+    result = {}
+    for name in COUPLED_CONTROLS:
+        path = model/name
+        if path.exists() and path.stat().st_size > 4*1024*1024:
+            raise RunnerError(f'Oversized native handoff control: {name}')
+        result[name] = path.read_text() if path.exists() else None
+    return result
+
+
+def native_updates(model, text, before):
+    """Accept only documented native-owned changes, with completed revision proof.
+
+    Other input changes still stop the controller. This does not authenticate
+    native writes against concurrent external shell edits; those are forbidden.
+    """
+    completed = revisions(text)
+    after = capture_controls(model)
+    changed = {n for n in COUPLED_CONTROLS if after[n] != before[n]}
+    if not changed and not completed:
+        return {}
+    old = _values(before['VADAT'] or '')
+    new = _values(after['VADAT'] or '')
+    vd_keys = {k for k in old.keys() | new.keys() if old.get(k) != new.get(k)}
+    allowed = set()
+    # CMFGEN can release an explicitly requested automatic fixed-T startup.
+    records = _parse_iteration_records(text)
+    if (old.get('DO_T_AUTO', '').upper().strip('.') in {'T', 'TRUE'} and
+            old.get('FIX_T', '').upper().strip('.') in {'T', 'TRUE'} and
+            new.get('FIX_T', '').upper().strip('.') in {'F', 'FALSE'} and
+            any(not r.get('lambda_iteration') and r.get('solver_maximum_change', math.inf) < 50
+                for r in records)):
+        allowed.add('FIX_T')
+    if completed:
+        if not enabled(model, 'DO_HYDRO') or before['HYDRO_DEFAULTS'] is None:
+            raise RunnerError('Hydro completion without the reviewed hydro configuration')
+        old_h = _values(before['HYDRO_DEFAULTS'])
+        new_h = _values(after['HYDRO_DEFAULTS'] or '')
+        try:
+            delta = int(new_h['ITS_DONE']) - int(old_h['ITS_DONE'])
+            remaining_delta = int(old_h['N_ITS']) - int(new_h['N_ITS'])
+        except (KeyError, ValueError) as exc:
+            raise RunnerError('Invalid native hydro counters') from exc
+        if (delta != len(completed) or remaining_delta != delta or
+                int(new_h['N_ITS']) < 0 or int(old_h['ITS_DONE']) < 0):
+            raise RunnerError('Hydro counters do not match completed revisions')
+        if 'RVSIG_COL' not in changed:
+            raise RunnerError('Completed hydro revision did not refresh RVSIG_COL')
+        validate_rvsig_structure(model/'RVSIG_COL', model/'MODEL_SPEC')
+        h_keys = {k for k in old_h.keys() | new_h.keys() if old_h.get(k) != new_h.get(k)}
+        if h_keys - {'ITS_DONE', 'N_ITS', 'HYDRO_OPT', 'OLD_TEFF'}:
+            raise RunnerError('Unexpected HYDRO_DEFAULTS edit; preserving it for review')
+        allowed.update({'RSTAR', 'RMAX', 'MASS', 'LSTAR', 'TEFF'})
+        for key in (vd_keys & allowed) - {'FIX_T'}:
+            value = parse_float_token(new.get(key, ''))
+            if value is None or not math.isfinite(value) or value <= 0:
+                raise RunnerError(f'Invalid native hydro [{key}]')
+    elif changed - {'VADAT'}:
+        raise RunnerError('Structure controls changed without completed native hydro evidence')
+    if vd_keys - allowed:
+        raise RunnerError('Unexpected VADAT edit during execution; preserving it for review')
+    return {name: {'before': before[name], 'after': after[name]} for name in changed}
+
+
+def guard_measurements(model, before):
+    """Require fresh, complete, finite luminosity and optical-depth profiles."""
+    from .runner import _tail
+    nd = int(number(model, 'MODEL_SPEC', 'ND'))
+    for name in ('OBSFLUX', 'MEANOPAC'):
+        path = model/name
+        current, old = snapshot(path), before.get(name) or {}
+        unchanged = all(current.get(k) == old.get(k) for k in ('exists', 'size', 'mtime_ns', 'sha256'))
+        if not path.is_file() or unchanged:
+            raise RunnerError(f'No fresh {name} for hydro recovery')
+    obs = _tail(model/'OBSFLUX', 8*1024*1024)
+    headers = list(re.finditer(r'^\s*Normalized luminosity check \(normalized by L\[ND\]\)[^\n]*\n', obs, re.M))
+    if not headers:
+        raise RunnerError('Missing stellar normalized luminosity profile')
+    luminosity = []
+    for line in obs[headers[-1].end():].splitlines():
+        if not line.strip() and not luminosity:
+            continue
+        row = [parse_float_token(t) for t in line.split()]
+        if not row or any(v is None for v in row):
+            break
+        luminosity.extend(row)
+    if len(luminosity) != nd or any(not math.isfinite(v) or v <= 0 for v in luminosity):
+        raise RunnerError('Incomplete/invalid normalized luminosity profile')
+    mean = _tail(model/'MEANOPAC', 4*1024*1024)
+    if not mean.splitlines() or 'Tau(Ross)' not in mean.splitlines()[0]:
+        raise RunnerError('Unrecognized MEANOPAC optical depths')
+    tau = []
+    for line in mean.splitlines()[1:]:
+        row = line.split()
+        if len(row) == 15 and row[1].isdigit():
+            value = parse_float_token(row[2])
+            if int(row[1]) != len(tau)+1 or value is None or not math.isfinite(value) or value < 0:
+                raise RunnerError('Invalid MEANOPAC depth profile')
+            tau.append(value)
+    if len(tau) != nd or tau != sorted(tau) or tau[-1] < 30:
+        raise RunnerError('Unknown/shallow inner optical depth; refusing to bypass STOP_IF_MW')
+    return {'luminosity_min': min(luminosity), 'luminosity_max': max(luminosity),
+            'inner_tau_ross': tau[-1]}
+
+
+def bridge_evidence(model, native, result, before):
+    """Restrict bypass to a guard stop immediately before a scheduled revision."""
+    from .runner import _tail
+    passes = result.get('passes', [])
+    codes = {f['code'] for p in passes for f in p.get('diagnostic_findings', [])
+             if f.get('severity') == 'error'}
+    if (result['status'] != 'invalid_output' or codes != {'inner_flux_accuracy'} or
+            any(p.get('returncode') != 0 for p in passes)):
+        raise RunnerError('Failure is not an isolated zero-exit luminosity safeguard stop')
+    if any(re.search(r'SIG(?:SEGV|FPE|ILL|ABRT)|Fortran runtime error|segmentation fault',
+                     p.get('diagnostic_tail', ''), re.I) for p in passes):
+        raise RunnerError('Luminosity warning accompanied by an unrelated native failure')
+    if not enabled(model, 'STOP_IF_MW', 'T') or not enabled(model, 'DO_HYDRO'):
+        raise RunnerError('Hydro recovery requires enabled DO_HYDRO and STOP_IF_MW')
+    restart = native['restart']
+    if (restart['mode'] != 'continuation' or restart['pointer']['iterations'] < 1 or
+            passes[-1].get('startup_observed', {}).get('mode') != 'continuation'):
+        raise RunnerError('Hydro recovery requires a previously reviewed continuation checkpoint')
+    records = _parse_iteration_records(latest_main_log(_tail(model/'OUTGEN', 32*1024*1024)))
+    iteration = restart['pointer']['iterations'] + 1
+    if (len(records) != 1 or records[0]['global_iteration'] != iteration or
+            'solver_maximum_change' in records[0]):
+        raise RunnerError('Stop was not before the first population solve of this continuation')
+    start = number(model, 'HYDRO_DEFAULTS', 'STRT_ITS')
+    freq = number(model, 'HYDRO_DEFAULTS', 'FREQ_ITS')
+    remaining = number(model, 'HYDRO_DEFAULTS', 'N_ITS')
+    done = number(model, 'HYDRO_DEFAULTS', 'ITS_DONE')
+    if (any(v is None or v != int(v) for v in (start, freq, remaining, done)) or
+            freq <= 0 or remaining <= 0 or done < 0 or iteration < start or (iteration-start) % freq):
+        raise RunnerError('No explicitly scheduled hydro revision at the stopped iteration')
+    measured = guard_measurements(model, before)
+    if measured['luminosity_min'] >= 0.5 and measured['luminosity_max'] <= 2:
+        raise RunnerError('Luminosity profile does not corroborate the safeguard stop')
+    return {'stopped_iteration': iteration, 'hydro_its_done_before': int(done), **measured}

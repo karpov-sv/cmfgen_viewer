@@ -2,6 +2,7 @@
 
 from datetime import datetime
 import os
+import json
 
 from tqdm import tqdm
 
@@ -15,6 +16,8 @@ LABELS = {
     "runner_error": ("ERROR", "runner failed"),
     "timeout": ("ERROR", "time limit exceeded"),
     "cancelled": ("WARN", "cancelled"),
+    "needs_review": ("WARN", "automatic run needs review"),
+    "limit_reached": ("WARN", "automatic run budget exhausted"),
 }
 COLORS = {"OK": "32", "WARN": "33", "ERROR": "31", "RUN": "36", "INFO": "36"}
 
@@ -167,7 +170,15 @@ class TerminalOutput:
             self.line("ERROR", "Preflight failed — nothing launched")
 
     def plan(self, plan):
-        self.line("INFO", "Recovery: " + "keep fresh inputs, history, and log excerpts; omit calculated state")
+        if plan.get('kind') == 'auto':
+            options = plan['auto']
+            self.line('INFO', f"Automatic main: batches of {options['batch_iterations']}; at most {options['max_attempts']} attempts / {options['max_iterations']} iterations")
+            self.line('INFO', 'Recovery: original controls and one rolling full checkpoint; solver adjustments remain installed')
+            self.line('INFO', 'Acceptance: two full steps below tolerance with fresh Jacobians; physical quality reported separately')
+            self.details('INFO', ['Supported actions: ' + ', '.join(options['actions'])])
+            self.line('INFO', 'All registered recovery policies enabled; remedies are selected from measured evidence')
+        else:
+            self.line("INFO", "Recovery: " + "keep fresh inputs, history, and log excerpts; omit calculated state")
         if plan.get("kind") == "sequence":
             self.line("INFO", f"CMFGEN multi-stage run — {plan['model']}")
             self.line("INFO", "Sequence: " + " → ".join(plan["stages"]))
@@ -288,6 +299,16 @@ class TerminalOutput:
     def event(self, item):
         kind = item["event"]
         stage = item.get("stage", "")
+        if kind.startswith('auto_'):
+            if kind == 'auto_attempt':
+                self.line('RUN', f"Automatic attempt {item['attempt']}: {item['phase']}, up to {item['requested_iterations']} iterations")
+            elif kind == 'auto_action':
+                self.line('INFO', f"Automatic adjustment: {item['action']['kind']} — {item['action']['reason']}")
+            elif kind == 'auto_assessment':
+                self.line('INFO', f"Checkpoint {item['checkpoint']}: counts {item['counts']}; convergence candidate: {item['candidate']}")
+            elif kind == 'auto_finished':
+                self._close_progress()
+            return
         if kind == "run_finished":
             self._close_progress(stage or None)
             return
@@ -332,6 +353,16 @@ class TerminalOutput:
         # The final summary replaces the raw run_finished event.
 
     def result(self, result, *, preflight_warnings=()):
+        if result.get('kind') == 'auto':
+            ok = result['status'] == 'succeeded'
+            self.line('OK' if ok else 'WARN', f"Automatic main: {result.get('numerical_convergence') if ok else result.get('reason', result['status'])}")
+            self.line('INFO', f"{len(result['attempts'])} attempts; {result['iterations_used']} charged iterations; journal: {result['journal']}")
+            if result.get('issue_report'):
+                self.line('INFO', f"Investigation report: {result['issue_report']}")
+            warnings = [f"{c['label']}: {c['detail']}" for c in result.get('quality', {}).get('checks', []) if c['level'] == 'warning']
+            self.details('WARN', list(preflight_warnings) + warnings)
+            self.line('INFO', 'Numerical convergence does not certify boundary transfer, hydrostatic structure, or the complete energy budget.')
+            return
         if result.get("stage") == "sequence":
             self._sequence_result(result)
             return
@@ -388,6 +419,27 @@ class TerminalOutput:
                 f"{'Cleaned' if cleanup.get('recovery', {}).get('discarded_files') else 'Archived'} {cleanup['removed_count']} cleanup candidate(s)",
             )
             self.line("INFO", f"Recovery archive: {cleanup['archive_path']}")
+        advice = result.get("main_diagnostics")
+        if advice:
+            self.line("INFO", "End-of-run check: " + advice["summary"])
+            if advice.get("evidence_error"):
+                self.line("WARN", advice["evidence_error"])
+            for finding in advice["findings"]:
+                self.line("WARN", finding["message"])
+                self.line("INFO", finding["recommendation"])
+                proposal = finding.get("proposal", {})
+                if proposal.get("changes"):
+                    self.line("INFO", "Suggested controls: " + json.dumps(proposal["changes"], sort_keys=True))
+                if proposal.get("caches"):
+                    self.line("INFO", "Retire caches: " + ", ".join(proposal["caches"]))
+                for step in proposal.get("steps", []):
+                    self.line("INFO", f"Recovery step: {step['name']} ({step['iterations']} iterations)")
+                    options = step.get("native_options", {})
+                    if options.get("lte_initialization"):
+                        self.line("INFO", f"Temporary DC_METH=LTE, T_EXC={options.get('t_exc', 1.0)}; restore normal controls for continuation")
+                    if options.get("hydro_recovery_probe"):
+                        self.line("INFO", "Temporary STOP_IF_MW=F; restore the guard and verify the follow-up")
+            self.line("INFO", "Advisory only: no remedy applied. See main-computation.md, Automatic convergence and recovery rules.")
         if result.get("error"):
             self.line("ERROR", result["error"])
         self.details("ERROR", result.get("restore_errors", []))
