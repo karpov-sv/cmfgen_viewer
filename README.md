@@ -47,6 +47,27 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+## Local CMFGEN Source Fixes
+
+This repository tracks local fixes against the CMFGEN website release
+**version 18jun25** (released version as of 18 Jun 2025). They cover
+photoionization target mapping, rate and Jacobian calculations, automatic ion
+addition, profile storage, temperature correction limits, radius-endpoint
+interpolation, and population reconstruction, including opt-in `DC_METH=POP`
+initialization.
+
+The complete source diff is [cmfgen-current.patch](doc/developer/patches/cmfgen-current.patch).
+It includes the new initialization module and local build adaptations. See the
+[consolidated summary](doc/developer/cmfgen-source-fixes.md) for all ten fixes,
+validation results and limits, POP requirements, and patch application and
+rebuild instructions. The [snapshot manifest](doc/developer/patches/cmfgen-current.json)
+records the baseline release and file hashes;
+[regression drivers](doc/developer/cmfgen-review-tests/README.md) are included.
+
+Apply the patch to a clean copy of version 18jun25 and rebuild the native
+executables as described in the summary. Installing the viewer does not apply
+these CMFGEN source changes.
+
 ## Running the Viewer
 
 ### Basic run

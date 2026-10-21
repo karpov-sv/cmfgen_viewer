@@ -1,0 +1,54 @@
+# CMFGEN source regression drivers
+
+Run the core tests against a CMFGEN source checkout:
+
+```sh
+python3 run_review.py ~/CMFGEN2023/cur_cmf/
+python3 run_review.py ~/CMFGEN2023/cur_cmf/ --optimization O2 --threads 5
+```
+
+The runner builds in a new temporary directory and asserts corrected behavior.
+It does not modify the supplied checkout. Test fixtures mock data readers,
+the automatic-ion interfaces, and the matrix solver where needed; the routines
+under test and the precision selection are compiled from the checkout.
+See the [consolidated summary](../cmfgen-source-fixes.md) for implementation
+status, controls, validation, and test limits.
+
+To include the actual N I photoionization reader and integrated recombination
+rate, use:
+
+```sh
+python3 run_review.py ~/CMFGEN2023/cur_cmf/ --atomic-data ~/CMFGEN2023/atomic/
+```
+
+This optional test needs existing `mod/` modules and `lib/libsubs.a` and
+`lib/libmod.a` archives built with a compatible compiler. The edited photo
+reader is explicitly compiled and linked ahead of those archives. The atomic
+data paths are `NIT/I/19apr23/phot_data_{A,B,C,D}` and the two hydrogen tables
+under `HYD/I/5dec96/`. No atomic cross-section files are copied into this repo.
+The `data/` files contain the N I/N II level names, energies, mappings and outer
+depth populations extracted for the Bstar3000 investigation. The one-depth
+photo test runs with one thread even when `--threads` is set, to avoid repeated
+parallel startup during frequency quadrature. macOS gets the main-thread stack
+reservation required by this reader.
+
+The optional test checks returned superlevel IDs, preserved internal full-level
+IDs, and a corrected recombination coefficient within a relative tolerance of
+1e-6. Core derivative tests compare with finite differences to 1e-7, departure
+ratios to 1e-10, and temperature updates to 1e-12.
+
+The initialization drivers additionally test endpoint rounding, genuine grid
+extensions, single-point overlap, disjoint grids, consistent occupation
+probabilities, the three modern departure-file formats, exact zeros, disabled
+level dissolution, elemental normalization and charge conservation. The
+new module's metadata is taken from the actual `MOD_CMFGEN` source; these tests
+do not require existing module files or libraries.
+
+`run_bstar_initialization_checks.py --help` describes the optional native
+zero-iteration tests. Supply the prepared 115-depth/current-export and
+125-depth/refined templates, saved binary-population array, and independently
+constructed refined-population array from the earlier Bstar investigation.
+This driver requires NumPy and a built atmosphere executable, copies inputs
+and atomic links into fresh temporary folders, and checks same-grid R,
+same-grid POP and refined-grid POP against the saved references. It neither
+runs the templates' shell scripts nor writes to the templates.

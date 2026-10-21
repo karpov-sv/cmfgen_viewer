@@ -1,0 +1,139 @@
+{
+  "schema_version": 1,
+  "captured_at_utc": "2026-10-21T10:53:22+00:00",
+  "source_checkout": "~/CMFGEN2023/cur_cmf/",
+  "baseline_release": "18jun25",
+  "baseline_description": "CMFGEN website release as of 18 Jun 2025; extracted release contents, including documentation changes absent from the archive's Git tree",
+  "patch_file": "cmfgen-current.patch",
+  "patch_sha256": "41681c7843e1dae5cc2060dcb30e9b5e7f07af2abcae5c14dddc9b0eed7e53d2",
+  "files": [
+    {
+      "path": "Makefile_definitions",
+      "status": "modified",
+      "sha256": "9d773468992543bf7eb48b294e1c13977ff059bdc76283c645ac20fab1b9e827",
+      "baseline_sha256": "f9a7eb9e8acdb3249b6b19274bf231629449f374dab542d9b6ecd16e39fb8bf3"
+    },
+    {
+      "path": "com/aliases_for_cmfgen.sh",
+      "status": "modified",
+      "sha256": "7770906f7f3db25fb57a708b41287215bd78c0681b5e411a944bf69816137c6e",
+      "baseline_sha256": "c74531d1fe417f6c3d6a70422ddc389729f29b791f7c22b362c00410031409a6"
+    },
+    {
+      "path": "new_main/cmfgen_sub.f",
+      "status": "modified",
+      "sha256": "13f8753338902c6f2cc795b3cfc51a854d68dc62276c0a096d12172616cd493a",
+      "baseline_sha256": "092f8526661b1f9a5eaeb7a875f07f55623f427ad07c383f2659f2fb67143374"
+    },
+    {
+      "path": "new_main/mod_subs/Makefile",
+      "status": "modified",
+      "sha256": "b34a977ce29f589e8f961315b0ca03176519bd0fb627aaff0394306723d3659b",
+      "baseline_sha256": "9d0509b63c624bf8a60885ec890b4b6a1ff70195abf900b88f8569c0f7abab0f"
+    },
+    {
+      "path": "new_main/mod_subs/init_population_estimates.f90",
+      "status": "added",
+      "sha256": "4a0a763d80298b3409c322874fafb8893c1a5bc7176b1f7f771d410ec754f71a",
+      "baseline_sha256": null
+    },
+    {
+      "path": "new_main/mod_subs/mod_lev_dis_blk.f",
+      "status": "modified",
+      "sha256": "7a804e51d6b0d5349a7c9b71a818306c66415f72f9ae7e98ce57a4f5668dc1dd",
+      "baseline_sha256": "a733fc2686086302e34c68e3a981931893cb4c96b1d9764ab5951df4cd214da3"
+    },
+    {
+      "path": "new_main/mod_subs/rd_control_variables.f",
+      "status": "modified",
+      "sha256": "70671200c08a15f3274c0762cae3a380bc05c63e0c63b1d5ca8612fcfcce2618",
+      "baseline_sha256": "1f065997994a61681abc8e34426aa4f4cb95f5aaaaa8ec4518f27a9bbedc8e88"
+    },
+    {
+      "path": "new_main/mod_subs/set_new_model_estimates.f",
+      "status": "modified",
+      "sha256": "57daa1c7936ea81d1f562d93a54c82e961da00c6d170c810509311fb3a775c77",
+      "baseline_sha256": "356bf9cb1534992de7ec63ccdee9479c56b5045d66f9aae812680f18a62f43a0"
+    },
+    {
+      "path": "new_main/subs/auto_add_ion.f",
+      "status": "modified",
+      "sha256": "060bfc141825830439d5f44334b089f200b90f978d4d90d05538395602f9a132",
+      "baseline_sha256": "6639b33ed6d595c00cbf91385b22ec3a54efddc9c2bd771ed617594c04c90af2"
+    },
+    {
+      "path": "new_main/subs/evalse_qwvj_v8.f",
+      "status": "modified",
+      "sha256": "5ebea335a3a8e43433db45a66efc20e380d31423a4b33ac40f88a671b0c64cb4",
+      "baseline_sha256": "656689e66c830c2b53d08efffb300bafec770169621952b4710368b859ce2562"
+    },
+    {
+      "path": "new_main/subs/solveba_v13.f",
+      "status": "modified",
+      "sha256": "011f812dbef2c1f87851a53854db3c2d5e125e5ef7fa899277ee7d6d4d7547e5",
+      "baseline_sha256": "8210020b3a3df9a0c1af31de26eedd73fefcdb365547a2677e21b3b83faa63e8"
+    },
+    {
+      "path": "new_main/subs/vsebyj_multi_v8.f",
+      "status": "modified",
+      "sha256": "d83d6f81eeb253739035c37399d58b7a5b94e094703bd885e978f10164a13daf",
+      "baseline_sha256": "94530a73a3bed4a68718369f00cacd3a24552d0832fb9ffe3f62700f1c610a2b"
+    },
+    {
+      "path": "new_main/subs/vsebyj_x_v7.f",
+      "status": "modified",
+      "sha256": "0a07f509252ac9f3d70eb50fabeb6548a85983f28ace64f6fe747fd9a19d6408",
+      "baseline_sha256": "a8ced12759a0eac7f4bbd2bcbe3840282222587eda8809851aca9feb785c17d8"
+    },
+    {
+      "path": "newsubs/omega_gen_v3.f",
+      "status": "modified",
+      "sha256": "b0673823415316da261e97150b3461a30d20f4cc3d50e8c1e51d35841929ea4e",
+      "baseline_sha256": "c9ecf51f4a27ab3fa11784ac4bfc1cbadef3b6f1ba63882fc3cd2b1d3d580ee5"
+    },
+    {
+      "path": "newsubs/rdphot_gen_v2.f",
+      "status": "modified",
+      "sha256": "21432fa96aa28a40b3fd876a6697c02725110375418fdd320562f5924e3a259e",
+      "baseline_sha256": "acf70de299e68bd8aabf78e181e56965ba5d5d22a5ddc97aa218df38ad3c97d1"
+    },
+    {
+      "path": "obs/cmf_flux_sub_v5.f",
+      "status": "modified",
+      "sha256": "4a1d33f3feabc864c8bbfead16aaecb8e31db78adeb1e498b6d541817f3d19ed",
+      "baseline_sha256": "092cfd65f4c19fe360ceb9d25f4fbd554f63157e02b4ba17b1ec705e4904284f"
+    },
+    {
+      "path": "opac/par_opac_sub.f",
+      "status": "modified",
+      "sha256": "ecba7a6a0e4e2b3b7de6038285a9d993d168bab824efb55d3ebb542ad6536063",
+      "baseline_sha256": "8c4c18a4d6a3f3b474569176fe69f90fa0e2b43c07f45185c4d6c32149be695b"
+    },
+    {
+      "path": "stark/get_prof_storage_limits.f",
+      "status": "modified",
+      "sha256": "8f251f11a7e00e0c0b438dfeca60a16bafed219775a1bfb5e1b7ef359795355c",
+      "baseline_sha256": "fd748a2ac35219f014d76b7f9c3a9d45d7c6848673e75e4b7c9bf343acbdad2b"
+    },
+    {
+      "path": "stark/get_prof_storage_limits_v2.f",
+      "status": "modified",
+      "sha256": "4cf0b642b80aab77bde55f4bf4ee3d762d5d92e2102fdd710af76d85aa554eac",
+      "baseline_sha256": "2b2d2205619526bdc229d78189f6ca459fdc759ac8de3c3112a0782d450fa877"
+    },
+    {
+      "path": "subs/regrid_t_ed_v3.f",
+      "status": "modified",
+      "sha256": "b0a60352a8d846fa4638ba136dacfc157956bd2f9a33d7c78f8723780d2428a0",
+      "baseline_sha256": "66e6b83e558e1418ae655d753263a854e62439ea1367432e4ec2e33297ddf43e"
+    }
+  ],
+  "excluded_untracked_categories": [
+    "Fortran .mod build products",
+    "logs and editor state",
+    "save_slot_*.sav",
+    "AGENTS.md local workflow notes",
+    "1.diff scratch patch"
+  ],
+  "verification": "git apply --check and application against baseline contents; every patched file verified by SHA-256"
+}
