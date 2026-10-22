@@ -426,7 +426,8 @@ def run_auto_plan(plan, emit=None):
                     history.append(evidence)
                     _json(journal/'result.json', result)
                     event('auto_assessment', attempt=attempt, candidate=evidence['candidate'],
-                          counts=evidence['counts']['totals'], checkpoint=evidence['checkpoint'])
+                          counts=evidence['counts']['totals'], checkpoint=evidence['checkpoint'],
+                          solver_maximum_changes=[r.get('solver_maximum_change') for r in evidence['records']])
                     if pending:
                         continue
                     decision, trail = policies.choose(context('success'))

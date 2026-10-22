@@ -93,7 +93,8 @@ def auto_workspace(tmp_path):
 
 def test_auto_verifies_fresh_matrices_and_keeps_quality_separate(auto_workspace):
     model,plan=auto_workspace
-    result=run_plan(plan())
+    events=[]
+    result=run_plan(plan(),events.append)
     assert result['status']=='succeeded',result
     assert len(result['attempts'])==2
     assert result['numerical_convergence']=='verified with fresh Jacobians'
@@ -103,6 +104,11 @@ def test_auto_verifies_fresh_matrices_and_keeps_quality_separate(auto_workspace)
     assert (model/'IN_ITS').read_text()=='5 [NUM_ITS]\n'
     assert (Path(result['journal'])/'result.json').is_file()
     assert (Path(result['recovery_directory'])/'SCRTEMP').is_file()
+    assessments=[event for event in events if event['event']=='auto_assessment']
+    assert len(assessments)==2
+    assert [event['solver_maximum_changes'] for event in assessments]==[[0.005]*3, [0.005]*3]
+    saved_events=[json.loads(row) for row in (Path(result['journal'])/'events.jsonl').read_text().splitlines()]
+    assert [event['solver_maximum_changes'] for event in saved_events if event['event']=='auto_assessment']==[[0.005]*3, [0.005]*3]
 
 
 def test_auto_still_requires_independent_phase_when_initial_batch_is_fresh(auto_workspace):

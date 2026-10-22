@@ -3,6 +3,7 @@
 from datetime import datetime
 import os
 import json
+import math
 import shutil
 import textwrap
 
@@ -381,7 +382,14 @@ class TerminalOutput:
             elif kind == 'auto_action':
                 self.line('INFO', f"Automatic adjustment: {item['action']['kind']} — {item['action']['reason']}")
             elif kind == 'auto_assessment':
-                self.line('INFO', f"Checkpoint {item['checkpoint']}: counts {item['counts']}; convergence candidate: {item['candidate']}")
+                solver = ''
+                if 'solver_maximum_changes' in item:
+                    changes = [value for value in item['solver_maximum_changes']
+                               if isinstance(value, (int, float)) and math.isfinite(value)]
+                    solver = (f"solver max change: {changes[0]:.4g}% → {changes[-1]:.4g}% "
+                              f"(min {min(changes):.4g}%, max {max(changes):.4g}%); "
+                              if changes else "solver max change: unavailable; ")
+                self.line('INFO', f"Checkpoint {item['checkpoint']}: {solver}counts {item['counts']}; convergence candidate: {item['candidate']}")
             elif kind == 'auto_finished':
                 self._close_progress()
             return

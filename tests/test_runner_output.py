@@ -43,6 +43,30 @@ def test_readable_preflight_summary_and_grouped_warnings(plan):
     assert not text.lstrip().startswith("{")
 
 
+@pytest.mark.parametrize("changes,summary", [
+    ([98.984, 71.249, 58.4455], "98.98% → 58.45% (min 58.45%, max 98.98%)"),
+    ([0.01, 0.08, 0.02], "0.01% → 0.02% (min 0.01%, max 0.08%)"),
+    ([None, None], "unavailable"),
+])
+def test_auto_checkpoint_shows_batch_solver_change_stats(changes, summary):
+    stream = io.StringIO()
+    TerminalOutput(stream, color="never").event({
+        "event": "auto_assessment", "checkpoint": 13, "counts": {"1.0%": 42394},
+        "candidate": False, "solver_maximum_changes": changes,
+    })
+    output = stream.getvalue()
+    assert f"[INFO] Checkpoint 13: solver max change: {summary}; counts {{'1.0%': 42394}}" in output
+    assert "convergence candidate: False" in output
+
+
+def test_auto_checkpoint_without_solver_stats_remains_readable():
+    stream = io.StringIO()
+    TerminalOutput(stream, color="never").event({
+        "event": "auto_assessment", "checkpoint": 13, "counts": {}, "candidate": False,
+    })
+    assert "Checkpoint 13: counts {}; convergence candidate: False" in stream.getvalue()
+
+
 def test_readable_preflight_shows_explicit_timeout(plan):
     plan["timeout"] = 60
     stream = io.StringIO()
