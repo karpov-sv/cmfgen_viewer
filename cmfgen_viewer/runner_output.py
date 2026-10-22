@@ -24,6 +24,15 @@ LABELS = {
 COLORS = {"OK": "32", "WARN": "33", "ERROR": "31", "RUN": "36", "INFO": "36"}
 
 
+def _duration_suffix(started_at, finished_at):
+    try:
+        elapsed = (datetime.fromisoformat(finished_at)
+                   - datetime.fromisoformat(started_at)).total_seconds()
+    except (ValueError, TypeError):
+        return ""
+    return f" in {elapsed:.2f}s" if elapsed >= 0 else ""
+
+
 class TerminalOutput:
     def __init__(self, stream, *, color="auto", verbose=False):
         self.stream = stream
@@ -34,6 +43,7 @@ class TerminalOutput:
         )
         self.progress_bars = {}
         self.disabled_progress_bars = set()
+        self.stage_started_at = {}
 
     def line(self, label, message):
         tag = f"[{label}]"
@@ -377,9 +387,13 @@ class TerminalOutput:
             return
         if kind == "run_finished":
             self._close_progress(stage or None)
+            self.stage_started_at = {key: value for key, value in self.stage_started_at.items()
+                                     if key[0] != item.get("run_id")}
             return
         if kind == "sequence_finished":
             self._close_progress("sequence")
+            self.stage_started_at = {key: value for key, value in self.stage_started_at.items()
+                                     if key[0] != item.get("run_id")}
             return
         if kind == "sequence_started":
             self.line("RUN", "multi-stage sequence: starting")
@@ -389,10 +403,14 @@ class TerminalOutput:
                 f"stage {item['index']}/{item['total']} {stage}: preflight",
             )
         elif kind == "sequence_stage_ready":
+            self.stage_started_at[(item.get("run_id"), stage)] = item.get("time")
             self.line("OK", f"{stage}: preflight passed")
         elif kind == "sequence_stage_completed":
-            self.line("OK", f"{stage}: accepted; advancing to the next stage")
+            started_at = self.stage_started_at.pop((item.get("run_id"), stage), None)
+            duration = _duration_suffix(started_at, item.get("time"))
+            self.line("OK", f"{stage}: accepted{duration}; advancing to the next stage")
         elif kind == "sequence_stage_blocked":
+            self.stage_started_at.pop((item.get("run_id"), stage), None)
             self.line(
                 "ERROR",
                 f"{stage}: sequence stopped ({item['status']}); later stages will not run",
@@ -406,13 +424,16 @@ class TerminalOutput:
         if kind == "startup_fallback":
             self.line("WARN", item["message"])
         elif kind == "stage_started":
+            self.stage_started_at[(item.get("run_id"), stage)] = item.get("time")
             self.line("RUN", f"{stage}: starting")
         elif kind == "stage_finished":
             self._close_progress(stage)
+            started_at = self.stage_started_at.pop((item.get("run_id"), stage), None)
+            duration = _duration_suffix(started_at, item.get("time"))
             label, message = LABELS.get(item["status"], ("INFO", item["status"]))
             if stage in {"prepare-lte", "promote-hydro", "cleanup"} and item["status"] == "failed":
                 message = "filesystem operation failed"
-            self.line(label, f"{stage}: {message}")
+            self.line(label, f"{stage}: {message}{duration}")
         elif kind == "progress":
             if not self._update_progress_bar(item):
                 self._close_progress(str(item.get("stage", "run")))
@@ -421,7 +442,8 @@ class TerminalOutput:
     def result(self, result, *, preflight_warnings=()):
         if result.get('kind') == 'auto':
             ok = result['status'] == 'succeeded'
-            self.line('OK' if ok else 'WARN', f"Automatic main: {result.get('numerical_convergence') if ok else result.get('reason', result['status'])}")
+            duration = _duration_suffix(result.get('started_at'), result.get('finished_at'))
+            self.line('OK' if ok else 'WARN', f"Automatic main: {result.get('numerical_convergence') if ok else result.get('reason', result['status'])}{duration}")
             self.line('INFO', f"{len(result['attempts'])} attempts; {result['iterations_used']} charged iterations; journal: {result['journal']}")
             if result.get('issue_report'):
                 self.line('INFO', f"Investigation report: {result['issue_report']}")
@@ -450,12 +472,7 @@ class TerminalOutput:
         if warnings and status in {"succeeded", "tested"}:
             label = "WARN"
             message += " with warnings"
-        duration = ""
-        try:
-            elapsed = (datetime.fromisoformat(result["finished_at"]) - datetime.fromisoformat(result["started_at"])).total_seconds()
-            duration = f" in {elapsed:.2f}s"
-        except (KeyError, ValueError, TypeError):
-            pass
+        duration = _duration_suffix(result.get("started_at"), result.get("finished_at"))
         self.line(label, f"{result.get('stage', 'Run')}: {message}{duration}")
         if passes:
             successful = sum(step["status"] == "succeeded" for step in passes)
@@ -535,15 +552,7 @@ class TerminalOutput:
         label, message = LABELS.get(status, ("ERROR", status))
         stages = result.get("stages", [])
         completed = result.get("completed_stages", [])
-        duration = ""
-        try:
-            elapsed = (
-                datetime.fromisoformat(result["finished_at"])
-                - datetime.fromisoformat(result["started_at"])
-            ).total_seconds()
-            duration = f" in {elapsed:.2f}s"
-        except (KeyError, ValueError, TypeError):
-            pass
+        duration = _duration_suffix(result.get("started_at"), result.get("finished_at"))
         self.line(label, f"Multi-stage run: {message}{duration}")
         self.line(
             "INFO",

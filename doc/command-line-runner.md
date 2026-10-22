@@ -2,6 +2,11 @@
 
 `cmfgen_run.py` runs a reviewed subset of the ostar workflows directly in Python. It never executes `batch.sh`, `batobs.sh`, sourced setup scripts, or arbitrary shell commands. The same runner can be launched from the viewer as an independent process.
 
+Text completion messages include elapsed wall-clock time, for example
+`[OK] main: completed in 125.34s`. The automatic-run summary reports total
+time across all attempts and verification. In a sequence, each accepted-stage
+message also reports that stage's total time before advancing.
+
 ## Launching from the viewer
 
 In read-write mode, choose **Model runner** in the shared model toolbar, beside the workflow links. Select a stage preset or enter a custom ordered sequence, optionally set additional main iterations, threads, timeout, memory limit, or fresh startup, then **Preview run**. Review the findings and choose **Launch reviewed run**. Changed inputs or configuration require a new preview. For sequences, only the first stage is fully checked initially; later stages are preflighted against the outputs just produced.

@@ -139,6 +139,88 @@ def test_success_and_warning_states_are_distinct(result):
     assert "[WARN] main: Possible error converging f" in stream.getvalue()
 
 
+@pytest.mark.parametrize(("status", "completion"), [
+    ("succeeded", "[OK] main: completed"),
+    ("failed", "[ERROR] main: executable failed"),
+    ("timeout", "[ERROR] main: time limit exceeded"),
+])
+def test_live_stage_completion_reports_wall_clock_duration(status, completion):
+    stream = io.StringIO()
+    output = TerminalOutput(stream)
+    output.event({"event": "stage_started", "run_id": "one", "stage": "main",
+                  "time": "2026-10-22T10:00:00+00:00"})
+    output.event({"event": "stage_finished", "run_id": "one", "stage": "main",
+                  "status": status, "time": "2026-10-22T10:01:02.500000+00:00"})
+    assert completion + " in 62.50s" in stream.getvalue()
+    assert output.stage_started_at == {}
+
+
+def test_live_stage_timing_is_scoped_to_run_and_stage():
+    stream = io.StringIO()
+    output = TerminalOutput(stream)
+    for run_id, stage, started in [("one", "main", "00"), ("two", "main", "10"),
+                                    ("one", "hydro", "15")]:
+        output.event({"event": "stage_started", "run_id": run_id, "stage": stage,
+                      "time": f"2026-10-22T10:00:{started}+00:00"})
+    for run_id, stage in [("one", "main"), ("two", "main"), ("one", "hydro")]:
+        output.event({"event": "stage_finished", "run_id": run_id, "stage": stage,
+                      "status": "succeeded", "time": "2026-10-22T10:00:20+00:00"})
+    text = stream.getvalue()
+    assert "main: completed in 20.00s" in text
+    assert "main: completed in 10.00s" in text
+    assert "hydro: completed in 5.00s" in text
+    assert output.stage_started_at == {}
+
+
+@pytest.mark.parametrize(("started", "finished"), [
+    (None, None),
+    ("invalid", "2026-10-22T10:00:20+00:00"),
+    ("2026-10-22T10:00:30+00:00", "2026-10-22T10:00:20+00:00"),
+])
+def test_live_completion_omits_unavailable_or_invalid_duration(started, finished):
+    stream = io.StringIO()
+    output = TerminalOutput(stream)
+    output.event({"event": "stage_started", "stage": "main", "time": started})
+    output.event({"event": "stage_finished", "stage": "main", "status": "succeeded",
+                  "time": finished})
+    assert stream.getvalue().splitlines()[-1] == "[OK] main: completed"
+
+
+def test_interrupted_run_clears_unfinished_stage_timing():
+    output = TerminalOutput(io.StringIO())
+    output.event({"event": "stage_started", "run_id": "one", "stage": "continuum",
+                  "time": "2026-10-22T10:00:00+00:00"})
+    output.event({"event": "run_finished", "run_id": "one", "stage": "flux",
+                  "status": "cancelled"})
+    assert output.stage_started_at == {}
+
+
+def test_automatic_summary_reports_total_time_across_attempts(result):
+    automatic = {**result, "kind": "auto", "attempts": [{}, {}, {}],
+                 "iterations_used": 15, "numerical_convergence": "verified with fresh Jacobians",
+                 "finished_at": "2026-09-07T12:05:00+00:00"}
+    stream = io.StringIO()
+    TerminalOutput(stream).result(automatic)
+    assert "Automatic main: verified with fresh Jacobians in 7500.00s" in stream.getvalue()
+
+
+def test_sequence_stage_time_includes_all_native_attempts():
+    stream = io.StringIO()
+    output = TerminalOutput(stream)
+    output.event({"event": "sequence_stage_ready", "run_id": "sequence", "stage": "main",
+                  "time": "2026-10-22T10:00:00+00:00"})
+    for run_id, started, finished in [("one", "05", "15"), ("two", "20", "30")]:
+        output.event({"event": "stage_started", "run_id": run_id, "stage": "main",
+                      "time": f"2026-10-22T10:00:{started}+00:00"})
+        output.event({"event": "stage_finished", "run_id": run_id, "stage": "main",
+                      "status": "succeeded", "time": f"2026-10-22T10:00:{finished}+00:00"})
+        output.event({"event": "run_finished", "run_id": run_id, "stage": "main"})
+    output.event({"event": "sequence_stage_completed", "run_id": "sequence", "stage": "main",
+                  "time": "2026-10-22T10:01:00+00:00"})
+    assert "main: accepted in 60.00s; advancing to the next stage" in stream.getvalue()
+    assert output.stage_started_at == {}
+
+
 def test_startup_test_result_reports_test_success(result):
     result.update(stage="test", status="tested")
     result["passes"][0]["id"] = "test"
@@ -400,6 +482,23 @@ def setup_cli(monkeypatch, plan, result):
         emit({"event": "stage_finished", "stage": "main", "status": "succeeded"})
         return result
     monkeypatch.setattr(runner, "run_plan", run)
+
+
+def test_cli_live_completion_includes_elapsed_stage_time(monkeypatch, capsys, plan, result):
+    setup_cli(monkeypatch, plan, result)
+
+    def run(_plan, emit):
+        emit({"event": "stage_started", "stage": "main", "run_id": "one",
+              "time": result["started_at"]})
+        emit({"event": "stage_finished", "stage": "main", "run_id": "one",
+              "status": "succeeded", "time": result["finished_at"]})
+        return result
+
+    monkeypatch.setattr(runner, "run_plan", run)
+    assert runner.main(["/tmp/test-model", "--stage", "main"]) == 0
+    captured = capsys.readouterr()
+    assert "[OK] main: completed in 2.00s" in captured.err
+    assert "[OK] main: completed in 2.00s" in captured.out
 
 
 @pytest.mark.parametrize("planning", [True, False])
