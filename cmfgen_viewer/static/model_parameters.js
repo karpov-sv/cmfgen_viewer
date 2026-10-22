@@ -1,9 +1,19 @@
 (function () {
   "use strict";
   document.querySelectorAll("[data-quick-parameter-form]").forEach(function (form) {
+    const field = (key) => form.elements.namedItem("quick_value:" + key);
+    const method = field("DC_METH");
+    if (method) {
+      method.addEventListener("change", function () {
+        if (method.value.toUpperCase() !== "POP") return;
+        ["LIN_INT", "POP_SCALE"].forEach(function (key) {
+          const control = field(key);
+          if (control) control.value = "T";
+        });
+      });
+    }
     const checkbox = form.querySelector("[data-luminosity-scaling]");
     if (!checkbox || checkbox.disabled) return;
-    const field = (key) => form.elements.namedItem("quick_value:" + key);
     const luminosity = field("LSTAR");
     const radius = field("RSTAR");
     const mass = field("MASS");

@@ -61,7 +61,19 @@ This method requires `LIN_INT=F` and, if present, `LTE_EST=F`. These controls se
 
 For a persistent choice, **Edit parameters → Quick parameters → Initialization**, below the abundance groups, provides a `DC_METH` selector and a `T_EXC` field. The section is collapsed initially. Missing controls remain unset until explicitly filled, so ordinary stellar/abundance edits do not add initialization settings. Selecting `LTE` requires a positive `T_EXC`; `1.0` means 10,000 K for initial estimates. Review and save the diff through the usual backup workflow.
 
-The selector also supports `POP` (population fractions interpolated in radius) for the locally patched CMFGEN. It requires `LIN_INT=T` and `POP_SCALE=T`; existing `DC_METH=POP` values remain editable and are preserved when changing other parameters. The consolidated source-fix summary in `doc/developer/cmfgen-source-fixes.md` records the native implementation and validation.
+The selector also supports `POP` (population fractions interpolated in radius) for
+the locally patched CMFGEN. The **Initialization** section exposes `LIN_INT`
+(interpolate the saved model onto the grid) and `POP_SCALE` (scale initial
+populations). Selecting POP sets both switches to `T` in the form; their changes
+appear in the review diff and are written only after saving. Switching away
+from POP leaves the switches at their current values for you to review. Loading
+the editor does not toggle them. The server rejects review or save of POP if
+either switch is missing, duplicated, or disabled; with JavaScript unavailable,
+set both to `T` manually. Missing switches offer **Unset (leave unchanged)**
+until set. Existing values are preserved during unrelated edits.
+Changing `LIN_INT` while using LTE also checks
+the LTE compatibility requirements above. The consolidated source-fix summary
+in `doc/developer/cmfgen-source-fixes.md` records the native implementation and validation.
 
 Population-initialization failures receive suggested LTE recovery steps. Named `SCALE_POPS`/`CNVT_FR_DC` crash frames or the native zero-RGU safeguard provide specific evidence. An opaque fatal crash during fresh initialization is labeled **Possible initial population failure**; `SIGILL` alone is insufficient. On macOS, available `.ips` crash reports are correlated by process name, PID, and report freshness, and only their symbol names are used. Crash reports can arrive after the runner finishes, so a later web/status refresh may provide more specific evidence. A failure after iteration has begun is not assigned this initialization diagnosis. The analyzer is read-only; with `--auto`, its confirmed diagnosis can select the bounded LTE recovery rule below. Ordinary finite runs do not restart themselves.
 
@@ -173,6 +185,30 @@ The automatic runner also supports ordinary scheduled native hydro revisions. It
 An initially fixed `VADAT [FIX_T]=T` is accepted only when `[DO_T_AUTO]=T` explicitly requests native automatic release. The controller can adopt that native T→F transition after a qualifying full solve; it does not change the release policy itself. Fixed-temperature and Lambda steps still cannot establish convergence.
 
 ### Acceptance and scientific quality
+
+The model's convergence tolerance is editable under **Edit parameters → Quick
+parameters → VADAT → Convergence and solver controls → Convergence tolerance** (`EPS_TERM`).
+Enter a positive number in percent: `0.02` means a fractional correction of
+`0.0002`. The existing model value is retained until explicitly edited; 0.02%
+is an inherited setting in the Bstar/ostar inputs, not a universal accuracy
+requirement. Smaller values request tighter solver convergence. This tolerance
+does not specify spectral accuracy or energy-balance accuracy. Changes use the
+usual reviewed diff and recoverable backup workflow.
+
+The same section exposes `MAX_LIN`, the full-iteration population correction
+limit (a factor greater than 1), and `MAX_dT`, the temperature correction limit
+(a fraction in `(0, 0.2]`, so `0.05` means 5%). A missing `MAX_dT` stays unset
+unless explicitly filled, retaining the native 20% default. `SCALE_OPT=NONE`
+always uses a fixed 20% temperature limit.
+
+The collapsed **Advanced solver controls** group exposes `COMP_BA`, `N_FIX_BA`,
+`FIX_BA`, `SCALE_OPT`, and `MAX_LAM`. Fresh Jacobians on every iteration require
+`COMP_BA=T`, `N_FIX_BA=0`, and `FIX_BA=0`: the reuse count and freeze threshold
+both affect matrix computation. `FIX_BA` is in percent; `MAX_LAM` is a factor
+greater than 1 for Lambda population updates. `SCALE_OPT` selects MAJOR, LOCAL,
+GLOBAL, or NONE correction scaling. These settings control damping and matrix
+reuse separately from the convergence tolerance. Automatic recovery and
+verification can adjust solver controls as documented above.
 
 Automatic success requires two final, full, variable-temperature iterations in the independent verification batch, with BA computed on both. The native solver metric **and both absolute raw correction extrema** must be finite and strictly below the model's explicit positive `VADAT [EPS_TERM]` in percent. Relevant `CORRECTION_SUM` counts must agree. Lambda/fixed-temperature steps, small limiter-scaled applied updates, and a small ranked solver metric alone cannot establish convergence.
 

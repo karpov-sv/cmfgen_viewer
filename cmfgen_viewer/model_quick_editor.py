@@ -64,6 +64,77 @@ QUICK_PARAMETER_DEFINITIONS: dict[str, dict[str, dict[str, object]]] = {
             "unit": "log g",
             "notice": "Changing LOGG requires regenerating the LTE/hydro structure; this edit alone is not sufficient.",
         },
+        "EPS_TERM": {
+            "label": "Convergence tolerance",
+            "group": "Convergence and solver controls",
+            "kind": "float",
+            "unit": "%",
+            "notice": "Positive solver correction tolerance: 0.02 means 0.02%, not 2%. "
+                      "Smaller values require tighter convergence. Used by native CMFGEN and "
+                      "the automatic runner; this is not a spectrum or physical-accuracy target.",
+        },
+        "MAX_LIN": {
+            "label": "Population correction limit",
+            "group": "Convergence and solver controls",
+            "kind": "float",
+            "unit": "factor",
+            "notice": "Must exceed 1. Limits full-iteration population updates according to "
+                      "the scaling method; 2 permits changes by a factor of up to 2. "
+                      "Smaller limits can reduce overshoot.",
+        },
+        "MAX_DT": {
+            "label": "Temperature correction limit",
+            "group": "Convergence and solver controls",
+            "kind": "float",
+            "unit": "fraction",
+            "optional": True,
+            "placeholder": "Native default: 0.2 (20%)",
+            "notice": "Enter a fraction greater than 0 and at most 0.2: 0.05 means 5%. "
+                      "Leave unset to retain the native 20% default. SCALE_OPT=NONE uses "
+                      "a fixed 20% temperature limit instead.",
+        },
+        "COMP_BA": {
+            "label": "Compute Jacobian",
+            "group": "Advanced solver controls",
+            "kind": "boolean",
+            "unit": "",
+            "notice": "Enable matrix computation. Fresh Jacobians on every iteration require "
+                      "COMP_BA=T, N_FIX_BA=0 and FIX_BA=0.",
+        },
+        "N_FIX_BA": {
+            "label": "Jacobian reuse iterations",
+            "group": "Advanced solver controls",
+            "kind": "integer",
+            "unit": "iterations",
+            "notice": "Number of iterations to hold the Jacobian fixed. Zero disables this "
+                      "reuse interval; COMP_BA and FIX_BA also control matrix computation.",
+        },
+        "FIX_BA": {
+            "label": "Jacobian freeze threshold",
+            "group": "Advanced solver controls",
+            "kind": "float",
+            "unit": "%",
+            "notice": "Stop computing the Jacobian when the native solver metric falls below "
+                      "this threshold. Zero disables this threshold-based freeze.",
+        },
+        "SCALE_OPT": {
+            "label": "Correction scaling method",
+            "group": "Advanced solver controls",
+            "kind": "token",
+            "unit": "",
+            "choices": [("MAJOR", "Major species"), ("LOCAL", "Per depth"),
+                        ("GLOBAL", "All depths together"), ("NONE", "Individual limits")],
+            "notice": "Controls how correction limits scale updates. NONE still limits "
+                      "individual updates; its temperature limit is fixed at 20%.",
+        },
+        "MAX_LAM": {
+            "label": "Lambda population correction limit",
+            "group": "Advanced solver controls",
+            "kind": "float",
+            "unit": "factor",
+            "notice": "Must exceed 1. Population correction limit for Lambda iterations, "
+                      "separate from MAX_LIN for full iterations.",
+        },
         "DC_METH": {
             "label": "Initial population method",
             "group": "Initialization",
@@ -71,7 +142,8 @@ QUICK_PARAMETER_DEFINITIONS: dict[str, dict[str, dict[str, object]]] = {
             "unit": "",
             "notice": "Fresh initialization only. Leave unset to preserve the native default "
                       "(ED with LIN_INT=F, R with LIN_INT=T). POP requires the patched CMFGEN "
-                      "with LIN_INT=T and POP_SCALE=T. LTE is a fallback, not a convergence guarantee.",
+                      "with LIN_INT=T and POP_SCALE=T; selecting POP enables both in this form. "
+                      "Review these changes before saving. LTE is a fallback, not a convergence guarantee.",
             "choices": [
                 ("ED", "Electron density"), ("R", "Radius"),
                 ("TR", "Temperature / radius"), ("RTX", "Excitation temperature / radius"),
@@ -86,6 +158,24 @@ QUICK_PARAMETER_DEFINITIONS: dict[str, dict[str, dict[str, object]]] = {
             "kind": "float",
             "unit": "10⁴ K",
             "notice": "Used with DC_METH=LTE; 1.0 corresponds to 10,000 K.",
+        },
+        "LIN_INT": {
+            "label": "Interpolate saved model onto the grid",
+            "group": "Initialization",
+            "kind": "boolean",
+            "unit": "",
+            "optional": True,
+            "notice": "Selects grid interpolation for fresh initialization. POP requires T; "
+                      "LTE requires F. Selecting POP enables this switch in the form.",
+        },
+        "POP_SCALE": {
+            "label": "Scale initial populations",
+            "group": "Initialization",
+            "kind": "boolean",
+            "unit": "",
+            "optional": True,
+            "notice": "Normalize initial populations to the target model. POP requires T. "
+                      "Selecting POP enables this switch in the form.",
         },
         "DO_CL": {
             "label": "Enable clumping",
@@ -140,6 +230,8 @@ QUICK_PARAMETER_GROUP_ORDER = (
     "Composition",
     "Additional abundances",
     "Initialization",
+    "Convergence and solver controls",
+    "Advanced solver controls",
     "Iteration controls",
 )
 
@@ -220,7 +312,7 @@ def _quick_parameter_definitions(
 def _validate_quick_parameter_value(field: dict[str, object], raw_value: object) -> str:
     value = str(raw_value).strip()
     key = str(field["key"])
-    if not value and field.get("missing") and key in {"DC_METH", "T_EXC"}:
+    if not value and field.get("missing") and field.get("optional"):
         return ""
     if not value:
         raise ModelEditorError(f"[{key}] requires a value.")
@@ -243,15 +335,23 @@ def _validate_quick_parameter_value(field: dict[str, object], raw_value: object)
         parsed = parse_float_token(value)
         if parsed is None or not math.isfinite(parsed):
             raise ModelEditorError(f"[{key}] must be a finite number.")
-        if key == "T_EXC" and parsed <= 0:
-            raise ModelEditorError("[T_EXC] must be positive")
+        if key in {"T_EXC", "EPS_TERM"} and parsed <= 0:
+            raise ModelEditorError(f"[{key}] must be positive")
+        if key in {"MAX_LIN", "MAX_LAM"} and parsed <= 1:
+            raise ModelEditorError(f"[{key}] must exceed 1.")
+        if key == "MAX_DT" and not 0 < parsed <= 0.2:
+            raise ModelEditorError("[MAX_dT] must be greater than 0 and at most 0.2 (20%).")
+        if key == "FIX_BA" and parsed < 0:
+            raise ModelEditorError("[FIX_BA] must be non-negative.")
         return value
     if kind == "token":
         if len(value) > 64 or QUICK_TOKEN_RE.fullmatch(value) is None:
             raise ModelEditorError(f"[{key}] must be a single control token.")
-        if key == "DC_METH" and value.upper() not in {choice[0] for choice in field["choices"]}:
-            raise ModelEditorError("Unsupported [DC_METH] interpolation method")
-        return value.upper() if key == "DC_METH" else value
+        if field.get("choices"):
+            if value.upper() not in {choice[0] for choice in field["choices"]}:
+                raise ModelEditorError(f"Unsupported [{key}] selection")
+            return value.upper()
+        return value
     raise ModelEditorError(f"[{key}] has an unsupported quick-editor field type.")
 
 
@@ -291,7 +391,7 @@ def _quick_card_from_record(record: dict[str, object]) -> dict[str, object]:
     issues: list[str] = []
     for key, definition in _quick_parameter_definitions(file_relpath, occurrences):
         matches = occurrences.get(key, [])
-        optional = key in {"DC_METH", "T_EXC"}
+        optional = key in {"DC_METH", "T_EXC"} or definition.get("optional", False)
         if not matches and not optional:
             continue
         if len(matches) > 1:
@@ -328,14 +428,15 @@ def _quick_card_from_record(record: dict[str, object]) -> dict[str, object]:
                 {
                     "name": group_name,
                     "fields": group_fields,
-                    "collapsed": group_name in {"Additional abundances", "Initialization"},
+                    "collapsed": group_name in {"Additional abundances", "Initialization",
+                                                "Advanced solver controls"},
                 }
             )
     return {
         "file_relpath": file_relpath,
         "label": "Model setup" if file_relpath == "VADAT" else "Run controls",
         "description": (
-            "Frequently changed stellar, wind, clumping, and composition controls."
+            "Stellar, wind, clumping, composition, initialization, and solver controls."
             if file_relpath == "VADAT"
             else "Iteration count and automatic iteration switches."
         ),
@@ -448,7 +549,14 @@ def _prepare_quick_parameter_edit(
         updated = _keyword_occurrences(contents)
         method = updated.get("DC_METH", [])
         changed = any([r["value"] for r in original.get(key, [])] != [r["value"] for r in updated.get(key, [])]
-                      for key in ("DC_METH", "T_EXC"))
+                      for key in ("DC_METH", "T_EXC", "LIN_INT", "POP_SCALE"))
+        if len(method) == 1 and method[0]["value"].upper() == "POP":
+            for key in ("LIN_INT", "POP_SCALE"):
+                rows = updated.get(key, [])
+                if len(rows) != 1 or rows[0]["value"].upper() != "T":
+                    raise ModelEditorError(
+                        f"[DC_METH]=POP requires [{key}]=T. "
+                        "Enable both switches in Initialization before reviewing or saving.")
         if changed and len(method) == 1 and method[0]["value"].upper() == "LTE":
             rows = updated.get("T_EXC", [])
             if len(rows) != 1:

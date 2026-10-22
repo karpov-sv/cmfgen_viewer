@@ -293,6 +293,118 @@ def test_quick_model_parameters_edit_iteration_controls(tmp_path: Path) -> None:
     assert (model / "IN_ITS").read_text(encoding="utf-8") == proposed
 
 
+def test_quick_convergence_tolerance_preserves_percent_units_and_format(tmp_path: Path) -> None:
+    model = tmp_path / "model_a"
+    _write_model(model)
+    original = "2.0D-02      [EPS_TERM] ! tolerance in percent\r\n1.0 [LSTAR]\r\n"
+    (model / "VADAT").write_bytes(original.encode())
+    card = next(card for card in load_quick_model_parameter_cards(
+        str(tmp_path), model_relpath="model_a") if card["file_relpath"] == "VADAT")
+    field = next(field for field in card["fields"] if field["key"] == "EPS_TERM")
+    assert field["group"] == "Convergence and solver controls"
+    assert field["unit"] == "%"
+    values = {field["key"]: field["value"] for field in card["fields"]}
+    kwargs = dict(model_relpath="model_a", file_relpath="VADAT",
+                  expected_digest=card["digest"], values=values)
+    assert not review_quick_model_parameter_edit(str(tmp_path), **kwargs)["changed"]
+    values["EPS_TERM"] = "1.0D-02"
+    review = review_quick_model_parameter_edit(str(tmp_path), **kwargs)
+    assert review["contents"] == original.replace("2.0D-02", "1.0D-02")
+    saved = save_quick_model_parameter_edit(
+        str(tmp_path), reviewed_digest=review["proposed_digest"], **kwargs)
+    assert (model / "VADAT").read_bytes() == review["contents"].encode()
+    assert (model / saved["backup_relpath"]).read_bytes() == original.encode()
+
+
+@pytest.mark.parametrize("value", ["0", "-0.02", "NaN", "Inf", "not-a-number"])
+def test_quick_convergence_tolerance_rejects_invalid_values(tmp_path: Path, value: str) -> None:
+    model = tmp_path / "model_a"
+    _write_model(model)
+    original = "0.02 [EPS_TERM]\n"
+    (model / "VADAT").write_text(original)
+    card = next(card for card in load_quick_model_parameter_cards(
+        str(tmp_path), model_relpath="model_a") if card["file_relpath"] == "VADAT")
+    values = {field["key"]: field["value"] for field in card["fields"]}
+    with pytest.raises(ModelEditorError, match=r"\[EPS_TERM\].*(positive|finite)"):
+        review_quick_model_parameter_edit(
+            str(tmp_path), model_relpath="model_a", file_relpath="VADAT",
+            expected_digest=card["digest"], values={**values, "EPS_TERM": value})
+    assert (model / "VADAT").read_text() == original
+
+
+def _solver_editor(tmp_path, *, temperature_limit=False):
+    model = tmp_path / "model_a"
+    _write_model(model)
+    original = ("0.02 [EPS_TERM]\r\n10.0D0 [MAX_LIN] ! factor\r\n"
+                "T [COMP_BA]\r\n2 [N_FIX_BA]\r\n0.1 [FIX_BA]\r\n"
+                "MAJOR [SCALE_OPT]\r\n1D4 [MAX_LAM]\r\n")
+    if temperature_limit:
+        original += "0.2 [MAX_dT] ! preserve mixed-case key\r\n"
+    (model / "VADAT").write_bytes(original.encode())
+    card = next(card for card in load_quick_model_parameter_cards(
+        str(tmp_path), model_relpath="model_a") if card["file_relpath"] == "VADAT")
+    values = {field["key"]: field["value"] for field in card["fields"]}
+    args = dict(model_relpath="model_a", file_relpath="VADAT",
+                expected_digest=card["digest"], values=values)
+    return model, original, card, args
+
+
+@pytest.mark.parametrize("temperature_limit", [False, True])
+def test_solver_editor_reviews_saves_and_preserves_optional_limit(tmp_path, temperature_limit):
+    model, original, card, args = _solver_editor(tmp_path, temperature_limit=temperature_limit)
+    advanced = next(group for group in card["groups"] if group["name"] == "Advanced solver controls")
+    assert advanced["collapsed"]
+    assert {field["key"] for field in advanced["fields"]} == {
+        "COMP_BA", "N_FIX_BA", "FIX_BA", "SCALE_OPT", "MAX_LAM"}
+    # An untouched optional field must not change the file or add a default.
+    assert not review_quick_model_parameter_edit(str(tmp_path), **args)["changed"]
+    args["values"].update(MAX_LIN="2", N_FIX_BA="0", FIX_BA="0", SCALE_OPT="local")
+    review = review_quick_model_parameter_edit(str(tmp_path), **args)
+    assert ("[MAX_dT]" in review["contents"]) == temperature_limit
+    assert "LOCAL [SCALE_OPT]" in review["contents"]
+    args["values"]["MAX_DT"] = "0.05"
+    review = review_quick_model_parameter_edit(str(tmp_path), **args)
+    if temperature_limit:
+        assert "0.05 [MAX_dT] ! preserve mixed-case key\r\n" in review["contents"]
+    else:
+        assert review["contents"].count("[MAX_DT]") == 1
+    saved = save_quick_model_parameter_edit(
+        str(tmp_path), reviewed_digest=review["proposed_digest"], **args)
+    assert (model / "VADAT").read_bytes() == review["contents"].encode()
+    assert (model / saved["backup_relpath"]).read_bytes() == original.encode()
+
+
+@pytest.mark.parametrize("key,value", [
+    ("MAX_LIN", "1"), ("MAX_LIN", "NaN"), ("MAX_LAM", "0.5"),
+    ("MAX_DT", "0"), ("MAX_DT", "-0.05"), ("MAX_DT", "0.21"), ("MAX_DT", "Inf"),
+    ("FIX_BA", "-1"), ("N_FIX_BA", "-1"), ("N_FIX_BA", "1.5"),
+    ("COMP_BA", "yes"), ("SCALE_OPT", "UNKNOWN"),
+])
+def test_solver_editor_rejects_invalid_controls(tmp_path, key, value):
+    model, original, _, args = _solver_editor(tmp_path)
+    args["values"][key] = value
+    with pytest.raises(ModelEditorError):
+        review_quick_model_parameter_edit(str(tmp_path), **args)
+    assert (model / "VADAT").read_bytes() == original.encode()
+
+
+def test_solver_editor_renders_basic_and_collapsed_advanced_controls(tmp_path):
+    from cmfgen_viewer.app import create_app
+    _solver_editor(tmp_path)
+    app = create_app(basepath=str(tmp_path), read_write_enabled=True, secret_key="test")
+    response = app.test_client().get("/model-actions/edit/model_a")
+    assert response.status_code == 200
+    html = response.data.decode()
+    assert "Convergence and solver controls" in html
+    assert 'id="quick-vadat-max_dt"' in html
+    assert 'placeholder="Native default: 0.2 (20%)"' in html
+    summary = html.index("Advanced solver controls (5)")
+    details = html.rfind("<details", 0, summary)
+    assert "open" not in html[details:html.index(">", details)]
+    assert 'name="quick_value:SCALE_OPT"' in html
+    assert "Per depth" in html
+
+
 def _scaling_model(tmp_path):
     model = tmp_path / "model_a"
     _write_model(model, newline="\r\n")

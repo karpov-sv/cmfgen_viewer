@@ -121,11 +121,13 @@ def test_missing_initialization_controls_stay_unset_for_normal_edits(workspace):
     card = load_quick_model_parameter_cards(root, model_relpath="model")[0]
     values = {f["key"]: f["value"] for f in card["fields"]}
     assert values["DC_METH"] == values["T_EXC"] == ""
+    assert values["LIN_INT"] == values["POP_SCALE"] == ""
     args = dict(model_relpath="model", file_relpath="VADAT", expected_digest=card["digest"], values=values)
     assert not review_quick_model_parameter_edit(root, **args)["changed"]
     values["RSTAR"] = "2"
     review = review_quick_model_parameter_edit(root, **args)
     assert "[DC_METH]" not in review["contents"] and "[T_EXC]" not in review["contents"]
+    assert "[LIN_INT]" not in review["contents"] and "[POP_SCALE]" not in review["contents"]
     values["DC_METH"] = "LTE"
     with pytest.raises(ModelEditorError, match="Specify.*T_EXC"):
         review_quick_model_parameter_edit(root, **args)
@@ -139,6 +141,9 @@ def test_initialization_selector_is_below_abundances_and_luminosity(workspace):
     page = app.test_client().get("/model-actions/edit/model").data.decode()
     assert page.index('id="quick-vadat-lstar"') < page.index("Additional abundances") < page.index("Initialization")
     assert 'name="quick_value:DC_METH"' in page
+    assert 'name="quick_value:LIN_INT"' in page
+    assert 'name="quick_value:POP_SCALE"' in page
+    assert 'Unset (leave unchanged)' in page
     assert 'Native default (leave unset)' in page
     assert 'LTE — LTE initial populations' in page
     assert 'Preview LTE initialization settings' not in page
@@ -165,6 +170,80 @@ def test_population_method_is_editable_and_preserved_during_other_edits(workspac
     assert '[DC_METH] has an unsupported value' not in page
     values["DC_METH"] = "UNKNOWN"
     with pytest.raises(ModelEditorError, match="Unsupported.*DC_METH"):
+        review_quick_model_parameter_edit(root, model_relpath="model", file_relpath="VADAT",
+                                          expected_digest=card["digest"], values=values)
+
+
+@pytest.mark.parametrize("controls,key", [
+    ("", "LIN_INT"),
+    ("F [LIN_INT]\nT [POP_SCALE]\n", "LIN_INT"),
+    ("T [LIN_INT]\n", "POP_SCALE"),
+    ("T [LIN_INT]\nF [POP_SCALE]\n", "POP_SCALE"),
+    ("T [LIN_INT]\nT [LIN_INT]\nT [POP_SCALE]\n", "LIN_INT"),
+    ("T [LIN_INT]\nT [POP_SCALE]\nT [POP_SCALE]\n", "POP_SCALE"),
+])
+def test_pop_selection_requires_explicit_enabled_switches(workspace, controls, key):
+    model, _ = workspace
+    with (model / "VADAT").open("a") as stream:
+        stream.write(controls)
+    original = (model / "VADAT").read_bytes()
+    root = str(model.parent)
+    card = load_quick_model_parameter_cards(root, model_relpath="model")[0]
+    values = {field["key"]: field["value"] for field in card["fields"]}
+    values["DC_METH"] = "POP"
+    with pytest.raises(ModelEditorError, match=rf"POP requires \[{key}\]=T"):
+        review_quick_model_parameter_edit(root, model_relpath="model", file_relpath="VADAT",
+                                          expected_digest=card["digest"], values=values)
+    assert (model / "VADAT").read_bytes() == original
+
+
+@pytest.mark.parametrize("existing", [False, True])
+def test_pop_switches_are_explicitly_reviewed_and_saved(workspace, existing):
+    model, _ = workspace
+    if existing:
+        with (model / "VADAT").open("a") as stream:
+            stream.write("F [LIN_INT] ! keep interpolation comment\nF [POP_SCALE] ! keep scaling comment\n")
+    original = (model / "VADAT").read_bytes()
+    root = str(model.parent)
+    card = load_quick_model_parameter_cards(root, model_relpath="model")[0]
+    values = {field["key"]: field["value"] for field in card["fields"]}
+    values.update(DC_METH="POP", LIN_INT="T", POP_SCALE="T")
+    args = dict(model_relpath="model", file_relpath="VADAT", expected_digest=card["digest"], values=values)
+    review = review_quick_model_parameter_edit(root, **args)
+    assert (model / "VADAT").read_bytes() == original
+    assert review["contents"].count("[LIN_INT]") == 1
+    assert review["contents"].count("[POP_SCALE]") == 1
+    if existing:
+        assert "T [LIN_INT] ! keep interpolation comment" in review["contents"]
+        assert "T [POP_SCALE] ! keep scaling comment" in review["contents"]
+    client = create_app(basepath=root, read_write_enabled=True, secret_key="test").test_client()
+    data = {"action": "quick_save", "quick_file_relpath": "VADAT", "expected_digest": card["digest"],
+            "reviewed_digest": review["proposed_digest"],
+            **{f"quick_value:{key}": value for key, value in values.items()}}
+    assert client.post("/model-actions/edit/model", data=data).status_code == 302
+    assert (model / "VADAT").read_bytes() == review["contents"].encode()
+    assert any(path.read_bytes() == original for path in
+               (model / ".cmfgen-viewer-backups").rglob("VADAT.*.bak"))
+    # A crafted save must also reject disabling either prerequisite.
+    card = load_quick_model_parameter_cards(root, model_relpath="model")[0]
+    saved = (model / "VADAT").read_bytes()
+    for key in ("LIN_INT", "POP_SCALE"):
+        response = client.post("/model-actions/edit/model", data={
+            **data, "expected_digest": card["digest"], f"quick_value:{key}": "F"})
+        assert response.status_code == 200
+        assert f"POP requires [{key}]=T" in response.data.decode()
+        assert (model / "VADAT").read_bytes() == saved
+
+
+def test_lte_rejects_enabling_interpolation_without_changing_method(workspace):
+    model, _ = workspace
+    with (model / "VADAT").open("a") as stream:
+        stream.write("LTE [DC_METH]\n1 [T_EXC]\nF [LIN_INT]\n")
+    root = str(model.parent)
+    card = load_quick_model_parameter_cards(root, model_relpath="model")[0]
+    values = {field["key"]: field["value"] for field in card["fields"]}
+    values["LIN_INT"] = "T"
+    with pytest.raises(ModelEditorError, match=r"LTE.*\[LIN_INT\]=F"):
         review_quick_model_parameter_edit(root, model_relpath="model", file_relpath="VADAT",
                                           expected_digest=card["digest"], values=values)
 
