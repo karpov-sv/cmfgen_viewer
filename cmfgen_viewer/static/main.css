@@ -794,6 +794,16 @@ a:focus {
     gap: 0.8rem 1rem;
 }
 
+.model-quick-parameter-group-title {
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.model-quick-parameter-group > .model-quick-parameter-grid {
+    padding-inline-start: 0.75rem;
+    border-inline-start: 1px solid var(--bs-border-color);
+}
+
 .model-quick-parameters-panel > summary {
     cursor: pointer;
 }
@@ -809,6 +819,27 @@ a:focus {
 .model-quick-parameter-help {
     line-height: 1.25;
     min-height: 1.25em;
+}
+
+.model-parameter-help-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 1.1rem;
+    height: 1.1rem;
+    padding: 0;
+    border: 1px solid currentColor;
+    border-radius: 50%;
+    background: transparent;
+    font-size: 0.7rem;
+    line-height: 1;
+    cursor: help;
+}
+
+.model-parameter-help-button:hover,
+.model-parameter-help-button:focus-visible {
+    color: var(--bs-body-color) !important;
 }
 
 .model-quick-parameter-details > summary {

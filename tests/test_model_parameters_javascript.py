@@ -24,7 +24,9 @@ for (const checkbox of [null, {disabled: true}]) {
     const form = {elements: {namedItem: name => fields[name.replace("quick_value:", "")]},
                   querySelector: () => checkbox};
     const other = {elements: {namedItem: () => null}, querySelector: () => null};
-    vm.runInNewContext(source, {document: {querySelectorAll: () => [form, other]}});
+    vm.runInNewContext(source, {document: {
+      addEventListener() {}, querySelectorAll: () => [form, other]
+    }});
     assert.equal(fields.LIN_INT.value, initial, "loading must preserve inputs");
     assert.equal(fields.POP_SCALE.value, initial);
     fields.DC_METH.value = "R";

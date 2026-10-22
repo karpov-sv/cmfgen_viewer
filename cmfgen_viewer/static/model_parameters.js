@@ -1,5 +1,14 @@
 (function () {
   "use strict";
+  document.addEventListener("DOMContentLoaded", function () {
+    if (typeof bootstrap === "undefined" || !bootstrap.Tooltip) return;
+    document.querySelectorAll("[data-parameter-help]").forEach(function (button) {
+      const tooltip = new bootstrap.Tooltip(button, {trigger: "hover focus", container: "body"});
+      button.addEventListener("keydown", function (event) {
+        if (event.key === "Escape") tooltip.hide();
+      });
+    });
+  });
   document.querySelectorAll("[data-quick-parameter-form]").forEach(function (form) {
     const field = (key) => form.elements.namedItem("quick_value:" + key);
     const method = field("DC_METH");
