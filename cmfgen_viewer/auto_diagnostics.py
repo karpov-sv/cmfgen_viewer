@@ -8,7 +8,8 @@ import math
 import re
 
 from .control_files import control_occurrences
-from .model_convergence import _parse_iteration_records, _correction_summary
+from .model_convergence import (ITERATION_RE, SOLVER_CHANGE_RE,
+                               _parse_iteration_records, _correction_summary)
 from .model_quality import inspect_quality
 from .native_diagnostics import latest_main_log
 from .parsers.common import parse_float_token
@@ -126,6 +127,29 @@ def raw_temperature_steps(path, offset, nt, nd):
     return list(result)
 
 
+def ng_accelerations(text):
+    """Return solved counters followed by explicit successful native Ng steps.
+
+    CMFGEN saves another checkpoint and increments MAIN_COUNTER for Ng,
+    without printing another radiation-iteration header. Failed attempts and
+    unexplained counter gaps must not be interpreted as successful steps.
+    """
+    result, current, solved = [], None, False
+    for line in text.splitlines():
+        match = ITERATION_RE.search(line)
+        if match:
+            current, solved = int(match[1]), False
+        match = SOLVER_CHANGE_RE.search(line)
+        if match:
+            value = parse_float_token(match[1])
+            solved = value is not None and math.isfinite(value)
+        if re.fullmatch(r'\s*NG Acceleration performed using NG_BAND=\s*\d+\s*', line):
+            if current is None or not solved or current in result:
+                raise RunnerError('Ambiguous native Ng completion evidence')
+            result.append(current)
+    return result
+
+
 def assess(model, run, before, solution_offset, requested, *, hydro_revisions=()):
     """Reject stale or ambiguous evidence rather than declaring success."""
     from .runner import _tail
@@ -141,9 +165,15 @@ def assess(model, run, before, solution_offset, requested, *, hydro_revisions=()
     if not records:
         raise RunnerError('No native iteration evidence; refusing an automatic restart')
     counters = [r['global_iteration'] for r in records]
-    expected = [a + 1 + (a in hydro_revisions) for a in counters[:-1]]
-    if (counters[1:] != expected or set(hydro_revisions) - set(counters) or
-            restart['pointer']['iterations'] != counters[-1] + (counters[-1] in hydro_revisions)):
+    ng = ng_accelerations(text)
+    adjusted_counters = set(hydro_revisions) | set(ng)
+
+    def saved_counter(counter):
+        return counter + (counter in hydro_revisions) + (counter in ng)
+
+    expected = [saved_counter(a) + 1 for a in counters[:-1]]
+    if (counters[1:] != expected or adjusted_counters - set(counters) or
+            restart['pointer']['iterations'] != saved_counter(counters[-1])):
         raise RunnerError('Saved checkpoint and completed solver iterations do not agree')
     full = [r for r in records if not r.get('lambda_iteration') and not r.get('temperature_fixed')]
     eps = number(model, 'VADAT', 'EPS_TERM')
@@ -163,13 +193,15 @@ def assess(model, run, before, solution_offset, requested, *, hydro_revisions=()
                  not r.get('temperature_fixed') and converged(r) for r in records[-2:]))
     candidate = candidate and all(total == 0 for label, total in counts['totals'].items()
                                   if float(label.removesuffix('%')) >= eps)
-    candidate = candidate and not any(r['global_iteration'] in hydro_revisions for r in records[-2:])
+    candidate = candidate and not any(r['global_iteration'] in adjusted_counters
+                                      for r in records[-2:])
     from datetime import datetime
     started = datetime.fromisoformat(run['started_at']).timestamp()
     quality = inspect_quality(model, records, text, started, requested,
                               _correction_summary(model, started))
     return {'records': records, 'full_iterations': len(full), 'iterations': len(records),
             'checkpoint': restart['pointer']['iterations'], 'hydro_revisions': list(hydro_revisions),
+            'ng_accelerations': ng,
             'epsilon_percent': eps,
             'candidate': candidate, 'fresh_verified': candidate and all(r.get('ba_computed') for r in records[-2:]),
             'counts': counts, 'raw_temperature_steps': thermal, 'temperatures': temperatures(model),

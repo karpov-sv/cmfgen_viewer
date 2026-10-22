@@ -99,6 +99,14 @@ until convergence or a configured limit.
 
 ## Validation and evidence
 
+The checkpoint sequence includes native Ng acceleration increments only when
+an explicit success marker follows a completed population solve. These
+increments do not add radiation solves to the work budget. Missing/duplicate
+completion evidence, unexplained gaps, and mismatched final pointers remain
+errors. An acceleration after either of the last two full solves prevents
+convergence acceptance from those solves. `tests/test_auto_ng.py` covers this
+handoff and the near-matches that must still roll back.
+
 Add a regression reproducing the failure and the complete successful recovery.
 Also cover a near-match that must decline, an ineffective remedy, its retry
 limit, stale/invalid evidence, and failure/cancellation rollback where applicable.
