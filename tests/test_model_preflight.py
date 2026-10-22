@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+import pytest
+
 from cmfgen_viewer.model_preflight import inspect_model_preflight
 
 
@@ -55,6 +57,46 @@ def test_valid_model_passes_preflight(tmp_path: Path) -> None:
     assert report["passed"] is True
     assert report["blocking"] is False
     assert report["counts"] == {"error": 0, "warning": 0, "info": 0}
+
+
+@pytest.mark.parametrize("table,valid", [
+    pytest.param(None, False, id="missing"),
+    pytest.param("", False, id="empty"),
+    pytest.param("invalid", False, id="malformed"),
+    pytest.param("2 !Number of temperatures\n1 !Number of densities\n1 2 3 4 5 6 7 8\n", False, id="incomplete"),
+    pytest.param("1 !Number of temperatures\n1 !Number of densities\nNaN 2 3 4 5 6 7 8\n", False, id="nonfinite"),
+    pytest.param("1 !Number of temperatures\n1 !Number of densities\n1 2 3 4 -5 6 7 8\n", False, id="negative"),
+    pytest.param("1 !Number of temperatures\n1 !Number of densities\n1 2 3 4 5 6 7 8\n", True, id="valid"),
+])
+def test_enabled_hydro_requires_valid_opacity_in_model_root(tmp_path: Path, table, valid) -> None:
+    model = _write_valid_model(tmp_path)
+    with (model / "VADAT").open("a") as stream:
+        stream.write("T [DO_HYDRO]\n")
+    (model / "HYDRO_DEFAULTS").write_text("5 [N_ITS]\n")
+    # A table in an LTE workspace alone cannot satisfy the native root read.
+    (model / "lte").mkdir()
+    (model / "lte/ROSSELAND_LTE_TAB").write_text(
+        "1 !Number of temperatures\n1 !Number of densities\n1 2 3 4 5 6 7 8\n")
+    if table is not None:
+        (model / "ROSSELAND_LTE_TAB").write_text(table)
+
+    report = inspect_model_preflight(model)
+
+    assert report["blocking"] is not valid
+    if not valid:
+        issue = next(item for item in report["issues"] if item["code"].endswith("hydro-opacity"))
+        assert issue["code"] == ("missing-hydro-opacity" if table is None else "invalid-hydro-opacity")
+        assert issue["file"] == "ROSSELAND_LTE_TAB"
+
+
+@pytest.mark.parametrize("hydro,remaining", [("F", "5"), ("T", "0")])
+def test_inactive_hydro_does_not_require_opacity(tmp_path: Path, hydro, remaining) -> None:
+    model = _write_valid_model(tmp_path)
+    with (model / "VADAT").open("a") as stream:
+        stream.write(f"{hydro} [DO_HYDRO]\n")
+    (model / "HYDRO_DEFAULTS").write_text(f"{remaining} [N_ITS]\n")
+
+    assert inspect_model_preflight(model)["passed"]
 
 
 def test_grid_controls_and_booleans_are_validated_without_requiring_np_equality(

@@ -117,6 +117,7 @@ Before displaying the external command, the page also performs a read-only prefl
 - positive `IN_ITS [NUM_ITS]` and valid supported `T`/`F` controls;
 - finite positive values for commonly used stellar controls when they are present;
 - complete clumping parameters when `VADAT [DO_CL]` is enabled;
+- a complete, finite, nonnegative `ROSSELAND_LTE_TAB` in the model root when `VADAT [DO_HYDRO]=T`, unless `HYDRO_DEFAULTS [N_ITS]=0` explicitly disables further revisions; this also applies to continuation runs without an `lte/` workspace;
 - agreement between selected `RVSIG_COL` depth declarations, indexed rows, and `MODEL_SPEC [ND]`;
 - nonnegative and ordered CMF_FLUX turbulence and wavelength bounds in `obs/CMF_FLUX_PARAM_INIT`;
 - fresh LTE/hydro outputs that are newer than, and differ from, their promoted root copies.

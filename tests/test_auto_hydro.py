@@ -74,6 +74,7 @@ def hydro_workspace(auto_workspace):
     # A pre-existing, reviewed iteration-1 restart, as in the report.
     (model/'VADAT').write_text((model/'VADAT').read_text()+'T [DO_HYDRO]\nT [STOP_IF_MW]\n')
     (model/'HYDRO_DEFAULTS').write_text('1 [N_ITS]\n0 [ITS_DONE]\n2 [STRT_ITS]\n10 [FREQ_ITS]\n')
+    (model/'ROSSELAND_LTE_TAB').write_text('1 !Number of temperatures\n1 !Number of densities\n1 2 3 4 5 6 7 8\n')
     (model/'RVSIG_COL').write_text(RVSIG)
     for name in ('POINT1','POINT2'):
         (model/name).write_text('28-Feb-2004 !Format date\n1 1 1 -1000 T\n')

@@ -374,6 +374,8 @@ def build_run_plan(model: Path, *, stage: str, cmfgen_root: Path, atomic_root: P
     paths = {cwd / name for name in required} | set(recipe_files)
     if stage in {"main", "test"}:
         paths.add(model / "ADJUST_CORRECTIONS")
+        if (model / "ROSSELAND_LTE_TAB").is_file():
+            paths.add(model / "ROSSELAND_LTE_TAB")
     paths.update(cwd.glob("*_IN"))
     if stage in {"main", "test"}:
         # Snapshot absent files too: a newly appeared checkpoint changes the

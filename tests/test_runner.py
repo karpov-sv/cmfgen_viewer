@@ -477,6 +477,45 @@ assert (p/'SCRTEMP').read_bytes() == b'checkpoint'*500
     assert not (Path(result["journal"]) / "restart-before/SCRTEMP").exists()
 
 
+@pytest.mark.parametrize("stage", ["main", "test"])
+@pytest.mark.parametrize("continuing", [False, True])
+def test_hydro_opacity_blocks_fresh_and_continuation_preflight(workspace, stage, continuing):
+    model, make_plan = workspace
+    with (model / "VADAT").open("a") as stream:
+        stream.write("T [DO_HYDRO]\n")
+    (model / "HYDRO_DEFAULTS").write_text("5 [N_ITS]\n")
+    if continuing:
+        (model / "POINT1").write_text("28-Feb-2004 !Format date\n1 7 1 -1000 F\n")
+        (model / "SCRTEMP").write_bytes(bytes(4096))
+        (model / "RVTJ").write_text(RVTJ_CORE)
+
+    plan = make_plan(stage=stage)
+
+    assert plan["restart"]["mode"] == ("continuation" if continuing else "fresh")
+    assert not plan["ready"]
+    assert any("requires ROSSELAND_LTE_TAB" in error for error in plan["errors"])
+    with pytest.raises(RunnerError, match="requires ROSSELAND_LTE_TAB"):
+        run_plan(plan)
+    assert not (model / ".cmfgen-runs").exists()
+
+
+def test_hydro_opacity_change_invalidates_prepared_plan(workspace):
+    model, make_plan = workspace
+    with (model / "VADAT").open("a") as stream:
+        stream.write("T [DO_HYDRO]\n")
+    (model / "HYDRO_DEFAULTS").write_text("5 [N_ITS]\n")
+    table = model / "ROSSELAND_LTE_TAB"
+    table.write_text("1 !Number of temperatures\n1 !Number of densities\n1 2 3 4 5 6 7 8\n")
+    plan = make_plan(stage="main")
+    assert plan["ready"], plan["errors"]
+
+    table.unlink()
+
+    with pytest.raises(RunnerError, match="Input changed since preflight: .*ROSSELAND_LTE_TAB"):
+        run_plan(plan)
+    assert not (model / ".cmfgen-runs").exists()
+
+
 def test_main_rejects_poisoned_checkpoint_before_launch(workspace):
     model, make_plan = workspace
     (model / "POINT1").write_text("28-Feb-2004 !Format date\n1 7 1 -1000 F\n")

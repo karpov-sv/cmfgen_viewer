@@ -11,6 +11,7 @@ from pathlib import Path
 from .control_files import control_occurrences
 from .model_editor import EDITABLE_MODEL_FILES
 from .parsers.common import parse_float_token
+from .runner_validation import validate_rosseland_table
 
 SEVERITIES = ("error", "warning", "info")
 REQUIRED_FILES = ("VADAT", "MODEL_SPEC", "IN_ITS")
@@ -558,6 +559,38 @@ def _validate_spectrum_controls(
         )
 
 
+def _validate_hydro_opacity(model_dir: Path, vadat: dict, issues: list[dict[str, object]]) -> None:
+    rows = vadat.get("DO_HYDRO", [])
+    if len(rows) != 1 or str(rows[0]["value"]).upper() != "T":
+        return
+    defaults = model_dir / "HYDRO_DEFAULTS"
+    try:
+        remaining = control_occurrences(defaults.read_text()).get("N_ITS", [])
+    except (OSError, UnicodeError):
+        remaining = []
+    # Native hydro returns before using opacity when all revisions are done.
+    if len(remaining) == 1 and str(remaining[0]["value"]) == "0":
+        return
+    table = model_dir / "ROSSELAND_LTE_TAB"
+    if not table.is_file():
+        issues.append(_issue(
+            "error", "missing-hydro-opacity",
+            "VADAT [DO_HYDRO]=T requires ROSSELAND_LTE_TAB in the model root, including for continuation. "
+            "Restore a compatible LTE opacity table or generate one with the LTE stage.",
+            file=table.name, available=False,
+        ))
+        return
+    try:
+        validate_rosseland_table(table)
+    except (OSError, ValueError, UnicodeError) as exc:
+        issues.append(_issue(
+            "error", "invalid-hydro-opacity",
+            f"Invalid hydro input ROSSELAND_LTE_TAB: {exc}. "
+            "Restore a compatible complete LTE opacity table or regenerate it before running main/test.",
+            file=table.name,
+        ))
+
+
 def _fresh_result(path: Path, dependencies: tuple[Path, ...]) -> bool:
     if not path.is_file() or not all(item.is_file() for item in dependencies):
         return False
@@ -736,6 +769,7 @@ def inspect_model_preflight(model_dir: Path) -> dict[str, object]:
         required=uses_rvsig or (model_dir / "lte").is_dir(),
         issues=issues,
     )
+    _validate_hydro_opacity(model_dir, vadat, issues)
     _validate_spectrum_controls(model_dir, issues)
     _validate_lte_handoff(model_dir, issues)
 
