@@ -43,6 +43,19 @@ def test_candidate_is_advisory_persisted_and_visible(auto_workspace):
     assert current_main_recommendations(model) is None
 
 
+def test_fresh_full_solves_do_not_recommend_repeating_verification(auto_workspace):
+    model, make = auto_workspace
+    controls = (model/'VADAT').read_text().replace('2 [N_FIX_BA]', '0 [N_FIX_BA]')
+    controls = controls.replace('10 [FIX_BA]', '0.0 [FIX_BA]')
+    (model/'VADAT').write_text(controls)
+    result = run_plan(ordinary(make()))
+    report = result['main_diagnostics']
+    assert result['status'] == 'succeeded'
+    assert report['evidence_status'] == 'validated', report
+    assert report['convergence']['status'] == 'converged'
+    assert not any(f['policy_id'] == 'verify_candidate' for f in report['findings'])
+
+
 @pytest.mark.parametrize('scenario,rule', [('cache','radiation_cache'), ('unknown',None), ('stale',None)])
 def test_failures_and_missing_evidence_are_not_retried(auto_workspace,scenario,rule):
     model, make = auto_workspace

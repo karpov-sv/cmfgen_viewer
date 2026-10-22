@@ -220,6 +220,12 @@ def _verified(ctx):
 
 def _candidate(ctx):
     if ctx.evidence['candidate']:
+        final = ctx.evidence.get('records', [])[-2:]
+        if ctx.phase == 'advisory' and len(final) == 2 and all(r.get('ba_computed') for r in final):
+            # Saved outputs can establish fresh final solves without proving
+            # an independent invocation. Retain that provenance limitation,
+            # but do not ask the user to repeat those same fresh solves.
+            return None
         return _matrix('Two full steps meet the raw and native correction tolerance; '
                        'independently verify with fresh BA', next_phase='verify')
 
@@ -292,7 +298,7 @@ POLICIES = (
     Policy('hydro_bootstrap', 1, 'failure', 'Scheduled hydro recovery with guard restoration and follow-up', _hydro, 1),
     Policy('radiation_cache', 1, 'failure', 'Explicit EDDFACTOR mismatch recovery', _cache, 1),
     Policy('verified_convergence', 1, 'success', 'Independent fresh-Jacobian convergence acceptance', _verified),
-    Policy('verify_candidate', 1, 'success', 'Fresh-Jacobian verification of a numerical candidate', _candidate),
+    Policy('verify_candidate', 2, 'success', 'Fresh-Jacobian verification of a numerical candidate', _candidate),
     Policy('local_relaxation', 1, 'success', 'Measured localized temperature oscillation damping', _oscillation, 2),
     Policy('stalled_corrections', 1, 'success', 'Fresh-matrix test for a stalled correction sequence', _stall, 1),
     Policy('fixed_temperature', 1, 'success', 'Detect absence of temperature-varying full steps', _fixed),

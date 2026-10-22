@@ -175,7 +175,10 @@ variable-temperature steps to meet `EPS_TERM` in the ranked solver metric, with
 the latest raw increase/decrease and correction counts also passing screening.
 The status identifies fresh Jacobians when both steps computed them. Older models
 are checked from timestamp-screened saved outputs; this does not establish the
-original invocation or an independent verification phase. Missing, stale, edited,
+original invocation or an independent verification phase. When a candidate's two
+final solves already computed fresh Jacobians, read-only recommendations omit
+the redundant request to recompute them. Automatic execution still requires its
+separate verification phase. Missing, stale, edited,
 or inconsistent evidence cannot establish convergence. Physical-quality warnings
 remain visible even when the native iteration has converged. The automatic
 controller retains its stricter two-step raw-correction acceptance rule.

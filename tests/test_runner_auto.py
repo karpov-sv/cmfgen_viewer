@@ -105,6 +105,18 @@ def test_auto_verifies_fresh_matrices_and_keeps_quality_separate(auto_workspace)
     assert (Path(result['recovery_directory'])/'SCRTEMP').is_file()
 
 
+def test_auto_still_requires_independent_phase_when_initial_batch_is_fresh(auto_workspace):
+    model, plan = auto_workspace
+    controls = (model/'VADAT').read_text().replace('2 [N_FIX_BA]', '0 [N_FIX_BA]')
+    controls = controls.replace('10 [FIX_BA]', '0.0 [FIX_BA]')
+    (model/'VADAT').write_text(controls)
+    result = run_plan(plan())
+    assert result['status'] == 'succeeded', result
+    assert [a['phase'] for a in result['attempts']] == ['iterate', 'verify']
+    assert result['attempts'][0]['evidence']['fresh_verified']
+    assert [a['kind'] for a in result['actions']] == ['fresh_jacobian']
+
+
 def test_cycle_selects_local_relaxation_then_independent_verification(auto_workspace):
     model,plan=auto_workspace
     result=run_plan(plan('oscillate'))

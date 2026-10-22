@@ -137,9 +137,14 @@ def test_legacy_fresh_native_convergence_is_visible_with_quality_warnings(legacy
     model = legacy_model()
     log = (model/'OUTGEN').read_text().replace('BA matrix **NOT** computed', 'BA matrix computed')
     (model/'OUTGEN').write_text(log)
+    (model/'J_COMP').write_text(
+        'Indx Nu J(mom) J(ray) %Diff HBC_CMF J(mom) J(ray) %Diff\n'
+        '1 3.49897D-3 1 1 35.2 1 1 1 0\n')
     report = inspect_main_recommendations(model)
     assert report['convergence']['status'] == 'converged'
     assert 'saved outputs' in report['convergence']['detail']
+    assert not any(f['policy_id'] == 'verify_candidate' for f in report['findings'])
+    assert any(f['policy_id'] == 'quality_boundary_radiation' for f in report['findings'])
     stream = io.StringIO()
     TerminalOutput(stream).recommendations(report)
     assert 'Numerically converged (native criterion)' in stream.getvalue()
@@ -147,6 +152,8 @@ def test_legacy_fresh_native_convergence_is_visible_with_quality_warnings(legacy
         page = client.get('/model-actions/main-computation/model')
         assert b'Numerically converged (native criterion)' in page.data
         assert b'Physical-quality warnings are assessed separately' in page.data
+        assert b'Fresh-Jacobian verification of a numerical candidate' not in page.data
+        assert b'Measured outer-boundary radiation agreement' in page.data
 
 
 def test_display_native_criterion_does_not_weaken_auto_acceptance():
