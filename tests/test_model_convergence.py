@@ -206,6 +206,7 @@ def test_auxiliary_diagnostics_are_ignored_when_they_predate_latest_run(
     [
         (None, False, None),
         ("", True, False),
+        (" \n\n", True, False),
         ("Current great iteration count is 4\n", True, True),
     ],
 )
@@ -225,6 +226,11 @@ def test_missing_empty_and_markerless_outgen_are_handled(
     assert state["available"] is available
     if has_iterations is not None:
         assert state["has_iterations"] is has_iterations
+    if contents is not None and not contents.strip():
+        assert state["run_count"] == 0
+        assert state["run_count_is_lower_bound"] is False
+        assert state["started_at"] is None
+        assert state["warnings"] == []
     if contents == "Current great iteration count is 4\n":
         assert state["run_count"] == 1
         assert state["iterations"][0]["global_iteration"] == 4

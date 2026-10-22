@@ -212,6 +212,29 @@ def test_main_computation_page_shows_recorded_cmfgen_and_flux_progress(tmp_path:
     assert b"Convergence overview" in page.data
 
 
+def test_main_computation_page_survives_outgen_reset_before_first_iteration(tmp_path: Path) -> None:
+    model = _write_model(tmp_path)
+    app = create_app(basepath=str(tmp_path), read_write_enabled=True, secret_key="test")
+    app.testing = True
+    client = app.test_client()
+    # A new native invocation truncates the old log before writing its header.
+    stages = [
+        ("Model started on: old run\nCurrent great iteration count is 10\n",
+         b"Convergence overview"),
+        ("", b"OUTGEN is empty or has no readable run data."),
+        (" \n\n", b"OUTGEN is empty or has no readable run data."),
+        ("Model started on: new run\nReading atomic data\n",
+         b"No iteration markers have been recorded"),
+        ("Model started on: new run\nCurrent great iteration count is 11\n",
+         b"Convergence overview"),
+    ]
+    for contents, expected in stages:
+        (model / "OUTGEN").write_text(contents, encoding="utf-8")
+        page = client.get("/model-actions/main-computation/model_a")
+        assert page.status_code == 200
+        assert expected in page.data
+
+
 def test_main_computation_page_renders_convergence_cards_and_plot_payload(
     tmp_path: Path,
 ) -> None:

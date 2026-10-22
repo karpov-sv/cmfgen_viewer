@@ -658,6 +658,10 @@ def inspect_model_convergence(
             "available": True,
             "has_iterations": False,
             "source_path": "OUTGEN",
+            "started_at": None,
+            "run_count": 0,
+            "run_count_is_lower_bound": truncated,
+            "warnings": [],
             "message": "OUTGEN is empty or has no readable run data.",
             "diagnostic_links": ["OUTGEN"],
         }
