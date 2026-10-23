@@ -381,6 +381,8 @@ class TerminalOutput:
                 self.line('RUN', f"Automatic attempt {item['attempt']}: {item['phase']}, up to {item['requested_iterations']} iterations")
             elif kind == 'auto_action':
                 self.line('INFO', f"Automatic adjustment: {item['action']['kind']} — {item['action']['reason']}")
+            elif kind == 'auto_history_reset':
+                self.line('INFO', item['reason'])
             elif kind == 'auto_assessment':
                 solver = ''
                 if 'solver_maximum_changes' in item:

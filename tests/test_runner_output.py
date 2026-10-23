@@ -67,6 +67,15 @@ def test_auto_checkpoint_without_solver_stats_remains_readable():
     assert "Checkpoint 13: counts {}; convergence candidate: False" in stream.getvalue()
 
 
+def test_native_hydro_trend_reset_is_visible():
+    stream = io.StringIO()
+    TerminalOutput(stream, color="never").event({
+        "event": "auto_history_reset",
+        "reason": "Native hydrostatic revision; correction trends restart with subsequent batches",
+    })
+    assert "[INFO] Native hydrostatic revision; correction trends restart with subsequent batches" in stream.getvalue()
+
+
 def test_readable_preflight_shows_explicit_timeout(plan):
     plan["timeout"] = 60
     stream = io.StringIO()

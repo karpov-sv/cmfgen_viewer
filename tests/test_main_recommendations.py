@@ -145,6 +145,44 @@ def test_fixed_temperature_requires_three_batches(auto_workspace):
         assert any(f['policy_id'] == 'fixed_temperature' for f in report['findings']) is (n == 2)
 
 
+@pytest.mark.parametrize('decaying', [False, True])
+def test_advisory_stall_uses_saved_uncapped_trends(auto_workspace, decaying):
+    model, make = auto_workspace
+    exe = model.parent/'cmf/exe/cmfgen_dev.exe'
+    code = exe.read_text().replace("if mode=='stall':value=1",
+                                   "if mode=='stall':value=" + ('200/attempt' if decaying else '200'))
+    code = code.replace('0.001 if mode=="raw_high" else value', '10000000 if mode=="stall" else value')
+    exe.write_text(code)
+
+    for _ in range(3):
+        report = run_plan(ordinary(make('stall')))['main_diagnostics']
+
+    assert report['evidence_status'] == 'validated', report
+    assert report['batches_assessed'] == 3
+    assert 'counts' in report['evidence']
+    assert len(report['evidence']['raw_temperature_steps']) == 1
+    findings = [f for f in report['findings'] if f['policy_id'] == 'stalled_corrections']
+    assert bool(findings) is not decaying
+    if findings:
+        assert findings[0]['proposal']['evidence']['saturated_solver_metric']
+
+
+def test_advisory_trends_restart_after_native_hydro(hydro_workspace):
+    model, make, _original = hydro_workspace
+    (model/'HYDRO_DEFAULTS').write_text('1 [N_ITS]\n0 [ITS_DONE]\n10 [STRT_ITS]\n10 [FREQ_ITS]\n')
+    exe = model.parent/'cmf/exe/cmfgen_dev.exe'
+    code = exe.read_text().replace("(done==0 or mode=='hydro_rebound') and stop=='T'", 'False')
+    code = code.replace("low=0.4 if done==0 or mode=='hydro_rebound' else 0.97", 'low=0.97')
+    code = code.replace("if stop=='F' and mode!='hydro_no_revision':", 'if attempt==3:')
+    exe.write_text(code)
+
+    for n, expected in enumerate([1, 2, 0, 1, 2, 3]):
+        report = run_plan(ordinary(make('stall')))['main_diagnostics']
+        assert report['evidence_status'] == 'validated', report
+        assert report['batches_assessed'] == expected
+        assert any(f['policy_id'] == 'stalled_corrections' for f in report['findings']) is (n == 5)
+
+
 def test_new_registry_rule_appears_without_advisory_branch(auto_workspace,monkeypatch):
     model, make = auto_workspace
     custom = policies.Policy('example',1,'success','Example diagnostic',

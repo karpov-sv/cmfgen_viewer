@@ -76,7 +76,8 @@ def _history(model, plan, result, key, before):
             if any(saved.get(name) != before.get(name) for name in EVIDENCE_FILES):
                 break
         if (old.get('status') != 'succeeded' or report.get('history_key') != key or
-                report.get('policies') != policies.manifest() or evidence.get('checkpoint') != checkpoint):
+                report.get('policies') != policies.manifest() or evidence.get('checkpoint') != checkpoint or
+                evidence.get('hydro_revisions')):
             break
         history.insert(0, evidence)
         checkpoint = report.get('starting_checkpoint')
@@ -108,12 +109,14 @@ def analyze_main_end(model, plan, result, before, solution_offset):
                 raise ValueError('Native continuation was not confirmed')
             report['convergence'] = convergence_status(evidence)
             key = _history_key(model, plan)
-            history = _history(model, plan, result, key, before) + [evidence]
+            history = [] if evidence['hydro_revisions'] else _history(model, plan, result, key, before) + [evidence]
             # Only bounded summaries needed for cross-batch trend/profile rules.
             report.update(evidence_status='validated', history_key=key,
                           starting_checkpoint=(plan.get('restart', {}).get('pointer') or {}).get('iterations'),
-                          evidence={k: evidence[k] for k in ('checkpoint', 'full_iterations', 'temperatures')})
+                          evidence={k: evidence[k] for k in ('checkpoint', 'full_iterations', 'temperatures',
+                                                            'counts', 'hydro_revisions')})
             report['evidence']['records'] = evidence['records'][-8:]
+            report['evidence']['raw_temperature_steps'] = evidence['raw_temperature_steps'][-1:]
             report['batches_assessed'] = len(history)
             when = 'success'
         except (OSError, ValueError, KeyError) as exc:

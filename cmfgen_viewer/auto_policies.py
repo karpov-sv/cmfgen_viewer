@@ -7,6 +7,7 @@ rollback, execution and journals, including provisional multi-step remedies.
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+import math
 import re
 from typing import Callable
 
@@ -273,6 +274,8 @@ def relaxation_changes(model, evidence, history):
 
 
 def _oscillation(ctx):
+    if ctx.evidence.get('hydro_revisions'):
+        return None  # This batch can contain temperature vectors on different grids.
     changes = relaxation_changes(ctx.model, ctx.evidence, ctx.history)
     if changes:
         return Decision('action', 'Persistent localized sign-alternating temperature requests; '
@@ -283,15 +286,65 @@ def _oscillation(ctx):
 def _stall(ctx):
     if len(ctx.history) < 3:
         return None
-    recent = [next((r.get('solver_maximum_change') for r in reversed(h['records'])
-                    if not r.get('lambda_iteration') and not r.get('temperature_fixed')), None)
-              for h in ctx.history[-3:]]
+    window = ctx.history[-3:]
+    if any(h.get('hydro_revisions') for h in window):
+        return None
+    grids = [(h.get('counts', {}).get('nt'), h.get('counts', {}).get('nd')) for h in window]
+    if any(None in grid for grid in grids) or len(set(grids)) != 1:
+        return None
+    records = [next((r for r in reversed(h['records'])
+                     if not r.get('lambda_iteration') and not r.get('temperature_fixed')), {})
+               for h in window]
+
+    def valid(values):
+        return all(isinstance(v, (int, float)) and math.isfinite(v) and v >= 0 for v in values)
+
+    recent = [r.get('solver_maximum_change') for r in records]
+    if not valid(recent):
+        return None
+    saturated = any(v >= 1.0e7 for v in recent)
+    trends = {'solver_maximum_change': recent}
+    if saturated:
+        # SOLVEBA caps a requested decrease >=99.999% at 1e7. Equal caps
+        # cannot demonstrate a plateau; use the uncapped printed extrema.
+        trends = {key: [r.get(key) for r in records]
+                  for key in ('maximum_increase_percent', 'maximum_decrease_percent')}
+        if not all(valid(values) for values in trends.values()):
+            return None
+        thermal = [h.get('raw_temperature_steps', []) for h in window]
+        if all(vectors and len(vectors[-1]) == h['counts']['nd'] and
+               all(isinstance(v, (int, float)) and math.isfinite(v) for v in vectors[-1])
+               for h, vectors in zip(window, thermal)):
+            trends['raw_temperature_maximum_percent'] = [max(abs(v) for v in vectors[-1])
+                                                         for vectors in thermal]
+        # Counts describe the final solve, which may be a lambda step. Only
+        # compare them when those final solves have the same iteration mode.
+        modes = {(h['records'][-1].get('lambda_iteration', False),
+                  h['records'][-1].get('temperature_fixed', False)) for h in window}
+        if len(modes) == 1:
+            totals = [h['counts']['totals'] for h in window]
+            for label in sorted(set.intersection(*(set(t) for t in totals))):
+                values = [t[label] for t in totals]
+                if float(label.removesuffix('%')) >= ctx.evidence['epsilon_percent'] and valid(values):
+                    trends['count_above_' + label] = values
     # Slow but consistent decay is progress, even when less than 10% per
     # batch. Do not interrupt it merely because convergence needs patience.
-    if all(v is not None for v in recent) and not all(b < a for a, b in zip(recent, recent[1:])) and min(recent[1:]) >= 0.98*recent[0]:
-        if number(ctx.model, 'VADAT', 'N_FIX_BA', 0) != 0 or number(ctx.model, 'VADAT', 'FIX_BA', 0) != 0:
-            return _matrix('Corrections stalled; check the matrix before considering further changes')
-        return Decision('stop', 'Corrections stalled despite fresh matrices; no supported automatic adjustment')
+    improving = [key for key, values in trends.items()
+                 if all(b < a for a, b in zip(values, values[1:])) or
+                 min(values[1:]) < 0.98 * values[0]]
+    evidence = {'saturated_solver_metric': saturated,
+                'solver_maximum_changes': recent, 'correction_trends': trends,
+                'improving_diagnostics': improving}
+    if improving:
+        if saturated:
+            return Decision('continue', 'Uncapped correction diagnostics show progress despite a saturated solver metric',
+                            evidence=evidence)
+        return None
+    if number(ctx.model, 'VADAT', 'N_FIX_BA', 0) != 0 or number(ctx.model, 'VADAT', 'FIX_BA', 0) != 0:
+        return replace(_matrix('Corrections stalled; check the matrix before considering further changes'),
+                       evidence=evidence)
+    return Decision('stop', 'Corrections stalled despite fresh matrices; no supported automatic adjustment',
+                    evidence=evidence)
 
 
 def _fixed(ctx):
@@ -309,8 +362,8 @@ POLICIES = (
     Policy('radiation_cache', 1, 'failure', 'Explicit EDDFACTOR mismatch recovery', _cache, 1),
     Policy('verified_convergence', 1, 'success', 'Independent fresh-Jacobian convergence acceptance', _verified),
     Policy('verify_candidate', 2, 'success', 'Fresh-Jacobian verification of a numerical candidate', _candidate),
-    Policy('local_relaxation', 1, 'success', 'Measured localized temperature oscillation damping', _oscillation, 2),
-    Policy('stalled_corrections', 1, 'success', 'Fresh-matrix test for a stalled correction sequence', _stall, 1),
+    Policy('local_relaxation', 2, 'success', 'Measured localized temperature oscillation damping', _oscillation, 2),
+    Policy('stalled_corrections', 2, 'success', 'Fresh-matrix test for a stalled correction sequence', _stall, 1),
     Policy('fixed_temperature', 1, 'success', 'Detect absence of temperature-varying full steps', _fixed),
 )
 

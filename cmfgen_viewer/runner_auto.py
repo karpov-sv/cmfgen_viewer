@@ -423,7 +423,12 @@ def run_auto_plan(plan, emit=None):
                             pending = None
                             base_phase = 'iterate'
                             history = []  # Do not mix correction trends across a recovery.
-                    history.append(evidence)
+                    if evidence['hydro_revisions']:
+                        history = []  # Mixed pre/post-hydro vectors are not a trend baseline.
+                        event('auto_history_reset', attempt=attempt, hydro_revisions=evidence['hydro_revisions'],
+                              reason='Native hydrostatic revision; correction trends restart with subsequent batches')
+                    else:
+                        history.append(evidence)
                     _json(journal/'result.json', result)
                     event('auto_assessment', attempt=attempt, candidate=evidence['candidate'],
                           counts=evidence['counts']['totals'], checkpoint=evidence['checkpoint'],
