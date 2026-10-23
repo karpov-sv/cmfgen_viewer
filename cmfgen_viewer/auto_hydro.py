@@ -1,4 +1,4 @@
-"""Evidence and scope checks for native hydro updates and one startup bridge.
+"""Evidence and scope checks for native control updates and one hydro bridge.
 
 The bridge follows the Bstar3500 investigation of 2026-10-21 and is selected
 by the automatic registry. STOP_IF_MW controls two safeguards, so shallow/unknown optical depth is never
@@ -16,6 +16,7 @@ from .runner_recipe import RunnerError, snapshot
 from .runner_validation import validate_rvsig_structure
 
 COUPLED_CONTROLS = ('VADAT', 'RVSIG_COL', 'HYDRO_DEFAULTS')
+NATIVE_CONTROLS = (*COUPLED_CONTROLS, 'IN_ITS')
 HYDRO_MESSAGE = 'Revised hydrostatic structure and output new RVSIG_COL file'
 
 
@@ -46,7 +47,7 @@ def _values(text):
 
 def capture_controls(model):
     result = {}
-    for name in COUPLED_CONTROLS:
+    for name in NATIVE_CONTROLS:
         path = model/name
         if path.exists() and path.stat().st_size > 4*1024*1024:
             raise RunnerError(f'Oversized native handoff control: {name}')
@@ -55,22 +56,45 @@ def capture_controls(model):
 
 
 def native_updates(model, text, before):
-    """Accept only documented native-owned changes, with completed revision proof.
+    """Accept documented native-owned changes with matching solver evidence.
 
     Other input changes still stop the controller. This does not authenticate
     native writes against concurrent external shell edits; those are forbidden.
     """
     completed = revisions(text)
     after = capture_controls(model)
-    changed = {n for n in COUPLED_CONTROLS if after[n] != before[n]}
+    changed = {n for n in NATIVE_CONTROLS if after[n] != before[n]}
     if not changed and not completed:
         return {}
     old = _values(before['VADAT'] or '')
     new = _values(after['VADAT'] or '')
     vd_keys = {k for k in old.keys() | new.keys() if old.get(k) != new.get(k)}
     allowed = set()
-    # CMFGEN can release an explicitly requested automatic fixed-T startup.
     records = _parse_iteration_records(text)
+    if 'IN_ITS' in changed:
+        old_its = _values(before['IN_ITS'] or '')
+        new_its = _values(after['IN_ITS'] or '')
+        transition = next((full['global_iteration'] for lam, full in zip(records, records[1:])
+                           if lam.get('lambda_iteration') and not full.get('lambda_iteration')
+                           and full['global_iteration'] == lam['global_iteration'] + 1
+                           and 0 <= lam.get('solver_maximum_change', math.inf) < 50
+                           and math.isfinite(full.get('solver_maximum_change', math.inf))), None)
+        if (old_its.get('DO_LAM_IT', '').upper().strip('.') not in {'T', 'TRUE'} or
+                old_its.get('DO_LAM_AUTO', 'T').upper().strip('.') not in {'T', 'TRUE'} or
+                new_its.get('DO_LAM_IT', '').upper().strip('.') not in {'F', 'FALSE'} or
+                transition is None):
+            raise RunnerError('IN_ITS changed without a verified native automatic lambda-to-full transition; preserving it for review')
+        # UPDATE_KEYWORD_LOG blanks the prefix and writes F in column one;
+        # WR_KEY_WRD_FILE trims trailing blanks on every line. No other edit
+        # (including an unrelated comment change) belongs to this handoff.
+        expected = (before['IN_ITS'] or '').splitlines()
+        row = control_occurrences(before['IN_ITS'])['DO_LAM_IT'][0]
+        index = row['line_index']
+        column = expected[index].index('[DO_LAM_IT]')
+        expected[index] = 'F' + ' ' * (column - 1) + expected[index][column:]
+        if [line.rstrip() for line in expected] != [line.rstrip() for line in (after['IN_ITS'] or '').splitlines()]:
+            raise RunnerError('Unexpected IN_ITS edit during execution; preserving it for review')
+    # CMFGEN can release an explicitly requested automatic fixed-T startup.
     if (old.get('DO_T_AUTO', '').upper().strip('.') in {'T', 'TRUE'} and
             old.get('FIX_T', '').upper().strip('.') in {'T', 'TRUE'} and
             new.get('FIX_T', '').upper().strip('.') in {'F', 'FALSE'} and
@@ -101,7 +125,7 @@ def native_updates(model, text, before):
             value = parse_float_token(new.get(key, ''))
             if value is None or not math.isfinite(value) or value <= 0:
                 raise RunnerError(f'Invalid native hydro [{key}]')
-    elif changed - {'VADAT'}:
+    elif changed - {'VADAT', 'IN_ITS'}:
         raise RunnerError('Structure controls changed without completed native hydro evidence')
     if vd_keys - allowed:
         raise RunnerError('Unexpected VADAT edit during execution; preserving it for review')

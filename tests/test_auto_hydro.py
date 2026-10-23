@@ -7,7 +7,7 @@ import pytest
 
 from test_runner_auto import auto_workspace, FAKE
 from cmfgen_viewer.auto_diagnostics import control_value
-from cmfgen_viewer.auto_hydro import native_updates
+from cmfgen_viewer.auto_hydro import capture_controls, native_updates
 from cmfgen_viewer.runner import main, run_plan
 from cmfgen_viewer.runner_recipe import RunnerError
 
@@ -226,7 +226,7 @@ def test_fixed_t_requires_explicit_native_auto_release(auto_workspace):
         plan()
     (model/'VADAT').write_text((model/'VADAT').read_text()+'T [DO_T_AUTO]\n')
     prepared=plan()
-    before={n:(model/n).read_text() if (model/n).exists() else None for n in ('VADAT','RVSIG_COL','HYDRO_DEFAULTS')}
+    before=capture_controls(model)
     (model/'VADAT').write_text((model/'VADAT').read_text().replace('T [FIX_T]','F [FIX_T]'))
     evidence='Current great iteration count is 1\nMaximm changes as returned by SOLVEBA_V13 is 1\n'
     assert 'VADAT' in native_updates(model,evidence,before)

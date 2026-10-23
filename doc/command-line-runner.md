@@ -189,6 +189,8 @@ The automatic runner also supports ordinary scheduled native hydro revisions. It
 
 An initially fixed `VADAT [FIX_T]=T` is accepted only when `[DO_T_AUTO]=T` explicitly requests native automatic release. The controller can adopt that native T→F transition after a qualifying full solve; it does not change the release policy itself. Fixed-temperature and Lambda steps still cannot establish convergence.
 
+The controller also preserves CMFGEN's native `IN_ITS [DO_LAM_IT]=T` → `F` transition when `DO_LAM_AUTO` is enabled (including its native enabled default). Adoption requires a completed lambda solve with native maximum change below 50%, immediately followed by a completed full solve. Only the native flag rewrite and its trailing-whitespace normalization are accepted; other input edits still stop for review. The transition remains valid if later corrections rebound and native scheduling returns to lambda steps. `IN_ITS` is journaled and included with checkpoint recovery snapshots; this handoff does not establish convergence or bypass independent verification.
+
 ### Acceptance and scientific quality
 
 The model's convergence tolerance is editable under **Edit parameters → Quick

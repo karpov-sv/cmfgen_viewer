@@ -10,7 +10,7 @@ import time
 import uuid
 
 from .auto_diagnostics import assess, number
-from .auto_hydro import COUPLED_CONTROLS, capture_controls, enabled, native_updates, revisions
+from .auto_hydro import NATIVE_CONTROLS, capture_controls, enabled, native_updates, revisions
 from . import auto_policies as policies
 from .control_files import control_occurrences
 from .model_activity import model_mutation_guard, model_run_reservation
@@ -21,7 +21,7 @@ from .runner_recipe import RunnerError, build_run_plan, snapshot
 from .runner_restart import RESTART_FILES
 from .workflow_permissions import copy_readable, mkdir_readable, open_readable
 
-RECOVERY_NAMES = (*RESTART_FILES, *COUPLED_CONTROLS, 'ADJUST_CORRECTIONS', 'MODEL', 'RVTJ', 'MOD_SUM',
+RECOVERY_NAMES = (*RESTART_FILES, *NATIVE_CONTROLS, 'ADJUST_CORRECTIONS', 'MODEL', 'RVTJ', 'MOD_SUM',
                   'OUTGEN', 'CORRECTION_SUM', 'CORRECTION_LINK')
 DYNAMIC_NAMES = set(RECOVERY_NAMES) | {'WARNINGS', 'STEQ_VALS'}
 
@@ -54,7 +54,7 @@ def configure_auto(plan, *, cmfgen_root, atomic_root,
         raise RunnerError('--auto requires at least 2 iterations per batch')
     result = dict(plan)
     reviewed = {r['path'] for r in plan['inputs']}
-    result['inputs'] = [*plan['inputs'], *(snapshot(model/n) for n in COUPLED_CONTROLS
+    result['inputs'] = [*plan['inputs'], *(snapshot(model/n) for n in NATIVE_CONTROLS
                                           if str(model/n) not in reviewed)]
     result['kind'] = 'auto'
     registry = policies.manifest()
@@ -234,12 +234,12 @@ def run_auto_plan(plan, emit=None):
             _json(journal/'plan.json', plan)
             originals = journal/'original-controls'
             mkdir_readable(originals)
-            for name in (*COUPLED_CONTROLS, 'IN_ITS', 'ADJUST_CORRECTIONS'):
+            for name in (*NATIVE_CONTROLS, 'ADJUST_CORRECTIONS'):
                 _safe(model/name)
                 if (model/name).exists():
                     copy_readable(model/name, originals/name)
             paths = {Path(r['path']) for r in plan['inputs'] if Path(r['path']).name not in DYNAMIC_NAMES}
-            paths.update(model/n for n in (*COUPLED_CONTROLS, 'IN_ITS', 'ADJUST_CORRECTIONS'))
+            paths.update(model/n for n in (*NATIVE_CONTROLS, 'ADJUST_CORRECTIONS'))
             expected = {path: _signature(path) for path in paths}
             recovery = _capture(model, journal)
         result = {'run_id': run_id, 'stage': 'main', 'kind': 'auto', 'status': 'running',
@@ -278,7 +278,7 @@ def run_auto_plan(plan, emit=None):
 
         def restore(source=None):
             _restore(model, source or recovery, report_directory=journal)
-            for name in (*COUPLED_CONTROLS, 'ADJUST_CORRECTIONS'):
+            for name in (*NATIVE_CONTROLS, 'ADJUST_CORRECTIONS'):
                 expected[model/name] = _signature(model/name)
 
         history = []
