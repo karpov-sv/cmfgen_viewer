@@ -74,6 +74,22 @@ def test_failures_and_missing_evidence_are_not_retried(auto_workspace,scenario,r
         assert not report['findings']
 
 
+def test_nonfinite_state_advice_rejects_remedies_for_a_simultaneous_cache_error(auto_workspace):
+    model, make = auto_workspace
+    exe = model.parent/'cmf/exe/cmfgen_dev.exe'
+    with exe.open('a') as stream:
+        stream.write("\nwith (p/'OUTGEN').open('a') as log: log.write('The value of DTDR is : NaN\\n')\n")
+        stream.write("print('Error - incorrect reading of EDDFACTOR in COMP_J_BLANK')\n")
+    controls = (model/'VADAT').read_bytes()
+    result = run_plan(ordinary(make()))
+    assert result['status'] == 'invalid_output', result
+    findings = result['main_diagnostics']['findings']
+    assert [f['policy_id'] for f in findings] == ['invalid_numerical_state']
+    assert not findings[0]['automatic_eligible']
+    assert (model/'attempts.txt').read_text() == '1'
+    assert (model/'VADAT').read_bytes() == controls
+
+
 def test_lte_failure_recommendation_preserves_fresh_controls(lte_workspace):
     model, make = lte_workspace
     original = (model/'VADAT').read_bytes()

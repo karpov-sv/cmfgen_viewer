@@ -141,6 +141,10 @@ def analyze_main_end(model, plan, result, before, solution_offset):
                                'Review the proposed controls, cache retirement, or recovery steps below.' if eligible else
                                'Review the model physics, grid, and iteration controls; no automatic remedy is established.'),
             'proposal': {**decision.summary(), 'policy_id': policy.id}})
+        if when == 'failure' and decision.kind == 'stop':
+            # Match the controller's terminal rejection: lower-priority
+            # remedies must not be advertised for an invalid model state.
+            break
     if when == 'failure':
         report['summary'] = ('Recognized failure: review the recommendations and restart state before retrying.'
                              if report['findings'] else

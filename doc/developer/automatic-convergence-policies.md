@@ -15,6 +15,7 @@ after investigation, the validated remedy becomes another registered policy.
 - `runner_auto.py`: shared execution engine, locks, budgets, recovery snapshots,
   guarded mutations, provisional procedures, policy events, and issue reports.
 - `runner.py`: native process execution and temporary-control restoration.
+- `checkpoint_health.py`: bounded read-only inspection of the selected `SCRTEMP` record for recognized native binary layouts; unsupported layouts are explicitly unverified.
 
 ## Adding a diagnosed problem and debugged remedy
 
@@ -98,6 +99,21 @@ new remedy. Slow but consistently decreasing corrections are permitted to run
 until convergence or a configured limit.
 
 ## Validation and evidence
+
+Preflight and main/test attempt completion inspect the selected binary checkpoint.
+The supported `SCR_READ_V2` layout uses 16,376-byte records of IEEE binary64
+values, a `28-Feb-2004` pointer, recognizable geometry and `MODEL` dimensions.
+Only the selected population record is streamed; record padding and unselected
+history are ignored. Nonfinite populations/geometry and nonpositive T/Ne fail
+validation, regardless of an older finite `RVTJ`. Unsupported layouts retain
+an explicit unverified warning and the existing text checks.
+`native_diagnostics.py` also recognizes specific NaN/Infinity numerical-state
+messages. These errors remain fatal even with native completion markers.
+The first failure policy, `invalid_numerical_state`, stops before recovery
+policies; the controller retains its normal rollback behavior. It never chooses
+an older native record or reseeds the failed continuation. Regression coverage
+is in `tests/test_checkpoint_health.py`, `tests/test_native_diagnostics.py`,
+and the real subprocess tests in `tests/test_runner_auto.py`.
 
 The checkpoint sequence includes native Ng acceleration increments only when
 an explicit success marker follows a completed population solve. These

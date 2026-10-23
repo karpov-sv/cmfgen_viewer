@@ -72,6 +72,26 @@ def analyze_main_diagnostics(
     it_on_t = control("IT_ON_T")
     findings: list[dict[str, object]] = []
     combined = "\n".join(sources.values())
+    # Match numerical state diagnostics, not incidental uses of "NaN" in
+    # filenames or prose. A completion marker cannot make this state valid.
+    nonfinite = re.compile(
+        r"(?im)^\s*(?:The value of DTDR is\s*:|Luminosity of star[^\n]*?is\s*:|"
+        r"Tau\(Nu=[^\n]*?at outer boundary is\s*:|CHI\([^\n]*?=)"
+        r"[^\n]*?(?<!\w)[+-]?(?:NaN|Inf(?:inity)?)(?!\w)[^\n]*$")
+    match_source = next(((name, match) for name, text in sources.items()
+                         if (match := nonfinite.search(text))), None)
+    if match_source:
+        name, match = match_source
+        findings.append({
+            'code': 'nonfinite_model_state', 'title': 'Nonfinite model state', 'severity': 'error',
+            'message': 'Native temperature-gradient, luminosity or opacity diagnostics contain NaN/Infinity. '
+                       'Zero correction summaries do not establish convergence for this state.',
+            'path': name, 'evidence': match.group(0).strip(),
+            'suggestions': ['Preserve the failed state and review the selected binary checkpoint before restarting. '
+                            'A finite older RVTJ does not validate the current SCRTEMP record.',
+                            'Do not bypass this error, automatically rewind, or reseed a continuation with LTE/POP.'],
+            'links': [path for path in ('POINT1', 'POINT2', 'MODEL', 'RVTJ') if (model / path).is_file()],
+        })
     fatal = re.search(r"SIG(?:ILL|FPE|SEGV)|^\s*Floating[- ]point exception(?:\s*\(|\s*$)|error termination|Fortran runtime error", combined, re.I | re.M)
     stack = re.search(r"(?im)^.*(?:#\d+|Native crash frame:).*\b(?:scale_pops|cnvt_fr_dc)(?:_\w*)?\b.*$", combined)
     zero_rgu = re.search(r"Error in SETPOP_WLD_V\d+\s*--\s*zero RGU", combined, re.I)

@@ -11,6 +11,7 @@ from cmfgen_viewer.runner_auto import configure_auto
 from cmfgen_viewer.runner_recipe import RunnerError, build_run_plan
 from cmfgen_viewer.auto_diagnostics import oscillating_region, recovery_action, raw_temperature_steps
 from cmfgen_viewer.model_activity import model_run_reservation, model_mutation_guard
+from test_checkpoint_health import checkpoint_bytes
 
 # The fake executable produces actual text outputs/checkpoint markers; tests do
 # not mock run_plan, its output validation, control restoration or subprocesses.
@@ -155,6 +156,49 @@ def test_unknown_failure_stops_without_speculative_changes(auto_workspace):
     assert result['status']=='needs_review'
     assert (model/'SCRTEMP').read_bytes()==before
     assert not result['actions']
+
+
+@pytest.mark.parametrize('returncode', [0, 2])
+def test_invalid_binary_checkpoint_stops_before_remedies_and_restores_baseline(auto_workspace, returncode):
+    model, plan = auto_workspace
+    assert run_plan(plan())['status'] == 'succeeded'
+    baseline = checkpoint_bytes(records=1)
+    (model/'SCRTEMP').write_bytes(baseline)
+    exe = model.parent/'cmf/exe/cmfgen_dev.exe'
+    # A finite RVTJ and tiny corrections must not hide poisoned populations.
+    # Even a simultaneous known cache failure must not trigger a retry.
+    poison = checkpoint_bytes(records=1, bad_record=1)
+    with exe.open('a') as stream:
+        stream.write(f"\n(p/'SCRTEMP').write_bytes(bytes.fromhex({poison.hex()!r}))\n")
+        if returncode:
+            stream.write("print('Error - incorrect reading of EDDFACTOR in COMP_J_BLANK')\n")
+            stream.write("print('Fortran runtime error: Unexpected element in format (F*.3)')\n")
+        stream.write(f'raise SystemExit({returncode})\n')
+    controls = {name: (model/name).read_bytes() for name in ('VADAT', 'IN_ITS')}
+    result = run_plan(plan())
+    assert result['status'] == 'needs_review', result
+    assert len(result['attempts']) == 1
+    assert not result['actions']
+    assert result['attempts'][0]['decision']['policy_id'] == 'invalid_numerical_state'
+    assert result['attempts'][0]['checkpoint_restored']
+    assert 'numerical_convergence' not in result
+    assert (model/'SCRTEMP').read_bytes() == baseline
+    assert controls == {name: (model/name).read_bytes() for name in controls}
+    issue = json.loads((Path(result['journal'])/'issue.json').read_text())
+    assert 'invalid_checkpoint' in json.dumps(issue)
+
+
+def test_nonfinite_solver_output_prevents_false_convergence(auto_workspace):
+    model, plan = auto_workspace
+    exe = model.parent/'cmf/exe/cmfgen_dev.exe'
+    with exe.open('a') as stream:
+        stream.write("\nwith (p/'OUTGEN').open('a') as log: log.write('The value of DTDR is : NaN\\n')\n")
+    result = run_plan(plan())
+    assert result['status'] == 'needs_review', result
+    assert len(result['attempts']) == 1
+    assert not result['actions']
+    assert result['attempts'][0]['decision']['policy_id'] == 'invalid_numerical_state'
+    assert 'numerical_convergence' not in result
 
 
 @pytest.mark.parametrize('scenario',['raw_high','stale','lambda','bad_counts'])

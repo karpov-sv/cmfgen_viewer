@@ -95,3 +95,26 @@ def test_appended_native_logs_only_diagnose_latest_invocation(tmp_path):
     assert analyze_main_diagnostics(tmp_path, {"OUTGEN": text}) == []
     result = diagnose_main_run(tmp_path)
     assert result["status"] == "incomplete" and not result["findings"]
+
+
+@pytest.mark.parametrize("line", [
+    " The value of DTDR is :                       NaN",
+    " Luminosity of star (d=1,ND)(iteration 120) is: NaN NaN",
+    " Tau(Nu= 1.3160E+01) at outer boundary is:       Infinity",
+    " CHI(1)=                       -Inf",
+    " CHI(INDX)=                       NaN          10",
+])
+@pytest.mark.parametrize("completed", [False, True])
+def test_nonfinite_state_is_an_error_even_with_completion(tmp_path, line, completed):
+    findings = analyze_main_diagnostics(tmp_path, {"OUTGEN": line}, completed=completed)
+    assert len(findings) == 1
+    assert findings[0]["code"] == "nonfinite_model_state"
+    assert findings[0]["severity"] == "error"
+    assert findings[0]["evidence"] == line.strip()
+
+
+def test_nonfinite_detection_ignores_old_invocations_and_incidental_tokens(tmp_path):
+    text = "Model started on: yesterday\nThe value of DTDR is : NaN\n"
+    text += "Model started on: today\nThe value of DTDR is : 1.0D-6\n"
+    text += "Reading NaN_input.dat; uncomputed radiation fields can contain NaN\n"
+    assert analyze_main_diagnostics(tmp_path, {"OUTGEN": text}, completed=True) == []

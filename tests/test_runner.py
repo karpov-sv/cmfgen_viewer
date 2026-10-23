@@ -8,6 +8,7 @@ import pytest
 from cmfgen_viewer import runner, runner_recipe, runner_status
 from cmfgen_viewer.runner import run_plan, _progress, _validate
 from cmfgen_viewer.runner_recipe import RunnerError, build_run_plan, override_controls, snapshot
+from test_checkpoint_health import write_checkpoint
 
 
 RVTJ_CORE = "ND: 2\nRadius\n2 1\nVelocity\n20 10\nTemperature\n1 2\nElectron density\n1e10 2e10\n"
@@ -79,6 +80,19 @@ def test_failed_and_zero_exit_runs_are_not_success(workspace, code, expected):
     assert result["status"] == expected
     assert result["passes"][0]["problems"]
     assert (model / "IN_ITS").read_text() == "2 [NUM_ITS]\n"
+
+
+def test_poisoned_binary_blocks_preflight_despite_stale_finite_rvtj(workspace):
+    model, make_plan = workspace
+    write_checkpoint(model, bad_record=2)
+    (model/'RVTJ').write_text(RVTJ_CORE)
+    plan = make_plan(stage='main')
+    assert not plan['ready']
+    assert plan['restart']['binary_health']['status'] == 'failed'
+    assert any('checkpoint 2 contains 1 nonfinite' in error for error in plan['errors'])
+    with pytest.raises(RunnerError):
+        run_plan(plan)
+    assert not (model/'.cmfgen-runs').exists()
 
 
 @pytest.mark.parametrize("message,code", [

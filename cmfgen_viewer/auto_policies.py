@@ -77,6 +77,15 @@ class Declined(Exception):
     """Recognized problem, but this remedy's prerequisites are not established."""
 
 
+def _invalid_state(ctx):
+    findings = [finding for step in ctx.native_result.get('passes', [])
+                for finding in step.get('diagnostic_findings', [])
+                if finding.get('code') in {'nonfinite_model_state', 'invalid_checkpoint'}]
+    if findings:
+        return Decision('stop', '; '.join(f['title'] + ': ' + f['message'] for f in findings),
+                        evidence={'diagnostic_findings': findings})
+
+
 def _pop_bootstrap_check(ctx):
     text = '\n'.join([ctx.log, *(p.get('diagnostic_tail', '') for p in ctx.native_result.get('passes', []))])
     if ((ctx.native_plan.get('initialization') or {}).get('method') != 'POP' or
@@ -293,6 +302,7 @@ def _fixed(ctx):
 # Order is explicit. Add a tested Policy here; the controller needs no new
 # diagnosis branches. Version changes make saved previews require review again.
 POLICIES = (
+    Policy('invalid_numerical_state', 1, 'failure', 'Reject nonfinite model states and invalid selected checkpoints', _invalid_state),
     Policy('pop_initialization', 1, 'failure', 'Compatible saved-model population interpolation and verified continuation', _pop, 1),
     Policy('lte_initialization', 2, 'failure', 'Confirmed fresh-start population failure: temporary LTE and verified continuation', _lte, 1),
     Policy('hydro_bootstrap', 1, 'failure', 'Scheduled hydro recovery with guard restoration and follow-up', _hydro, 1),

@@ -30,7 +30,7 @@ from .runner_preparation import build_preparation_plan, run_preparation_plan
 from .runner_promotion import build_promotion_plan
 from .runner_recipe import RunnerError, build_run_plan, snapshot
 from .runner_validation import validate_rosseland_table, validate_rvsig_structure, validate_rvtj_core
-from .runner_restart import RESTART_FILES, observe_startup
+from .runner_restart import RESTART_FILES, inspect_restart, observe_startup
 from .runner_output import TerminalOutput
 from .runner_status import inspect_model_status
 
@@ -655,6 +655,18 @@ def run_plan(plan: dict, emit=None, *, diagnose_main=True) -> dict:
                     cwd, diagnostic_sources,
                     completed=not problems and record["returncode"] == 0,
                 ) if stage in {"main", "test"} else []
+                if stage in {'main', 'test'}:
+                    checkpoint_health = inspect_restart(model)['binary_health']
+                    record['checkpoint_health'] = checkpoint_health
+                    if checkpoint_health['status'] == 'failed':
+                        findings.append({
+                            'code': 'invalid_checkpoint', 'title': 'Invalid saved model checkpoint',
+                            'severity': 'error', 'path': 'SCRTEMP',
+                            'message': checkpoint_health['problem'],
+                            'evidence': checkpoint_health,
+                            'suggestions': ['Preserve the failed state and review a finite checkpoint before restarting; '
+                                            'no automatic rewind or fresh reseeding has been performed.'],
+                        })
                 record["diagnostic_findings"] = findings
                 problems[:0] = [f"{finding['title']}: {finding['message']}" for finding in findings if finding["severity"] == "error"]
                 if record["returncode"] < 0 and record["status"] != "timeout":

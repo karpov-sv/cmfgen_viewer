@@ -1,13 +1,14 @@
 """Read-only detection of native CMFGEN checkpoint state.
 
-Pointer semantics follow SCR_READ_V2. Binary population records remain native
-CMFGEN's responsibility; MODEL provides a consistency check, not provenance.
+Pointer semantics follow SCR_READ_V2. Recognized binary records receive a
+numerical check; MODEL provides a consistency check, not atomic provenance.
 """
 
 import os
 import re
 
 from .control_files import control_occurrences
+from .checkpoint_health import inspect_checkpoint_health
 from .runner_validation import validate_rvtj_core
 
 
@@ -41,6 +42,7 @@ def inspect_restart(model, *, fresh_start=False):
     present = [name for name in RESTART_FILES if (model / name).exists() or (model / name).is_symlink()]
     result = {"requested": "fresh" if fresh_start else "auto", "mode": "fresh",
               "present_files": present, "pointer": None, "health": {"status": "not_checked"},
+              "binary_health": {"status": "not_checked"},
               "errors": errors, "warnings": warnings}
     for name in present:
         path = model / name
@@ -72,7 +74,7 @@ def inspect_restart(model, *, fresh_start=False):
     else:
         result["mode"] = "continuation"
         warnings.extend(f"Using POINT2 fallback after {failure}" for failure in failures)
-        warnings.append("Continuation checks do not fully validate binary checkpoint layout, population values, or atomic-data compatibility.")
+        warnings.append("Continuation checks do not certify convergence or complete atomic-data compatibility.")
         rvtj = model / "RVTJ"
         if rvtj.is_file():
             try:
@@ -91,7 +93,7 @@ def inspect_restart(model, *, fresh_start=False):
                 }
         else:
             result["health"] = {"status": "unavailable", "source": "RVTJ"}
-            warnings.append("RVTJ is absent; checkpoint numerical health cannot be checked before continuation.")
+            warnings.append("RVTJ is absent; the text atmosphere cross-check is unavailable.")
         spec = control_occurrences((model / "MODEL_SPEC").read_text())
         nd = None
         try:
@@ -130,6 +132,19 @@ def inspect_restart(model, *, fresh_start=False):
             vadat.get(key) and vadat[key][0]["value"].upper() == "T" for key in ("DO_HYDRO", "REV_RGRID")
         ):
             errors.append("DO_HYDRO/REV_RGRID requires a checkpoint with WR_RVS=T; use --fresh-start or convert the checkpoint natively.")
+        try:
+            binary = inspect_checkpoint_health(model, result['pointer'])
+        except (OSError, ValueError, UnicodeError) as exc:
+            binary = {'status': 'failed', 'source': 'SCRTEMP', 'problem': str(exc)}
+        result['binary_health'] = binary
+        if binary['status'] == 'failed':
+            result['health'] = binary
+            errors.append('Checkpoint health check failed: ' + binary['problem'] +
+                          '. Preserve the failed state and recover a reviewed finite checkpoint or use --fresh-start.')
+        elif binary['status'] == 'passed' and result['health']['status'] != 'failed':
+            result['health'] = binary
+        elif binary['status'] == 'unavailable':
+            warnings.append('Binary checkpoint health is unverified: ' + binary['reason'])
     pointer = result["pointer"]
     result["message"] = (f"Continuation from {pointer['file']} (saved iteration {pointer['iterations']}, record {pointer['record']})"
                          if result["mode"] == "continuation" else "Fresh start from *_IN" if result["mode"] == "fresh" else "Invalid restart state")
