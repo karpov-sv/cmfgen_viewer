@@ -527,3 +527,43 @@ The interactive cursor editor, optical-depth redistribution, outer-radius
 extension, and additional wind-law/geometry conversions remain available through
 the native utility and the prepared-candidate workflow. They are not exposed as
 guided actions here.
+
+### RVSIG_COL numerical consistency checks
+
+Preflight checks native three-column R/V/sigma files and standard indexed
+exports with an optional Tau column or density/clumping columns. It reports
+malformed rows and nonfinite values (including NaN, infinity, and numeric
+overflow), nonpositive radius/velocity, and repeated or reversed radii as
+errors. Density and clumping columns, when present in the six-column format,
+must also be positive. Existing ND/row-count, index-sequence, RMAX-ratio, and
+outer-velocity checks remain in effect. Pure radius normalization to RSTAR is
+allowed; a different absolute inner radius alone is not an inconsistency.
+
+Nonmonotonic or repeated velocities and sigma below -1 generate **warnings**,
+not errors: the native reader warns about nonmonotonic velocity laws. Sigma
+of -1 is valid for constant velocity. Findings include the first affected file
+line. No check changes the file. Continuation runs retain the existing policy
+that fresh-start RVSIG_COL input errors are advisory when the grid instead
+comes from a binary checkpoint; a tracked pending structure update still blocks
+execution until resolved.
+
+A further advisory compares `sigma + 1` with the numerical logarithmic velocity
+gradient at interior depths. It uses a three-point derivative on the possibly
+uneven log-radius grid. To avoid interpreting rounding noise or unresolved
+curvature as a stale sigma column, the screen:
+
+- Requires both neighboring radius and velocity differences to exceed 20 times
+  the estimated text-rounding uncertainty, using half of each token's last
+  printed digit. Fortran D and missing-E notation are supported.
+- Skips intervals whose two secant slopes have different signs or differ by
+  more than 50% of the larger magnitude.
+- Reports a discrepancy only when its absolute magnitude exceeds both **0.5**
+  and **50% of the larger gradient magnitude**. Endpoints are not tested.
+
+These deliberately loose screening thresholds flag gross mismatches; they are
+heuristics, not native CMFGEN acceptance tolerances or a physical error estimate.
+A warning suggests reviewing the velocity profile or using **Update structure →
+Recalculate sigma**. Absence of a warning does not establish derivative accuracy
+in coarse or low-precision regions. The checks cannot infer the intended MDOT
+or BETA from R/V/sigma alone, and historical header comments are not treated as
+proof of physical consistency.

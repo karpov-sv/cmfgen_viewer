@@ -238,3 +238,132 @@ def test_advisory_warning_does_not_block_external_run(tmp_path: Path) -> None:
     assert report["blocking"] is False
     assert report["counts"]["warning"] == 1
     assert _codes(report) == {"missing-spectrum-controls"}
+
+
+def _profile_model(tmp_path, *, radii=(4.,2.,1.), velocities=(16.,4.,1.),
+                   sigmas=(1.,1.,1.), indexed=True, extras=()):
+    model=_write_valid_model(tmp_path)
+    vadat=(model/'VADAT').read_text().replace('2.0 [RMAX]',f'{radii[0]/radii[-1]} [RMAX]').replace(
+        '3.0 [VINF]',f'{velocities[0]} [VINF]')
+    (model/'VADAT').write_text(vadat)
+    (model/'MODEL_SPEC').write_text(f'{len(radii)} [ND]\n1 [NC]\n{len(radii)+1} [NP]\n')
+    rows=[]
+    for i,(r,v,s) in enumerate(zip(radii,velocities,sigmas),1):
+        row=' '.join(f'{n:.9e}' for n in (r,v,s,*extras))
+        rows.append(row+(f' {i}' if indexed else ''))
+    (model/'RVSIG_COL').write_text(f'{len(rows)} !Number of depth points\n'+'\n'.join(rows)+'\n')
+    return model
+
+
+@pytest.mark.parametrize('column', [0,1,2,3,4])
+@pytest.mark.parametrize('token', ['NaN','Inf','-Infinity','1e999'])
+def test_rvsig_nonfinite_values_block_without_derived_arithmetic(tmp_path,column,token):
+    model=_profile_model(tmp_path,extras=(1e-10,1.0))
+    path=model/'RVSIG_COL'
+    lines=path.read_text().splitlines()
+    fields=lines[2].split();fields[column]=token;lines[2]=' '.join(fields)
+    path.write_text('\n'.join(lines)+'\n')
+    report=inspect_model_preflight(model)
+    assert report['blocking']
+    assert 'structure-nonfinite-data' in _codes(report)
+    assert 'structure-sigma-gradient-mismatch' not in _codes(report)
+    issue=next(x for x in report['issues'] if x['code']=='structure-nonfinite-data')
+    assert issue['file']=='RVSIG_COL' and issue['line']==3
+
+
+@pytest.mark.parametrize('column,bad,code', [
+    (0,'0','structure-nonpositive-radius'), (0,'-1','structure-nonpositive-radius'),
+    (1,'0','structure-nonpositive-velocity'), (1,'-1','structure-nonpositive-velocity'),
+])
+def test_rvsig_nonpositive_profile_values_block(tmp_path,column,bad,code):
+    model=_profile_model(tmp_path)
+    path=model/'RVSIG_COL';lines=path.read_text().splitlines()
+    fields=lines[2].split();fields[column]=bad;lines[2]=' '.join(fields)
+    path.write_text('\n'.join(lines)+'\n')
+    report=inspect_model_preflight(model)
+    assert report['blocking'] and code in _codes(report)
+
+
+@pytest.mark.parametrize('middle', [4.,5.])
+def test_rvsig_repeated_or_reversed_radii_block(tmp_path,middle):
+    model=_profile_model(tmp_path,radii=(4.,middle,1.))
+    report=inspect_model_preflight(model)
+    assert report['blocking'] and 'structure-radius-order' in _codes(report)
+    assert 'structure-sigma-gradient-mismatch' not in _codes(report)
+
+
+def test_rvsig_malformed_body_reports_the_actual_line(tmp_path):
+    model=_profile_model(tmp_path)
+    path=model/'RVSIG_COL';path.write_text(path.read_text().replace('4.000000000e+00 1.000000000e+00 2','broken 1.0 2'))
+    report=inspect_model_preflight(model)
+    assert report['blocking']
+    assert 'structure-invalid-row' in _codes(report)
+
+
+@pytest.mark.parametrize('extras', [(0.,1.),(1.,-1.)])
+def test_rvsig_density_and_clumping_must_be_positive(tmp_path,extras):
+    report=inspect_model_preflight(_profile_model(tmp_path,extras=extras))
+    assert report['blocking'] and 'structure-invalid-density' in _codes(report)
+
+
+def test_rvsig_decelerating_flow_is_advisory_not_blocking(tmp_path):
+    report=inspect_model_preflight(_profile_model(tmp_path,velocities=(1.,2.,4.),sigmas=(-2.,-2.,-2.)))
+    assert not report['blocking']
+    assert {'structure-negative-gradient','structure-velocity-order'} <= _codes(report)
+    assert all(x['severity']=='warning' for x in report['issues'])
+
+
+def test_rvsig_sigma_minus_one_is_allowed_for_constant_velocity(tmp_path):
+    report=inspect_model_preflight(_profile_model(tmp_path,velocities=(3.,3.,3.),sigmas=(-1.,-1.,-1.)))
+    assert not report['blocking']
+    assert 'structure-negative-gradient' not in _codes(report)
+    assert 'structure-velocity-order' in _codes(report)
+
+
+def test_rvsig_gross_sigma_mismatch_is_advisory(tmp_path):
+    report=inspect_model_preflight(_profile_model(tmp_path,sigmas=(1.,100.,1.)))
+    assert not report['blocking']
+    issue=next(x for x in report['issues'] if x['code']=='structure-sigma-gradient-mismatch')
+    assert issue['severity']=='warning' and issue['line']==3
+    assert 'depth 2' in issue['message'] and 'Recalculate sigma' in issue['message']
+
+
+@pytest.mark.parametrize('indexed',[True,False])
+def test_rvsig_consistent_power_law_and_native_three_column_format(tmp_path,indexed):
+    model=_profile_model(tmp_path,indexed=indexed)
+    report=inspect_model_preflight(model)
+    assert report['passed'] and report['counts']=={'error':0,'warning':0,'info':0}
+
+
+def test_rvsig_radius_normalization_is_not_a_mismatch(tmp_path):
+    model=_profile_model(tmp_path,radii=(4000.,2000.,1000.))
+    assert inspect_model_preflight(model)['counts']=={'error':0,'warning':0,'info':0}
+
+
+def test_rvsig_missing_e_notation_remains_valid_for_gradient_checks(tmp_path):
+    model=_profile_model(tmp_path)
+    path=model/'RVSIG_COL';path.write_text(path.read_text().replace('e+','+'))
+    assert inspect_model_preflight(model)['counts']=={'error':0,'warning':0,'info':0}
+
+
+def test_rvsig_gradient_screen_skips_unresolved_print_precision(tmp_path):
+    model=_profile_model(tmp_path,velocities=(1.0001,1.0,0.9999),sigmas=(1.,100.,1.))
+    path=model/'RVSIG_COL';lines=path.read_text().splitlines()
+    for i in range(1,len(lines)):
+        fields=lines[i].split();fields[1]=f'{float(fields[1]):.4f}';lines[i]=' '.join(fields)
+    path.write_text('\n'.join(lines)+'\n')
+    report=inspect_model_preflight(model)
+    assert 'structure-sigma-gradient-mismatch' not in _codes(report)
+
+
+def test_rvsig_gradient_screen_skips_sharply_curved_profiles(tmp_path):
+    report=inspect_model_preflight(_profile_model(tmp_path,velocities=(256.,4.,1.),sigmas=(5.,100.,1.)))
+    assert not report['blocking'] and 'structure-sigma-gradient-mismatch' not in _codes(report)
+
+
+def test_rvsig_accepts_native_revision_header_with_trailing_backtick(tmp_path):
+    model=_profile_model(tmp_path)
+    path=model/'RVSIG_COL'
+    path.write_text(path.read_text().replace('!Number of depth points','!Number of depth points`'))
+    report=inspect_model_preflight(model)
+    assert report['counts']=={'error':0,'warning':0,'info':0}

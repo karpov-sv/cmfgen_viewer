@@ -27,7 +27,7 @@ SPECTRUM_NUMERIC_CONTROLS = (
     "F_LAM_BEG",
     "F_LAM_END",
 )
-RVSIG_DEPTH_RE = re.compile(r"^\s*(\d+)\s*(?:!.*Number of depth points)?\s*$", re.IGNORECASE)
+RVSIG_DEPTH_RE = re.compile(r"^\s*(\d+)\s*(?:!.*\bNumber of depth points\b.*)?\s*$", re.IGNORECASE)
 INTEGER_RE = re.compile(r"^[+-]?\d+$")
 
 
@@ -329,6 +329,53 @@ def _validate_gamma_input(model_dir: Path, issues: list[dict[str, object]]) -> N
         )
 
 
+def _printed_relative_precision(token: str, number: float) -> float:
+    """Half the last printed digit, expressed relative to a positive value."""
+    text = token.strip().rstrip(',;').upper().replace('D', 'E')
+    if 'E' not in text:
+        text = re.sub(r'(?<=[0-9.])([+-]\d+)$', r'E\1', text)
+    mantissa, _, exponent = text.partition('E')
+    decimals = len(mantissa.partition('.')[2])
+    try:
+        return (0.5 * 10.0 ** (int(exponent or '0') - decimals)) / number
+    except (OverflowError, ValueError):
+        return math.inf
+
+
+def _rvsig_gradient_warning(radii, velocities, sigmas, tokens, lines, issues):
+    """Advisory screening of well-resolved, locally smooth interior gradients."""
+    log_r = [math.log(r) for r in radii]
+    log_v = [math.log(v) for v in velocities]
+    r_error = [_printed_relative_precision(t[0], r) for t, r in zip(tokens, radii)]
+    v_error = [_printed_relative_precision(t[1], v) for t, v in zip(tokens, velocities)]
+    suspect = []
+    for i in range(1, len(radii) - 1):
+        left, right = log_r[i-1] - log_r[i], log_r[i] - log_r[i+1]
+        dv_left, dv_right = log_v[i-1] - log_v[i], log_v[i] - log_v[i+1]
+        # Require changes well above text-rounding uncertainty on both sides.
+        if (left <= 20 * (r_error[i-1] + r_error[i]) or
+                right <= 20 * (r_error[i] + r_error[i+1]) or
+                abs(dv_left) <= 20 * (v_error[i-1] + v_error[i]) or
+                abs(dv_right) <= 20 * (v_error[i] + v_error[i+1])):
+            continue
+        slope_left, slope_right = dv_left / left, dv_right / right
+        if (slope_left * slope_right <= 0 or
+                abs(slope_left - slope_right) > 0.5 * max(abs(slope_left), abs(slope_right))):
+            continue  # A turning point or steep curvature needs a better-resolved grid.
+        estimated = (right * slope_left + left * slope_right) / (left + right)
+        reported = sigmas[i] + 1
+        if abs(reported - estimated) > max(0.5, 0.5 * max(abs(reported), abs(estimated))):
+            suspect.append((i, reported, estimated))
+    if suspect:
+        i, reported, estimated = suspect[0]
+        issues.append(_issue('warning', 'structure-sigma-gradient-mismatch',
+            f'Sigma differs substantially from the resolved numerical velocity gradient at '
+            f'{len(suspect)} interior depth(s). At depth {i+1}, sigma+1 is {reported:.6g}, '
+            f'while dln(V)/dln(R) is approximately {estimated:.6g}. Review the profile or '
+            'use Update structure → Recalculate sigma. This is advisory, not a physical-validity test.',
+            file='RVSIG_COL', line=lines[i]))
+
+
 def _validate_rvsig(
     model_dir: Path,
     *,
@@ -338,130 +385,132 @@ def _validate_rvsig(
     required: bool,
     issues: list[dict[str, object]],
 ) -> None:
-    relative_name = "RVSIG_COL"
+    relative_name = 'RVSIG_COL'
     path = model_dir / relative_name
     if not required:
         return
     if not path.is_file():
-        issues.append(
-            _issue(
-                "error",
-                "missing-structure",
-                "The current model setup requires RVSIG_COL, but it is unavailable.",
-                file=relative_name,
-                available=False,
-            )
-        )
+        issues.append(_issue('error', 'missing-structure',
+            'The current model setup requires RVSIG_COL, but it is unavailable.',
+            file=relative_name, available=False))
         return
-    declared: int | None = None
-    declared_line: int | None = None
-    row_indices: list[int] = []
-    row_radii: list[float] = []
-    row_velocities: list[float] = []
+    declared = declared_line = None
+    indices, radii, velocities, sigmas, tokens, lines = [], [], [], [], [], []
+    malformed, nonfinite, invalid_density = [], [], []
     try:
-        with path.open("r", encoding="utf-8", errors="replace") as handle:
+        with path.open('r', encoding='utf-8', errors='replace') as handle:
             for line_number, line in enumerate(handle, start=1):
-                stripped = line.strip()
-                if not stripped or stripped.startswith(("!", "#")):
+                stripped = line.split('!', 1)[0].strip()
+                if not stripped or stripped.startswith('#'):
                     continue
                 if declared is None:
                     match = RVSIG_DEPTH_RE.match(line)
                     if match:
-                        declared = int(match.group(1))
-                        declared_line = line_number
-                        continue
-                tokens = stripped.split()
-                if len(tokens) not in {4, 5, 6} or not INTEGER_RE.fullmatch(tokens[-1]):
+                        declared, declared_line = int(match[1]), line_number
                     continue
-                numeric_values = [parse_float_token(token) for token in tokens[:-1]]
-                if all(value is not None for value in numeric_values):
-                    row_indices.append(int(tokens[-1]))
-                    row_radii.append(float(numeric_values[0]))
-                    row_velocities.append(float(numeric_values[1]))
+                fields = stripped.split()
+                # Native reads need three columns; standard exports add an index,
+                # optionally preceded by Tau or density/clumping columns.
+                indexed = len(fields) in {4, 5, 6} and INTEGER_RE.fullmatch(fields[-1])
+                if len(fields) != 3 and not indexed:
+                    malformed.append(line_number)
+                    continue
+                numeric = fields[:-1] if indexed else fields
+                values = []
+                for token in numeric:
+                    value = parse_float_token(token)
+                    if value is None and re.fullmatch(r'[+-]?(?:nan|inf(?:inity)?)', token, re.I):
+                        value = float(token)
+                    values.append(value)
+                if any(v is None for v in values):
+                    malformed.append(line_number)
+                    continue
+                if not all(math.isfinite(v) for v in values):
+                    nonfinite.append(line_number)
+                if len(fields) == 6 and any(v <= 0 for v in values[3:5]):
+                    invalid_density.append(line_number)
+                indices.append(int(fields[-1]) if indexed else None)
+                radii.append(values[0])
+                velocities.append(values[1])
+                sigmas.append(values[2])
+                tokens.append(fields)
+                lines.append(line_number)
     except OSError as exc:
-        issues.append(
-            _issue(
-                "error",
-                "unreadable-structure",
-                f"RVSIG_COL could not be read: {exc}.",
-                file=relative_name,
-            )
-        )
+        issues.append(_issue('error', 'unreadable-structure',
+            f'RVSIG_COL could not be read: {exc}.', file=relative_name))
         return
     if declared is None:
-        issues.append(
-            _issue(
-                "error",
-                "missing-depth-count",
-                "RVSIG_COL has no declared number of depth points.",
-                file=relative_name,
-            )
-        )
+        issues.append(_issue('error', 'missing-depth-count',
+            'RVSIG_COL has no declared number of depth points.', file=relative_name))
         return
     if declared <= 0:
-        issues.append(
-            _issue(
-                "error",
-                "invalid-depth-count",
-                f"RVSIG_COL declares a nonpositive depth count ({declared}).",
-                file=relative_name,
-                line=declared_line,
-            )
-        )
+        issues.append(_issue('error', 'invalid-depth-count',
+            f'RVSIG_COL declares a nonpositive depth count ({declared}).',
+            file=relative_name, line=declared_line))
     if nd is not None and declared != nd:
-        issues.append(
-            _issue(
-                "error",
-                "structure-grid-mismatch",
-                f"RVSIG_COL declares {declared} depth points, while MODEL_SPEC [ND] is {nd}.",
-                file=relative_name,
-                line=declared_line,
-            )
-        )
-    if len(row_indices) != declared:
-        issues.append(
-            _issue(
-                "error",
-                "structure-row-count",
-                f"RVSIG_COL declares {declared} depth points but contains {len(row_indices)} indexed rows.",
-                file=relative_name,
-                line=declared_line,
-            )
-        )
-    elif row_indices != list(range(1, declared + 1)):
-        issues.append(
-            _issue(
-                "warning",
-                "structure-index-sequence",
-                "RVSIG_COL row indices are not the expected sequence 1 through ND.",
-                file=relative_name,
-            )
-        )
-    if rmax is not None and len(row_radii) >= 2 and row_radii[-1] > 0:
-        generated_rmax = row_radii[0] / row_radii[-1]
-        tolerance = 0.1 * abs(row_radii[0] - row_radii[1]) / row_radii[-1]
+        issues.append(_issue('error', 'structure-grid-mismatch',
+            f'RVSIG_COL declares {declared} depth points, while MODEL_SPEC [ND] is {nd}.',
+            file=relative_name, line=declared_line))
+    if len(radii) != declared:
+        issues.append(_issue('error', 'structure-row-count',
+            f'RVSIG_COL declares {declared} depth points but contains {len(radii)} parsed rows.',
+            file=relative_name, line=declared_line))
+    elif any(i is not None for i in indices) and indices != list(range(1, declared+1)):
+        issues.append(_issue('warning', 'structure-index-sequence',
+            'RVSIG_COL row indices are not the expected sequence 1 through ND.', file=relative_name))
+    for affected, code, detail in (
+        (malformed, 'structure-invalid-row', 'malformed or nonnumeric data rows'),
+        (nonfinite, 'structure-nonfinite-data', 'nonfinite numeric values'),
+        (invalid_density, 'structure-invalid-density', 'nonpositive density or clumping values'),
+    ):
+        if affected:
+            issues.append(_issue('error', code,
+                f'RVSIG_COL contains {detail} at {len(affected)} row(s); first at line {affected[0]}.',
+                file=relative_name, line=affected[0]))
+    if not radii or malformed or nonfinite:
+        return  # Do not compute ratios/gradients from incomplete or nonfinite vectors.
+    positive_r = all(r > 0 for r in radii)
+    positive_v = all(v > 0 for v in velocities)
+    ordered_r = all(a > b for a, b in zip(radii, radii[1:]))
+    for valid, code, detail, affected in (
+        (positive_r, 'structure-nonpositive-radius', 'radii must be positive',
+         [lines[i] for i, r in enumerate(radii) if r <= 0]),
+        (positive_v, 'structure-nonpositive-velocity', 'velocities must be positive',
+         [lines[i] for i, v in enumerate(velocities) if v <= 0]),
+        (ordered_r, 'structure-radius-order', 'radii must decrease strictly with depth index',
+         [lines[i+1] for i, (a, b) in enumerate(zip(radii, radii[1:])) if a <= b]),
+    ):
+        if not valid:
+            issues.append(_issue('error', code, 'RVSIG_COL ' + detail + '.',
+                                 file=relative_name, line=affected[0]))
+    if positive_r and ordered_r and rmax is not None and len(radii) >= 2:
+        generated_rmax = radii[0] / radii[-1]
+        tolerance = 0.1 * abs(radii[0] - radii[1]) / radii[-1]
         if not math.isfinite(generated_rmax) or abs(generated_rmax - rmax) > tolerance:
-            issues.append(
-                _issue(
-                    "error",
-                    "structure-radius-ratio-mismatch",
-                    f"RVSIG_COL has an inner-to-outer radius ratio of {generated_rmax:.10g}, "
-                    f"while VADAT [RMAX] is {rmax:.10g}.",
-                    file=relative_name,
-                )
-            )
-    if vinf is not None and row_velocities and row_velocities[0] != 0:
-        outer_velocity = row_velocities[0]
-        if vinf > 0.1 and abs(outer_velocity - vinf) / abs(outer_velocity) > 0.1:
-            issues.append(
-                _issue(
-                    "error",
-                    "structure-terminal-velocity-mismatch",
-                    f"RVSIG_COL has an outer-grid velocity of {outer_velocity:.10g} km/s, "
-                    f"while VADAT [VINF] is {vinf:.10g} km/s; CMFGEN allows at most a 10% difference.",
-                    file=relative_name,
-                )
-            )
+            issues.append(_issue('error', 'structure-radius-ratio-mismatch',
+                f'RVSIG_COL has an outer-to-inner radius ratio of {generated_rmax:.10g}, '
+                f'while VADAT [RMAX] is {rmax:.10g}.', file=relative_name))
+    if positive_v and vinf is not None and vinf > 0.1:
+        if abs(velocities[0] - vinf) / velocities[0] > 0.1:
+            issues.append(_issue('error', 'structure-terminal-velocity-mismatch',
+                f'RVSIG_COL has an outer-grid velocity of {velocities[0]:.10g} km/s, '
+                f'while VADAT [VINF] is {vinf:.10g} km/s; CMFGEN allows at most a 10% difference.',
+                file=relative_name))
+    low_sigma = [i for i, s in enumerate(sigmas) if s < -1]
+    if low_sigma:
+        issues.append(_issue('warning', 'structure-negative-gradient',
+            f'RVSIG_COL has sigma < -1 at {len(low_sigma)} depth(s), implying a negative '
+            'radial velocity gradient. Review the intended velocity law; CMFGEN may not handle '
+            'nonmonotonic flow.', file=relative_name, line=lines[low_sigma[0]]))
+    if positive_v:
+        reversals = [i for i, (a, b) in enumerate(zip(velocities, velocities[1:])) if a <= b]
+        if reversals:
+            issues.append(_issue('warning', 'structure-velocity-order',
+                f'RVSIG_COL velocity is not strictly increasing with radius in {len(reversals)} '
+                'interval(s). Repeated values can reflect text rounding; review any genuine reversal.',
+                file=relative_name, line=lines[reversals[0]]))
+    if positive_r and ordered_r and positive_v and len(radii) == declared:
+        _rvsig_gradient_warning(radii, velocities, sigmas, tokens, lines, issues)
 
 
 def _validate_spectrum_controls(

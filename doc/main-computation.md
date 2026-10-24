@@ -123,11 +123,24 @@ Before displaying the external command, the page also performs a read-only prefl
 - finite positive values for commonly used stellar controls when they are present;
 - complete clumping parameters when `VADAT [DO_CL]` is enabled;
 - a complete, finite, nonnegative `ROSSELAND_LTE_TAB` in the model root when `VADAT [DO_HYDRO]=T`, unless `HYDRO_DEFAULTS [N_ITS]=0` explicitly disables further revisions; this also applies to continuation runs without an `lte/` workspace;
-- agreement between selected `RVSIG_COL` depth declarations, indexed rows, and `MODEL_SPEC [ND]`;
+- agreement between selected `RVSIG_COL` depth declarations, data rows, and `MODEL_SPEC [ND]`, including native three-column files and standard indexed exports;
+- finite `RVSIG_COL` numeric data, positive radii and velocities, strictly decreasing radii, and positive density/clumping columns when present;
 - nonnegative and ordered CMF_FLUX turbulence and wavelength bounds in `obs/CMF_FLUX_PARAM_INIT`;
 - fresh LTE/hydro outputs that are newer than, and differ from, their promoted root copies.
 
 The validator deliberately avoids fixed astrophysical plausibility ranges and does not require `NP = ND + NC` outside LTE grid construction. Each issue links to the full editor when the file is allowlisted and is a regular file, or otherwise to its file view. Symbolic-link layouts remain readable but are not offered to the editor.
+
+`RVSIG_COL` velocity reversals/repeated values and `sigma < -1` are advisory,
+matching the native code's warning treatment of nonmonotonic velocity laws.
+Repeated values may come from limited text precision. Sigma equal to -1 is
+allowed for constant velocity. A separate advisory screens for gross disagreement
+between `sigma + 1` and a three-point estimate of `dln(V)/dln(R)` at interior
+depths. It skips turning points, strongly curved intervals, and changes not well
+resolved by the printed radius/velocity precision. See the
+[detailed screening limits](/documentation/command-line-runner#rvsig_col-numerical-consistency-checks).
+These checks cannot establish whether a numerically valid profile matches the
+intended mass loss, beta law, or hydrostatic equilibrium; the tracked structure
+update requirement remains a separate check.
 
 The run section receives server-sent status updates; the server checks process and file status every five seconds while subscribed. When a monitored run stops, the page refreshes automatically to update result checks and plots. Unsaved control edits defer the reload and show a **Refresh results** button. A process is considered part of the model only when its executable/script name matches the CMFGEN executable or `batch.sh` **and** its native working directory exactly matches the model directory. For each match, the page shows PID, process state, elapsed time, accumulated CPU time and average CPU use, resident memory, and thread count. Detection uses `psutil` on Linux and macOS. If process visibility is unavailable or denied, the panel reports monitoring unavailable and workspace changes remain blocked until activity can be checked.
 
