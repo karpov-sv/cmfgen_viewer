@@ -25,6 +25,14 @@ VELOCITY_KEYS = ('MDOT', 'RSTAR', 'VINF', 'BETA', 'VEL_OPT', 'RMAX', 'VCORE',
                  'VPHOT', 'VINF2', 'BETA2', 'EPS', 'EPS2', 'SCL_HT')
 RETIRE = ('POINT1', 'POINT2', 'SCRTEMP', 'BAMAT', 'BAMATPNT', 'EDDFACTOR', 'J_COMP')
 LIMIT = 2 * 1024 * 1024
+OPERATIONS = {
+    'update': 'Update saved parameter edits',
+    'new_nd': 'Resample to a new depth count',
+    'insert': 'Insert points over a depth interval',
+    'outer': 'Refine the outermost interval',
+    'radii': 'Insert explicit radii',
+    'sigma': 'Recalculate sigma from the velocity profile',
+}
 
 
 def digest(data):
@@ -216,9 +224,12 @@ def _native(executable, folder, rows, mode, answers, logs):
     # GRAMON requests a device on the first plot, then one E per plot.
     stdin = '\n'.join(['RVSIG_COL_OLD', 'F', mode, *map(str, answers),
                         'RVSIG_COL_NEW', '/null', 'E', 'E']) + '\n'
-    result = subprocess.run([str(executable)], cwd=folder, input=stdin, text=True,
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=20,
-        env={**os.environ, 'PGPLOT_DEV': '/null', 'OMP_NUM_THREADS': '1'})
+    try:
+        result = subprocess.run([str(executable)], cwd=folder, input=stdin, text=True,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=20,
+            env={**os.environ, 'PGPLOT_DEV': '/null', 'OMP_NUM_THREADS': '1'})
+    except subprocess.TimeoutExpired as exc:
+        raise ValueError(f'rev_rvsig {mode} timed out; no model files were changed.') from exc
     logs.append({'mode': mode, 'answers': answers, 'returncode': result.returncode,
                  'log': result.stdout[-65536:]})
     if result.returncode != 0 or not (folder / 'RVSIG_COL_NEW').is_file():
@@ -228,10 +239,57 @@ def _native(executable, folder, rows, mode, answers, logs):
     return parse_grid(output), output
 
 
+def _integer(raw, label, minimum, maximum):
+    n = parse_float_token(str(raw))
+    if n is None or not math.isfinite(n) or n != int(n) or not minimum <= n <= maximum:
+        raise ValueError(f'{label} must be an integer between {minimum} and {maximum}.')
+    return int(n)
+
+
+def _grid_operation(rows, operation, *, new_depths, start_depth, end_depth, points, radii):
+    old_nd = len(rows)
+    if old_nd >= 5000 and operation in {'insert', 'outer', 'radii'}:
+        raise ValueError('The grid already has the maximum 5000 points.')
+    if operation == 'new_nd':
+        nd = _integer(new_depths, 'New depth count', 3, 5000)
+        if nd == old_nd:
+            raise ValueError('New depth count is unchanged; choose a different count or recalculate sigma.')
+        return 'NEW_ND', [nd], nd
+    if operation == 'sigma':
+        return 'SIGU', [], old_nd
+    if operation == 'insert':
+        start = _integer(start_depth, 'Start depth', 1, old_nd - 1)
+        end = _integer(end_depth, 'End depth', start + 1, old_nd)
+        count = _integer(points, 'Points per interval', 1, (5000 - old_nd) // (end - start))
+        return 'NINS', [count, start, end], old_nd + count * (end - start)
+    if operation == 'outer':
+        count = _integer(points, 'Outer points', 1, 5000 - old_nd)
+        return 'FGOB', [count], old_nd + count
+    if operation == 'radii':
+        tokens = re.split(r'[\s,]+', str(radii or '').strip())
+        requested = [parse_float_token(t) for t in tokens]
+        if (not requested or len(requested) > 5000 - old_nd or
+                any(r is None or not math.isfinite(r) for r in requested)):
+            raise ValueError('Supply finite radii, with at most 5000 total depth points.')
+        if any(a <= b for a, b in zip(requested, requested[1:])):
+            raise ValueError('Explicit radii must be unique and listed from largest to smallest.')
+        if not rows[-1][0] < requested[-1] <= requested[0] < rows[0][0]:
+            raise ValueError('Explicit radii must lie strictly inside the current grid.')
+        if any(math.isclose(r, old[0], rel_tol=1e-10) for r in requested for old in rows):
+            raise ValueError('An explicit radius duplicates or is too close to an existing grid point.')
+        return 'ADDR', [len(requested), *requested], old_nd + len(requested)
+    raise ValueError('Unsupported grid operation.')
+
+
 def build_structure_plan(model, *, cmfgen_root=None, velocity_type=2, connection_velocity=10,
-                         candidate=None):
+                         candidate=None, operation='update', new_depths=None,
+                         start_depth=1, end_depth=2, points=1, radii=None):
     """Generate in scratch space or validate an explicitly supplied candidate."""
     model = Path(model)
+    if operation not in OPERATIONS:
+        raise ValueError('Unsupported structure operation.')
+    if candidate is not None and operation != 'update':
+        raise ValueError('A prepared candidate cannot be combined with a native grid operation.')
     before = _fingerprints(model)
     current = {n: read_text(model / n) if (model / n).is_file() else '' for n in SOURCES}
     if not uses_rvsig(current['VADAT']):
@@ -244,15 +302,17 @@ def build_structure_plan(model, *, cmfgen_root=None, velocity_type=2, connection
     if nc is None or not math.isfinite(nc) or nc < 0 or nc != int(nc) or np_value != int(np_value):
         raise ValueError('NC and NP must be integer ray counts (NC >= 0, NP > 0).')
     spec = current['MODEL_SPEC']
-    if np_value < target_nd + nc:
-        np_value = int(target_nd + nc)
-        spec = _replace_control(spec, 'NP', str(np_value))
     logs = []
     if candidate is None:
         state = _read_state(model)
-        if state is None or not state.get('pending', True):
-            raise ValueError('No saved pre-edit baseline. Supply a manually prepared candidate instead.')
-        old = state['baseline']
+        if operation == 'update':
+            if state is None or not state.get('pending', True):
+                raise ValueError('No saved pre-edit baseline. Choose a grid operation or supply a prepared candidate.')
+            old = state['baseline']
+        else:
+            if inspect_structure_update(model)['required']:
+                raise ValueError('Resolve the pending parameter-driven structure update before a separate grid operation.')
+            old = current
         for key in ('SN_MODEL', 'VAR_MDOT'):
             if (value(current['VADAT'], key) or '').upper().strip('.') in {'T', 'TRUE'}:
                 raise ValueError(f'Guided updates do not support [{key}]=T; supply a prepared candidate.')
@@ -275,7 +335,9 @@ def build_structure_plan(model, *, cmfgen_root=None, velocity_type=2, connection
         old_radius = number(old['VADAT'], 'RSTAR')
         rows = [[r * old_radius / rows[-1][0], v, s] for r, v, s in rows]
         output = _grid_text(rows)
-        if velocity_type not in {1, 2, 6}:
+        if operation != 'update' and len(rows) != target_nd:
+            raise ValueError('Current grid and MODEL_SPEC [ND] disagree; resolve that mismatch first.')
+        if operation == 'update' and velocity_type not in {1, 2, 6}:
             raise ValueError('Supported wind prescriptions are 1, 2 and 6.')
         if velocity_type == 6 and set(changes) & {'VINF', 'BETA'}:
             raise ValueError('Type 6 retains the existing wind law; choose type 1 or 2 for VINF/BETA changes.')
@@ -302,8 +364,13 @@ def build_structure_plan(model, *, cmfgen_root=None, velocity_type=2, connection
                 if mode == 'MDOT':
                     answers += [connection]
                 rows, output = _native(executable, folder, rows, mode, answers, logs)
-            if len(rows) != target_nd:
+            if operation == 'update' and len(rows) != target_nd:
                 rows, output = _native(executable, folder, rows, 'NEW_ND', [int(target_nd)], logs)
+            elif operation != 'update':
+                mode, answers, target_nd = _grid_operation(rows, operation, new_depths=new_depths,
+                    start_depth=start_depth, end_depth=end_depth, points=points, radii=radii)
+                rows, output = _native(executable, folder, rows, mode, answers, logs)
+                spec = _replace_control(spec, 'ND', str(target_nd))
         origin = str(executable)
         executable_hash = digest(executable.read_bytes())
     else:
@@ -313,6 +380,9 @@ def build_structure_plan(model, *, cmfgen_root=None, velocity_type=2, connection
     rows = parse_grid(output, require_indices=True)
     if len(rows) != target_nd:
         raise ValueError('Candidate depth count differs from MODEL_SPEC [ND].')
+    if np_value < target_nd + nc:
+        np_value = int(target_nd + nc)
+        spec = _replace_control(spec, 'NP', str(np_value))
     vinf = number(current['VADAT'], 'VINF')
     if vinf > 0.1 and abs(rows[0][1] - vinf) / rows[0][1] > 0.1:
         raise ValueError('Candidate outer velocity differs from VINF by more than 10%.')
@@ -331,6 +401,7 @@ def build_structure_plan(model, *, cmfgen_root=None, velocity_type=2, connection
                             fromfile=n + ' (current)', tofile=n + ' (candidate)'))
              for n, text in replacements.items()}
     plan = {'version': 1, 'model': str(model.resolve()), 'fingerprints': before,
+            'operation': operation, 'operation_label': OPERATIONS[operation],
             'controls': {n: current[n] for n in ('VADAT', 'MODEL_SPEC')},
             'replacements': replacements, 'diffs': diffs,
             'origin': origin, 'executable_sha256': executable_hash, 'native_runs': logs,

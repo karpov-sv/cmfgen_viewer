@@ -20,7 +20,7 @@ from .model_reseed import build_reseed_plan, run_reseed_plan
 from .runner import run_plan
 from .runner_cleanup import build_cleanup_plan
 from .runner_config import resolve_viewer_defaults
-from .structure_update import inspect_structure_update, build_structure_plan, apply_structure_plan
+from .structure_update import OPERATIONS, inspect_structure_update, build_structure_plan, apply_structure_plan
 
 
 class MaintenanceExecutionError(RuntimeError):
@@ -213,7 +213,7 @@ def _structure(args):
     from .runner_config import resolve_runner_config
     model = _model(args.model)
     if args.apply:
-        if args.plan or args.candidate or args.review_file:
+        if args.plan or args.candidate or args.review_file or args.operation != 'update':
             raise ValueError('--apply cannot be combined with generation options.')
         if args.apply.stat().st_size > 16 * 1024 * 1024:
             raise ValueError('Structure review is too large.')
@@ -228,12 +228,15 @@ def _structure(args):
             raise ValueError('Candidate exceeds the 2 MiB limit.')
         candidate = args.candidate.read_bytes().decode('utf-8')
     plan = build_structure_plan(model, cmfgen_root=native.get('cmfgen_root'),
-        velocity_type=args.velocity_type, connection_velocity=args.connection_velocity, candidate=candidate)
+        velocity_type=args.velocity_type, connection_velocity=args.connection_velocity, candidate=candidate,
+        operation=args.operation, new_depths=args.new_depths, start_depth=args.start_depth,
+        end_depth=args.end_depth, points=args.points, radii=args.radii)
     if args.review_file:
         with args.review_file.open('x') as stream:
             json.dump(plan, stream, indent=2)
     return {'command': 'structure', 'ready': True, 'model': str(model),
             'status': 'review_required', 'summary': plan['summary'], 'diffs': plan['diffs'],
+            'operation': plan['operation_label'],
             'warnings': plan['warnings'], 'retire': plan['retire'],
             'review_file': str(args.review_file) if args.review_file else None}, 0
 
@@ -263,6 +266,8 @@ def _text(report):
             print('Checkpoint: ' + report['backup'])
     elif command == 'structure':
         print(f"Structure: {report['model']}")
+        if report.get('operation'):
+            print('Operation: ' + report['operation'])
         for text in report.get('diffs', {}).values():
             print(text)
         if report.get('review_file'):
@@ -334,6 +339,12 @@ def build_parser():
     structure.add_argument('--cmfgen-root', type=Path)
     structure.add_argument('--velocity-type', type=int, choices=(1, 2, 6), default=2)
     structure.add_argument('--connection-velocity', type=float, default=10.0)
+    structure.add_argument('--operation', choices=OPERATIONS, default='update')
+    structure.add_argument('--new-depths', type=int, help='Target depth count for new_nd')
+    structure.add_argument('--start-depth', type=int, default=1, help='First depth of the insertion range (1 = outermost)')
+    structure.add_argument('--end-depth', type=int, default=2, help='Last depth of the insertion range')
+    structure.add_argument('--points', type=int, default=1, help='Points per interval for insert, or total for outer')
+    structure.add_argument('--radii', help='Comma/space separated radii in 10^10 cm, largest first')
     structure.add_argument('--candidate', type=Path, help='Review an externally prepared RVSIG_COL instead of native generation')
     structure.add_argument('--review-file', type=Path, help='Save the candidate review to a new JSON file')
     structure.add_argument('--apply', type=Path, help='Apply a previously saved, unchanged review JSON file')

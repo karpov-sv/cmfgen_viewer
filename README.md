@@ -183,6 +183,8 @@ For `VEL_OPT=RVSIG_COL` models, edits to mass loss, core radius, velocity-law
 controls, or depth count also flag a required structure update. Use **Edit
 Parameters → Update structure**, or `cmfgen_model.py structure`, to generate or
 import a candidate, review the diff, and apply it with checkpoint archiving.
+The same action can resample the current grid, insert local or outer-boundary
+points, insert explicit radii, or recalculate sigma without a prior parameter edit.
 See [Updating a tabulated hydrostatic structure](doc/command-line-runner.md#updating-a-tabulated-hydrostatic-structure)
 for the native options, manual candidate workflow, and initialization requirements.
 

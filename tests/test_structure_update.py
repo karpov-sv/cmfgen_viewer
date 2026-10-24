@@ -292,3 +292,95 @@ def test_switching_away_and_back_retains_original_mass_loss_baseline(model):
     edit(model, old='STAR [VEL_OPT]', new='RVSIG_COL [VEL_OPT]')
     assert inspect_structure_update(model)['required']
     assert json.loads((model/STATE_FILE).read_text())['baseline']['VADAT']==original
+
+
+def native_root(tmp_path):
+    root=tmp_path/'native-grid-tools'
+    (root/'exe').mkdir(parents=True)
+    exe=root/'exe/rev_rvsig.exe'
+    exe.write_text('#!/bin/sh\nexit 1\n')
+    exe.chmod(0o755)
+    return root
+
+
+@pytest.mark.parametrize('operation,options,mode,answers,rad', [
+    ('new_nd', {'new_depths':5}, 'NEW_ND', [5], [4,3.5,3,2,1]),
+    ('new_nd', {'new_depths':3}, 'NEW_ND', [3], [4,2.5,1]),
+    ('insert', {'start_depth':1,'end_depth':3,'points':1}, 'NINS', [1,1,3], [4,3.5,3,2.5,2,1]),
+    ('outer', {'points':2}, 'FGOB', [2], [4,3.88891111,3.6667,3,2,1]),
+    ('radii', {'radii':'3.5, 1.5'}, 'ADDR', [2,3.5,1.5], [4,3.5,3,2,1.5,1]),
+    ('sigma', {}, 'SIGU', [], [4,3,2,1]),
+])
+def test_standalone_grid_operations_review_and_apply(model,tmp_path,monkeypatch,operation,options,mode,answers,rad):
+    from cmfgen_viewer import structure_update as updates
+    root=native_root(tmp_path)
+    output=f'{len(rad)} !Number of depth points\n\n'+''.join(
+        f'{r} {r*10} 0 {i}\n' for i,r in enumerate(rad,1))
+    def fixture(executable,folder,rows,requested_mode,requested_answers,logs):
+        assert requested_mode==mode and requested_answers==answers
+        assert rows==parse_grid(GRID)
+        logs.append({'mode':mode,'answers':answers,'returncode':0,'log':'protocol fixture'})
+        return parse_grid(output),output
+    monkeypatch.setattr(updates,'_native',fixture)
+    original={p.name:p.read_bytes() for p in model.iterdir()}
+    plan=build_structure_plan(model,cmfgen_root=root,operation=operation,**options)
+    assert plan['operation']==operation and plan['summary']['depths']==len(rad)
+    assert original=={p.name:p.read_bytes() for p in model.iterdir()}
+    assert not (model/STATE_FILE).exists()
+    assert plan['summary']['impact_parameters']==max(5,len(rad)+1)
+    apply_structure_plan(model,plan)
+    assert len(parse_grid((model/'RVSIG_COL').read_text()))==len(rad)
+    assert updates.value((model/'MODEL_SPEC').read_text(),'ND')==str(len(rad))
+    assert not inspect_structure_update(model)['required']
+
+
+@pytest.mark.parametrize('operation,options', [
+    ('new_nd',{'new_depths':4}), ('new_nd',{'new_depths':2}), ('new_nd',{'new_depths':5001}),
+    ('new_nd',{'new_depths':'NaN'}), ('insert',{'start_depth':0}),
+    ('insert',{'start_depth':2,'end_depth':2}), ('insert',{'points':5000}),
+    ('outer',{'points':0}), ('outer',{'points':5000}), ('radii',{'radii':''}),
+    ('radii',{'radii':'3.5,3.5'}), ('radii',{'radii':'1.5,3.5'}), ('radii',{'radii':'4'}),
+    ('radii',{'radii':'3'}), ('radii',{'radii':'1'}), ('radii',{'radii':'NaN'}),
+])
+def test_grid_operation_validates_before_native_execution(model,tmp_path,monkeypatch,operation,options):
+    from cmfgen_viewer import structure_update as updates
+    root=native_root(tmp_path)
+    def must_not_run(*args,**kwargs):
+        pytest.fail('Invalid input reached native utility')
+    monkeypatch.setattr(updates,'_native',must_not_run)
+    with pytest.raises(ValueError):
+        build_structure_plan(model,cmfgen_root=root,operation=operation,**options)
+    assert (model/'RVSIG_COL').read_text()==GRID
+
+
+def test_grid_operation_does_not_bypass_pending_parameters(model,tmp_path):
+    edit(model)
+    with pytest.raises(ValueError,match='pending parameter-driven'):
+        build_structure_plan(model,cmfgen_root=native_root(tmp_path),operation='sigma')
+    with pytest.raises(ValueError,match='cannot be combined'):
+        build_structure_plan(model,candidate=GRID,operation='sigma')
+
+
+def test_cli_grid_operation_records_native_choice(model,tmp_path,monkeypatch,capsys):
+    from cmfgen_viewer import structure_update as updates
+    root=native_root(tmp_path)
+    def fixture(executable,folder,rows,mode,answers,logs):
+        assert mode=='SIGU' and answers==[]
+        return parse_grid(GRID),GRID
+    monkeypatch.setattr(updates,'_native',fixture)
+    assert main(['structure',str(model),'--operation','sigma','--cmfgen-root',str(root),'--json'])==0
+    report=json.loads(capsys.readouterr().out)
+    assert report['operation']=='Recalculate sigma from the velocity profile'
+    assert report['status']=='review_required'
+
+
+def test_structure_form_retains_selected_grid_operation(model):
+    app=create_app(basepath=str(model.parent),read_write_enabled=True,secret_key='test')
+    app.config['CMFGEN_VIEWER']['summary_cache_db']=str(model.parent/'summary.sqlite')
+    client=app.test_client()
+    response=client.post('/model-actions/structure/model',data={
+        'action':'preview','operation':'new_nd','new_depths':'135'})
+    assert response.status_code==200
+    assert b'value="new_nd" selected' in response.data
+    assert b'name="new_depths" value="135"' in response.data
+    assert b'data-structure-form' in response.data

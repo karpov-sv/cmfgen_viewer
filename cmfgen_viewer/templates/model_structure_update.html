@@ -16,7 +16,7 @@
       </div>
     </div>
     <p class="text-muted">Review a revised <code>RVSIG_COL</code> for <code>{{ source_path }}</code>
-      using the saved pre-edit structure or a prepared candidate.</p>
+      from saved parameter edits, the current grid, or a prepared candidate.</p>
 
     {% if structure_status.required %}<div class="alert alert-warning py-2 small">{{ structure_status.message }}</div>{% endif %}
     {% if error %}<div class="alert alert-danger py-2">{{ error }}</div>{% endif %}
@@ -28,38 +28,82 @@
     <div class="card mb-4">
       <div class="card-header fw-semibold">Structure setup <code class="ms-1">RVSIG_COL</code></div>
       <div class="card-body">
-        <form method="post" enctype="multipart/form-data">
+        <form method="post" enctype="multipart/form-data" data-structure-form>
           <input type="hidden" name="action" value="preview">
           <fieldset class="model-quick-parameter-group mb-4">
             <legend class="model-quick-parameter-group-title mb-2">Native revision</legend>
             <div class="model-quick-parameter-grid">
               <div class="model-quick-parameter-field">
                 <div class="d-flex align-items-baseline gap-1 mb-1">
+                  <label class="form-label small fw-semibold mb-0" for="structure-operation">Operation</label>
+                  {{ parameter_help('structure-operation', 'Operation', 'Saved parameter edits use the pre-edit baseline. Grid operations use the current structure and include ND/NP updates in the review. Resolve pending parameter-driven updates first.') }}
+                </div>
+                <select class="form-select form-select-sm" id="structure-operation" name="operation">
+                  {% for key, label in operations.items() %}<option value="{{ key }}" {% if grid_options.operation == key %}selected{% endif %} {% if structure_status.required and key != 'update' %}disabled{% endif %}>{{ label }}</option>{% endfor %}
+                </select>
+                <div class="form-text model-quick-parameter-help">{% if structure_status.required %}Complete the saved-parameter update before choosing a grid operation.{% else %}Choose the change to preview.{% endif %}</div>
+              </div>
+              <div class="model-quick-parameter-field" data-structure-for="update" {% if grid_options.operation != 'update' %}hidden{% endif %}>
+                <div class="d-flex align-items-baseline gap-1 mb-1">
                   <label class="form-label small fw-semibold mb-0" for="velocity-type">Wind prescription</label>
                   {{ parameter_help('velocity-type', 'Wind prescription', 'Types 1 and 2 reconnect a beta velocity law to the hydrostatic region. Type 6 retains the existing outer law and cannot implement BETA or VINF changes.') }}
                 </div>
-                <select class="form-select form-select-sm" id="velocity-type" name="velocity_type">
+                <select class="form-select form-select-sm" id="velocity-type" name="velocity_type" {% if grid_options.operation != 'update' %}disabled{% endif %}>
                   <option value="1" {% if velocity_type == '1' %}selected{% endif %}>Type 1 — beta law with exponential connection</option>
                   <option value="2" {% if velocity_type == '2' %}selected{% endif %}>Type 2 — offset beta law with exponential connection</option>
                   <option value="6" {% if velocity_type == '6' %}selected{% endif %}>Type 6 — retain the existing outer velocity law</option>
                 </select>
                 <div class="form-text model-quick-parameter-help">Choose the wind law for the revised structure.</div>
               </div>
-              <div class="model-quick-parameter-field">
+              <div class="model-quick-parameter-field" data-structure-for="update" {% if grid_options.operation != 'update' %}hidden{% endif %}>
                 <div class="d-flex align-items-baseline gap-1 mb-1">
                   <label class="form-label small fw-semibold mb-0" for="connection-velocity">Connection velocity</label>
                   {{ parameter_help('connection-velocity', 'Connection velocity', 'Choose a value near the photosphere/wind connection. Review its suitability for this model; 10 km/s is a starting suggestion. Unsafe native search ranges are rejected.') }}
                 </div>
                 <div class="input-group input-group-sm">
-                  <input class="form-control font-monospace" id="connection-velocity" name="connection_velocity" value="{{ connection_velocity }}" inputmode="decimal" required>
+                  <input class="form-control font-monospace" id="connection-velocity" name="connection_velocity" value="{{ connection_velocity }}" inputmode="decimal" required {% if grid_options.operation != 'update' %}disabled{% endif %}>
                   <span class="input-group-text">km/s</span>
                 </div>
                 <div class="form-text model-quick-parameter-help">Photosphere / wind connection.</div>
               </div>
+              <div class="model-quick-parameter-field" data-structure-for="new_nd" {% if grid_options.operation != 'new_nd' %}hidden{% endif %}>
+                <label class="form-label small fw-semibold mb-1" for="new-depths">New depth count</label>
+                <input class="form-control form-control-sm font-monospace" id="new-depths" name="new_depths" value="{{ grid_options.new_depths }}" inputmode="numeric" required {% if grid_options.operation != 'new_nd' %}disabled{% endif %}>
+                <div class="form-text model-quick-parameter-help">3–5000 points, retaining similar overall grid spacing.</div>
+              </div>
+              <div class="model-quick-parameter-field" data-structure-for="insert" {% if grid_options.operation != 'insert' %}hidden{% endif %}>
+                <label class="form-label small fw-semibold mb-1" for="start-depth">Start depth index</label>
+                <input class="form-control form-control-sm font-monospace" id="start-depth" name="start_depth" value="{{ grid_options.start_depth }}" inputmode="numeric" required {% if grid_options.operation != 'insert' %}disabled{% endif %}>
+                <div class="form-text model-quick-parameter-help">1 is the outermost point of the current grid.</div>
+              </div>
+              <div class="model-quick-parameter-field" data-structure-for="insert" {% if grid_options.operation != 'insert' %}hidden{% endif %}>
+                <label class="form-label small fw-semibold mb-1" for="end-depth">End depth index</label>
+                <input class="form-control form-control-sm font-monospace" id="end-depth" name="end_depth" value="{{ grid_options.end_depth }}" inputmode="numeric" required {% if grid_options.operation != 'insert' %}disabled{% endif %}>
+                <div class="form-text model-quick-parameter-help">Must be greater than the start index.</div>
+              </div>
+              <div class="model-quick-parameter-field" data-structure-for="insert outer" {% if grid_options.operation not in ['insert', 'outer'] %}hidden{% endif %}>
+                <div class="d-flex align-items-baseline gap-1 mb-1">
+                  <label class="form-label small fw-semibold mb-0" for="insert-points">Points to insert</label>
+                  {{ parameter_help('insert-points', 'Points to insert', 'For a depth interval, insert this many points in each interval between the start and end indices, equally spaced in radius. For outer refinement, insert this total number inside the outermost interval, progressively closer to the outer boundary. Existing radius nodes are retained.') }}
+                </div>
+                <input class="form-control form-control-sm font-monospace" id="insert-points" name="points" value="{{ grid_options.points }}" inputmode="numeric" required {% if grid_options.operation not in ['insert', 'outer'] %}disabled{% endif %}>
+                <div class="form-text model-quick-parameter-help">Total grid size must stay at or below 5000.</div>
+              </div>
+              <div class="model-quick-parameter-field" data-structure-for="radii" {% if grid_options.operation != 'radii' %}hidden{% endif %}>
+                <div class="d-flex align-items-baseline gap-1 mb-1">
+                  <label class="form-label small fw-semibold mb-0" for="insert-radii">New radii (10¹⁰ cm)</label>
+                  {{ parameter_help('insert-radii', 'New radii', 'Use radii after normalizing the current grid to VADAT RSTAR. List unique internal points from largest to smallest, separated by spaces, commas, or newlines. Existing grid points and endpoints cannot be duplicated.') }}
+                </div>
+                <textarea class="form-control form-control-sm font-monospace" id="insert-radii" name="radii" rows="3" required {% if grid_options.operation != 'radii' %}disabled{% endif %}>{{ grid_options.radii }}</textarea>
+                <div class="form-text model-quick-parameter-help">Largest first; existing radius nodes are retained.</div>
+              </div>
+              <div class="model-quick-parameter-field small text-muted" data-structure-for="sigma" {% if grid_options.operation != 'sigma' %}hidden{% endif %}>
+                Recalculate σ = (r/v) dv/dr − 1 from the current R and V values, using native monotonic interpolation. No additional parameters are needed.
+              </div>
             </div>
           </fieldset>
 
-          <details class="model-quick-parameter-group model-quick-parameter-details mb-4">
+          <details class="model-quick-parameter-group model-quick-parameter-details mb-4" data-structure-for="update" {% if grid_options.operation != 'update' %}hidden{% endif %}>
             <summary class="model-quick-parameter-group-title mb-2">Prepared candidate</summary>
             <div class="model-quick-parameter-grid">
               <div class="model-quick-parameter-field">
@@ -67,7 +111,7 @@
                   <label class="form-label small fw-semibold mb-0" for="candidate">Upload revised structure</label>
                   {{ parameter_help('candidate', 'Upload revised structure', 'Use a prepared RVSIG_COL for other velocity laws, missing baselines, changed outer radius, or a structure regenerated with wind_hyd. A selected file replaces native generation; the wind prescription and connection velocity are then unused.') }}
                 </div>
-                <input type="file" class="form-control form-control-sm" id="candidate" name="candidate">
+                <input type="file" class="form-control form-control-sm" id="candidate" name="candidate" {% if grid_options.operation != 'update' %}disabled{% endif %}>
                 <div class="form-text model-quick-parameter-help"><code>RVSIG_COL_NEW</code> — replaces native generation when selected.</div>
               </div>
             </div>
@@ -77,6 +121,7 @@
             <summary>Scope and initialization</summary>
             <div class="text-muted">
               Guided updates support mass-loss, core-radius, VINF/BETA, and depth-count changes.
+              Grid operations can also resample, add points, or recalculate sigma directly from the current structure.
               Any required RMAX adjustment or NP increase to cover ND + NC is included in the review.
               Applying archives binary checkpoints and radiation/matrix caches. It does not export populations
               or prove hydrostatic equilibrium. Review initialization compatibility before running.
@@ -91,6 +136,7 @@
       <section class="card mb-4" id="structure-update-review">
         <div class="card-header fw-semibold">Structure update review</div>
         <div class="card-body">
+          <p class="small text-muted">{{ plan.operation_label }}</p>
           <dl class="row row-cols-2 row-cols-md-3 g-3 small mb-3">
             {% for label, value, unit in [
               ('Depth points', plan.summary.depths, ''),

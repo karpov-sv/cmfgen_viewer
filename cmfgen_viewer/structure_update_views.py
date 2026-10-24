@@ -8,7 +8,7 @@ from flask import abort, current_app, redirect, render_template, request, url_fo
 from .model_editor import _resolve_model, ModelEditorError
 from .model_editor_views import _after_parameter_save, _editor_breadcrumb
 from .runner_config import resolve_runner_config
-from .structure_update import (LIMIT, apply_structure_plan, build_structure_plan,
+from .structure_update import (LIMIT, OPERATIONS, apply_structure_plan, build_structure_plan,
                                inspect_structure_update)
 from .view_common import _viewer_config, bp, _notification_url
 
@@ -30,6 +30,7 @@ def model_structure_update(source_path):
             cache.pop(token, None)
     error, plan, token = '', None, ''
     velocity_type, connection = '2', '10'
+    grid_options = dict(operation='update', new_depths='', start_depth='1', end_depth='2', points='1', radii='')
     if request.method == 'POST':
         action = request.form.get('action', '')
         try:
@@ -49,6 +50,7 @@ def model_structure_update(source_path):
                 abort(400)
             velocity_type = request.form.get('velocity_type', '2')
             connection = request.form.get('connection_velocity', '10')
+            grid_options.update({key: request.form[key] for key in grid_options if key in request.form})
             upload = request.files.get('candidate')
             candidate = None
             if upload and upload.filename:
@@ -58,7 +60,8 @@ def model_structure_update(source_path):
                 candidate = data.decode('utf-8')
             native, _ = resolve_runner_config(cmfgen_root=config.get('cmfgen_root'), require_roots=False)
             plan = build_structure_plan(model, cmfgen_root=native.get('cmfgen_root'),
-                velocity_type=int(velocity_type), connection_velocity=float(connection), candidate=candidate)
+                velocity_type=int(velocity_type), connection_velocity=float(connection), candidate=candidate,
+                **grid_options)
             token = uuid.uuid4().hex
             if len(cache) >= 16:
                 cache.pop(next(iter(cache)))
@@ -70,4 +73,5 @@ def model_structure_update(source_path):
     return render_template('model_structure_update.html', source_path=source_path,
         structure_status=inspect_structure_update(model), plan=plan, review_token=token,
         error=error, velocity_type=velocity_type, connection_velocity=connection,
+        operations=OPERATIONS, grid_options=grid_options,
         breadcrumb=_editor_breadcrumb(source_path, 'Update structure'))

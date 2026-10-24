@@ -9,6 +9,21 @@
       });
     });
   });
+  document.querySelectorAll("[data-structure-form]").forEach(function (form) {
+    const operation = form.elements.namedItem("operation");
+    if (!operation) return;
+    function updateOperation() {
+      form.querySelectorAll("[data-structure-for]").forEach(function (panel) {
+        const visible = panel.dataset.structureFor.split(" ").includes(operation.value);
+        panel.hidden = !visible;
+        panel.querySelectorAll("input, select, textarea").forEach(function (control) {
+          control.disabled = !visible;
+        });
+      });
+    }
+    operation.addEventListener("change", updateOperation);
+    updateOperation();
+  });
   document.querySelectorAll("[data-quick-parameter-form]").forEach(function (form) {
     const field = (key) => form.elements.namedItem("quick_value:" + key);
     const method = field("DC_METH");

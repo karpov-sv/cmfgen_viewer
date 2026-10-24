@@ -45,3 +45,24 @@ for (const checkbox of [null, {disabled: true}]) {
 }
 ''', str(script)], capture_output=True, text=True)
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.skipif(shutil.which('node') is None, reason='Node.js is required')
+def test_structure_form_only_enables_inputs_for_selected_operation():
+    script=Path(__file__).resolve().parents[1]/'cmfgen_viewer/static/model_parameters.js'
+    result=subprocess.run([shutil.which('node'),'-e',r'''
+const vm=require('node:vm'),fs=require('node:fs'),assert=require('node:assert/strict');
+const operation={value:'update',addEventListener(type,fn){this.change=fn;}};
+function panel(modes){return {dataset:{structureFor:modes},hidden:false,controls:[{disabled:false}],
+  querySelectorAll(){return this.controls;}};}
+const panels=[panel('update'),panel('new_nd'),panel('insert'),panel('insert outer'),panel('radii')];
+const form={elements:{namedItem(){return operation;}},querySelectorAll(){return panels;}};
+vm.runInNewContext(fs.readFileSync(process.argv[1],'utf8'),{document:{
+  addEventListener(){},querySelectorAll(selector){return selector==='[data-structure-form]'?[form]:[];}}});
+for(const mode of ['update','new_nd','insert','outer','radii','sigma']){
+ operation.value=mode;operation.change();
+ for(const p of panels){const visible=p.dataset.structureFor.split(' ').includes(mode);
+  assert.equal(p.hidden,!visible);assert.equal(p.controls[0].disabled,!visible);}
+}
+''',str(script)],capture_output=True,text=True)
+    assert result.returncode==0,result.stdout+result.stderr

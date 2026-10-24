@@ -470,3 +470,60 @@ inputs**. The update action does not export current populations, change
 hydrostatic equilibrium or numerical convergence. Prepare compatible estimates
 before running. In particular, applying after changing ND retires the old binary
 checkpoint but does not itself create a new-grid population checkpoint.
+
+### Grid operations on an existing structure
+
+**Update Model Structure → Native revision → Operation** also offers the
+following operations without first editing the model controls:
+
+| Operation | Native option | Inputs and effect |
+|---|---|---|
+| Resample to a new depth count | `NEW_ND` | Choose 3–5000 points. Retains similar overall grid spacing; old interior nodes are generally replaced. |
+| Insert points over a depth interval | `NINS` | Choose start/end depth indices and a point count per interval. Index 1 is outermost. Existing radius nodes are retained; new points are equally spaced in radius within each selected interval. |
+| Refine the outermost interval | `FGOB` | Choose a total number of new points. Inserts them in the first interval, progressively closer to the outer boundary; the outer endpoint remains unchanged. |
+| Insert explicit radii | `ADDR` | Supply unique radii in decreasing order, strictly inside the current grid. Units are 10¹⁰ cm after normalization to `VADAT [RSTAR]`. Existing nodes and endpoints cannot be duplicated. |
+| Recalculate sigma | `SIGU` | Recompute `sigma = (r/v) dv/dr - 1` from the existing radius and velocity values using the native monotonic interpolation. No extra parameters are required. |
+
+These actions use the **current** `RVSIG_COL`; parameter-driven revisions use
+the saved pre-edit baseline instead. Resolve any pending parameter-driven update
+before choosing a separate grid operation. Native interpolation supplies revised
+velocities and sigma where needed. Every operation retains the 5000-point limit,
+finite/monotonic radius checks, candidate review, stale-input checks, backups,
+and checkpoint/cache retirement. Density/clumping input structures and SN or
+variable-mass-loss modes still require a prepared candidate.
+
+The review includes the proposed `MODEL_SPEC [ND]` change. `NP` is increased
+when necessary to satisfy `NP >= ND + NC`; reducing ND retains existing extra
+impact rays. `NC` is preserved. The new controls and structure are applied
+together. The selected operation is recorded in the saved review and recovery
+record. It does not select a new population-initialization method or prepare
+compatible population exports for you.
+
+```sh
+# Resample the full grid, then inspect the structure and MODEL_SPEC diffs.
+python3 cmfgen_model.py structure /path/to/model --operation new_nd \
+  --new-depths 135 --review-file /tmp/resample-review.json
+
+# Insert one point in each of the first ten intervals.
+python3 cmfgen_model.py structure /path/to/model --operation insert \
+  --start-depth 1 --end-depth 11 --points 1 --review-file /tmp/refine-review.json
+
+# Concentrate two new points close to the outer boundary.
+python3 cmfgen_model.py structure /path/to/model --operation outer \
+  --points 2 --review-file /tmp/outer-review.json
+
+# Explicit radii must be appropriate to your model's normalized radius range.
+python3 cmfgen_model.py structure /path/to/model --operation radii \
+  --radii '44300, 44000' --review-file /tmp/radii-review.json
+
+python3 cmfgen_model.py structure /path/to/model --operation sigma \
+  --review-file /tmp/sigma-review.json
+
+# Apply only the chosen reviewed operation.
+python3 cmfgen_model.py structure /path/to/model --apply /tmp/refine-review.json
+```
+
+The interactive cursor editor, optical-depth redistribution, outer-radius
+extension, and additional wind-law/geometry conversions remain available through
+the native utility and the prepared-candidate workflow. They are not exposed as
+guided actions here.
