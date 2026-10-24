@@ -22,6 +22,7 @@ MODEL_CREATE_OPTIONAL_FILES = (
     "batch_ins.sh",
     "clean.sh",
     "RVSIG_COL",
+    ".cmfgen-structure-update.json",
     "HYDRO_DEFAULTS",
     "ROSSELAND_LTE_TAB",
     "RDINR",

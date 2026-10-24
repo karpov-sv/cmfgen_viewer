@@ -9,6 +9,7 @@ from . import browser_views as _browser_views  # noqa: E402,F401
 from . import grid_views as _grid_views  # noqa: E402,F401
 from . import model_history_views as _model_history_views  # noqa: E402,F401
 from . import model_editor_views as _model_editor_views  # noqa: E402,F401
+from . import structure_update_views as _structure_update_views  # noqa: E402,F401
 from . import model_run_workflow_views as _model_run_workflow_views  # noqa: E402,F401
 from . import model_runtime_views as _model_runtime_views  # noqa: E402,F401
 from . import model_views as _model_views  # noqa: E402,F401

@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% from "_parameter_help.html" import parameter_help %}
+
+{% block title %}Update Model Structure - CMFGEN Viewer{% endblock %}
+
+{% block body %}
+  {% include "_breadcrumb.html" %}
+  {% include "_model_toolbar.html" %}
+
+  <section class="mb-4">
+    <div class="model-parameter-header mb-3">
+      <h2 class="h4 mb-0">Update Model Structure</h2>
+      <div class="model-parameter-actions">
+        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('viewer.model_parameters', source_path=source_path) }}"><i class="fa fa-sliders me-1" aria-hidden="true"></i>Edit parameters</a>
+        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('viewer.model_history', source_path=source_path) }}"><i class="fa fa-history me-1" aria-hidden="true"></i>Saved versions and recovery</a>
+      </div>
+    </div>
+    <p class="text-muted">Review a revised <code>RVSIG_COL</code> for <code>{{ source_path }}</code>
+      using the saved pre-edit structure or a prepared candidate.</p>
+
+    {% if structure_status.required %}<div class="alert alert-warning py-2 small">{{ structure_status.message }}</div>{% endif %}
+    {% if error %}<div class="alert alert-danger py-2">{{ error }}</div>{% endif %}
+    <div class="alert alert-info py-2 small">
+      Previewing leaves the model unchanged. Applying saves recoverable copies and archives the old checkpoints;
+      the next run initializes from the existing text estimates.
+    </div>
+
+    <div class="card mb-4">
+      <div class="card-header fw-semibold">Structure setup <code class="ms-1">RVSIG_COL</code></div>
+      <div class="card-body">
+        <form method="post" enctype="multipart/form-data">
+          <input type="hidden" name="action" value="preview">
+          <fieldset class="model-quick-parameter-group mb-4">
+            <legend class="model-quick-parameter-group-title mb-2">Native revision</legend>
+            <div class="model-quick-parameter-grid">
+              <div class="model-quick-parameter-field">
+                <div class="d-flex align-items-baseline gap-1 mb-1">
+                  <label class="form-label small fw-semibold mb-0" for="velocity-type">Wind prescription</label>
+                  {{ parameter_help('velocity-type', 'Wind prescription', 'Types 1 and 2 reconnect a beta velocity law to the hydrostatic region. Type 6 retains the existing outer law and cannot implement BETA or VINF changes.') }}
+                </div>
+                <select class="form-select form-select-sm" id="velocity-type" name="velocity_type">
+                  <option value="1" {% if velocity_type == '1' %}selected{% endif %}>Type 1 — beta law with exponential connection</option>
+                  <option value="2" {% if velocity_type == '2' %}selected{% endif %}>Type 2 — offset beta law with exponential connection</option>
+                  <option value="6" {% if velocity_type == '6' %}selected{% endif %}>Type 6 — retain the existing outer velocity law</option>
+                </select>
+                <div class="form-text model-quick-parameter-help">Choose the wind law for the revised structure.</div>
+              </div>
+              <div class="model-quick-parameter-field">
+                <div class="d-flex align-items-baseline gap-1 mb-1">
+                  <label class="form-label small fw-semibold mb-0" for="connection-velocity">Connection velocity</label>
+                  {{ parameter_help('connection-velocity', 'Connection velocity', 'Choose a value near the photosphere/wind connection. Review its suitability for this model; 10 km/s is a starting suggestion. Unsafe native search ranges are rejected.') }}
+                </div>
+                <div class="input-group input-group-sm">
+                  <input class="form-control font-monospace" id="connection-velocity" name="connection_velocity" value="{{ connection_velocity }}" inputmode="decimal" required>
+                  <span class="input-group-text">km/s</span>
+                </div>
+                <div class="form-text model-quick-parameter-help">Photosphere / wind connection.</div>
+              </div>
+            </div>
+          </fieldset>
+
+          <details class="model-quick-parameter-group model-quick-parameter-details mb-4">
+            <summary class="model-quick-parameter-group-title mb-2">Prepared candidate</summary>
+            <div class="model-quick-parameter-grid">
+              <div class="model-quick-parameter-field">
+                <div class="d-flex align-items-baseline gap-1 mb-1">
+                  <label class="form-label small fw-semibold mb-0" for="candidate">Upload revised structure</label>
+                  {{ parameter_help('candidate', 'Upload revised structure', 'Use a prepared RVSIG_COL for other velocity laws, missing baselines, changed outer radius, or a structure regenerated with wind_hyd. A selected file replaces native generation; the wind prescription and connection velocity are then unused.') }}
+                </div>
+                <input type="file" class="form-control form-control-sm" id="candidate" name="candidate">
+                <div class="form-text model-quick-parameter-help"><code>RVSIG_COL_NEW</code> — replaces native generation when selected.</div>
+              </div>
+            </div>
+          </details>
+
+          <details class="model-quick-parameter-details small mb-3">
+            <summary>Scope and initialization</summary>
+            <div class="text-muted">
+              Guided updates support mass-loss, core-radius, VINF/BETA, and depth-count changes.
+              Any required RMAX adjustment or NP increase to cover ND + NC is included in the review.
+              Applying archives binary checkpoints and radiation/matrix caches. It does not export populations
+              or prove hydrostatic equilibrium. Review initialization compatibility before running.
+            </div>
+          </details>
+          <button class="btn btn-sm btn-primary" type="submit">Generate and review candidate</button>
+        </form>
+      </div>
+    </div>
+
+    {% if plan %}
+      <section class="card mb-4" id="structure-update-review">
+        <div class="card-header fw-semibold">Structure update review</div>
+        <div class="card-body">
+          <dl class="row row-cols-2 row-cols-md-3 g-3 small mb-3">
+            {% for label, value, unit in [
+              ('Depth points', plan.summary.depths, ''),
+              ('Impact parameters', plan.summary.impact_parameters, ''),
+              ('RMAX', '%.8g'|format(plan.summary.rmax), ''),
+              ('Inner radius', '%.8g'|format(plan.summary.inner_radius), '10¹⁰ cm'),
+              ('Outer radius', '%.8g'|format(plan.summary.outer_radius), '10¹⁰ cm'),
+              ('Outer velocity', '%.8g'|format(plan.summary.outer_velocity), 'km/s')
+            ] %}
+              <div class="col"><dt class="text-body-secondary fw-normal">{{ label }}</dt><dd class="font-monospace mb-0">{{ value }}{% if unit %} <span class="text-body-secondary">{{ unit }}</span>{% endif %}</dd></div>
+            {% endfor %}
+          </dl>
+          {% for warning in plan.warnings %}<div class="alert alert-warning py-2 small">{{ warning }}</div>{% endfor %}
+          <p class="small">Archive checkpoints/caches: <code>{{ plan.retire|join(', ') or 'none present' }}</code>.</p>
+          {% for filename, diff in plan.diffs.items() %}
+            <h3 class="h6">{{ filename }}</h3>
+            <pre class="model-parameter-diff border rounded p-2 mb-3">{% for line in diff.splitlines() %}{% set kind = 'header' if line.startswith(('+++', '---')) else 'range' if line.startswith('@@') else 'added' if line.startswith('+') else 'removed' if line.startswith('-') else 'context' %}<span class="diff-{{ kind }}">{{ line }}</span>{% endfor %}</pre>
+          {% endfor %}
+          <details class="model-quick-parameter-details small mb-3">
+            <summary>Generation details</summary>
+            <p class="text-muted text-break mt-2">Source: {{ plan.origin }}</p>
+            {% for run in plan.native_runs %}<details class="mb-3"><summary>Native {{ run.mode }} log</summary><pre class="model-parameter-diff border rounded p-2">{{ run.log }}</pre></details>{% endfor %}
+          </details>
+          <form method="post">
+            <input type="hidden" name="action" value="apply">
+            <input type="hidden" name="review_token" value="{{ review_token }}">
+            <button class="btn btn-sm btn-primary" type="submit">Apply reviewed structure</button>
+          </form>
+        </div>
+      </section>
+    {% endif %}
+  </section>
+  <script src="{{ url_for('static', filename='model_parameters.js') }}" defer></script>
+{% endblock %}

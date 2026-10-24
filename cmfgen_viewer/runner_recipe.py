@@ -231,7 +231,7 @@ def build_run_plan(model: Path, *, stage: str, cmfgen_root: Path, atomic_root: P
                 (not adjustment.is_file() or adjustment.stat().st_nlink != 1)):
             errors.append("ADJUST_CORRECTIONS must be an unshared regular file")
         for issue in inspect_model_preflight(model)["issues"]:
-            if continuing and (issue["file"] == "RVSIG_COL" or issue["code"] in {"missing-gamma-input", "empty-gamma-input", "unpromoted-lte-result"}):
+            if continuing and issue['code'] != 'structure-update-required' and (issue["file"] == "RVSIG_COL" or issue["code"] in {"missing-gamma-input", "empty-gamma-input", "unpromoted-lte-result"}):
                 warnings.append("Fresh-start input check (not used by continuation): " + issue["message"])
                 continue
             (errors if issue["severity"] == "error" else warnings).append(issue["message"])

@@ -1,0 +1,7 @@
+{% if structure_status is defined and structure_status.required %}
+  <div class="alert alert-warning small">
+    <strong>Structure update required.</strong> {{ structure_status.message }}
+    Saving parameters does not update <code>RVSIG_COL</code>.
+    <a class="alert-link" href="{{ url_for('viewer.model_structure_update', source_path=source_path) }}">Update structure</a>
+  </div>
+{% endif %}

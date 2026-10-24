@@ -179,6 +179,13 @@ follows the compact recovery policy, with full-size recovery available through
 `--keep-large-files` or `.cmfgenrc`. See the in-app **Templates and configuration**
 guide for details.
 
+For `VEL_OPT=RVSIG_COL` models, edits to mass loss, core radius, velocity-law
+controls, or depth count also flag a required structure update. Use **Edit
+Parameters → Update structure**, or `cmfgen_model.py structure`, to generate or
+import a candidate, review the diff, and apply it with checkpoint archiving.
+See [Updating a tabulated hydrostatic structure](doc/command-line-runner.md#updating-a-tabulated-hydrostatic-structure)
+for the native options, manual candidate workflow, and initialization requirements.
+
 ## Command-line Runner
 
 `cmfgen_run.py` inspects model state and runs a reviewed subset of the ostar

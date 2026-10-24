@@ -20,6 +20,7 @@ from .model_reseed import build_reseed_plan, run_reseed_plan
 from .runner import run_plan
 from .runner_cleanup import build_cleanup_plan
 from .runner_config import resolve_viewer_defaults
+from .structure_update import inspect_structure_update, build_structure_plan, apply_structure_plan
 
 
 class MaintenanceExecutionError(RuntimeError):
@@ -199,11 +200,42 @@ def _get(args):
 def _show(args):
     model = _model(args.model)
     card = _card(model, args.file)
+    structure = inspect_structure_update(model)
     return {'command': 'show', 'model': str(model), 'file': args.file,
             'parameters': [{'key': field['key'], 'value': field['value'], 'label': field['label'],
                             'unit': field.get('unit', ''), 'optional': bool(field.get('missing'))}
                            for field in card['fields']],
-            'warnings': card['issues'], 'luminosity_scaling': card['luminosity_scaling']}, 0
+            'warnings': [*card['issues'], *([structure['message']] if structure['required'] else [])],
+            'luminosity_scaling': card['luminosity_scaling']}, 0
+
+
+def _structure(args):
+    from .runner_config import resolve_runner_config
+    model = _model(args.model)
+    if args.apply:
+        if args.plan or args.candidate or args.review_file:
+            raise ValueError('--apply cannot be combined with generation options.')
+        if args.apply.stat().st_size > 16 * 1024 * 1024:
+            raise ValueError('Structure review is too large.')
+        plan = json.loads(args.apply.read_text())
+        saved = _execute(apply_structure_plan, model, plan)
+        return {'command': 'structure', 'ready': True, 'status': saved['status'],
+                'model': str(model), 'result': saved, 'warnings': plan['warnings']}, 0
+    native, _ = resolve_runner_config(cmfgen_root=args.cmfgen_root, require_roots=False)
+    candidate = None
+    if args.candidate:
+        if args.candidate.stat().st_size > 2 * 1024 * 1024:
+            raise ValueError('Candidate exceeds the 2 MiB limit.')
+        candidate = args.candidate.read_bytes().decode('utf-8')
+    plan = build_structure_plan(model, cmfgen_root=native.get('cmfgen_root'),
+        velocity_type=args.velocity_type, connection_velocity=args.connection_velocity, candidate=candidate)
+    if args.review_file:
+        with args.review_file.open('x') as stream:
+            json.dump(plan, stream, indent=2)
+    return {'command': 'structure', 'ready': True, 'model': str(model),
+            'status': 'review_required', 'summary': plan['summary'], 'diffs': plan['diffs'],
+            'warnings': plan['warnings'], 'retire': plan['retire'],
+            'review_file': str(args.review_file) if args.review_file else None}, 0
 
 
 def _text(report):
@@ -229,6 +261,14 @@ def _text(report):
             print(line['text'])
         if report.get('backup'):
             print('Checkpoint: ' + report['backup'])
+    elif command == 'structure':
+        print(f"Structure: {report['model']}")
+        for text in report.get('diffs', {}).values():
+            print(text)
+        if report.get('review_file'):
+            print('Review saved: ' + report['review_file'])
+        if report.get('result'):
+            print('Recovery: ' + report['result']['archive_path'])
     elif command == 'out2in':
         print(f"Out2in: {report['model']}")
         for entry in report['entries']:
@@ -289,9 +329,18 @@ def build_parser():
     edit.add_argument('assignments', nargs='+', metavar='KEY=VALUE')
     edit.add_argument('--file', choices=QUICK_PARAMETER_FILES, default='VADAT')
     edit.add_argument('--keep-teff-logg', action='store_true', help='Scale RSTAR and MASS with LSTAR, preserving Teff and log g')
+    structure = commands.add_parser('structure', help='Review and apply a RVSIG_COL structure update')
+    structure.add_argument('model', type=Path)
+    structure.add_argument('--cmfgen-root', type=Path)
+    structure.add_argument('--velocity-type', type=int, choices=(1, 2, 6), default=2)
+    structure.add_argument('--connection-velocity', type=float, default=10.0)
+    structure.add_argument('--candidate', type=Path, help='Review an externally prepared RVSIG_COL instead of native generation')
+    structure.add_argument('--review-file', type=Path, help='Save the candidate review to a new JSON file')
+    structure.add_argument('--apply', type=Path, help='Apply a previously saved, unchanged review JSON file')
+    structure.add_argument('--plan', action='store_true', help='Generate a candidate without modifying the model (default)')
     for command in (copy, cleanup, out2in, edit):
         command.add_argument('--plan', action='store_true', help='Show the planned operation without modifying files')
-    for command in (show, get, copy, cleanup, out2in, edit):
+    for command in (show, get, copy, cleanup, out2in, edit, structure):
         command.add_argument('--json', action='store_true', help='Print a structured JSON report')
     return parser
 
@@ -299,7 +348,7 @@ def build_parser():
 def main(argv=None):
     args = build_parser().parse_args(argv)
     try:
-        report, code = {'show': _show, 'get': _get, 'copy': _copy, 'cleanup': _cleanup, 'out2in': _out2in, 'set': _set}[args.command](args)
+        report, code = {'show': _show, 'get': _get, 'copy': _copy, 'cleanup': _cleanup, 'out2in': _out2in, 'set': _set, 'structure': _structure}[args.command](args)
     except MaintenanceExecutionError as exc:
         report, code = {'command': args.command, 'status': 'failed', 'error': str(exc)}, 1
     except (ValueError, OSError) as exc:

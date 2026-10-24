@@ -1,0 +1,9 @@
+{% macro parameter_help(input_id, label, notice) %}
+  {% if notice %}
+    <button type="button" class="model-parameter-help-button text-body-secondary"
+      data-parameter-help title="{{ notice }}"
+      aria-label="Help for {{ label }}"
+      aria-describedby="{{ input_id }}-help">?</button>
+    <span id="{{ input_id }}-help" class="visually-hidden">{{ notice }}</span>
+  {% endif %}
+{% endmacro %}

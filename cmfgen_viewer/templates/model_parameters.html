@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_parameter_help.html" import parameter_help %}
 
 {% macro quick_parameter_fields(fields) %}
   <div class="model-quick-parameter-grid">
@@ -6,13 +7,7 @@
       <div class="model-quick-parameter-field">
         <div class="d-flex align-items-baseline gap-1 mb-1">
           <label class="form-label small fw-semibold mb-0" for="{{ field.input_id }}">{{ field.label }}</label>
-          {% if field.notice %}
-            <button type="button" class="model-parameter-help-button text-body-secondary"
-              data-parameter-help title="{{ field.notice }}"
-              aria-label="Help for {{ field.label }}"
-              aria-describedby="{{ field.input_id }}-help">?</button>
-            <span id="{{ field.input_id }}-help" class="visually-hidden">{{ field.notice }}</span>
-          {% endif %}
+          {{ parameter_help(field.input_id, field.label, field.notice) }}
         </div>
         <div class="input-group input-group-sm">
           {% if field.kind == "boolean" %}
@@ -56,14 +51,18 @@
   {% include "_model_toolbar.html" %}
 
   <section class="mb-4">
-    <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+    <div class="model-parameter-header mb-3">
       <h2 class="h4 mb-0">Edit Model Parameters</h2>
-      <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('viewer.model_history', source_path=source_path) }}"><i class="fa fa-history me-1" aria-hidden="true"></i>Saved versions and recovery</a>
+      <div class="model-parameter-actions">
+        {% if structure_status.available %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('viewer.model_structure_update', source_path=source_path) }}"><i class="fa fa-sitemap me-1" aria-hidden="true"></i>Update structure</a>{% endif %}
+        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('viewer.model_history', source_path=source_path) }}"><i class="fa fa-history me-1" aria-hidden="true"></i>Saved versions and recovery</a>
+      </div>
     </div>
     <p class="text-muted">
       Select an allowlisted control file in <code>{{ source_path }}</code>. Scripts, numerical state files,
       outputs, binary files, and symlinks are intentionally excluded.
     </p>
+    {% include "_structure_update_notice.html" %}
     <div class="alert alert-info py-2 small">
       Saving a solution control marks the model as modified until a newer <code>MOD_SUM</code> is produced.
       Every save creates a recoverable copy under <code>.cmfgen-viewer-backups/</code>.

@@ -378,3 +378,95 @@ Before **every** flux pass, including the first pass of a rerun, the runner reti
 Executable stages retain installed atomic links and other native scratch/diagnostic files; cleanup occurs only through the explicit `cleanup` stage and its reviewed candidate list. Native executables still write directly into the selected workspace. Selected backups are **not** a full directory snapshot or transactional rollback, and the child is **not** sandboxed against arbitrary filesystem writes. Use trusted executables and input workspaces. Unknown symlinks and unsafe known output targets are refused, but these checks are not a general security sandbox.
 
 Inputs and the executable are rechecked under the viewer's shared advisory lock before mutation. Files up to 2 MiB use SHA-256 plus metadata; larger files use metadata only. Atomic data content is not comprehensively hashed or scientifically validated. External scripts do not honor this lock and must not be launched concurrently. Journals are retained for inspection, not cryptographically immutable provenance.
+
+## Updating a tabulated hydrostatic structure
+
+For models using `VEL_OPT=RVSIG_COL`, saving changes to mass loss (`MDOT`), core
+radius (`RSTAR`), the velocity law (including `BETA` or `VINF`), or
+`MODEL_SPEC [ND]` does not rebuild the structure file. The CMFGEN manual
+(`web/full_descr.tex`, new-model instructions) explicitly requires reviewing or
+updating `RVSIG_COL` for these changes. Abundance, `LOGG`, model-atom, and species
+changes alone do not require this particular update; other preparation and
+reconvergence requirements still apply.
+
+Both quick and text editor reviews, and CLI `set --plan`, warn about relevant
+changes. Before the first such save, the viewer retains the original VADAT,
+MODEL_SPEC, and RVSIG_COL contents in `.cmfgen-structure-update.json`. Subsequent
+pending edits retain that original baseline. Resolved baselines are inactive:
+ordinary native hydro revisions after an update do not create a new editor
+warning, and the next relevant editor save captures a fresh baseline.
+The editor shows a persistent **Structure
+update required** notice and main/test preflight blocks execution until the
+structure is reviewed/applied, including continuation that would otherwise
+restore the old grid from a binary checkpoint. Numerically equivalent notation
+changes and fully reverted parameter changes do not require an update.
+Tracking applies to edits through these tools; external edits made before any
+baseline was captured cannot be diagnosed from this metadata.
+
+Use **Edit Parameters → Update structure** after saving the desired controls.
+The guided action runs the configured `exe/rev_rvsig.exe` in a temporary
+directory, using the saved old structure and parameters and the current target
+parameters. It supports native `MDOT`, `SCLR`, and `NEW_ND` operations, composing
+a physical/velocity update with a depth-count update when necessary. The reader's
+simple radius normalization is applied to the baseline before native revision.
+The supported wind prescriptions are types 1, 2, and 6; choose a suitable
+connection velocity explicitly (the form suggests 10 km/s). Type 6 retains the
+outer velocity law and cannot implement BETA/VINF changes. Connection velocities
+that would produce an unsafe native search are rejected. Native plots use the
+null device. A timeout, unsuccessful exit, or invalid output leaves the model
+unchanged.
+
+For other wind prescriptions, changed outer-radius controls, density/clumping
+input structures, or a missing/externally changed baseline, prepare a candidate
+manually with `rev_rvsig.exe`, `wind_hyd.exe`, or another appropriate method and
+upload it on the same page. This checks the candidate's grid and endpoints; it
+does not establish that the chosen physical structure is appropriate.
+
+The review displays the resulting grid dimensions and endpoints, a complete
+structure diff, native operation logs, any accompanying `VADAT [RMAX]` update,
+and any increase of `MODEL_SPEC [NP]` needed to keep `NP >= ND + NC`,
+and the checkpoint/cache files to retire. Applying verifies that all inputs and
+checkpoints still match the review, requires an idle model, backs up replaced
+files, and archives `POINT1`, `POINT2`, `SCRTEMP`, `BAMAT`, `BAMATPNT`,
+`EDDFACTOR`, and `J_COMP` when present. Installation failures roll back the
+structure, coupled controls, metadata, and archived checkpoints together.
+Recovery copies and the operation record are kept under
+`.cmfgen-viewer-backups/structure-<timestamp>-<id>/`. The update-required notice
+clears only after successful installation or full reversion of the tracked
+parameter changes. Preserve the metadata file while an update is pending.
+Model creation/copy carries this baseline into the destination; ordinary and
+full cleanup preserve it so they cannot silently discard a pending structure
+dependency. An externally running `rev_rvsig.exe` in the model directory also
+counts as model activity and prevents concurrent editor writes.
+
+The equivalent CLI workflow is:
+
+```sh
+# Save desired parameters; the warning and original baseline are retained.
+python3 cmfgen_model.py set /path/to/model MDOT=2e-8
+
+# Generate a candidate for review without changing the model.
+python3 cmfgen_model.py structure /path/to/model --plan \
+  --velocity-type 2 --connection-velocity 10 \
+  --review-file /tmp/structure-review.json
+
+# Or review a manually prepared candidate.
+python3 cmfgen_model.py structure /path/to/model \
+  --candidate /path/to/RVSIG_COL_NEW --review-file /tmp/manual-review.json
+
+# Apply the exact reviewed candidate; stale reviews are rejected.
+python3 cmfgen_model.py structure /path/to/model --apply /tmp/structure-review.json
+```
+
+Native generation uses the shared `cmfgen_root` configuration or
+`--cmfgen-root`. `--review-file` creates a new file and refuses to overwrite an
+existing review. Generating a candidate never changes the model. Review files
+contain model-control contents and native logs; keep them with the model's
+working records.
+
+After application, the next atmosphere run initializes from the **existing text
+inputs**. The update action does not export current populations, change
+`DC_METH`/`LIN_INT`/`POP_SCALE`, regenerate LTE opacity tables, or certify
+hydrostatic equilibrium or numerical convergence. Prepare compatible estimates
+before running. In particular, applying after changing ND retires the old binary
+checkpoint but does not itself create a new-grid population checkpoint.

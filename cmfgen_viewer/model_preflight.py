@@ -371,7 +371,7 @@ def _validate_rvsig(
                         declared_line = line_number
                         continue
                 tokens = stripped.split()
-                if len(tokens) not in {4, 5} or not INTEGER_RE.fullmatch(tokens[-1]):
+                if len(tokens) not in {4, 5, 6} or not INTEGER_RE.fullmatch(tokens[-1]):
                     continue
                 numeric_values = [parse_float_token(token) for token in tokens[:-1]]
                 if all(value is not None for value in numeric_values):
@@ -644,6 +644,12 @@ def _validate_lte_handoff(model_dir: Path, issues: list[dict[str, object]]) -> N
 def inspect_model_preflight(model_dir: Path) -> dict[str, object]:
     """Return reusable preflight issues without changing model files."""
     issues: list[dict[str, object]] = []
+    from .structure_update import inspect_structure_update
+    structure = inspect_structure_update(model_dir)
+    if structure['required']:
+        issues.append(_issue('error', 'structure-update-required',
+            structure['message'] + ' Use Edit Parameters → Update structure before running.',
+            file='RVSIG_COL', available=(model_dir / 'RVSIG_COL').is_file()))
     _validate_required_files(model_dir, issues)
     _validate_gamma_input(model_dir, issues)
 

@@ -26,6 +26,7 @@ from .model_quick_editor import (
 )
 from .summary_cache import delete_model_summary_entries
 from .view_common import _notification_url, _viewer_config, bp
+from .structure_update import inspect_structure_update
 
 
 def _saved_notice(source_path: str, backup_relpath: str, *, filename: str = "") -> Markup:
@@ -114,6 +115,7 @@ def model_parameters(source_path: str):
         else request.args.get("file", "")
     ).strip()
     if not file_relpath:
+        _, model_dir = _resolve_model(basepath, source_path)
         quick_cards = load_quick_model_parameter_cards(
             basepath,
             model_relpath=source_path,
@@ -180,6 +182,7 @@ def model_parameters(source_path: str):
             quick_cards=quick_cards,
             quick_review=quick_review,
             quick_error=quick_error,
+            structure_status=inspect_structure_update(model_dir),
             breadcrumb=_editor_breadcrumb(source_path, "Edit parameters"),
         )
 
@@ -314,6 +317,7 @@ def model_parameters(source_path: str):
     return render_template(
         "model_parameter_edit.html",
         source_path=source_path,
+        structure_status=inspect_structure_update(Path(str(file_record['model_path']))),
         file_relpath=file_relpath,
         file=file_record,
         contents=contents,

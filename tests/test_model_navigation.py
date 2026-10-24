@@ -15,6 +15,7 @@ def make_model(path: Path):
 @pytest.mark.parametrize("endpoint, section", [
     ("viewer.view", ""),
     ("viewer.model_parameters", "parameters"),
+    ("viewer.model_structure_update", "parameters"),
     ("viewer.model_lte_hydro", "lte"),
     ("viewer.model_main_computation", "main"),
     ("viewer.model_create_from_solution", "create"),

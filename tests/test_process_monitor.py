@@ -63,6 +63,11 @@ def test_native_detector_handles_denied_and_exited_processes(tmp_path, monkeypat
     assert not inspect_model_activity(tmp_path)['safe_to_modify']
 
 
+def test_manual_structure_revision_blocks_model_mutations(tmp_path, monkeypatch):
+    install_processes(monkeypatch, [Process(101, tmp_path, name='rev_rvsig.exe')])
+    assert not inspect_model_activity(tmp_path)['safe_to_modify']
+
+
 def test_native_metrics_are_optional_and_missing_dependency_is_unknown(tmp_path, monkeypatch):
     process = Process(101, tmp_path)
     process.data.update(cpu_times=None, memory_info=None, create_time=None, num_threads=None)

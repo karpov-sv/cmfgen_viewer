@@ -9,6 +9,7 @@ from .spectrum_io import discover_final_spectrum_files
 
 MODEL_PAGES = {
     "viewer.model_runner_launch", "viewer.view", "viewer.spectrum", "viewer.model_parameters",
+    "viewer.model_structure_update",
     "viewer.model_lte_hydro", "viewer.model_main_computation",
     "viewer.model_workflow_plan", "viewer.model_create_from_solution",
     "viewer.model_rename", "viewer.model_cleanup", "viewer.model_out2in", "viewer.model_history",
@@ -39,6 +40,7 @@ def model_navigation_context(config, endpoint, view_args):
     active = {
         "viewer.model_runner_launch": "runner",
         "viewer.spectrum": "spectrum", "viewer.model_parameters": "parameters",
+        "viewer.model_structure_update": "parameters",
         "viewer.model_lte_hydro": "lte", "viewer.model_main_computation": "main",
         "viewer.model_create_from_solution": "create", "viewer.model_rename": "rename",
         "viewer.model_cleanup": "cleanup", "viewer.model_out2in": "out2in", "viewer.model_history": "history",

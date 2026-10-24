@@ -10,7 +10,7 @@ try:
 except ImportError:  # Missing dependencies must never imply an idle workspace.
     psutil = None
 
-PROGRAM_RE = re.compile(r"^(?:cmfgen[\w.-]*|cmf_flux[\w.-]*|main_lte[\w.-]*|wind_hyd[\w.-]*|"
+PROGRAM_RE = re.compile(r"^(?:cmfgen[\w.-]*|cmf_flux[\w.-]*|main_lte[\w.-]*|wind_hyd[\w.-]*|rev_rvsig[\w.-]*|"
                         r"(?:batch|batch_ins|batobs|bat_ins|ltebat)\.sh)$", re.I)
 SHELL_NAMES = {"sh", "bash", "zsh", "csh", "tcsh", "dash", "ksh"}
 

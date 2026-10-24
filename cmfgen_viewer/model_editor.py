@@ -475,8 +475,14 @@ def review_model_parameter_edit(
         "proposed_digest": _digest(proposed),
         "changed": _digest(proposed) != str(record["digest"]),
         "diff_lines": diff_lines,
-        "warnings": control_file_warnings(proposed_text),
+        "warnings": control_file_warnings(proposed_text) + _structure_edit_warnings(
+            Path(str(record['model_path'])), file_relpath, current_text, proposed_text),
     }
+
+
+def _structure_edit_warnings(model, filename, old, new):
+    from .structure_update import review_warning
+    return review_warning(model, filename, old, new)
 
 
 def _write_backup(model_dir: Path, file_relpath: str, payload: bytes, digest: str) -> str:
@@ -583,6 +589,12 @@ def save_model_parameter_edit(
             current,
             str(record["digest"]),
         )
+        from .structure_update import track_before_edit
+        try:
+            track_before_edit(Path(str(record['model_path'])), file_relpath,
+                              _decode_text(current), _decode_text(proposed))
+        except (OSError, ValueError) as exc:
+            raise ModelEditorError(f'Could not preserve the structure-update baseline: {exc}') from exc
         _atomic_replace(target, proposed, mode=mode)
         timestamp_error = ""
         if preserve_modified_time:
@@ -592,6 +604,11 @@ def save_model_parameter_edit(
                 timestamp_error = str(exc)
         marker = ""
         marker_error = ""
+        from .structure_update import finish_structure_edit
+        try:
+            finish_structure_edit(Path(str(record['model_path'])))
+        except (OSError, ValueError) as exc:
+            marker_error = f'Could not update structure tracking: {exc}'
         if bool(record.get("affects_solution", False)):
             try:
                 marker = _write_modified_marker(
@@ -600,7 +617,7 @@ def save_model_parameter_edit(
                     backup_relpath=backup_relpath,
                 )
             except ModelEditorError as exc:
-                marker_error = str(exc)
+                marker_error = '; '.join(filter(None, (marker_error, str(exc))))
     return {
         **record,
         "new_digest": _digest(proposed),
