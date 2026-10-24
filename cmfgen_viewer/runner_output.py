@@ -183,6 +183,8 @@ class TerminalOutput:
                 self.line("INFO", "   Suggested controls: " + json.dumps(proposal["changes"], sort_keys=True))
             if proposal.get("caches"):
                 self.line("INFO", "   Retire caches: " + ", ".join(proposal["caches"]))
+            if proposal.get('batch_iterations'):
+                self.line('INFO', f"   Subsequent batch length: {proposal['batch_iterations']} physical iterations")
             for step in proposal.get("steps", []):
                 self.line("INFO", f"   Recovery step: {step['name']} ({step['iterations']} iterations)")
                 options = step.get("native_options", {})
@@ -192,6 +194,8 @@ class TerminalOutput:
                     self.line("INFO", f"   Temporary DC_METH=LTE, T_EXC={options.get('t_exc', 1.0)}; restore normal controls for continuation")
                 if options.get("hydro_recovery_probe"):
                     self.line("INFO", "   Temporary STOP_IF_MW=F; restore the guard and verify the follow-up")
+                if options.get('population_recovery_probe'):
+                    self.line('INFO', '   Temporary fixed-T Lambda solves with MAX_LAM=1e12; restore controls and check element/charge conservation')
         if advice.get("limitations") or advice.get("evidence_error"):
             self.line("INFO", "Assessment limits:")
             if advice.get("evidence_error"):

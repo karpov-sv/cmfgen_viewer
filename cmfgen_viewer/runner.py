@@ -512,6 +512,26 @@ def run_plan(plan: dict, emit=None, *, diagnose_main=True) -> dict:
                 if path.is_symlink():
                     raise RunnerError(f"Refusing symlinked control: {path}")
                 controls[path] = TemporaryControl(path, _write_control)
+            if plan.get('population_recovery_probe'):
+                from .auto_recovery import repaired_runtime
+                from .auto_hydro import enabled
+                if (stage != 'main' or len(plan['passes']) != 1 or
+                        str(plan['passes'][0]['overrides'].get('NUM_ITS')) != '3' or
+                        plan.get('restart', {}).get('mode') != 'continuation' or
+                        plan.get('initialization') or plan.get('hydro_recovery_probe') or
+                        enabled(model, 'DO_HYDRO') or not repaired_runtime(plan)):
+                    raise RunnerError('Invalid fixed-T Lambda population recovery probe')
+                path = cwd/'VADAT'
+                controls[path] = TemporaryControl(path, _write_control)
+                controls[path].apply({'FIX_T': 'T', 'MAX_LAM': '1.0D12', 'COMP_BA': 'T',
+                                      'N_FIX_BA': '0', 'FIX_BA': '0.0', 'DO_NG': 'F'})
+                effective = journal/'effective'
+                mkdir_readable(effective, exist_ok=True)
+                for name in ('VADAT',):
+                    copy_readable(cwd/name, effective/name)
+                result['population_recovery_probe'] = True
+                event('population_guard_override', stage='main',
+                      message='Three fixed-T Lambda solves, MAX_LAM=1e12; normal controls restored on every exit')
             flux_template = ((cwd / "CMF_FLUX_PARAM_INIT").read_bytes()
                              if stage == "flux" else None)
             _json(journal / "links-before.json", {link["name"]: os.readlink(cwd / link["name"]) if (cwd / link["name"]).is_symlink() else None for link in plan["links"]})
@@ -557,6 +577,14 @@ def run_plan(plan: dict, emit=None, *, diagnose_main=True) -> dict:
                 if stage == "main" and diagnose_main and main_before is None:
                     from .main_recommendations import EVIDENCE_FILES
                     main_before = {name: snapshot(cwd / name) for name in EVIDENCE_FILES}
+                    if plan.get('restart', {}).get('mode') == 'continuation':
+                        from .auto_recovery import repaired_runtime
+                        if repaired_runtime(plan):
+                            from .checkpoint_physics import checkpoint_physics
+                            try:
+                                main_before['checkpoint_physics'] = checkpoint_physics(model)
+                            except (OSError, ValueError):
+                                pass
                     solution_offset = (cwd / "STEQ_VALS").stat().st_size if (cwd / "STEQ_VALS").is_file() else 0
                 retired = (*logs, *plan.get("cache_files", []))
                 native_names = tuple(dict.fromkeys((*retired, *products, "TIMING", "OUT_PARAMS")))
@@ -594,6 +622,9 @@ def run_plan(plan: dict, emit=None, *, diagnose_main=True) -> dict:
                         original_rows = control_occurrences(control.original.decode())
                         values = {key: original_rows[key][0]["value"]
                                   for key in control.owned - values.keys()} | values
+                    if plan.get('population_recovery_probe'):
+                        values.update({'DO_LAM_IT': 'T', 'DO_LAM_AUTO': 'F',
+                                       'DO_T_AUTO': 'F', 'DO_GT_AUTO': 'F'})
                     rendered = control.apply(values, seed=flux_template).decode()
                     with open_readable(pass_dir / control_name, "w") as handle:
                         handle.write(rendered)

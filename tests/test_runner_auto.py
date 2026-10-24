@@ -73,7 +73,7 @@ if mode=='bad_counts':(p/'CORRECTION_SUM').write_text('NT=3\nDepth 100.0% 10.0% 
 @pytest.fixture
 def auto_workspace(tmp_path):
     model=tmp_path/'model';model.mkdir()
-    for name,text in {'VADAT':'1 [RSTAR]\n0.02 [EPS_TERM]\nF [FIX_T]\nMAJOR [SCALE_OPT]\n2 [N_FIX_BA]\n10 [FIX_BA]\nT [COMP_BA]\n',
+    for name,text in {'VADAT':'1 [RSTAR]\n0.02 [EPS_TERM]\nF [FIX_T]\nT [INCL_dSLdT]\nMAJOR [SCALE_OPT]\n2 [N_FIX_BA]\n10 [FIX_BA]\nT [COMP_BA]\n',
         'MODEL_SPEC':'2 [ND]\n1 [NC]\n3 [NP]\n','IN_ITS':'5 [NUM_ITS]\n',
         'He2_IN':'helium','GAMMAS_IN':'gamma','batch.sh':'# no base links\n',
         'batch_ins.sh':'ln -sf $ATOMIC/test.dat HYD_L_DATA\n','scenario':'good'}.items():

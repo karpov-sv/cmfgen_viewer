@@ -10,6 +10,8 @@ after investigation, the validated remedy becomes another registered policy.
 - `auto_diagnostics.py`: invocation-specific correction evidence, raw temperature
   vectors, finite-core/restart validation, and convergence candidates.
 - `pop_initialization.py`: executable capability and original saved-source grid/level checks for the bounded POP trial.
+- `auto_recovery.py`: refined formal rays, superlevel T derivatives, physical Lambda bootstrap and first-Ng batch cadence.
+- `checkpoint_physics.py`: recognized binary/ion metadata, charge, element sums, geometry and fixed-T recovery checks.
 - `auto_hydro.py`: native hydro handoff evidence and profile/scheduling checks.
 - `auto_policies.py`: ordered, versioned `POLICIES` and read-only decision functions.
 - `runner_auto.py`: shared execution engine, locks, budgets, recovery snapshots,
@@ -54,6 +56,8 @@ and its validation error. Cancellation and timeout always stop immediately.
 | `caches` | Explicitly supported regenerable caches to retire |
 | `steps` | Optional tuple of provisional `RecoveryStep` objects |
 | `next_phase` | `iterate` or `verify` after a simple action |
+| `batch_iterations` | Optional subsequent normal batch size (2–20); the next complete batch must fit the remaining budget |
+| `retain_failed_checkpoint` | Only the explicit `population_guard` policy may retain an independently audited post-save checkpoint provisionally; the earlier recovery snapshot is kept until all steps pass |
 | `evidence` | Bounded, JSON-serializable measurements supporting the decision |
 
 The registry assigns `policy_id`; actions and decision events retain it.
@@ -152,3 +156,30 @@ Ordinary main runs reuse each registered evaluator through `main_recommendations
 `tests/test_auto_pop.py` covers temporary POP recovery, native compatibility refusals, missing capability/source inputs, coefficient formats, original-control restoration, full rollback, and ordinary-run recommendations. A compiled POP success marker establishes capability; native completion evidence is still required at runtime. Source files are checked against the pre-failure plan so AUTO_ADD-created or changed estimates cannot silently qualify as original inputs.
 
 Automatic main followed by flux is represented by an ordinary sequence whose initial plan is automatic and whose `stage_options.automatic_main` retains the reviewed policy manifest and work budgets. Main is rebuilt and its manifest rechecked before execution. The sequence holds the model reservation across the transition and starts flux only if main returns independently verified success. UI and CLI share this configuration path.
+
+## Bstar3502 recovery additions
+
+The new policies and their exact eligibility, control changes and limits are
+listed in [Main computation](../main-computation.md#automatic-convergence-and-recovery-rules).
+The fixed-T Lambda primitive is `population_recovery_probe=True`: exactly three
+continuation solves, authenticated repaired executable, fixed structure, temporary
+`FIX_T=T`, `MAX_LAM=1e12`, fresh BA, Ng off, and Lambda/automatic-T switches held
+explicitly. Every override is restored on success, failure or interruption. The
+follow-up must contain two actual full variable-T/fresh-BA solves. Independent
+binary checks require positive populations, charge error and element-density
+changes≤1e-6, exact geometry and exact fixed bootstrap T. Unknown metadata is
+ineligible rather than assumed physical.
+
+`population_guard` is the sole narrowly scoped exception to restoring a failed
+attempt before a remedy. The failed native run remains `invalid_output`. Its
+post-save counter and physical state must be independently verified against the
+pre-attempt audit. That state is only provisional: normal recovery capture is
+deferred until the complete Lambda/full procedure passes. Failure restores the
+original pre-failure checkpoint. A generic crash, nonfinite state, unrecognized
+layout, unmatched counter or failed fresh initialization cannot use this path.
+
+Regression coverage: `tests/test_auto_recovery.py` exercises actual child
+processes, genuine binary conservation metadata, temporary controls, rejected
+source/executable identity, budget handling, and rollback of both ordinary and
+post-safeguard provisional recovery. Existing advisory and UI code consumes the
+same registry and displays proposed batch lengths and temporary Lambda steps.

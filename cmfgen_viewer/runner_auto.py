@@ -64,7 +64,7 @@ def configure_auto(plan, *, cmfgen_root, atomic_root,
                       'cmfgen_root': str(Path(cmfgen_root).resolve()),
                       'atomic_root': str(Path(atomic_root).resolve()),
                       'actions': ['continue', *[p['description'] for p in registry]],
-                      'excluded': ['source/executable changes', 'grid or atomic-data changes',
+                      'excluded': ['source/executable changes', 'depth/moment grid or atomic-data changes',
                                    'manual physical parameter changes', 'LTE reseeding of continuation checkpoints',
                                    'unrestricted safeguard bypass'],
                       'acceptance': 'Two final full, variable-T iterations with fresh BA, native metric and absolute raw corrections below EPS_TERM; scientific quality is reported separately.',
@@ -219,6 +219,7 @@ def run_auto_plan(plan, emit=None):
         raise RunnerError('Automatic policies changed since preview; prepare a new plan')
     model = Path(plan['model'])
     options = plan['auto']
+    batch_iterations = options['batch_iterations']
     with model_run_reservation(model, RunnerError):
         with model_mutation_guard(model, RunnerError):
             for old in [*plan['inputs'], plan['executable_snapshot']]:
@@ -305,12 +306,12 @@ def run_auto_plan(plan, emit=None):
                 if deadline is not None and time.monotonic() >= deadline:
                     result.update(status='timeout', reason='Shared automatic execution timeout reached')
                     break
-                requested = step.iterations if step else (3 if base_phase == 'verify' else options['batch_iterations'])
+                requested = step.iterations if step else (3 if base_phase == 'verify' else batch_iterations)
                 batch = min(requested, remaining)
                 with model_mutation_guard(model, RunnerError):
                     check_inputs()
                     step_options = step.native_options if step else {}
-                    if set(step_options) - {'hydro_recovery_probe', 'lte_initialization', 't_exc', 'pop_initialization'}:
+                    if set(step_options) - {'hydro_recovery_probe', 'lte_initialization', 't_exc', 'pop_initialization', 'population_recovery_probe'}:
                         raise RunnerError('Recovery step requested unsupported native options')
                     kwargs = {key: plan.get(key) for key in ('threads', 'memory_mib', 'no_core_dumps')}
                     native = build_run_plan(model, stage='main', cmfgen_root=Path(options['cmfgen_root']),
@@ -328,7 +329,23 @@ def run_auto_plan(plan, emit=None):
                         break
                     if 'hydro_recovery_probe' in step_options:
                         native['hydro_recovery_probe'] = step_options['hydro_recovery_probe']
+                    if step_options.get('population_recovery_probe'):
+                        native['population_recovery_probe'] = True
                     before = {name: snapshot(model/name) for name in ('OUTGEN','CORRECTION_SUM','RVTJ','OBSFLUX','MEANOPAC')}
+                    if pending and pending.policy_id == 'population_bootstrap':
+                        from .checkpoint_physics import checkpoint_physics
+                        before['checkpoint_physics'] = checkpoint_physics(model)
+                    elif pending and pending.policy_id == 'population_guard':
+                        from .checkpoint_physics import checkpoint_physics
+                        before['checkpoint_physics'] = checkpoint_physics(model)
+                    elif native['restart']['mode'] == 'continuation':
+                        from .auto_recovery import repaired_runtime
+                        if repaired_runtime(native):
+                            from .checkpoint_physics import checkpoint_physics
+                            try:
+                                before['checkpoint_physics'] = checkpoint_physics(model)
+                            except (OSError, ValueError):
+                                pass  # Unknown atomic/layout metadata cannot authorize guard recovery.
                     controls_before = capture_controls(model)
                     solution_offset = (model/'STEQ_VALS').stat().st_size if (model/'STEQ_VALS').exists() else 0
                     if pending:
@@ -393,7 +410,9 @@ def run_auto_plan(plan, emit=None):
                                 f'{pending.policy_id} failed at {step.name}', policy_id=decision.policy_id)
                         entry['decision'] = decision.summary()
                         entry['policy_evaluations'] = trail
-                        if pending and decision.kind == 'action':
+                        if decision.retain_failed_checkpoint and decision.kind == 'action' and not pending:
+                            entry['checkpoint_provisional'] = True
+                        elif pending and decision.kind == 'action':
                             # A known simple fix (e.g. stale radiation cache)
                             # retries this step, without repeating the guard-off
                             # bridge or committing the provisional atmosphere.
@@ -401,7 +420,7 @@ def run_auto_plan(plan, emit=None):
                             entry['restored_state'] = 'recovery_step'
                         else:
                             restore()
-                        entry['checkpoint_restored'] = True
+                        entry['checkpoint_restored'] = not entry.get('checkpoint_provisional', False)
                     else:
                         entry['evidence'] = evidence
                         result['iterations_used'] += evidence['iterations'] - batch
@@ -451,15 +470,28 @@ def run_auto_plan(plan, emit=None):
                     result.update(status='needs_review', reason=decision.reason)
                     break
                 if decision.kind == 'action':
+                    if decision.batch_iterations is not None:
+                        if options['max_iterations']-result['iterations_used'] < decision.batch_iterations:
+                            result.update(status='limit_reached', reason='Insufficient budget for the contiguous recovery batch')
+                            break
                     if decision.steps:
                         if (sum(s.iterations for s in decision.steps) > options['max_iterations']-result['iterations_used'] or
                                 len(decision.steps) > options['max_attempts']-attempt):
+                            if decision.retain_failed_checkpoint:
+                                with model_mutation_guard(model, RunnerError):
+                                    check_inputs()
+                                    restore()
+                                entry['checkpoint_restored'] = True
+                                entry['checkpoint_provisional_rolled_back'] = True
                             result.update(status='limit_reached', reason='Insufficient budget to complete the selected recovery and its verification')
                             break
                     if decision.steps:
                         pending = decision
                         step_index = 0
                     action(decision)
+                    if decision.batch_iterations is not None:
+                        batch_iterations = decision.batch_iterations
+                        result['batch_iterations'] = batch_iterations
                     history = []
                     if not decision.steps:
                         base_phase = decision.next_phase

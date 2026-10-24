@@ -24,7 +24,7 @@ def control_value(model, filename, key, default=None):
         return default
     if path.stat().st_size > 1024 * 1024:
         raise RunnerError(f"Oversized control file: {filename}")
-    rows = control_occurrences(path.read_text()).get(key, [])
+    rows = control_occurrences(path.read_text()).get(key.upper(), [])
     if len(rows) > 1:
         raise RunnerError(f"Ambiguous [{key}] in {filename}")
     return rows[0]['value'] if rows else default

@@ -41,11 +41,15 @@ class Decision:
     steps: tuple = ()
     next_phase: str = 'iterate'
     evidence: dict = field(default_factory=dict)
+    batch_iterations: int | None = None
+    retain_failed_checkpoint: bool = False
 
     def summary(self):
         return {'policy_id': self.policy_id, 'kind': self.kind, 'reason': self.reason,
                 'action': self.action, 'changes': self.changes, 'caches': list(self.caches),
                 'next_phase': self.next_phase, 'evidence': self.evidence,
+                'batch_iterations': self.batch_iterations,
+                'retain_failed_checkpoint': self.retain_failed_checkpoint,
                 'steps': [{'name': s.name, 'iterations': s.iterations,
                            'native_options': s.native_options} for s in self.steps]}
 
@@ -354,14 +358,22 @@ def _fixed(ctx):
 
 # Order is explicit. Add a tested Policy here; the controller needs no new
 # diagnosis branches. Version changes make saved previews require review again.
+from .auto_recovery import (temperature_coupling, population_bootstrap, population_guard,
+                            ray_refinement, ng_cadence)
+
 POLICIES = (
     Policy('invalid_numerical_state', 1, 'failure', 'Reject nonfinite model states and invalid selected checkpoints', _invalid_state),
     Policy('pop_initialization', 1, 'failure', 'Compatible saved-model population interpolation and verified continuation', _pop, 1),
     Policy('lte_initialization', 2, 'failure', 'Confirmed fresh-start population failure: temporary LTE and verified continuation', _lte, 1),
     Policy('hydro_bootstrap', 1, 'failure', 'Scheduled hydro recovery with guard restoration and follow-up', _hydro, 1),
     Policy('radiation_cache', 1, 'failure', 'Explicit EDDFACTOR mismatch recovery', _cache, 1),
+    Policy('population_guard', 1, 'failure', 'Physically audited provisional checkpoint after explicit MAX_CHNG stop', population_guard, 1),
+    Policy('ray_refinement', 1, 'failure', 'Negative-luminosity coarse-ray recovery with guarded verification', ray_refinement, 1),
     Policy('verified_convergence', 1, 'success', 'Independent fresh-Jacobian convergence acceptance', _verified),
     Policy('verify_candidate', 2, 'success', 'Fresh-Jacobian verification of a numerical candidate', _candidate),
+    Policy('superlevel_temperature', 1, 'success', 'Superlevel temperature coupling before oscillation damping', temperature_coupling, 1),
+    Policy('population_bootstrap', 1, 'success', 'Bounded fixed-T Lambda population recovery and full verification', population_bootstrap, 1),
+    Policy('ng_cadence', 1, 'success', 'Contiguous batches permitting the first native Ng acceleration', ng_cadence, 1),
     Policy('local_relaxation', 2, 'success', 'Measured localized temperature oscillation damping', _oscillation, 2),
     Policy('stalled_corrections', 2, 'success', 'Fresh-matrix test for a stalled correction sequence', _stall, 1),
     Policy('fixed_temperature', 1, 'success', 'Detect absence of temperature-varying full steps', _fixed),
@@ -397,6 +409,10 @@ def choose(ctx):
         if (decision.kind not in {'continue', 'action', 'stop', 'converged'} or
                 decision.next_phase not in {'iterate', 'verify'} or
                 (decision.steps and decision.kind != 'action') or
+                (decision.retain_failed_checkpoint and (not decision.steps or policy.id != 'population_guard')) or
+                (decision.batch_iterations is not None and
+                 (decision.kind != 'action' or type(decision.batch_iterations) is not int or
+                  not 2 <= decision.batch_iterations <= 20)) or
                 any(type(s.iterations) is not int or s.iterations < 1 or not callable(s.validate)
                     for s in decision.steps)):
             raise RunnerError(f'Invalid automatic decision from {policy.id}')
