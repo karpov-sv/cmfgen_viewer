@@ -140,3 +140,10 @@ There is no reason to refine a steadily converging model solely because the
 option is repaired. If a scientific comparison is wanted, use an independent
 copy, change only `VFRAC_MOM`, recompute BA and radiation caches, and compare
 physical diagnostics as well as correction sizes.
+
+The subsequent [related-path audit](cmfgen-related-moment-paths-audit.md) identified
+counterparts in ordinary boundary derivatives, relativistic, time-dependent,
+and separately extended transport. The [25 October follow-up](cmfgen-related-moment-repairs.md)
+repairs those paths and supersedes fix 19's preservation of the old unrefined
+Jacobian. Nonrelativistic forward transport remains unchanged; the newer build
+capability is `moment-grid-family-v1`.

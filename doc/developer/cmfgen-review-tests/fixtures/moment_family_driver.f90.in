@@ -1,0 +1,136 @@
+! Actual MOM/VAR routines and native interpolation/linear algebra; only TUNE is stubbed.
+program moment_grid_closure
+use set_kind_module
+use mod_ray_mom_store
+implicit none
+integer,parameter::n=7,nm=8,nfreq=3
+integer::nfine,family
+real(ldp)::jcheck(7),hcheck(6)
+integer::ns,i,k,u,perturb,depth,atfreq,nodalmode,bc,repeat,profile,cohflag,outer
+real(ldp)::r(n),v(n),sigma(n),chi(n),eta(n),es(n),theta(n),vdop(n),j(n),h(n)
+real(ldp)::tx(n,n,nm),tvx(n-1,n,nm),ki(n,n,2),wm(n,n),rhs(n-1,n)
+real(ldp)::dt(n),dg(n),ht(n-1),hg(n-1),fraction,delta,nu,dbb,ratio,x,clock
+real(ldp)::factor_view(n,6),esc_j(n,n),esc_h(n-1,n),external_j(n),current_fraction
+real(ldp),allocatable::fine_saved(:,:),prev_saved(:,:)
+logical::selected(nm),init,coherent,field_only
+character(64)::arg,mode
+character(6)::ntype,method
+character(16)::inner
+call get_command_argument(1,arg);read(arg,*)fraction
+call get_command_argument(2,ntype)
+call get_command_argument(3,arg);read(arg,*)ns
+call get_command_argument(4,arg);read(arg,*)nodalmode
+call get_command_argument(5,arg);read(arg,*)bc
+call get_command_argument(6,arg);read(arg,*)perturb
+call get_command_argument(7,arg);read(arg,*)depth
+call get_command_argument(8,arg);read(arg,*)atfreq
+call get_command_argument(9,arg);read(arg,*)delta
+call get_command_argument(10,mode)
+field_only=trim(mode)=='field'
+method='ZERO';call get_command_argument(11,arg);if(len_trim(arg)>0)method=trim(arg)
+profile=0;call get_command_argument(12,arg);if(len_trim(arg)>0)read(arg,*)profile
+cohflag=1;call get_command_argument(13,arg);if(len_trim(arg)>0)read(arg,*)cohflag
+outer=1;call get_command_argument(14,arg);if(len_trim(arg)>0)read(arg,*)outer
+call get_environment_variable('MOM_TEST_FAMILY',arg,status=i)
+family=1
+if(i==0)read(arg,*)family
+r=[10._ldp,8.5_ldp,7._ldp,5.5_ldp,4._ldp,2.5_ldp,1._ldp]
+v=15._ldp+10._ldp*(r-1._ldp);sigma=10._ldp*r/v-1._ldp;vdop=17.5_ldp
+if(family==3)then
+ v=10*r;sigma=0
+endif
+if(profile==4)then
+ v=v*300;vdop=vdop*300
+endif
+nd_store=ns
+allocate(r_store(ns),rmid_store(ns),ext_rmid_store(ns+1),jnu_store(ns), &
+         knu_store(ns),hnu_store(ns),nnu_store(ns),gam_rel_store(ns))
+gam_rel_store=1
+r_store=[(10._ldp-9._ldp*real(i-1,ldp)/real(ns-1,ldp),i=1,ns)]
+rmid_store=0
+rmid_store(1:ns-1)=.5_ldp*(r_store(1:ns-1)+r_store(2:ns))
+ext_rmid_store(1)=r_store(1);ext_rmid_store(2:ns)=rmid_store(1:ns-1);ext_rmid_store(ns+1)=r_store(ns)
+hn_def_on_nodes=nodalmode==1
+inner='PNT_SRCE'
+if(bc==2)inner='ZERO_FLUX'
+if(bc==3)inner='DIFFUSION'
+if(bc==4)inner='SCHUSTER'
+if(bc==4.and.(family==2.or.family==3))inner='HOLLOW'
+coherent=cohflag==1;selected=.true.
+external_j=.8_ldp*(1/r**2+.01_ldp)
+tx=0;tvx=0;dt=0;dg=0;ht=0;hg=0
+open(newunit=u,file='output.bin',access='stream',form='unformatted',status='replace')
+do k=1,nfreq
+ nu=exp(-.01_ldp*real(k-1,ldp));init=k==1
+ current_fraction=fraction
+ if(trim(mode)=='rebuild')then
+  init=.true.
+  if(k==2)current_fraction=.02_ldp
+  if(k==3)current_fraction=20000._ldp
+ endif
+ chi=.2_ldp+.05_ldp*r;eta=(.05_ldp+.01_ldp*r)*(1+.03_ldp*k);es=.03_ldp+.001_ldp*r
+ if(profile==2.or.profile==3)chi=chi*10
+ if(profile==1.or.profile==3)then
+  chi(3)=chi(3)*2.3_ldp;eta(5)=eta(5)*.12_ldp;es(4)=es(4)*1.6_ldp
+ endif
+ if(.true.)then
+  if(perturb==1)chi(depth)=chi(depth)+(chi(depth)-es(depth))*delta
+  if(perturb==2)eta(depth)=eta(depth)*(1+delta)
+  if(perturb==5)then
+   chi(depth)=chi(depth)+es(depth)*delta
+   es(depth)=es(depth)*(1+delta)
+  endif
+ endif
+ 
+ if(perturb==6)chi(depth)=chi(depth)+(.4_ldp+.03_ldp*depth)*.06_ldp*delta
+ if(perturb==7)then
+  chi(depth)=chi(depth)-(.4_ldp+.03_ldp*depth)*.03_ldp*delta
+  eta(depth)=eta(depth)+(.4_ldp+.03_ldp*depth)*.04_ldp*delta
+ endif
+ if(perturb==8)then
+  chi(depth)=chi(depth)+(.4_ldp+.03_ldp*depth)*.0003_ldp*delta
+  eta(depth)=eta(depth)+(.4_ldp+.03_ldp*depth)*.0012_ldp*delta
+ endif
+ 
+ theta=0
+ if(coherent)theta=es/chi
+ jnu_store=1/r_store**2+.01_ldp
+ knu_store=jnu_store*(.34_ldp+.12_ldp*(r_store-1)/9+.015_ldp*k)
+ if(hn_def_on_nodes)then
+  hnu_store=jnu_store*(.15_ldp+.04_ldp*(r_store-1)/9)
+  nnu_store=hnu_store*(.2_ldp+.05_ldp*(r_store-1)/9+.01_ldp*k)
+ else
+  hnu_store=0;nnu_store=0
+  hnu_store(1:ns-1)=(1/rmid_store(1:ns-1)**2+.01_ldp)*(.15_ldp+.04_ldp*(rmid_store(1:ns-1)-1)/9)
+  nnu_store(1:ns-1)=hnu_store(1:ns-1)*(.2_ldp+.05_ldp*(rmid_store(1:ns-1)-1)/9+.01_ldp*k)
+ endif
+ hnu_at_ob=(1/r(1)**2+.01_ldp)*.19_ldp;nnu_at_ob=hnu_at_ob*(.25_ldp+.01_ldp*k)
+ hnu_at_ib=(1/r(n)**2+.01_ldp)*.15_ldp;nnu_at_ib=hnu_at_ib*(.2_ldp+.01_ldp*k)
+ hbc=.19_ldp;nbc=.25_ldp+.01_ldp*k;in_hbc=.1_ldp
+ jplus_ib=2._ldp;jmin_ib=.2_ldp
+ hplus_ib=.3_ldp;hmin_ib=.02_ldp;kplus_ib=.8_ldp;kmin_ib=.08_ldp
+ jplus_ob=1._ldp;jmin_ob=.1_ldp;hplus_ob=.19_ldp;hmin_ob=.01_ldp;kplus_ob=.4_ldp;kmin_ob=.04_ldp
+ dbb=.02_ldp
+ if(perturb==3)dbb=dbb+.03_ldp*delta
+ if(perturb==4)dbb=dbb+.02_ldp/.7_ldp*delta
+ call family_workflow_sample(chi,eta,es,r,v,sigma,vdop,external_j,nu,dbb,init,coherent,inner,method, &
+ outer,nodalmode,k,current_fraction,field_only,n,nm,nfine,j,h(1:n-1),jcheck,hcheck,tx,tvx,dt,dg,ht,hg)
+ if(allocated(fine_saved))deallocate(fine_saved,prev_saved)
+ allocate(fine_saved(nfine,6),prev_saved(nfine,3))
+ fine_saved=0;prev_saved=0;factor_view=0
+ write(u)n,nfine,ns,k
+ write(u)j,h(1:n-1),factor_view,fine_saved,prev_saved
+ if(.not.field_only)then
+  esc_j=tx(:,:,5);esc_h=tvx(:,:,5)
+  write(u)jcheck,hcheck,tx,tvx,dt,dg,ht,hg,esc_j,esc_h
+ endif
+enddo
+close(u)
+end program
+
+subroutine tune(i,name)
+implicit none
+integer::i
+character(*)::name
+end subroutine
+

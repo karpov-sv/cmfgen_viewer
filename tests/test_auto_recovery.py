@@ -181,6 +181,31 @@ def test_ray_refinement_authenticates_inserted_moment_repair(tmp_path):
     with pytest.raises(policies.Declined, match='moment-grid-jacobian-v1'):
         ray_refinement(ctx)
 
+@pytest.mark.parametrize('flag', ['USE_J_REL', 'USE_DJDT_RTE', 'INC_GRID'])
+@pytest.mark.parametrize('moment_fraction', [20000, .5])
+def test_ray_refinement_authenticates_solver_family_repair(tmp_path, flag, moment_fraction):
+    ctx = ray_context(tmp_path)
+    (tmp_path/'VADAT').write_text(f'F [DO_HYDRO]\n20000 [VFRAC_FG]\n{moment_fraction} [VFRAC_MOM]\nT [{flag}]\n')
+    exe = tmp_path/'runtime/exe/cmfgen_dev.exe'
+    exe.parent.mkdir(parents=True)
+    exe.write_bytes(b'family test executable')
+    ctx = replace(ctx, native_plan={**ctx.native_plan, 'executable':str(exe)})
+    manifest = {'capabilities':['line-jacobian-v1', 'ba-restart-v1', 'moment-grid-jacobian-v1'],
+                'executables':{exe.name:{'sha256':hashlib.sha256(exe.read_bytes()).hexdigest()}}}
+    record = exe.parent.parent/'cmfgen-local-build.json'
+    record.write_text(json.dumps(manifest))
+    with pytest.raises(policies.Declined, match='moment-grid-family-v1'):
+        ray_refinement(ctx)
+    manifest['capabilities'].append('moment-grid-family-v1')
+    record.write_text(json.dumps(manifest))
+    decision = ray_refinement(ctx)
+    assert decision.changes['VADAT']['VFRAC_FG'] == '0.1'
+    assert 'VFRAC_MOM' not in decision.changes['VADAT']
+    exe.write_bytes(b'changed family executable')
+    with pytest.raises(policies.Declined, match='moment-grid-family-v1'):
+        ray_refinement(ctx)
+
+
 
 def add_guard_stop(model):
     exe=model.parent/'cmf/exe/cmfgen_dev.exe'

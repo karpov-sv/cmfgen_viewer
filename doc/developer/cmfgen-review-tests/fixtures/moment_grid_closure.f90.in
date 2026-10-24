@@ -64,7 +64,8 @@ do k=1,nfreq
   if(k==3)current_fraction=20000._ldp
  endif
  chi=.2_ldp+.05_ldp*r;eta=(.05_ldp+.01_ldp*r)*(1+.03_ldp*k);es=.03_ldp+.001_ldp*r
- if(profile==1)then
+ if(profile==2.or.profile==3)chi=chi*10
+ if(profile==1.or.profile==3)then
   chi(3)=chi(3)*2.3_ldp;eta(5)=eta(5)*.12_ldp;es(4)=es(4)*1.6_ldp
  endif
  if(k==atfreq)then

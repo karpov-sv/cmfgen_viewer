@@ -75,7 +75,8 @@ def column_error(fd,analytic):
 
 def model_value(config,kind,depth,k):
     r=np.array([10,8.5,7,5.5,4,2.5,1.]);chi=.2+.05*r;eta=(.05+.01*r)*(1+.03*k);es=.03+.001*r
-    if config.get('profile')==1:chi[2]*=2.3;eta[4]*=.12;es[3]*=1.6
+    if config.get('profile') in [2,3]:chi*=10
+    if config.get('profile') in [1,3]:chi[2]*=2.3;eta[4]*=.12;es[3]*=1.6
     return {1:chi,2:eta,5:es}[kind][depth-1]
 
 
@@ -90,7 +91,7 @@ def check(candidate,baseline=None):
             assert all(np.array_equal(a[key],b[key]) for a,b in zip(new,old) for key in ['j','h','fine','prevfine'])
             forward+=1
             a=candidate.run(**config,fraction=20000);b=baseline.run(**config,fraction=20000)
-            assert all(np.array_equal(x[key],y[key]) for x,y in zip(a,b) for key in ['j','h','tx','tvx','jvar','hvar','dt','dg','ht','hg'])
+            assert all(np.array_equal(x[key],y[key]) for x,y in zip(a,b) for key in ['j','h'])
             noinsert+=1
         for row in new:
             variation_error=max(variation_error,column_error(row['j'],row['jvar']),column_error(row['h'],row['hvar']))
@@ -100,18 +101,28 @@ def check(candidate,baseline=None):
              dict(ntype='N_ON_J',ns=61,node=0,bc=3,outer=1,coherent=1,method='LOGMON',profile=1,fraction=.02),
              dict(ntype='G_ONLY',ns=13,node=1,bc=4,outer=2,coherent=0,method='ZERO',profile=1),
              *[dict(ntype='N_ON_J',ns=13,node=0,bc=3,outer=2,coherent=1,method=method,profile=1)
-               for method in ['LINMON','LINEAR','LOGLIN','LOGLOG']]]
+               for method in ['LINMON','LINEAR','LOGLIN','LOGLOG']],
+             *[dict(ntype=ntype,ns=7,node=1,bc=bc,outer=outer,coherent=1,method=method,profile=profile,fraction=20000)
+               for ntype,bc,outer,method,profile in [('N_ON_J',3,1,'LOGMON',1),('G_ONLY',2,1,'ZERO',1),('G_ONLY',3,2,'ZERO',2),('N_ON_J',3,2,'LOGMON',2)]]]
     maximum=0.;h=2**-12
     for config in configs:
         nominal=candidate.run(**config)
         for kind,at in [(1,3),(2,3),(1,1),(5,3)]:
             worst=0.
             for depth in range(1,8):
-                hi=candidate.run(**config,perturb=kind,depth=depth,atfreq=at,delta=h,mode='field')[-1]
-                lo=candidate.run(**config,perturb=kind,depth=depth,atfreq=at,delta=-h,mode='field')[-1]
+                # On opaque coarse grids the two-frequency-old response is very
+                # small. Richardson differences resolve it above floating-point
+                # subtraction noise without weakening the comparison threshold.
+                step=2**-8 if at==1 and config.get('fraction')==20000 else h
+                hi=candidate.run(**config,perturb=kind,depth=depth,atfreq=at,delta=step,mode='field')[-1]
+                lo=candidate.run(**config,perturb=kind,depth=depth,atfreq=at,delta=-step,mode='field')[-1]
+                if step!=h:
+                    hi2=candidate.run(**config,perturb=kind,depth=depth,atfreq=at,delta=step/2,mode='field')[-1]
+                    lo2=candidate.run(**config,perturb=kind,depth=depth,atfreq=at,delta=-step/2,mode='field')[-1]
                 value=model_value(config,kind,depth,at)
                 for observable,key in [('j','tx'),('h','tvx')]:
-                    fd=(hi[observable]-lo[observable])/(2*h*value)
+                    fd=(hi[observable]-lo[observable])/(2*step*value)
+                    if step!=h:fd=(4*(hi2[observable]-lo2[observable])/(step*value)-fd)/3
                     if kind==5:an=nominal[-1]['esc_'+observable][:,depth-1]
                     else:an=nominal[-1][key][:,depth-1,2 if at==1 else kind-1]
                     worst=max(worst,column_error(fd,an))
@@ -128,7 +139,7 @@ def check(candidate,baseline=None):
     for mode in ['repeat','rebuild','clear']:
         data=candidate.run(mode=mode,bc=3)
         assert all(column_error(x['j'],x['jvar'])<1e-10 for x in data)
-    return {'passed':True,'forward_transport_bitwise_cases':forward,'no_insertion_bitwise_cases':noinsert,
+    return {'passed':True,'forward_transport_bitwise_cases':forward,'no_insertion_forward_bitwise_cases':noinsert,
             'maximum_refined_variation_field_relative_error':variation_error,
             'maximum_finite_difference_column_relative_error':maximum,'finite_difference_checks':records,
             'native_invocations':candidate.calls,'scope':'Frozen formal-ray moments; actual native refined transport and interpolation. Includes current opacity/emissivity/scattering, prior-frequency history, diffusion boundary derivatives, both midpoint storage modes and outer boundary types. No scientific model convergence claim.'}
@@ -185,17 +196,18 @@ def build_workflow(root, base, work, compiler, optimization, threads):
     record = json.loads((work/'build.json').read_text())
     flags = record['commands'][0][:-4]
     objects = [Path(cmd[-1]) for cmd in record['commands'][:-1]]
-    for name in ['var_rad_mod.f', 'do_var_cont.f', 'init_line_opac_var_v2.f']:
-        path = source(root, base, 'new_main/mod_subs', name)
+    for folder,name in [('plane','mod_var_jrel_v2.f'),('plane','get_moms_rel.f'),('plane','mom_jrel_v9.f'),('plane','edd_jrel_var_v3.f'),('plane','var_jrel_v5.f'),('plane','mom_j_ddt_v6.f'),('plane','edd_j_hub_var_v3.f'),('plane','var_mom_j_ddt_v6.f'),
+                        *[('new_main/mod_subs',n) for n in ['var_rad_mod.f','do_var_cont.f','init_line_opac_var_v2.f']]]:
+        path = source(root, base, folder, name)
         record['source_sha256'][str(path)] = hashlib.sha256(path.read_bytes()).hexdigest()
         cmd = flags+['-c', str(path), '-o', str(work/(path.stem+'.o'))]
         subprocess.run(cmd, cwd=work, check=True, capture_output=True)
         record['commands'].append(cmd)
-        if name == 'var_rad_mod.f':
-            objects.append(work/'var_rad_mod.o')
+        if folder=='plane' or name == 'var_rad_mod.f':
+            objects.append(work/(path.stem+'.o'))
         elif name == 'do_var_cont.f':
             code = path.read_text()
-            end = code.index('\t  ELSE IF(CONT_VEL .AND. ACCURATE)THEN')
+            end = code.index('\t  ELSE IF(EDDINGTON)THEN') if '\t  ELSE IF(CONT_VEL)THEN' in code else code.index('\t  ELSE IF(CONT_VEL .AND. ACCURATE)THEN')
             prefix = work/'do_var_cont_prefix.f'
             prefix.write_text(code[:end]+'\t  END IF\n\t  RETURN\n\t  END\n')
             cmd = flags+['-c', str(prefix), '-o', str(work/'do_var_cont_prefix.o')]

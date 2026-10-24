@@ -1,0 +1,37 @@
+program cache_grid_test
+use set_kind_module
+use mod_get_jh, only:nsm,new_j_sav,new_h_sav,log_v
+implicit none
+integer i,k,n,u
+real(ldp) ro(7),vo(7),jo(7),ho(6),r(13),v(13),j(13),h(13),dt,hib,honj,nu
+ro=[(10._ldp-9._ldp*(i-1)/6,i=1,7)];vo=10*ro;ro=ro*.9999_ldp
+jo=2.5_ldp;ho=.05_ldp
+open(newunit=u,file='JH_AT_OLD_TIME',access='direct',recl=4096,form='unformatted',status='replace')
+write(u,rec=3)4,nsm,7
+write(u,rec=4)ro,vo
+write(u,rec=5)jo,ho,.05_ldp,.02_ldp
+ do k=1,nsm
+ nu=2._ldp-1.5_ldp*(k-1)/(nsm-1)
+ write(u,rec=5+k)jo,ho,.05_ldp,.02_ldp,nu
+ enddo
+close(u)
+do k=1,3
+ n=7
+ if(k>1)n=13
+ r(1:n)=[(10._ldp-9._ldp*(i-1)/(n-1),i=1,n)];v(1:n)=10*r(1:n)
+ nu=1._ldp
+ if(k==3)nu=.99_ldp
+ call get_jh_at_prev_time_step(j(1:n),h(1:n-1),hib,honj,dt,nu,r(1:n),v(1:n),n,k<=2,'NORMAL')
+ if(size(new_j_sav)/=n.or.size(new_h_sav)/=n-1.or.size(log_v)/=n)error stop 'cache dimensions'
+ if(maxval(abs(j(1:n)-2.5_ldp))>1.e-12_ldp)error stop 'cached J'
+ if(maxval(abs(h(1:n-1)-.05_ldp))>1.e-12_ldp)error stop 'cached H'
+ if(abs(dt-1._ldp)>1.e-9_ldp)error stop 'past-time interval'
+ print *, 'cache dimensions and values passed',n,nu
+enddo
+end program
+subroutine read_direct_info_v3(i,recl,date,name,lu,ios)
+implicit none
+integer i,recl,lu,ios
+character(*) date,name
+i=8;recl=4096;date='audit fixture';ios=0
+end subroutine

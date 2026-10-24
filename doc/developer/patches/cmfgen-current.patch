@@ -165,7 +165,7 @@ diff --git a/new_main/mod_subs/Makefile b/new_main/mod_subs/Makefile
  $(LIB)(do_var_cont.o) : do_var_cont.f $(LIB)(opac_mod.o) $(LIB_MOD)(control_variable_mod.o)\
               $(LIB_MOD)(line_mod.o) $(LIB_MOD)(var_rad_mod.o) $(LIB_MOD)(radiation_mod.o) $(LIB_MOD)(mod_cmfgen.o)\
 -             $(LIB_MOD)(ang_qw_mod.o)
-+             $(LIB_MOD)(ang_qw_mod.o) $(LIB)(mom_j_cmf_v11.o)
++             $(LIB_MOD)(ang_qw_mod.o) $(LIB)(mom_j_cmf_v11.o) $(LIB)(mom_jrel_v9.o) $(LIB)(mom_j_ddt_v6.o)
  	$(F90) -c $(OPTION) do_var_cont.f
  	ar $(AR_OPTION) $(LIB) do_var_cont.o
                                                                                                                        
@@ -187,7 +187,7 @@ diff --git a/new_main/mod_subs/Makefile b/new_main/mod_subs/Makefile
                $(LIB_MOD)(line_mod.o) $(LIB_MOD)(line_vec_mod.o) $(LIB_MOD)(mod_cmfgen.o) $(LIB_MOD)(ang_qw_mod.o)
  	$(F90) -c $(OPTION) set_new_model_estimates.f
  	ar $(AR_OPTION) $(LIB) set_new_model_estimates.o
-@@ -193,3 +198,8 @@
+@@ -193,3 +198,14 @@
  
  clean :
  	rm -f *.o 
@@ -196,6 +196,12 @@ diff --git a/new_main/mod_subs/Makefile b/new_main/mod_subs/Makefile
 +# This directory is also built before plane/ in a top-level serial build.
 +$(LIB)(mom_j_cmf_v11.o) : ../../plane/mom_j_cmf_v11.f
 +	$(MAKE) -C ../../plane '$(LIB)(mom_j_cmf_v11.o)'
++
++$(LIB)(mom_jrel_v9.o) : ../../plane/mom_jrel_v9.f
++	$(MAKE) -C ../../plane '$(LIB)(mom_jrel_v9.o)'
++
++$(LIB)(mom_j_ddt_v6.o) : ../../plane/mom_j_ddt_v6.f
++	$(MAKE) -C ../../plane '$(LIB)(mom_j_ddt_v6.o)'
 diff --git a/new_main/mod_subs/comp_grey_v4.f b/new_main/mod_subs/comp_grey_v4.f
 --- a/new_main/mod_subs/comp_grey_v4.f
 +++ b/new_main/mod_subs/comp_grey_v4.f
@@ -224,7 +230,7 @@ diff --git a/new_main/mod_subs/comp_grey_v4.f b/new_main/mod_subs/comp_grey_v4.f
 diff --git a/new_main/mod_subs/do_var_cont.f b/new_main/mod_subs/do_var_cont.f
 --- a/new_main/mod_subs/do_var_cont.f
 +++ b/new_main/mod_subs/do_var_cont.f
-@@ -36,6 +36,10 @@
+@@ -36,6 +36,16 @@
  	USE RADIATION_MOD
  	USE VAR_RAD_MOD
  	USE CONTROL_VARIABLE_MOD
@@ -232,26 +238,79 @@ diff --git a/new_main/mod_subs/do_var_cont.f b/new_main/mod_subs/do_var_cont.f
 +	1      GRID_KI,GRID_RHS,GRID_WM,GRID_ESC,GRID_ESC_H,GRID_ETA,GRID_THETA,GRID_PCHI,GRID_PETA,GRID_PESC,
 +	1      MOM_R=>R,MOM_V=>V,MOM_SIGMA=>SIGMA,MOM_CHI=>CHI,MOM_ESEC=>ESEC,
 +	1      R_PNT,J_INDX,H_INDX,LOG_R_SM,MODEL_FREQ,MODEL_GRID_VALID,ALLOCATE_MOM_VARIATIONS
++	USE MOD_JREL_V9, ONLY: REL_ND=>ND,REL_R=>R,REL_V=>V,REL_SIGMA=>SIGMA,
++	1      REL_CHI=>CHI,REL_ESEC=>ESEC,REL_J_INDX=>J_INDX,REL_H_INDX=>H_INDX,
++	1      REL_R_PNT=>R_PNT,REL_FREQ=>FREQ_SAVE,REL_BETA=>BETA
++	USE MOD_MOM_J_DDT_V6, ONLY: DDT_ND=>ND,DDT_R=>R,DDT_V=>V,DDT_CHI=>CHI,DDT_ESEC=>ESEC,
++	1 DDT_F=>F,DDT_J_INDX=>J_INDX,DDT_H_INDX=>H_INDX,DDT_R_PNT=>R_PNT,
++	1 DDT_LOG_R_SM=>LOG_R_SM,DDT_FREQ=>MODEL_FREQ,DDT_VALID=>MODEL_VALID
  	IMPLICIT NONE
  !
  ! Altered 26-Jun-2020 : Fixed bug related when H- is present.
-@@ -79,6 +83,9 @@
+@@ -79,6 +89,12 @@
  ! Local variables
  !
  	REAL(KIND=LDP) T1
 +	REAL(KIND=LDP), POINTER :: TXW(:,:,:),TVXW(:,:,:)
++	LOGICAL GRID_ACTIVE
++	INTEGER MAP_J(ND),MAP_H(ND-1),MAP_H2(ND-1)
++	REAL(KIND=LDP) H_WEIGHT(ND-1),H_WEIGHT2(ND-1)
 +	INTEGER NROW,ERROR_LU
 +	EXTERNAL ERROR_LU
  	INTEGER X_INDX
  	INTEGER I,J,L,K
  	INTEGER NL,NUP
-@@ -196,9 +203,28 @@
+@@ -195,10 +211,77 @@
+ !
  ! 
  !
- 	  ELSE IF(CONT_VEL .AND. .NOT. ACCURATE)THEN
-+	    TXW=>TX; TVXW=>TVX; NROW=ND
+-	  ELSE IF(CONT_VEL .AND. .NOT. ACCURATE)THEN
++	  ELSE IF(CONT_VEL)THEN
++	    TXW=>TX; TVXW=>TVX; NROW=ND; GRID_ACTIVE=.FALSE.
++	    H_WEIGHT=1.0_LDP; H_WEIGHT2=0.0_LDP; MAP_H2=1
++	    IF(USE_J_REL .AND. .NOT.ACCURATE)THEN
++	      IF(REL_ND.LT.ND .OR. REL_FREQ.NE.FL)THEN
++	        I=ERROR_LU(); WRITE(I,*)'Missing/stale relativistic moment grid'
++	        STOP
++	      END IF
++	      MAP_J=REL_J_INDX(1:ND); MAP_H=REL_H_INDX(1:ND-1)
++	      IF(ANY(REL_R(MAP_J).NE.R))THEN
++	        I=ERROR_LU(); WRITE(I,*)'Relativistic moment/model grid mismatch'
++	        STOP
++	      END IF
++	      CALL ALLOCATE_MOM_VARIATIONS(ND,NM,FIRST_FREQ,REL_ND)
++	      TXW=>GRID_TX; TVXW=>GRID_TVX; NROW=REL_ND; GRID_ACTIVE=.TRUE.
++	      H_WEIGHT=SQRT(1.0_LDP-(0.5_LDP*(REL_BETA(MAP_H)+REL_BETA(MAP_H+1)))**2)
++	    END IF
++	    IF(USE_DJDT_RTE .AND. .NOT.ACCURATE)THEN
++	      IF(.NOT.DDT_VALID .OR. DDT_FREQ.NE.FL .OR. DDT_ND.LT.ND)THEN
++	        I=ERROR_LU(); WRITE(I,*)'Missing/stale time-dependent moment grid'
++	        STOP
++	      END IF
++	      MAP_J=DDT_J_INDX(1:ND); MAP_H=DDT_H_INDX(1:ND-1)
++	      IF(ANY(DDT_R(MAP_J).NE.R))THEN
++	        I=ERROR_LU(); WRITE(I,*)'Time-dependent moment/model grid mismatch'
++	        STOP
++	      END IF
++	      CALL ALLOCATE_MOM_VARIATIONS(ND,NM,FIRST_FREQ,DDT_ND)
++	      TXW=>GRID_TX; TVXW=>GRID_TVX; NROW=DDT_ND; GRID_ACTIVE=.TRUE.
++	    END IF
++	    IF(ACCURATE)THEN
++	      IF(.NOT.MODEL_GRID_VALID .OR. SIZE(LOG_R_SM).NE.NDEXT)THEN
++	        I=ERROR_LU(); WRITE(I,*)'Missing/stale extended moment grid'
++	        STOP
++	      END IF
++	      IF(ANY(LOG(REXT).NE.LOG_R_SM) .OR. MODEL_FREQ.NE.FL)THEN
++	        I=ERROR_LU(); WRITE(I,*)'Extended moment grid/frequency mismatch'
++	        STOP
++	      END IF
++	      CALL ALLOCATE_MOM_VARIATIONS(ND,NM,FIRST_FREQ)
++	      TXW=>GRID_TX; TVXW=>GRID_TVX; NROW=MOM_ND; GRID_ACTIVE=.TRUE.
++	      MAP_J=J_INDX(POS_IN_NEW_GRID)
++	      CALL MOM_MODEL_H_MAP(R,ND,MOM_R,NROW,MAP_H,MAP_H2,H_WEIGHT,H_WEIGHT2)
++	    END IF
 +	    IF(.NOT.PLANE_PARALLEL .AND. .NOT.USE_J_REL .AND. .NOT.USE_LAM_ES .AND.
-+	1      .NOT.USE_DJDT_RTE .AND. MOM_ND.GT.ND)THEN
++	1      .NOT.USE_DJDT_RTE .AND. .NOT.ACCURATE .AND. MOM_ND.GT.ND)THEN
 +	      IF(MIXED_ES_VAR .AND. .NOT.COHERENT_ES)THEN
 +	        I=ERROR_LU(); WRITE(I,*)'Inserted moment variations do not support MIX_COH'
 +	        STOP
@@ -265,7 +324,13 @@ diff --git a/new_main/mod_subs/do_var_cont.f b/new_main/mod_subs/do_var_cont.f
 +	        STOP
 +	      END IF
 +	      CALL ALLOCATE_MOM_VARIATIONS(ND,NM,FIRST_FREQ)
-+	      TXW=>GRID_TX; TVXW=>GRID_TVX; NROW=MOM_ND
++	      TXW=>GRID_TX; TVXW=>GRID_TVX; NROW=MOM_ND; GRID_ACTIVE=.TRUE.
++	      MAP_J=J_INDX(1:ND); MAP_H=H_INDX(1:ND-1)
++	    END IF
++
++	    IF(GRID_ACTIVE .AND. MIXED_ES_VAR .AND. .NOT.COHERENT_ES)THEN
++	      I=ERROR_LU(); WRITE(I,*)'Moment-grid variations do not support MIX_COH'
++	      STOP
 +	    END IF
 +
  	    IF(FIRST_FREQ)THEN
@@ -276,7 +341,7 @@ diff --git a/new_main/mod_subs/do_var_cont.f b/new_main/mod_subs/do_var_cont.f
  	      dJ_DIF_d_T(:)=0.0_LDP
  	      dJ_DIF_d_dTdR(:)=0.0_LDP
  	      dRSQH_DIF_d_T=0.0_LDP
-@@ -227,19 +253,19 @@
+@@ -227,19 +310,19 @@
  !$OMP PARALLEL DO PRIVATE(J,K,T1)
  	      DO J=1,ND
  	        T1=ETA_CONT(J)*HDKT*(FL_OLD-FL)/T(J)/T(J)
@@ -304,19 +369,87 @@ diff --git a/new_main/mod_subs/do_var_cont.f b/new_main/mod_subs/do_var_cont.f
  	        END DO
  	      END DO
  	    END IF
-@@ -340,15 +366,33 @@
- 	1           INNER_BND_METH,OUTER_BND_METH,
- 	1           ND,NM,NM_KI)
+@@ -306,49 +389,78 @@
+ 	   END IF
+ !
+ 	   CALL TUNE(1,'VAR_MOM_J')
+-	   IF(PLANE_PARALLEL_NO_V)THEN
++	   IF(PLANE_PARALLEL_NO_V .AND. .NOT.ACCURATE)THEN
+ 	     CALL VAR_MOM_PP_V1(R,TA,CHI_CLUMP,CHI_SCAT_CLUMP,FEDD,
+ 	1           TX,dJ_DIF_d_T,dJ_DIF_d_dTdR,DO_THIS_TX_MATRIX,
+ 	1           HBC_CMF,NBC_CMF,INBC,
+ 	1           DIF,DBB,dDBBdT,dTdR,IC,METHOD,COHERENT_ES,ND,NM)
+-	   ELSE IF(PLANE_PARALLEL)THEN
++	   ELSE IF(PLANE_PARALLEL .AND. .NOT.ACCURATE)THEN
+ 	     CALL PP_VAR_MOM_CMF_V1(TA,CHI_CLUMP,CHI_SCAT_CLUMP,V,SIGMA,R,
+ 	1           TX,TVX,dJ_DIF_d_T,dJ_DIF_d_dTdR,
+ 	1           dRSQH_DIF_d_T,dRSQH_DIF_d_dTdR,FEDD,GEDD,N_ON_J,
+ 	1           INBC,HBC_CMF(1),HBC_CMF(2),NBC_CMF(1),NBC_CMF(2),
+ 	1           FIRST_FREQ,L_FALSE,dLOG_NU,DIF,dTdR,DBB,dDBBdT,IC,
+ 	1           DO_THIS_TX_MATRIX,METHOD,COHERENT_ES,ND,NM)
+-           ELSE IF(USE_J_REL)THEN
+-             CALL VAR_JREL_V5(TA,CHI_CLUMP,CHI_SCAT_CLUMP,ES_COH_VEC,V,SIGMA,R,
+-	1                  TX,TVX,dJ_DIF_d_T,dJ_DIF_d_dTdR,
+-	1                  dRSQH_DIF_d_T,dRSQH_DIF_d_dTdR,KI,WM,RHS_dHdCHI,
+-	1                  FIRST_FREQ,FL,dLOG_NU,
+-	1                  XM_CHK_OPTION,J_CHK_OPTION,H_CHK_OPTION,
+-	1                  INNER_BND_METH,OUTER_BND_METH,IB_STAB_FACTOR,
+-	1                  dTdR,DBB,dDBBdT,IC,
+-	1                  INCL_ADVEC_TERMS_IN_TRANS_EQ,INCL_REL_TERMS,
+-	1                  DO_THIS_TX_MATRIX,METHOD,ND,NM,NM_KI)
+-	   ELSE IF (USE_LAM_ES)THEN
+-	   ELSE IF(USE_DJDT_RTE)THEN
+-	     CALL VAR_MOM_J_DDT_V6(TA,CHI_CLUMP,CHI_SCAT_CLUMP,ES_COH_VEC,V,R,
+-	1           TX,TVX,dJ_DIF_d_T,dJ_DIF_d_dTdR,
+-	1           dRSQH_DIF_d_T,dRSQH_DIF_d_dTdR,
+-	1           KI,WM,RHS_dHdCHI,FEDD,
+-	1           INCL_DJDT_TERMS,USE_DR4JDT,DJDT_RELAX_PARAM,FIRST_FREQ,FL,dLOG_NU,
+-	1           dTdR,DBB,dDBBdT,DO_THIS_TX_MATRIX,METHOD,
+-	1           XM_CHK_OPTION,J_CHK_OPTION,H_CHK_OPTION,
+-	1           INNER_BND_METH,OUTER_BND_METH,
+-	1           ND,NM,NM_KI)
++	   ELSE IF(USE_J_REL .AND. .NOT.ACCURATE)THEN
++	      CALL MON_LINEAR_LOG_GRID_JAC(CHI_CLUMP,REL_CHI,R,R,REL_R,REL_R_PNT,ND,NROW,GRID_PCHI)
++	      CALL MON_INTERP(GRID_ETA,NROW,1,REL_R,NROW,LOG(TA(1:ND)),ND,R,ND)
++	      GRID_ETA=EXP(GRID_ETA)
++	      CALL MON_LINEAR_LOG_GRID_JAC(TA,GRID_ETA,R,R,REL_R,REL_R_PNT,ND,NROW,GRID_PETA)
++	      CALL MON_LINEAR_LOG_GRID_JAC(CHI_SCAT_CLUMP,REL_ESEC,R,R,REL_R,REL_R_PNT,ND,NROW,GRID_PESC)
++	      GRID_THETA=0.0_LDP
++	      IF(COHERENT_ES)GRID_THETA=REL_ESEC/REL_CHI
++	      CALL VAR_JREL_GRID_V1(GRID_ETA,REL_CHI,REL_ESEC,GRID_THETA,REL_V,REL_SIGMA,REL_R,
++	1        TXW,TVXW,GRID_DT,GRID_DG,GRID_HT,GRID_HG,GRID_KI,GRID_WM,GRID_RHS,
++	1        FIRST_FREQ,FL,dLOG_NU,XM_CHK_OPTION,J_CHK_OPTION,H_CHK_OPTION,
++	1        INNER_BND_METH,OUTER_BND_METH,IB_STAB_FACTOR,dTdR,DBB,dDBBdT,IC,
++	1        INCL_ADVEC_TERMS_IN_TRANS_EQ,INCL_REL_TERMS,DO_THIS_TX_MATRIX,METHOD,
++	1        NROW,ND,NM,2,GRID_PCHI,GRID_PETA,GRID_PESC,GRID_ESC,GRID_ESC_H)
++	   ELSE IF (USE_LAM_ES .AND. .NOT.ACCURATE)THEN
++	   ELSE IF(USE_DJDT_RTE .AND. .NOT.ACCURATE)THEN
++	      CALL MON_LOG_GRID_JAC(CHI_CLUMP,DDT_CHI,R,DDT_LOG_R_SM,DDT_R,DDT_R_PNT,ND,NROW,GRID_PCHI)
++	      CALL MON_LOG_GRID_VALUE(TA,R,DDT_LOG_R_SM,DDT_R,DDT_R_PNT,ND,NROW,GRID_ETA)
++	      CALL MON_LOG_GRID_JAC(TA,GRID_ETA,R,DDT_LOG_R_SM,DDT_R,DDT_R_PNT,ND,NROW,GRID_PETA)
++	      CALL MON_LOG_GRID_JAC(CHI_SCAT_CLUMP,DDT_ESEC,R,DDT_LOG_R_SM,DDT_R,DDT_R_PNT,ND,NROW,GRID_PESC)
++	      GRID_THETA=0.0_LDP
++	      IF(COHERENT_ES)GRID_THETA=DDT_ESEC/DDT_CHI
++	      CALL VAR_MOM_J_DDT_GRID_V1(GRID_ETA,DDT_CHI,DDT_ESEC,GRID_THETA,DDT_V,DDT_R,
++	1        TXW,TVXW,GRID_DT,GRID_DG,GRID_HT,GRID_HG,GRID_KI,GRID_WM,GRID_RHS,DDT_F,
++	1        INCL_DJDT_TERMS,USE_DR4JDT,DJDT_RELAX_PARAM,FIRST_FREQ,FL,dLOG_NU,
++	1        dTdR,DBB,dDBBdT,DO_THIS_TX_MATRIX,METHOD,XM_CHK_OPTION,J_CHK_OPTION,H_CHK_OPTION,
++	1        INNER_BND_METH,OUTER_BND_METH,NROW,ND,NM,2,GRID_PCHI,GRID_PETA,GRID_PESC,GRID_ESC,GRID_ESC_H)
  	   ELSE
-+	    IF(NROW.GT.ND)THEN
++	    IF(GRID_ACTIVE)THEN
 +	      IF(.NOT.MODEL_GRID_VALID .OR. MODEL_FREQ.NE.FL)THEN
 +	        I=ERROR_LU(); WRITE(I,*)'Stale refined moment solution in DO_VAR_CONT'
 +	        STOP
 +	      END IF
++	      IF(ACCURATE)THEN
++	        CALL BUILD_EXTENDED_MOM_JAC(CHI_CLUMP,ETA_CLUMP,CHI_SCAT_CLUMP,
++	1          CHIEXT,ETAEXT,ESECEXT,REXT,RJEXT_ES,COEF,INDX,ND,NDEXT,COHERENT_ES)
++	      ELSE
 +	      CALL MON_LOG_GRID_JAC(CHI_CLUMP,MOM_CHI,R,LOG_R_SM,MOM_R,R_PNT,ND,NROW,GRID_PCHI)
 +	      CALL MON_LOG_GRID_VALUE(TA,R,LOG_R_SM,MOM_R,R_PNT,ND,NROW,GRID_ETA)
 +	      CALL MON_LOG_GRID_JAC(TA,GRID_ETA,R,LOG_R_SM,MOM_R,R_PNT,ND,NROW,GRID_PETA)
 +	      CALL MON_LOG_GRID_JAC(CHI_SCAT_CLUMP,MOM_ESEC,R,LOG_R_SM,MOM_R,R_PNT,ND,NROW,GRID_PESC)
++	      END IF
 +	      GRID_THETA=0.0_LDP
 +	      IF(COHERENT_ES)GRID_THETA=MOM_ESEC/MOM_CHI
 +	      CALL VAR_MOM_J_GRID_V1(GRID_ETA,MOM_CHI,MOM_ESEC,GRID_THETA,MOM_V,MOM_SIGMA,MOM_R,
@@ -339,7 +472,7 @@ diff --git a/new_main/mod_subs/do_var_cont.f b/new_main/mod_subs/do_var_cont.f
  	   END IF
  	   CALL TUNE(2,'VAR_MOM_J')
  !
-@@ -357,16 +401,18 @@
+@@ -357,16 +469,18 @@
  	    IF(DO_CLUMP_MODEL)THEN
  !$OMP PARALLEL DO
  	      DO J=1,ND
@@ -349,7 +482,7 @@ diff --git a/new_main/mod_subs/do_var_cont.f b/new_main/mod_subs/do_var_cont.f
 +	        DO K=1,NROW
 +	          TXW(K,J,1)=TXW(K,J,1)*CLUMP_FAC(J)
 +	          TXW(K,J,2)=TXW(K,J,2)*CLUMP_FAC(J)
-+	          IF(NROW.GT.ND .AND. COHERENT_ES)GRID_ESC(K,J)=GRID_ESC(K,J)*CLUMP_FAC(J)
++	          IF(GRID_ACTIVE .AND. (COHERENT_ES.OR.ACCURATE))GRID_ESC(K,J)=GRID_ESC(K,J)*CLUMP_FAC(J)
  	        END DO
  	      END DO
  !$OMP PARALLEL DO
@@ -360,11 +493,11 @@ diff --git a/new_main/mod_subs/do_var_cont.f b/new_main/mod_subs/do_var_cont.f
 +	        DO K=1,NROW-1
 +	          TVXW(K,J,1)=TVXW(K,J,1)*CLUMP_FAC(J)
 +	          TVXW(K,J,2)=TVXW(K,J,2)*CLUMP_FAC(J)
-+	          IF(NROW.GT.ND .AND. COHERENT_ES)GRID_ESC_H(K,J)=GRID_ESC_H(K,J)*CLUMP_FAC(J)
++	          IF(GRID_ACTIVE .AND. (COHERENT_ES.OR.ACCURATE))GRID_ESC_H(K,J)=GRID_ESC_H(K,J)*CLUMP_FAC(J)
  	        END DO
  	      END DO
  	    END IF
-@@ -377,14 +423,14 @@
+@@ -377,14 +491,14 @@
  	   IF(DO_SRCE_VAR_ONLY)THEN
  	      DO J=1,ND
  	       T1=-ETA_CLUMP(J)/CHI_CLUMP(J)
@@ -383,7 +516,7 @@ diff --git a/new_main/mod_subs/do_var_cont.f b/new_main/mod_subs/do_var_cont.f
  	        END DO
  	      END DO
  	   END IF
-@@ -392,10 +438,10 @@
+@@ -392,10 +506,10 @@
  !	   K=70
  !	   T1=CHI(K)-CHI_SCAT(K)
  !	   WRITE(221,'(12ES16.8)')FL,ETA(K),CHI(K),T1,RJ(K),ETA(K)/T1,
@@ -398,7 +531,7 @@ diff --git a/new_main/mod_subs/do_var_cont.f b/new_main/mod_subs/do_var_cont.f
  !
  ! We use TB as a temporary vector for J in the electron scattering emissivity.
  ! Its value depends on whether we have coherent or incoherent e.s.
-@@ -407,25 +453,33 @@
+@@ -407,25 +521,33 @@
  	    END IF
  !$OMP PARALLEL DO
  	    DO J=1,ND
@@ -409,7 +542,7 @@ diff --git a/new_main/mod_subs/do_var_cont.f b/new_main/mod_subs/do_var_cont.f
 +	      DO K=1,NROW
 +	        TXW(K,J,3)=TXW(K,J,3) + TXW(K,J,1)
 +	        TXW(K,J,4)=TXW(K,J,4) + TXW(K,J,2)
-+	        IF(NROW.GT.ND .AND. COHERENT_ES)THEN
++	        IF(GRID_ACTIVE .AND. (COHERENT_ES.OR.ACCURATE))THEN
 +	          TXW(K,J,5)=TXW(K,J,5)+TXW(K,J,1)+GRID_ESC(K,J)
 +	        ELSE
 +	        TXW(K,J,5)=TXW(K,J,5) + TXW(K,J,1) + TXW(K,J,2)*TB(J)
@@ -425,7 +558,7 @@ diff --git a/new_main/mod_subs/do_var_cont.f b/new_main/mod_subs/do_var_cont.f
 +	      DO K=1,NROW-1
 +	        TVXW(K,J,3)=TVXW(K,J,3) + TVXW(K,J,1)
 +	        TVXW(K,J,4)=TVXW(K,J,4) + TVXW(K,J,2)
-+	        IF(NROW.GT.ND .AND. COHERENT_ES)THEN
++	        IF(GRID_ACTIVE .AND. (COHERENT_ES.OR.ACCURATE))THEN
 +	          TVXW(K,J,5)=TVXW(K,J,5)+TVXW(K,J,1)+GRID_ESC_H(K,J)
 +	        ELSE
 +	        TVXW(K,J,5)=TVXW(K,J,5) + TVXW(K,J,1) + TVXW(K,J,2)*TB(J)
@@ -441,7 +574,7 @@ diff --git a/new_main/mod_subs/do_var_cont.f b/new_main/mod_subs/do_var_cont.f
  !
  ! Update line variation matrices. Note that the matrices now refer to the
  ! variation with respect to levels (e.g. the lower and upper level) and
-@@ -448,11 +502,11 @@
+@@ -448,11 +570,11 @@
  	          STIM_FAC=OPAC_FAC*U_STAR_RATIO(J,SIM_INDX)*GLDGU(SIM_INDX)
  	          OPAC_FAC=OPAC_FAC*L_STAR_RATIO(J,SIM_INDX)
  	          EMIS_FAC=LINE_EMIS_CON(SIM_INDX)*LINE_PROF_SIM(J,SIM_INDX)*U_STAR_RATIO(J,SIM_INDX)
@@ -457,7 +590,7 @@ diff --git a/new_main/mod_subs/do_var_cont.f b/new_main/mod_subs/do_var_cont.f
  	          END DO
  	        END DO
  	      END IF
-@@ -469,11 +523,11 @@
+@@ -469,11 +591,11 @@
  	          STIM_FAC=OPAC_FAC*U_STAR_RATIO(J,SIM_INDX)*GLDGU(SIM_INDX)
  	          OPAC_FAC=OPAC_FAC*L_STAR_RATIO(J,SIM_INDX)
  	          EMIS_FAC=LINE_EMIS_CON(SIM_INDX)*LINE_PROF_SIM(J,SIM_INDX)*U_STAR_RATIO(J,SIM_INDX)
@@ -473,7 +606,7 @@ diff --git a/new_main/mod_subs/do_var_cont.f b/new_main/mod_subs/do_var_cont.f
  	          END DO
  	        END DO
  	      END IF
-@@ -490,11 +544,11 @@
+@@ -490,11 +612,11 @@
  	            OPAC_FAC=LINE_OPAC_CON(SIM_INDX)*LINE_PROF_SIM(J,SIM_INDX)*NEG_OPAC_FAC(J)*
  	1              (dL_RAT_dT(J,SIM_INDX)*POPS(NL,J)-GLDGU(SIM_INDX)*dU_RAT_dT(J,SIM_INDX)*POPS(NUP,J))
  	            EMIS_FAC=LINE_EMIS_CON(SIM_INDX)*LINE_PROF_SIM(J,SIM_INDX)*dU_RAT_dT(J,SIM_INDX)*POPS(NUP,J)
@@ -489,24 +622,232 @@ diff --git a/new_main/mod_subs/do_var_cont.f b/new_main/mod_subs/do_var_cont.f
  	            END DO
  	          END DO
  	        END IF
-@@ -504,8 +558,20 @@
+@@ -504,209 +626,28 @@
  ! Now zero dCHI and dETA storage locations. These refer to the TOTAL
  ! opacity and emissivity.
  !
 -	    TX(:,:,1:2)=0.0_LDP
 -	    TVX(:,:,1:2)=0.0_LDP
+-!
+-! 
+-!
+-	  ELSE IF(CONT_VEL .AND. ACCURATE)THEN
+-	    IF(FIRST_FREQ)THEN
+-	      TX_EXT(:,:,:)=0.0_LDP
+-	      TVX_EXT(:,:,:)=0.0_LDP
+-	    ELSE
+-	      RAT_TOO_BIG=.FALSE.
+-	      DO L=1,ND
+-	        TA(L)=CHI_NOSCAT_PREV(L)/CHI_NOSCAT(L)
+-	        TB(L)=ETA_PREV(L)/ETA_CONT(L)
+-	        IF(TA(L) .GT. 1.5_LDP)RAT_TOO_BIG=.TRUE.
+-	      END DO
+-	      IF(RAT_TOO_BIG)THEN
+-	        DO L=1,ND
+-	          TA(L)=0.0_LDP
+-	          TB(L)=0.0_LDP
+-	        END DO
+-	      END IF
+-!$OMP PARALLEL DO
+-	      DO J=1,ND
+-	        DO K=1,NDEXT
+-	          TX_EXT(K,J,3)=TX_EXT(K,J,3) * TA(J)
+-	          TX_EXT(K,J,4)=TX_EXT(K,J,4) * TB(J)
+-	        END DO
+-	      END DO
+-!$OMP PARALLEL DO
+-	      DO J=1,ND
+-	        DO K=1,NDEXT-1
+-	          TVX_EXT(K,J,3)=TVX_EXT(K,J,3) * TA(J)
+-	          TVX_EXT(K,J,4)=TVX_EXT(K,J,4) * TB(J)
+-	        END DO
+-	      END DO
+-	    END IF
+-	    DO I=1,NM
+-	      DO_THIS_TX_MATRIX(I)=.TRUE.
+-	    END DO
+-	    DO I=TX_OFFSET+1,NM
+-	      IF(VAR_IN_USE_CNT(I) .EQ. 0)THEN
+-	        DO_THIS_TX_MATRIX(I)=.FALSE.
+-	      END IF
+-	    END DO
+-!
+-! Use TA as temporary storage for the emissivity.
+-!
+-	    IF(COHERENT_ES)THEN
+-	      TA(1:NDEXT)=ETAEXT(1:NDEXT)
+-	    ELSE
+-	      TA(1:NDEXT)=ETAEXT(1:NDEXT)+
+-	1                 ESECEXT(1:NDEXT)*RJEXT_ES(1:NDEXT)
+-	    END IF
+-	    CALL VAR_MOM_JEXT_CMF_V3(TA,CHIEXT,ESECEXT,
+-	1                  VEXT,SIGMAEXT,REXT,
+-	1                  ETA_CLUMP,CHI_CLUMP,ESEC_CLUMP,
+-	1                  INDX,COEF,INTERP_TYPE,ND,
+-	1                  TX_EXT,TVX_EXT,
+-	1                  dJ_DIF_d_T_EXT,dJ_DIF_d_dTdR_EXT,
+-	1                  dRSQH_DIF_d_T,dRSQH_DIF_d_dTdR,
+-	1                  KI,RHS_dHdCHI,
+-	1                  FIRST_FREQ,dLOG_NU,DIF,dTdR,DBB,dDBBdT,IC,
+-	1                  DO_THIS_TX_MATRIX,METHOD,COHERENT_ES,NDEXT,NM,NM_KI)
+-!
+-! Correcting for clumping this way does it for both the continuum and lines.
+-!
+-	    IF(DO_CLUMP_MODEL)THEN
+-!$OMP PARALLEL DO
+-	      DO J=1,ND
+-	        DO K=1,NDEXT
+-	          TX_EXT(K,J,1)=TX_EXT(K,J,1)*CLUMP_FAC(J)
+-	          TX_EXT(K,J,2)=TX_EXT(K,J,2)*CLUMP_FAC(J)
+-	        END DO
+-	      END DO
+-!$OMP PARALLEL DO
+-	      DO J=1,ND
+-	        DO K=1,NDEXT-1
+-	          TVX_EXT(K,J,1)=TVX_EXT(K,J,1)*CLUMP_FAC(J)
+-	          TVX_EXT(K,J,2)=TVX_EXT(K,J,2)*CLUMP_FAC(J)
+-	        END DO
+-	      END DO
+-	    END IF
+-!
+-! We use TB as a temporary vector for J in the electron scattering emissivity.
+-! Its value depends on whether we have coherent or incoherent e.s.
+-!
+-	    IF(COHERENT_ES)THEN
+-	      TB(1:ND)=RJ(1:ND)
+-	    ELSE
+-	      TB(1:ND)=RJ_ES(1:ND)
+-	    END IF
+-!$OMP PARALLEL DO
+-	    DO J=1,ND
+-	      DO K=1,NDEXT
+-	        TX_EXT(K,J,3)=TX_EXT(K,J,3) + TX_EXT(K,J,1)
+-	        TX_EXT(K,J,4)=TX_EXT(K,J,4) + TX_EXT(K,J,2)
+-	        TX_EXT(K,J,5)=TX_EXT(K,J,5) + TX_EXT(K,J,1) +
+-	1                                         TX_EXT(K,J,2)*TB(J)
+-	      END DO
+-	    END DO
+-!$OMP PARALLEL DO
+-	    DO J=1,ND
+-	      DO K=1,NDEXT-1
+-	        TVX_EXT(K,J,3)=TVX_EXT(K,J,3) + TVX_EXT(K,J,1)
+-	        TVX_EXT(K,J,4)=TVX_EXT(K,J,4) + TVX_EXT(K,J,2)
+-	        TVX_EXT(K,J,5)=TVX_EXT(K,J,5) + TVX_EXT(K,J,1) +
+-	1                                        TVX_EXT(K,J,2)*TB(J)
+-	      END DO
+-	    END DO
+-!
+-! Update line variation matrices. Note that the matrices now refer to the
+-! variation with respect to levels (e.g. the lower and upper level) and
+-! not CHIL and ETAL. This should save arrays when we are dealing with
+-! overlapping transitions between the same level(s).
+-!
+-! For simplicity we have ignored the T dependance of L_STAR_RATIO and
+-! U_STAR_RATIO.
+-!
+-	    DO SIM_INDX=1,MAX_SIM
+-	      LOW=LOW_POINTER(SIM_INDX);    UP=UP_POINTER(SIM_INDX)
+-	      NL=SIM_NL(SIM_INDX);          NUP=SIM_NUP(SIM_INDX)
+-	      IF(.NOT. WEAK_LINE(SIM_INDX) .AND. RESONANCE_ZONE(SIM_INDX))THEN
+-!$OMP PARALLEL DO PRIVATE(J,K,OPAC_FAC, EMIS_FAC, STIM_FAC)
 +	    TXW(:,:,1:2)=0.0_LDP
 +	    TVXW(:,:,1:2)=0.0_LDP
-+	    IF(NROW.GT.ND)THEN
++	    IF(GRID_ACTIVE)THEN
 +	      DO I=1,NM
-+	        DO J=1,ND
-+	          TX(:,J,I)=TXW(J_INDX(:),J,I)
-+	          TVX(:,J,I)=TVXW(H_INDX(1:ND-1),J,I)
+ 	        DO J=1,ND
+-	          OPAC_FAC=lINE_OPAC_CON(SIM_INDX)*LINE_PROF_SIM(J,SIM_INDX)*
+-	1                      NEG_OPAC_FAC(J)*L_STAR_RATIO(J,SIM_INDX)
+-	          EMIS_FAC=LINE_EMIS_CON(SIM_INDX)*LINE_PROF_SIM(J,SIM_INDX)*
+-	1                      U_STAR_RATIO(J,SIM_INDX)
+-	          STIM_FAC=LINE_OPAC_CON(SIM_INDX)*LINE_PROF_SIM(J,SIM_INDX)*
+-	1                      NEG_OPAC_FAC(J)*U_STAR_RATIO(J,SIM_INDX)*GLDGU(SIM_INDX)
+-	          DO K=1,NDEXT
+-	            TX_EXT(K,J,LOW)=TX_EXT(K,J,LOW) + OPAC_FAC*TX_EXT(K,J,1)
+-	            TX_EXT(K,J,UP)=TX_EXT(K,J,UP) + ( EMIS_FAC*TX_EXT(K,J,2) - STIM_FAC*TX_EXT(K,J,1) )
+-	          END DO
+-	        END DO
+-	      END IF
+-	    END DO
+-!
+-! We now do the update for dH (i.e. TVX_EXT)
+-!
+-	    DO SIM_INDX=1,MAX_SIM
+-	      LOW=LOW_POINTER(SIM_INDX);    UP=UP_POINTER(SIM_INDX)
+-	      NL=SIM_NL(SIM_INDX);          NUP=SIM_NUP(SIM_INDX)
+-	      IF(.NOT. WEAK_LINE(SIM_INDX) .AND. RESONANCE_ZONE(SIM_INDX))THEN
+-!$OMP PARALLEL DO PRIVATE(J,K,OPAC_FAC, EMIS_FAC, STIM_FAC)
+-	        DO J=1,ND
+-	          OPAC_FAC=LINE_OPAC_CON(SIM_INDX)*LINE_PROF_SIM(J,SIM_INDX)*
+-	1                      NEG_OPAC_FAC(J)*L_STAR_RATIO(J,SIM_INDX)
+-	          EMIS_FAC=LINE_EMIS_CON(SIM_INDX)*LINE_PROF_SIM(J,SIM_INDX)*
+-	1                      U_STAR_RATIO(J,SIM_INDX)
+-	          STIM_FAC=LINE_OPAC_CON(SIM_INDX)*LINE_PROF_SIM(J,SIM_INDX)*
+-	1                      NEG_OPAC_FAC(J)*U_STAR_RATIO(J,SIM_INDX)*GLDGU(SIM_INDX)
+-	          DO K=1,NDEXT-1
+-	            TVX_EXT(K,J,LOW)=TVX_EXT(K,J,LOW) + OPAC_FAC*TVX_EXT(K,J,1)
+-	            TVX_EXT(K,J,UP)=TVX_EXT(K,J,UP) + ( EMIS_FAC*TVX_EXT(K,J,2) - STIM_FAC*TVX_EXT(K,J,1) )
+-	          END DO
+-	        END DO
+-	      END IF
+-	    END DO
+-!
+-	    IF(INCLUDE_dSLdT)THEN
+-	      DO SIM_INDX=1,MAX_SIM
+-	        NL=SIM_NL(SIM_INDX)
+-	        NUP=SIM_NUP(SIM_INDX)
+-	        IF(.NOT. WEAK_LINE(SIM_INDX) .AND. RESONANCE_ZONE(SIM_INDX))THEN
+-!$OMP PARALLEL DO PRIVATE(J,K,OPAC_FAC, EMIS_FAC)
+-	          DO J=1,ND
+-	            OPAC_FAC=LINE_OPAC_CON(SIM_INDX)*LINE_PROF_SIM(J,SIM_INDX)*NEG_OPAC_FAC(J)*
+-	1               (dL_RAT_dT(J,SIM_INDX)*POPS(NL,J)-GLDGU(SIM_INDX)*dU_RAT_dT(J,SIM_INDX)*POPS(NUP,J))
+-	            EMIS_FAC=LINE_EMIS_CON(SIM_INDX)*LINE_PROF_SIM(J,SIM_INDX)*dU_RAT_dT(J,SIM_INDX)*POPS(NUP,J)
+-	            DO K=1,NDEXT
+-	              TX_EXT(K,J,6)=TX_EXT(K,J,6) + (OPAC_FAC*TX_EXT(K,J,1)+EMIS_FAC*TX_EXT(K,J,2))
+-	            END DO
+-	            DO K=1,NDEXT-1
+-	              TVX_EXT(K,J,6)=TVX_EXT(K,J,6) + (OPAC_FAC*TVX_EXT(K,J,1)+EMIS_FAC*TVX_EXT(K,J,2))
+-	            END DO
+-	          END DO
+-	        END IF
+-	      END DO
+-	    END IF
+-!
+-! Now zero dCHI and dETA storage locations. These refer to the TOTAL
+-! opacity and emissivity.
+-!
+-	    TX_EXT(:,:,1:2)=0.0_LDP		!dCHI,dETA
+-	    TVX_EXT(:,:,1:2)=0.0_LDP		!dCHI,dETA
+-!
+-! Compute dJ/d? just on the small grid. We don't need dH/d? since the
+-! statistical and radiative equilibrium equations depend only on J.
+-!
+-	    DO I=3,NM
+-	      DO J=1,ND
+-	        DO K=1,ND
+-	          TX(K,J,I)=TX_EXT(POS_IN_NEW_GRID(K),J,I)
+-	        END DO
+-	      END DO
+-	    END DO
+-!
+-	    DO K=1,ND
+-	      dJ_DIF_d_T(K)=dJ_DIF_d_T_EXT(POS_IN_NEW_GRID(K))
+-	      dJ_DIF_d_dTdR(K)=dJ_DIF_d_dTdR_EXT(POS_IN_NEW_GRID(K))
+-	    END DO
++	          TX(:,J,I)=TXW(MAP_J,J,I)
++	          TVX(:,J,I)=TVXW(MAP_H,J,I)*H_WEIGHT+TVXW(MAP_H2,J,I)*H_WEIGHT2
 +	        END DO
 +	      END DO
-+	      dJ_DIF_d_T(1:ND)=GRID_DT(J_INDX(:)); dJ_DIF_d_dTdR(1:ND)=GRID_DG(J_INDX(:))
-+	      dRSQH_DIF_d_T(1:ND-1)=GRID_HT(H_INDX(1:ND-1))
-+	      dRSQH_DIF_d_dTdR(1:ND-1)=GRID_HG(H_INDX(1:ND-1))
++	      IF(ACCURATE)THEN
++	        DO I=1,NM
++	          TX_EXT(:,:,I)=TXW(J_INDX(1:NDEXT),:,I)
++	          TVX_EXT(:,:,I)=TVXW(H_INDX(1:NDEXT-1),:,I)
++	        END DO
++	        dJ_DIF_d_T_EXT(1:NDEXT)=GRID_DT(J_INDX(1:NDEXT))
++	        dJ_DIF_d_dTdR_EXT(1:NDEXT)=GRID_DG(J_INDX(1:NDEXT))
++	      END IF
++	      dJ_DIF_d_T(1:ND)=GRID_DT(MAP_J); dJ_DIF_d_dTdR(1:ND)=GRID_DG(MAP_J)
++	      dRSQH_DIF_d_T(1:ND-1)=GRID_HT(MAP_H)*H_WEIGHT+GRID_HT(MAP_H2)*H_WEIGHT2
++	      dRSQH_DIF_d_dTdR(1:ND-1)=GRID_HG(MAP_H)*H_WEIGHT+GRID_HG(MAP_H2)*H_WEIGHT2
 +	    END IF
 +
  !
@@ -523,22 +864,34 @@ diff --git a/new_main/mod_subs/init_line_opac_var_v2.f b/new_main/mod_subs/init_
          IMPLICIT NONE
  !
  ! Incorporated: 02-Jan-2104: LINE_QW_SUM is now a 2D array.
-@@ -178,6 +179,7 @@
+@@ -178,10 +179,11 @@
  	      IF(VAR_IN_USE_CNT(J) .EQ. 1)THEN	  !Just this line using store.
  !	        TX(:,:,J)=0.0D0
  !	        TVX(:,:,J)=0.0D0
 +	        CALL CLEAR_MOM_VARIATION(J)
  	        CALL ZERO_2D_MAT(TX(1,1,J),ND,ND)
  	        CALL ZERO_2D_MAT(TVX(1,1,J),ND-1,ND)
- 	        IF(ACCURATE)CALL ZERO_2D_MAT(TX_EXT(1,1,J),NDEXT,NDEXT)
-@@ -190,6 +192,7 @@
+-	        IF(ACCURATE)CALL ZERO_2D_MAT(TX_EXT(1,1,J),NDEXT,NDEXT)
+-	        IF(ACCURATE)CALL ZERO_2D_MAT(TVX_EXT(1,1,J),NDEXT-1,NDEXT)
++	        IF(ACCURATE)CALL ZERO_2D_MAT(TX_EXT(1,1,J),NDEXT,ND)
++	        IF(ACCURATE)CALL ZERO_2D_MAT(TVX_EXT(1,1,J),NDEXT-1,ND)
+ !	        IF(ACCURATE)TX_EXT(:,:,J)=0.0D0
+ !	        IF(ACCURATE)TVX_EXT(:,:,J)=0.0D0
+ 	      END IF
+@@ -190,10 +192,11 @@
  	      IF(VAR_IN_USE_CNT(J) .EQ. 1)THEN	  !Just this line using store.
  !	        TX(:,:,J)=0.0D0
  !	        TVX(:,:,J)=0.0D0
 +	        CALL CLEAR_MOM_VARIATION(J)
  	        CALL ZERO_2D_MAT(TX(1,1,J),ND,ND)
  	        CALL ZERO_2D_MAT(TVX(1,1,J),ND-1,ND)
- 	        IF(ACCURATE)CALL ZERO_2D_MAT(TX_EXT(1,1,J),NDEXT,NDEXT)
+-	        IF(ACCURATE)CALL ZERO_2D_MAT(TX_EXT(1,1,J),NDEXT,NDEXT)
+-	        IF(ACCURATE)CALL ZERO_2D_MAT(TVX_EXT(1,1,J),NDEXT-1,NDEXT)
++	        IF(ACCURATE)CALL ZERO_2D_MAT(TX_EXT(1,1,J),NDEXT,ND)
++	        IF(ACCURATE)CALL ZERO_2D_MAT(TVX_EXT(1,1,J),NDEXT-1,ND)
+ !	        IF(ACCURATE)TX_EXT(:,:,J)=0.0D0
+ !	        IF(ACCURATE)TVX_EXT(:,:,J)=0.0D0
+ 	      END IF
 diff --git a/new_main/mod_subs/init_population_estimates.f90 b/new_main/mod_subs/init_population_estimates.f90
 new file mode 100644
 --- /dev/null
@@ -1490,7 +1843,15 @@ diff --git a/opac/par_opac_sub.f b/opac/par_opac_sub.f
 diff --git a/plane/Makefile b/plane/Makefile
 --- a/plane/Makefile
 +++ b/plane/Makefile
-@@ -208,3 +208,17 @@
+@@ -168,6 +168,7 @@
+ $(LIB)(mom_jrel_v9.o) : mom_jrel_v9.f $(LIB)(mod_ray_mom_store.o)
+ 	$(F90) -c $(OPTION) mom_jrel_v9.f
+ 	ar $(AR_OPTION) $(LIB) mom_jrel_v9.o
++	if test -f mod_jrel_v9.mod; then cp -f mod_jrel_v9.mod $(MOD_DIR); fi
+ 
+ $(LIB)(optdepth_v2.o) : optdepth_v2.f $(LIB)(mod_space_grid_v2.o)
+ 	$(F90) -c $(OPTION) optdepth_v2.f
+@@ -208,3 +209,22 @@
  
  clean_lib :
  	rm -f *.a
@@ -1508,6 +1869,324 @@ diff --git a/plane/Makefile b/plane/Makefile
 +$(LIB)(var_mom_j_cmf_v12.o) : var_mom_j_cmf_v12.f $(LIB)(mod_ray_mom_store.o) $(LIB)(mod_var_mom_j_cmf.o)
 +	$(F90) -c $(OPTION) var_mom_j_cmf_v12.f
 +	ar $(AR_OPTION) $(LIB) var_mom_j_cmf_v12.o
++
++$(LIB)(mom_j_ddt_v6.o) : mom_j_ddt_v6.f $(LIB)(mod_ray_mom_store.o)
++	$(F90) -c $(OPTION) mom_j_ddt_v6.f
++	ar $(AR_OPTION) $(LIB) mom_j_ddt_v6.o
++	if test -f mod_mom_j_ddt_v6.mod; then cp -f mod_mom_j_ddt_v6.mod $(MOD_DIR); fi
+diff --git a/plane/edd_j_hub_var_v3.f b/plane/edd_j_hub_var_v3.f
+--- a/plane/edd_j_hub_var_v3.f
++++ b/plane/edd_j_hub_var_v3.f
+@@ -222,7 +222,7 @@
+ 	IF(INNER_BND_METH .EQ. 'DIFFUSION')THEN
+ 	  T1= ( R(ND)*R(ND)*EDDF(ND)*JNU(ND) - R(ND-1)*R(ND-1)*EDDF(ND-1)*Q(ND-1)*JNU(ND-1) )
+ 	1           /DTAU(ND-1)/DTAU(ND-1)
+-	  DO L=ND-5,ND
++	  DO L=MAX(1,ND-5),ND
+ 	    VK(ND,L,1)=VK(ND,L,1)+T1*dTAUdCHI(ND-1,L)
+ 	  END DO
+ 	  VK(ND,ND,1)=VK(ND,ND,1) + dRHSdCHI_IB +
+@@ -231,7 +231,7 @@
+ 	ELSE IF(INNER_BND_METH .EQ. 'ZERO_FLUX')THEN
+ 	  T1= ( R(ND)*R(ND)*EDDF(ND)*JNU(ND) - R(ND-1)*R(ND-1)*EDDF(ND-1)*Q(ND-1)*JNU(ND-1) )
+ 	1           /DTAU(ND-1)/DTAU(ND-1)
+-	  DO L=ND-5,ND
++	  DO L=MAX(1,ND-5),ND
+ 	    VK(ND,L,1)=VK(ND,L,1)+T1*dTAUdCHI(ND-1,L)
+ 	  END DO
+ 	  VK(ND,ND,1)=VK(ND,ND,1) + dRHSdCHI_IB +
+@@ -241,7 +241,7 @@
+ 	  T1= ( R(ND)*R(ND)*(JNU_MOD(ND)*(KMIN_IB/JMIN_IB)+KPLUS_IB) -
+ 	1          R(ND-1)*R(ND-1)*EDDF(ND-1)*JNU(ND-1)  )
+ 	1           /DTAU(ND-1)/DTAU(ND-1)
+-	  DO L=ND-5,ND
++	  DO L=MAX(1,ND-5),ND
+ 	    VK(ND,L,1)=VK(ND,L,1)+T1*dTAUdCHI(ND-1,L)
+ 	  END DO
+ 	  VK(ND,ND,1)=VK(ND,ND,1) + dRHSdCHI_IB +
+@@ -279,3 +279,261 @@
+ !
+ 	RETURN
+ 	END
++
++	SUBROUTINE EDD_J_HUB_GRID_V1(VK,RHS_dHdCHI,dTAUdCHI,
++	1                  SOURCE,CHI,ESEC,ES_COH_VEC,DTAU,R,
++	1                  EDDF,Q,HU,HL,HS,HT,RSQ_DTAUONQ,DERIV_SCL_FAC,
++	1                  W,WPREV,PSI,PSIPREV,DJDt,DJDt_OLDt,
++	1                  JNU,JNUM1,JNU_OLDt,JNU_MOD,
++	1                  RSQ_HNUM1,RSQ_HNU_OLDt,
++	1                  dRHSdCHI_IB,dRHSdCHI_OB,
++	1                  JMIN_IB,KMIN_IB,JPLUS_IB,KPLUS_IB,
++	1                  JMIN_OB,KMIN_OB,JPLUS_OB,KPLUS_OB,
++	1                  INNER_BND_METH,OUTER_BND_METH,
++	1              ND,NM)
++	USE SET_KIND_MODULE
++	IMPLICIT NONE
++!
++! Altered: 24-Apr-2019 -- Added DERIV_SCL_FAC to call.
++!                         Changed to V3
++! Created: 18-Jan-2010 -- Based on EDD_H_HUB_VAR_V1; Modified call.
++!                         INNER_BND_METH & OUTER_BND_METH options installed.
++!			
++	INTEGER ND,NM
++	REAL(KIND=LDP) VK(ND,ND,NM)
++	REAL(KIND=LDP) RHS_dHdCHI(ND-1,ND)
++	REAL(KIND=LDP) dTAUdCHI(ND,ND)
++	REAL(KIND=LDP) SOURCE(ND)
++	REAL(KIND=LDP) CHI(ND)
++	REAL(KIND=LDP) ESEC(ND)
++	REAL(KIND=LDP) ES_COH_VEC(ND)
++	REAL(KIND=LDP) DTAU(ND)
++	REAL(KIND=LDP) R(ND)
++	REAL(KIND=LDP) EDDF(ND)
++	REAL(KIND=LDP) Q(ND)
++	REAL(KIND=LDP) HU(ND),HL(ND),HS(ND),HT(ND)
++	REAL(KIND=LDP) RSQ_DTAUONQ(ND)
++	REAL(KIND=LDP) DERIV_SCL_FAC(ND)
++	REAL(KIND=LDP) W(ND),WPREV(ND)
++	REAL(KIND=LDP) DJDt(ND),DJDt_OLDt(ND)
++	REAL(KIND=LDP) PSI(ND),PSIPREV(ND)
++	REAL(KIND=LDP) JNU(ND)
++	REAL(KIND=LDP) JNUM1(ND)
++	REAL(KIND=LDP) JNU_OLDt(ND)
++	REAL(KIND=LDP) JNU_MOD(ND)
++	REAL(KIND=LDP) RSQ_HNUM1(ND),RSQ_HNU_OLDt(ND)
++	REAL(KIND=LDP) dRHSdCHI_IB
++	REAL(KIND=LDP) dRHSdCHI_OB
++	REAL(KIND=LDP) JMIN_IB,KMIN_IB,JPLUS_IB,KPLUS_IB
++	REAL(KIND=LDP) JMIN_OB,KMIN_OB,JPLUS_OB,KPLUS_OB
++!
++	INTEGER ERROR_LU
++	EXTERNAL ERROR_LU
++	CHARACTER(LEN=*) INNER_BND_METH
++	CHARACTER(LEN=*) OUTER_BND_METH
++!
++!
++! Local vectors.
++!
++	REAL(KIND=LDP) dHUdCHI(ND),dHLdCHI(ND)
++	REAL(KIND=LDP) dHSdCHI(ND),dHTdCHI(ND)
++	REAL(KIND=LDP) dHUdTAU(ND),dHLdTAU(ND)
++	REAL(KIND=LDP) dRHSdI(ND),dRHSdJ(ND)
++!
++! Local varoables.
++!
++	INTEGER I,J,K,L
++	REAL(KIND=LDP) T1
++	REAL(KIND=LDP) MOD_DTAU
++	REAL(KIND=LDP) dUdCHI
++	REAL(KIND=LDP) dTAdCHI_J,dTAdCHI_I
++	REAL(KIND=LDP) dTCdCHI_I,dTCdCHI_K
++	REAL(KIND=LDP) dTBdCHI_J,dTBdCHI_I,dTBdCHI_K,dTBdCHI
++!
++! 
++!
++	IF(NM .LT. 2)THEN
++	  I=ERROR_LU()
++	  WRITE(I,*)'Error in EDD_J_VAR_V4 - NM_KI too small'
++	  WRITE(I,*)'NM_KI='
++	  STOP
++	END IF
++	VK(:,:,:)=0.0_LDP
++	RHS_dHdCHI(:,:)=0.0_LDP
++!
++! Compute the dTAUdCHI matrix.
++!
++! The caller supplies the derivative of the actual optical-depth quadrature.
++!
++! The following derivatives are valid for all ML.
++!
++	DO I=1,ND-1
++	  T1=(1.0_LDP+W(I))*(CHI(I)+CHI(I+1))
++	  dHUdCHI(I)=HU(I)*W(I)/T1
++	  dHUdTAU(I)=-HU(I)/DTAU(I)
++	  dHLdCHI(I)=HL(I)*W(I)/T1
++	  dHLdTAU(I)=-HL(I)/DTAU(I)
++	  dHSdCHI(I)=-HS(I)/T1
++	  dHTdCHI(I)=-HT(I)/T1
++	END DO
++!
++! 
++!
++! Firstly we compute the variation of the elements with respect to
++! DTAU. We then multiply by dTAUdCHI matrix.
++!
++! We have 3 separate loops over I to allow vectorization.
++! To improve rounding error, we note that dTBdCHI needs to be added to
++! both dTBdCHI_I and dTBdCHI_J.
++!
++	DO I=2,ND-1
++	  J=I-1
++	  K=I+1
++	  dTAdCHI_J=-dHLdTAU(J)
++	  dTCdCHI_I=-dHUdTAU(I)
++	  dTBdCHI_I=dHLdTAU(I)
++	  dTBdCHI_J=dHUdTAU(J)
++	  T1=0.5_LDP*R(I)*R(I)/Q(I)
++	  dTBdCHI=(PSI(I)+DJDT(I))/(DTAU(J)+DTAU(I))+T1*(1.0_LDP-ES_COH_VEC(I))
++!
++	  dUdCHI=(PSIPREV(I)*JNUM1(I)+DJDT_OLDt(I)*JNU_OLDt(I))/(DTAU(J)+DTAU(I))
++	  dRHSdJ(I)=  T1*SOURCE(I)
++	1         - (dTAdCHI_J*JNU(J)+dTBdCHI_J*JNU(I))
++	1         - dTBdCHI*JNU(I)
++	1         + dUdCHI
++!
++	  dRHSdI(I)= T1*SOURCE(I)
++	1         - (dTCdCHI_I*JNU(K)+dTBdCHI_I*JNU(I))
++	1         + dUdCHI-dTBdCHI*JNU(I)
++!
++	END DO
++!
++	DO I=2,ND-1
++	  J=I-1
++	  K=I+1
++	  DO L=1,ND
++	    VK(I,L,1)=VK(I,L,1)+dRHSdJ(I)*dTAUdCHI(J,L)
++	    VK(I,L,1)=VK(I,L,1)+dRHSdI(I)*dTAUdCHI(I,L)
++	  END DO
++	END DO
++!
++! Can now update VK for direct opacity variation.
++!
++	DO I=2,ND-1
++	  J=I-1
++	  K=I+1
++	  T1=0.5_LDP*R(I)*R(I)/Q(I)
++!
++	  dTAdCHI_J=-dHLdCHI(J)
++	  dTAdCHI_I=-dHLdCHI(J)
++	  dTCdCHI_I=-dHUdCHI(I)
++	  dTCdCHI_K=-dHUdCHI(I)
++!
++	  dTBdCHI_J=dHUdCHI(J)
++	  dTBdCHI_I=dHLdCHI(I)+dHUdCHI(J)
++	  dTBdCHI= RSQ_DTAUONQ(I)*ES_COH_VEC(I)/CHI(I)-(PSI(I)+DJDT(I))/CHI(I)
++	  dTBdCHI_K=dHLdCHI(I)
++!
++! Note: We have changed sign of dUdCHI reative to an earlier version.
++!
++	  dUdCHI=(PSIPREV(I)*JNUM1(I)+DJDT_OLDt(I)*JNU_OLDt(I))/CHI(I)
++!
++! NB  :  VB(I)=-HS(J) and VC(I)=HS(I)
++!
++	  VK(I,J,1)=VK(I,J,1)
++	1             - (dTAdCHI_J*JNU(J)+dTBdCHI_J*JNU(I))
++	1             - DERIV_SCL_FAC(I)*dHSdCHI(J)*RSQ_HNUM1(J)
++	1             - dHTdCHI(J)*RSQ_HNU_OLDt(J)
++!
++	  VK(I,K,1)=VK(I,K,1)
++	1             - (dTCdCHI_K*JNU(K)+dTBdCHI_K*JNU(I))
++	1             + DERIV_SCL_FAC(I)*dHSDCHI(I)*RSQ_HNUM1(I)
++	1             + dHTdCHI(I)*RSQ_HNU_OLDt(I)
++!
++	  T1=T1*(DTAU(J)+DTAU(I))/CHI(I)
++	  VK(I,I,1)=VK(I,I,1)
++	1             - (dTAdCHI_I*JNU(J)+dTCdCHI_I*JNU(K)+dTBdCHI_I*JNU(I))
++	1             - (dUdCHI+dTBdCHI*JNU(I))
++	1             + DERIV_SCL_FAC(I)*(dHSDCHI(I)*RSQ_HNUM1(I)-dHSDCHI(J)*RSQ_HNUM1(J))
++	1             + (dHTDCHI(I)*RSQ_HNU_OLDt(I)-dHTDCHI(J)*RSQ_HNU_OLDt(J))
++	1             - T1*SOURCE(I)
++!
++	  VK(I,I,2)=T1
++	END DO
++!
++! Now do the boundary conditions.
++!
++	IF(OUTER_BND_METH .EQ. 'HONJ'.OR.OUTER_BND_METH.EQ.'HONJM')THEN
++	  T1=  ( EDDF(1)*Q(1)*JNU(1)*R(1)*R(1) - EDDF(2)*Q(2)*JNU(2)*R(2)*R(2) )/DTAU(1)/DTAU(1)
++	  DO L=1,ND
++	    VK(1,L,1)=VK(1,L,1)+T1*dTAUdCHI(1,L)
++	  END DO
++	  VK(1,1,1)=VK(1,1,1) + dRHSdCHI_OB +
++	1               ( PSI(1)*JNU(1)- PSIPREV(1)*JNUM1(1) )/CHI(1) +
++	1               ( DJDT(1)*JNU(1)- DJDt_OLDt(1)*JNU_OLDt(1) )/CHI(1)
++	ELSE IF(OUTER_BND_METH .EQ. 'HALF_MOM')THEN
++! The caller supplies the partials of the unweighted half-moment boundary.
++	  VK(1,:,1)=0.0_LDP
++	ELSE
++	  I=ERROR_LU()
++	  WRITE(I,*)'Only outer boundary conditions implemented are HONJ & HALF_MOMJ'
++	  WRITE(I,*)'Error occured in EDD_J_HUB_VAR_V2'
++	  WRITE(I,*)'OUTER_BND_METH=',TRIM(OUTER_BND_METH)
++	  STOP
++	END IF
++!
++! Inner boundary --- diffusion approximation.
++!
++	IF(INNER_BND_METH .EQ. 'DIFFUSION')THEN
++	  T1= ( R(ND)*R(ND)*EDDF(ND)*JNU(ND) - R(ND-1)*R(ND-1)*EDDF(ND-1)*Q(ND-1)*JNU(ND-1) )
++	1           /DTAU(ND-1)/DTAU(ND-1)
++	  DO L=MAX(1,ND-5),ND
++	    VK(ND,L,1)=VK(ND,L,1)+T1*dTAUdCHI(ND-1,L)
++	  END DO
++	  VK(ND,ND,1)=VK(ND,ND,1) + dRHSdCHI_IB +
++	1               ( PSI(ND)*JNU(ND)- PSIPREV(ND)*JNUM1(ND) )/CHI(ND) +
++	1               ( DJDT(ND)*JNU(ND)- DJDt_OLDt(ND)*JNU_OLDt(ND) )/CHI(ND)
++	ELSE IF(INNER_BND_METH .EQ. 'ZERO_FLUX')THEN
++	  T1= ( R(ND)*R(ND)*EDDF(ND)*JNU(ND) - R(ND-1)*R(ND-1)*EDDF(ND-1)*Q(ND-1)*JNU(ND-1) )
++	1           /DTAU(ND-1)/DTAU(ND-1)
++	  DO L=MAX(1,ND-5),ND
++	    VK(ND,L,1)=VK(ND,L,1)+T1*dTAUdCHI(ND-1,L)
++	  END DO
++	  VK(ND,ND,1)=VK(ND,ND,1) + dRHSdCHI_IB +
++	1               ( PSI(ND)*JNU(ND)- PSIPREV(ND)*JNUM1(ND) )/CHI(ND) +
++	1               ( DJDT(ND)*JNU(ND)- DJDt_OLDt(ND)*JNU_OLDt(ND) )/CHI(ND)
++! Differentiate the same 0.1 inner-boundary stabilizer as forward MOM.
++	  T1=0.1_LDP*R(ND)**2*EDDF(ND)*(JNU(ND)-JPLUS_IB-JMIN_IB)/DTAU(ND-1)**2
++	  VK(ND,:,1)=VK(ND,:,1)+T1*dTAUdCHI(ND-1,:)
++	ELSE IF(INNER_BND_METH .EQ. 'HOLLOW')THEN
++! The caller supplies partials of the total-J hollow boundary equation.
++	  VK(ND,:,1)=0.0_LDP
++	ELSE
++	  I=ERROR_LU()
++	  WRITE(I,*)'Only boundary conditions implemented are DIFFUSION, ZERO_FLUX, & HOLLOW'
++	  WRITE(I,*)'Error occured in EDD_J_HUB_VAR_V2'
++	  WRITE(I,*)'INNER_BND_METH=',TRIM(INNER_BND_METH)
++	  STOP
++	END IF
++!
++! 
++!
++! We compute the variation of the equation which updates the
++! flux variation. We don't correct for the line profile, since
++! we would the require two matrices. Note that HU(I), HL(I),
++! HS(I), and HT(I) depend directly on CHI(I) and CHI(I+1).
++!
++	DO I=1,ND-1
++	  T1=dHUdTAU(I)*JNU(I+1)-dHLdTAU(I)*JNU(I)
++	  DO L=1,ND
++	    RHS_dHdCHI(I,L)=RHS_dHdCHI(I,L)+T1*dTAUdCHI(I,L)
++	  END DO
++	  T1=dHUdCHI(I)*JNU(I+1) - dHLdCHI(I)*JNU(I)
++	1                       + dHSdCHI(I)*RSQ_HNUM1(I)
++	1                       + dHTdCHI(I)*RSQ_HNU_OLDt(I)
++	  RHS_dHdCHI(I,I)=RHS_dHdCHI(I,I) + T1
++	  RHS_dHdCHI(I,I+1)=RHS_dHdCHI(I,I+1) + T1
++	END DO
++!
++	RETURN
++	END
+diff --git a/plane/get_jh_at_prev_time_step.f b/plane/get_jh_at_prev_time_step.f
+--- a/plane/get_jh_at_prev_time_step.f
++++ b/plane/get_jh_at_prev_time_step.f
+@@ -154,6 +154,17 @@
+ ! If we are using an adaptive grid, the Velocity grid will change from iteration to iteration.
+ ! Thus we have to reset the new grid when INIT is TRUE.
+ !
++! The moment grid can change between initialized frequency sweeps.
++	IF(SIZE(LOG_V).NE.ND)THEN
++	 IF(.NOT.INIT)THEN
++	  WRITE(LU_ER,*)'Old-time radiation grid changed inside a frequency sweep'
++	  STOP
++	 END IF
++	 DEALLOCATE(LOG_V,LOG_MIDV,WRK_NEW_H,NEW_J_SAV,NEW_H_SAV)
++	 ALLOCATE(LOG_V(ND),LOG_MIDV(ND+1),WRK_NEW_H(ND+1),NEW_J_SAV(ND),NEW_H_SAV(ND-1))
++	END IF
++! INIT may also change grid coordinates at the same frequency.
++	IF(INIT)NU_SAV=0.0_LDP
+ 	IF(INIT)THEN
+ 	  ND_P1=ND+1
+ 	  LOG_V=LOG(V)
 diff --git a/plane/get_moms_non_rel.f b/plane/get_moms_non_rel.f
 --- a/plane/get_moms_non_rel.f
 +++ b/plane/get_moms_non_rel.f
@@ -1533,6 +2212,336 @@ diff --git a/plane/get_moms_non_rel.f b/plane/get_moms_non_rel.f
  	IF(.NOT. ALLOCATED(K_ON_J))THEN
  	   ALLOCATE (RMID(ND),STAT=IOS)
  !
+diff --git a/plane/get_moms_rel.f b/plane/get_moms_rel.f
+--- a/plane/get_moms_rel.f
++++ b/plane/get_moms_rel.f
+@@ -15,45 +15,142 @@
+ !
+ 	REAL(KIND=LDP) GRSQ(ND_STORE)
+ !
+-	REAL(KIND=LDP) TMP_VEC(1:ND+1)
++	REAL(KIND=LDP) TMP_VEC(1:MAX(ND,ND_STORE+1))
+ 	REAL(KIND=LDP) RSQ_JNU(1:ND)
+ 	REAL(KIND=LDP) RSQ_HNU_MID(1:ND)
+ 	REAL(KIND=LDP) RSQ_NNU_MID(1:ND)
+ !
+ 	REAL(KIND=LDP) T1,T2
+ 	INTEGER, PARAMETER :: IONE=1
+-	INTEGER I
++	INTEGER I,J
+ 	INTEGER NS
+ 	INTEGER NDM1
+ 	INTEGER LUER,ERROR_LU
+ 	EXTERNAL ERROR_LU
+ !
+ 	NS=ND_STORE
+-	IF(.NOT. ALLOCATED(K_ON_J))THEN
+-	   ALLOCATE (RMID(ND))
+-	   ALLOCATE (H_ON_J(ND))
+-	   ALLOCATE (N_ON_J(ND))
+-	   ALLOCATE (K_ON_J(ND))
+-	   ALLOCATE (KMID_ON_J(ND))
+-	   ALLOCATE (NMID_ON_J(ND));    NMID_ON_J=0.0_LDP
+-	   ALLOCATE (NMID_ON_HMID(ND)); NMID_ON_HMID=0.0_LDP
+-	   ALLOCATE (dlnGRSQJdlnR(ND))
+-!
+-	   ALLOCATE (H_ON_J_PREV(ND))
+-	   ALLOCATE (N_ON_J_PREV(ND))
+-	   ALLOCATE (K_ON_J_PREV(ND))
+-	   ALLOCATE (KMID_ON_J_PREV(ND))
+-	   ALLOCATE (NMID_ON_J_PREV(ND));    NMID_ON_J_PREV=0.0_LDP
+-	   ALLOCATE (NMID_ON_HMID_PREV(ND)); NMID_ON_HMID_PREV=0.0_LDP
+-!
+-	   ALLOCATE (H_ON_J_SAVE(ND))
+-	   ALLOCATE (N_ON_J_SAVE(ND))
+-	   ALLOCATE (K_ON_J_SAVE(ND))
+-	   ALLOCATE (KMID_ON_J_SAVE(ND))
+-	   ALLOCATE (NMID_ON_J_SAVE(ND));     NMID_ON_J_SAVE=0.0_LDP
+-	   ALLOCATE (NMID_ON_HMID_SAVE(ND));  NMID_ON_HMID_SAVE=0.0_LDP
+-!
+-	 END IF
++! Allocate every angular array independently: nonrelativistic callers may
++! have allocated only their subset of this shared module.
++	IF(ALLOCATED(RMID))THEN
++	  IF(SIZE(RMID).NE.ND)DEALLOCATE(RMID)
++	END IF
++	IF(.NOT.ALLOCATED(RMID))THEN
++	  ALLOCATE(RMID(ND)); RMID=0.0_LDP
++	END IF
++	IF(ALLOCATED(H_ON_J))THEN
++	  IF(SIZE(H_ON_J).NE.ND)DEALLOCATE(H_ON_J)
++	END IF
++	IF(.NOT.ALLOCATED(H_ON_J))THEN
++	  ALLOCATE(H_ON_J(ND)); H_ON_J=0.0_LDP
++	END IF
++	IF(ALLOCATED(N_ON_J))THEN
++	  IF(SIZE(N_ON_J).NE.ND)DEALLOCATE(N_ON_J)
++	END IF
++	IF(.NOT.ALLOCATED(N_ON_J))THEN
++	  ALLOCATE(N_ON_J(ND)); N_ON_J=0.0_LDP
++	END IF
++	IF(ALLOCATED(K_ON_J))THEN
++	  IF(SIZE(K_ON_J).NE.ND)DEALLOCATE(K_ON_J)
++	END IF
++	IF(.NOT.ALLOCATED(K_ON_J))THEN
++	  ALLOCATE(K_ON_J(ND)); K_ON_J=0.0_LDP
++	END IF
++	IF(ALLOCATED(KMID_ON_J))THEN
++	  IF(SIZE(KMID_ON_J).NE.ND)DEALLOCATE(KMID_ON_J)
++	END IF
++	IF(.NOT.ALLOCATED(KMID_ON_J))THEN
++	  ALLOCATE(KMID_ON_J(ND)); KMID_ON_J=0.0_LDP
++	END IF
++	IF(ALLOCATED(NMID_ON_J))THEN
++	  IF(SIZE(NMID_ON_J).NE.ND)DEALLOCATE(NMID_ON_J)
++	END IF
++	IF(.NOT.ALLOCATED(NMID_ON_J))THEN
++	  ALLOCATE(NMID_ON_J(ND)); NMID_ON_J=0.0_LDP
++	END IF
++	IF(ALLOCATED(NMID_ON_HMID))THEN
++	  IF(SIZE(NMID_ON_HMID).NE.ND)DEALLOCATE(NMID_ON_HMID)
++	END IF
++	IF(.NOT.ALLOCATED(NMID_ON_HMID))THEN
++	  ALLOCATE(NMID_ON_HMID(ND)); NMID_ON_HMID=0.0_LDP
++	END IF
++	IF(ALLOCATED(dlnGRSQJdlnR))THEN
++	  IF(SIZE(dlnGRSQJdlnR).NE.ND)DEALLOCATE(dlnGRSQJdlnR)
++	END IF
++	IF(.NOT.ALLOCATED(dlnGRSQJdlnR))THEN
++	  ALLOCATE(dlnGRSQJdlnR(ND)); dlnGRSQJdlnR=0.0_LDP
++	END IF
++	IF(ALLOCATED(H_ON_J_PREV))THEN
++	  IF(SIZE(H_ON_J_PREV).NE.ND)DEALLOCATE(H_ON_J_PREV)
++	END IF
++	IF(.NOT.ALLOCATED(H_ON_J_PREV))THEN
++	  ALLOCATE(H_ON_J_PREV(ND)); H_ON_J_PREV=0.0_LDP
++	END IF
++	IF(ALLOCATED(N_ON_J_PREV))THEN
++	  IF(SIZE(N_ON_J_PREV).NE.ND)DEALLOCATE(N_ON_J_PREV)
++	END IF
++	IF(.NOT.ALLOCATED(N_ON_J_PREV))THEN
++	  ALLOCATE(N_ON_J_PREV(ND)); N_ON_J_PREV=0.0_LDP
++	END IF
++	IF(ALLOCATED(K_ON_J_PREV))THEN
++	  IF(SIZE(K_ON_J_PREV).NE.ND)DEALLOCATE(K_ON_J_PREV)
++	END IF
++	IF(.NOT.ALLOCATED(K_ON_J_PREV))THEN
++	  ALLOCATE(K_ON_J_PREV(ND)); K_ON_J_PREV=0.0_LDP
++	END IF
++	IF(ALLOCATED(KMID_ON_J_PREV))THEN
++	  IF(SIZE(KMID_ON_J_PREV).NE.ND)DEALLOCATE(KMID_ON_J_PREV)
++	END IF
++	IF(.NOT.ALLOCATED(KMID_ON_J_PREV))THEN
++	  ALLOCATE(KMID_ON_J_PREV(ND)); KMID_ON_J_PREV=0.0_LDP
++	END IF
++	IF(ALLOCATED(NMID_ON_J_PREV))THEN
++	  IF(SIZE(NMID_ON_J_PREV).NE.ND)DEALLOCATE(NMID_ON_J_PREV)
++	END IF
++	IF(.NOT.ALLOCATED(NMID_ON_J_PREV))THEN
++	  ALLOCATE(NMID_ON_J_PREV(ND)); NMID_ON_J_PREV=0.0_LDP
++	END IF
++	IF(ALLOCATED(NMID_ON_HMID_PREV))THEN
++	  IF(SIZE(NMID_ON_HMID_PREV).NE.ND)DEALLOCATE(NMID_ON_HMID_PREV)
++	END IF
++	IF(.NOT.ALLOCATED(NMID_ON_HMID_PREV))THEN
++	  ALLOCATE(NMID_ON_HMID_PREV(ND)); NMID_ON_HMID_PREV=0.0_LDP
++	END IF
++	IF(ALLOCATED(H_ON_J_SAVE))THEN
++	  IF(SIZE(H_ON_J_SAVE).NE.ND)DEALLOCATE(H_ON_J_SAVE)
++	END IF
++	IF(.NOT.ALLOCATED(H_ON_J_SAVE))THEN
++	  ALLOCATE(H_ON_J_SAVE(ND)); H_ON_J_SAVE=0.0_LDP
++	END IF
++	IF(ALLOCATED(N_ON_J_SAVE))THEN
++	  IF(SIZE(N_ON_J_SAVE).NE.ND)DEALLOCATE(N_ON_J_SAVE)
++	END IF
++	IF(.NOT.ALLOCATED(N_ON_J_SAVE))THEN
++	  ALLOCATE(N_ON_J_SAVE(ND)); N_ON_J_SAVE=0.0_LDP
++	END IF
++	IF(ALLOCATED(K_ON_J_SAVE))THEN
++	  IF(SIZE(K_ON_J_SAVE).NE.ND)DEALLOCATE(K_ON_J_SAVE)
++	END IF
++	IF(.NOT.ALLOCATED(K_ON_J_SAVE))THEN
++	  ALLOCATE(K_ON_J_SAVE(ND)); K_ON_J_SAVE=0.0_LDP
++	END IF
++	IF(ALLOCATED(KMID_ON_J_SAVE))THEN
++	  IF(SIZE(KMID_ON_J_SAVE).NE.ND)DEALLOCATE(KMID_ON_J_SAVE)
++	END IF
++	IF(.NOT.ALLOCATED(KMID_ON_J_SAVE))THEN
++	  ALLOCATE(KMID_ON_J_SAVE(ND)); KMID_ON_J_SAVE=0.0_LDP
++	END IF
++	IF(ALLOCATED(NMID_ON_J_SAVE))THEN
++	  IF(SIZE(NMID_ON_J_SAVE).NE.ND)DEALLOCATE(NMID_ON_J_SAVE)
++	END IF
++	IF(.NOT.ALLOCATED(NMID_ON_J_SAVE))THEN
++	  ALLOCATE(NMID_ON_J_SAVE(ND)); NMID_ON_J_SAVE=0.0_LDP
++	END IF
++	IF(ALLOCATED(NMID_ON_HMID_SAVE))THEN
++	  IF(SIZE(NMID_ON_HMID_SAVE).NE.ND)DEALLOCATE(NMID_ON_HMID_SAVE)
++	END IF
++	IF(.NOT.ALLOCATED(NMID_ON_HMID_SAVE))THEN
++	  ALLOCATE(NMID_ON_HMID_SAVE(ND)); NMID_ON_HMID_SAVE=0.0_LDP
++	END IF
+ !
+ 	 DO I=1,ND-1
+ 	   RMID(I)=0.5_LDP*(R(I)+R(I+1))
+@@ -112,49 +209,27 @@
+ !	
+ 	ELSE
+ !
+-! Compute H & N at the grid nodes.
+-!
++! Compute stored midpoint moments before interpolating them to target nodes.
++! Stored-grid gamma/radius factors are indexed by NS; output by ND.
+ 	  I=NS+1
+-	  TMP_VEC(1)=GRSQ(1)*HNU_AT_OB; TMP_VEC(NS+1)=GRSQ(ND)*HNU_AT_IB
+-	  TMP_VEC(2:NS)=RSQ_HNU_MID(1:NS-1)
++	  TMP_VEC(1)=GRSQ(1)*HNU_AT_OB; TMP_VEC(NS+1)=GRSQ(NS)*HNU_AT_IB
++	  DO J=1,NS-1
++	    T1=0.5_LDP*(GAM_REL_STORE(J)+GAM_REL_STORE(J+1))
++	    TMP_VEC(J+1)=T1*RMID_STORE(J)**2*HNU_STORE(J)
++	  END DO
+ 	  CALL MON_INTERP(H_ON_J,ND,IONE,R,ND,TMP_VEC,I,EXT_RMID_STORE,I)
+-!
+-	  TMP_VEC(1)=GRSQ(1)*NNU_AT_OB; TMP_VEC(NS+1)=GRSQ(ND)*NNU_AT_IB
+-	  TMP_VEC(2:NS)=RSQ_NNU_MID(1:NS-1)
++	  H_ON_J(1:ND)=H_ON_J(1:ND)/RSQ_JNU(1:ND)
++	  H_ON_J(1:ND)=MAX(-1.0_LDP,MIN(1.0_LDP,H_ON_J(1:ND)))
++	  CALL MON_INTERP(RSQ_HNU_MID,NDM1,IONE,RMID,NDM1,TMP_VEC,I,EXT_RMID_STORE,I)
++!
++	  TMP_VEC(1)=GRSQ(1)*NNU_AT_OB; TMP_VEC(NS+1)=GRSQ(NS)*NNU_AT_IB
++	  DO J=1,NS-1
++	    T1=0.5_LDP*(GAM_REL_STORE(J)+GAM_REL_STORE(J+1))
++	    TMP_VEC(J+1)=T1*RMID_STORE(J)**2*NNU_STORE(J)
++	  END DO
+ 	  CALL MON_INTERP(N_ON_J,ND,IONE,R,ND,TMP_VEC,I,EXT_RMID_STORE,I)
+-!
+-	  DO I=1,ND
+-	    H_ON_J(I)=MIN(1.0_LDP,H_ON_J(I))
+-	    H_ON_J(I)=MAX(-1.0_LDP,H_ON_J(I))
+-   	  END DO
+-!
+-	  IF(ND .EQ. NS)THEN
+-
+-	    DO I=1,NS-1
+-	      T1=0.5_LDP*(GAM_REL_STORE(I)+GAM_REL_STORE(I+1))
+-	      RSQ_HNU_MID(I)=T1*RMID_STORE(I)*RMID_STORE(I)*HNU_STORE(I)
+-	      RSQ_NNU_MID(I)=T1*RMID_STORE(I)*RMID_STORE(I)*NNU_STORE(I)
+-	    END DO
+-!
+-	  ELSE
+-!
+-! Compute H/J at the mid points in the `new grid.
+-!
+-	    I=NS+1
+-	    TMP_VEC(1)=GRSQ(1)*HNU_AT_OB; TMP_VEC(NS+1)=GRSQ(NS)*HNU_AT_IB
+-	    DO I=1,NS-1
+-	      T1=0.5_LDP*(GAM_REL_STORE(I)+GAM_REL_STORE(I+1))
+-	      TMP_VEC(I+1)=T1*RMID_STORE(I)*RMID_STORE(I)*HNU_STORE(I)
+-	    END DO
+-	    CALL MON_INTERP(RSQ_HNU_MID,ND,IONE,RMID,ND,TMP_VEC,I,EXT_RMID_STORE,I)
+-!
+-	    TMP_VEC(1)=GRSQ(1)*NNU_AT_OB; TMP_VEC(NS+1)=GRSQ(NS)*NNU_AT_IB
+-	    DO I=1,NS-1
+-	      T1=0.5_LDP*(GAM_REL_STORE(I)+GAM_REL_STORE(I+1))
+-	      TMP_VEC(I+1)=T1*RMID_STORE(I)*RMID_STORE(I)*NNU_STORE(I)
+-	    END DO
+-	    CALL MON_INTERP(RSQ_NNU_MID,ND,IONE,RMID,ND,TMP_VEC,I,EXT_RMID_STORE,I)
+-	  END IF
++	  N_ON_J(1:ND)=N_ON_J(1:ND)/RSQ_JNU(1:ND)
++	  CALL MON_INTERP(RSQ_NNU_MID,NDM1,IONE,RMID,NDM1,TMP_VEC,I,EXT_RMID_STORE,I)
+ !
+ 	END IF
+ !
+diff --git a/plane/mod_var_jrel_v2.f b/plane/mod_var_jrel_v2.f
+--- a/plane/mod_var_jrel_v2.f
++++ b/plane/mod_var_jrel_v2.f
+@@ -56,6 +56,7 @@
+ 	REAL(KIND=LDP), ALLOCATABLE :: dRHSdJ(:)
+ 	REAL(KIND=LDP), ALLOCATABLE :: DERIV_SCL_FAC(:)
+ !
++	REAL(KIND=LDP), SAVE :: HOLLOW_HMIN_PREV=0.0_LDP
+ 	INTEGER ND_SAV
+ !
+ 	END MODULE MOD_VAR_JREL_V2
+@@ -74,6 +75,77 @@
+ !
+ 	LUER=ERROR_LU()
+ !
++	IF(ALLOCATED(JNU))THEN
++	 IF(SIZE(JNU).NE.ND)THEN
++	  IF(ALLOCATED(AV_SIGMA))DEALLOCATE(AV_SIGMA)
++	  IF(ALLOCATED(BETA))DEALLOCATE(BETA)
++	  IF(ALLOCATED(BETA_FREQ))DEALLOCATE(BETA_FREQ)
++	  IF(ALLOCATED(GAM_RSQ))DEALLOCATE(GAM_RSQ)
++	  IF(ALLOCATED(GAM_REL))DEALLOCATE(GAM_REL)
++	  IF(ALLOCATED(GAM_REL_SQ))DEALLOCATE(GAM_REL_SQ)
++	  IF(ALLOCATED(CON_DELTA))DEALLOCATE(CON_DELTA)
++	  IF(ALLOCATED(CON_DELTAH))DEALLOCATE(CON_DELTAH)
++	  IF(ALLOCATED(CON_dKdNUH))DEALLOCATE(CON_dKdNUH)
++	  IF(ALLOCATED(CON_dNdNUH))DEALLOCATE(CON_dNdNUH)
++	  IF(ALLOCATED(CON_dKdNU))DEALLOCATE(CON_dKdNU)
++	  IF(ALLOCATED(CON_dHdNU))DEALLOCATE(CON_dHdNU)
++	  IF(ALLOCATED(JNU))DEALLOCATE(JNU)
++	  IF(ALLOCATED(JNU_PREV))DEALLOCATE(JNU_PREV)
++	  IF(ALLOCATED(GAM_RSQHNU))DEALLOCATE(GAM_RSQHNU)
++	  IF(ALLOCATED(GAM_RSQHNU_PREV))DEALLOCATE(GAM_RSQHNU_PREV)
++	  IF(ALLOCATED(TA))DEALLOCATE(TA)
++	  IF(ALLOCATED(TB))DEALLOCATE(TB)
++	  IF(ALLOCATED(TC))DEALLOCATE(TC)
++	  IF(ALLOCATED(CHI_H))DEALLOCATE(CHI_H)
++	  IF(ALLOCATED(CHI_J))DEALLOCATE(CHI_J)
++	  IF(ALLOCATED(DTAU_H))DEALLOCATE(DTAU_H)
++	  IF(ALLOCATED(DTAU_J))DEALLOCATE(DTAU_J)
++	  IF(ALLOCATED(GAM_RSQ_DTAUONQ))DEALLOCATE(GAM_RSQ_DTAUONQ)
++	  IF(ALLOCATED(Q))DEALLOCATE(Q)
++	  IF(ALLOCATED(XM))DEALLOCATE(XM)
++	  IF(ALLOCATED(SOURCE))DEALLOCATE(SOURCE)
++	  IF(ALLOCATED(VB))DEALLOCATE(VB)
++	  IF(ALLOCATED(VC))DEALLOCATE(VC)
++	  IF(ALLOCATED(COH_VEC))DEALLOCATE(COH_VEC)
++	  IF(ALLOCATED(HU))DEALLOCATE(HU)
++	  IF(ALLOCATED(HL))DEALLOCATE(HL)
++	  IF(ALLOCATED(HS))DEALLOCATE(HS)
++	  IF(ALLOCATED(HD))DEALLOCATE(HD)
++	  IF(ALLOCATED(P_H))DEALLOCATE(P_H)
++	  IF(ALLOCATED(P_J))DEALLOCATE(P_J)
++	  IF(ALLOCATED(VdJdR_TERM))DEALLOCATE(VdJdR_TERM)
++	  IF(ALLOCATED(VdHdR_TERM))DEALLOCATE(VdHdR_TERM)
++	  IF(ALLOCATED(DELTA))DEALLOCATE(DELTA)
++	  IF(ALLOCATED(DELTAH))DEALLOCATE(DELTAH)
++	  IF(ALLOCATED(W))DEALLOCATE(W)
++	  IF(ALLOCATED(WPREV))DEALLOCATE(WPREV)
++	  IF(ALLOCATED(PSI))DEALLOCATE(PSI)
++	  IF(ALLOCATED(PSIPREV))DEALLOCATE(PSIPREV)
++	  IF(ALLOCATED(PSIPREV_MOD))DEALLOCATE(PSIPREV_MOD)
++	  IF(ALLOCATED(EPS_A))DEALLOCATE(EPS_A)
++	  IF(ALLOCATED(EPS_B))DEALLOCATE(EPS_B)
++	  IF(ALLOCATED(EPS_PREV_A))DEALLOCATE(EPS_PREV_A)
++	  IF(ALLOCATED(EPS_PREV_B))DEALLOCATE(EPS_PREV_B)
++	  IF(ALLOCATED(GAM_RSQJNU_PREV))DEALLOCATE(GAM_RSQJNU_PREV)
++	  IF(ALLOCATED(TA_SAV))DEALLOCATE(TA_SAV)
++	  IF(ALLOCATED(TB_SAV))DEALLOCATE(TB_SAV)
++	  IF(ALLOCATED(TC_SAV))DEALLOCATE(TC_SAV)
++	  IF(ALLOCATED(XM_SAV))DEALLOCATE(XM_SAV)
++	  IF(ALLOCATED(TX_OLD_d_T))DEALLOCATE(TX_OLD_d_T)
++	  IF(ALLOCATED(TX_OLD_d_dTdR))DEALLOCATE(TX_OLD_d_dTdR)
++	  IF(ALLOCATED(dTAUdCHI_H))DEALLOCATE(dTAUdCHI_H)
++	  IF(ALLOCATED(dTAUdCHI_J))DEALLOCATE(dTAUdCHI_J)
++	  IF(ALLOCATED(dHUdCHI))DEALLOCATE(dHUdCHI)
++	  IF(ALLOCATED(dHLdCHI))DEALLOCATE(dHLdCHI)
++	  IF(ALLOCATED(dHSdCHI))DEALLOCATE(dHSdCHI)
++	  IF(ALLOCATED(dHUdTAU))DEALLOCATE(dHUdTAU)
++	  IF(ALLOCATED(dHLdTAU))DEALLOCATE(dHLdTAU)
++	  IF(ALLOCATED(EPS_FAC))DEALLOCATE(EPS_FAC)
++	  IF(ALLOCATED(dRHSdI))DEALLOCATE(dRHSdI)
++	  IF(ALLOCATED(dRHSdJ))DEALLOCATE(dRHSdJ)
++	  IF(ALLOCATED(DERIV_SCL_FAC))DEALLOCATE(DERIV_SCL_FAC)
++	 END IF
++	END IF
+ 	IF(.NOT. ALLOCATED(AV_SIGMA))THEN
+ !
+ 	  ND_SAV=ND
 diff --git a/plane/mod_var_mom_j_cmf.f b/plane/mod_var_mom_j_cmf.f
 --- a/plane/mod_var_mom_j_cmf.f
 +++ b/plane/mod_var_mom_j_cmf.f
@@ -1575,20 +2584,23 @@ diff --git a/plane/mom_j_cmf_v11.f b/plane/mom_j_cmf_v11.f
  !
  ! R_PNT(K) defines the interpolation for the variable at depth K.
  !
-@@ -81,6 +93,46 @@
+@@ -81,6 +93,49 @@
  	LOGICAL FIRST_TIME
  	DATA FIRST_TIME/.TRUE./
  	DATA VDOP_FRAC_SAVE/-10001.1_LDP/    !Absurd value
 +!
 +	CONTAINS
-+	SUBROUTINE ALLOCATE_MOM_VARIATIONS(NMODEL,NM,RESET)
-+	INTEGER NMODEL,NM,LU
++	SUBROUTINE ALLOCATE_MOM_VARIATIONS(NMODEL,NM,RESET,NGRID)
++	INTEGER NMODEL,NM,LU,NF
++	INTEGER, OPTIONAL :: NGRID
 +	INTEGER ERROR_LU
 +	EXTERNAL ERROR_LU
 +	LOGICAL RESET,CHANGED
++	NF=ND
++	IF(PRESENT(NGRID))NF=NGRID
 +	CHANGED=.FALSE.
 +	IF(ALLOCATED(GRID_TX))THEN
-+	  CHANGED=SIZE(GRID_TX,1).NE.ND .OR. SIZE(GRID_TX,2).NE.NMODEL .OR. SIZE(GRID_TX,3).NE.NM
++	  CHANGED=SIZE(GRID_TX,1).NE.NF .OR. SIZE(GRID_TX,2).NE.NMODEL .OR. SIZE(GRID_TX,3).NE.NM
 +	  IF(CHANGED)THEN
 +	    IF(.NOT.RESET)THEN
 +	      LU=ERROR_LU(); WRITE(LU,*)'Moment variation grid changed within a frequency sweep'
@@ -1599,11 +2611,11 @@ diff --git a/plane/mom_j_cmf_v11.f b/plane/mom_j_cmf_v11.f
 +	  END IF
 +	END IF
 +	IF(.NOT.ALLOCATED(GRID_TX))THEN
-+	  ALLOCATE(GRID_TX(ND,NMODEL,NM),GRID_TVX(ND-1,NMODEL,NM),
-+	1    GRID_DT(ND),GRID_DG(ND),GRID_HT(ND-1),GRID_HG(ND-1),
-+	1    GRID_KI(ND,ND,2),GRID_RHS(ND-1,ND),GRID_WM(ND,ND),
-+	1    GRID_ESC(ND,NMODEL),GRID_ESC_H(ND-1,NMODEL),GRID_ETA(ND),GRID_THETA(ND),
-+	1    GRID_PCHI(ND,NMODEL),GRID_PETA(ND,NMODEL),GRID_PESC(ND,NMODEL))
++	  ALLOCATE(GRID_TX(NF,NMODEL,NM),GRID_TVX(NF-1,NMODEL,NM),
++	1    GRID_DT(NF),GRID_DG(NF),GRID_HT(NF-1),GRID_HG(NF-1),
++	1    GRID_KI(NF,NF,2),GRID_RHS(NF-1,NF),GRID_WM(NF,NF),
++	1    GRID_ESC(NF,NMODEL),GRID_ESC_H(NF-1,NMODEL),GRID_ETA(NF),GRID_THETA(NF),
++	1    GRID_PCHI(NF,NMODEL),GRID_PETA(NF,NMODEL),GRID_PESC(NF,NMODEL))
 +	  GRID_TX=0.0_LDP; GRID_TVX=0.0_LDP
 +	  GRID_DT=0.0_LDP; GRID_DG=0.0_LDP; GRID_HT=0.0_LDP; GRID_HG=0.0_LDP
 +	END IF
@@ -1622,7 +2634,7 @@ diff --git a/plane/mom_j_cmf_v11.f b/plane/mom_j_cmf_v11.f
  !
  	END MODULE MOD_MOM_J_V11
  !
-@@ -192,6 +244,9 @@
+@@ -192,6 +247,9 @@
  !
  	NEW_R_GRID=.FALSE.
  	IF(INIT .AND. ALLOCATED(R))THEN
@@ -1632,7 +2644,7 @@ diff --git a/plane/mom_j_cmf_v11.f b/plane/mom_j_cmf_v11.f
  	  DO I=1,ND_SM
  	    IF(LOG(R_SM(I)) .NE. LOG_R_SM(I))THEN
  	      NEW_R_GRID=.TRUE.
-@@ -200,6 +255,7 @@
+@@ -200,6 +258,7 @@
  	      EXIT
  	    END IF
  	  END DO
@@ -1640,7 +2652,7 @@ diff --git a/plane/mom_j_cmf_v11.f b/plane/mom_j_cmf_v11.f
            IF(VDOP_FRAC .NE. VDOP_FRAC_SAVE)NEW_R_GRID=.TRUE.
  	END IF
  	IF(FIRST_TIME)THEN
-@@ -794,6 +850,202 @@
+@@ -794,6 +853,343 @@
  	HBC_SAVE=HBC
  	IN_HBC_SAVE=IN_HBC
  	NBC_SAVE=NBC
@@ -1727,7 +2739,17 @@ diff --git a/plane/mom_j_cmf_v11.f b/plane/mom_j_cmf_v11.f
 +	END DO
 +	P=0.0_LDP
 +	DO I=1,NF
-+	  K=POS(I); T1=LOG(RF(I)/RSM(K)); Z=T1/H(K)
++	  K=POS(I)
++! Model nodes have an exact single-column response. Avoid spurious
++! roundoff-size couplings from evaluating the endpoint cubic at Z~1.
++	  IF(RF(I).EQ.RSM(K))THEN
++	    P(I,K)=YF(I)/Y(K)
++	    CYCLE
++	  ELSE IF(RF(I).EQ.RSM(K+1))THEN
++	    P(I,K+1)=YF(I)/Y(K+1)
++	    CYCLE
++	  END IF
++	  T1=LOG(RF(I)/RSM(K)); Z=T1/H(K)
 +	  WT0=2*Z**3-3*Z**2+ONE; WT1=-2*Z**3+3*Z**2
 +	  WTD0=(Z**3-2*Z**2+Z)*H(K); WTD1=(Z**3-Z**2)*H(K)
 +	  P(I,:)=WTD0*DD(K,:)+WTD1*DD(K+1,:)
@@ -1740,8 +2762,8 @@ diff --git a/plane/mom_j_cmf_v11.f b/plane/mom_j_cmf_v11.f
 +!
 +! Differentiate the actual NORDTAU/DERIVCHI quadrature on the fine grid.
 +! The legacy three-diagonal approximation omits boundary slope dependencies
-+! and uses approximate limiter switches; it is deliberately unchanged for
-+! unrefined callers. This entry keeps all dependencies, including endpoints.
++! and uses approximate limiter switches. Both refined and ordinary callers
++! now use this entry, retaining all dependencies including endpoints.
 +	SUBROUTINE MOM_GRID_DTAU_JAC(CHI,Q,R,N,METHOD,P)
 +	USE SET_KIND_MODULE
 +	IMPLICIT NONE
@@ -1843,10 +2865,1181 @@ diff --git a/plane/mom_j_cmf_v11.f b/plane/mom_j_cmf_v11.f
 +	  P(I,I)=P(I,I)+ALPHA*Q(I); P(I,I+1)=P(I,I+1)+ALPHA*Q(I+1)
 +	END DO
 +	END
++
++! Derivative of MON_INTERP(log(Y), R) for relativistic transport.
++	SUBROUTINE MON_LINEAR_LOG_GRID_JAC(Y,YF,RSM,XSM,RF,POS,NC,NF,P)
++	USE SET_KIND_MODULE
++	IMPLICIT NONE
++	INTEGER NC,NF,POS(NF),I,J,K,LU,ERROR_LU
++	EXTERNAL ERROR_LU
++	REAL(KIND=LDP) Y(NC),YF(NF),RSM(NC),XSM(NC),RF(NF),P(NF,NC)
++	REAL(KIND=LDP) H(NC),S(NC),D(NC),DS(NC,NC),DD(NC,NC),LY(NC)
++	REAL(KIND=LDP) A,B,C,FAC,ONE,Z,T1,WT0,WT1,WTD0,WTD1
++	ONE=1.0_LDP
++	IF(NC.LT.3 .OR. ANY(Y.LE.0.0_LDP))THEN
++	  LU=ERROR_LU(); WRITE(LU,*)'Invalid positive grid in MON_LOG_GRID_JAC'
++	  STOP
++	END IF
++	LY=LOG(Y); DS=0.0_LDP; DD=0.0_LDP
++	DO I=1,NC-1
++	  H(I)=XSM(I+1)-XSM(I)
++	  S(I)=(LY(I+1)-LY(I))/H(I)
++	  DS(I,I)=-ONE/H(I); DS(I,I+1)=ONE/H(I)
++	END DO
++	D(1)=S(1)+(S(1)-S(2))*H(1)/(H(1)+H(2))
++	DD(1,:)=DS(1,:)+(DS(1,:)-DS(2,:))*H(1)/(H(1)+H(2))
++	DO I=2,NC-1
++	  D(I)=(S(I-1)*H(I)+S(I)*H(I-1))/(H(I-1)+H(I))
++	  DD(I,:)=(DS(I-1,:)*H(I)+DS(I,:)*H(I-1))/(H(I-1)+H(I))
++	END DO
++	D(NC)=S(NC-1)+(S(NC-1)-S(NC-2))*H(NC-1)/(H(NC-2)+H(NC-1))
++	DD(NC,:)=DS(NC-1,:)+(DS(NC-1,:)-DS(NC-2,:))*H(NC-1)/(H(NC-2)+H(NC-1))
++	DO I=1,NC
++	  IF(I.EQ.1 .OR. I.EQ.NC)THEN
++	    K=1
++	    IF(I.EQ.NC)K=NC-1
++	    FAC=SIGN(ONE,S(K))+SIGN(ONE,D(I)); A=ABS(S(K)); C=0.5_LDP*ABS(D(I))
++	    IF(A.EQ.0.0_LDP .AND. C.EQ.0.0_LDP)THEN
++	      DD(I,:)=0.0_LDP
++	    ELSE IF(A.LE.C)THEN
++	      DD(I,:)=FAC*SIGN(ONE,S(K))*DS(K,:)
++	    ELSE
++	      DD(I,:)=FAC*0.5_LDP*SIGN(ONE,D(I))*DD(I,:)
++	    END IF
++	  ELSE
++	    FAC=SIGN(ONE,S(I-1))+SIGN(ONE,S(I))
++	    A=ABS(S(I-1)); B=ABS(S(I)); C=0.5_LDP*ABS(D(I))
++	    IF(FAC.EQ.0.0_LDP .OR. MAX(A,B,C).EQ.0.0_LDP)THEN
++	      DD(I,:)=0.0_LDP
++	    ELSE IF(A.LE.B .AND. A.LE.C)THEN
++	      DD(I,:)=FAC*SIGN(ONE,S(I-1))*DS(I-1,:)
++	    ELSE IF(B.LE.C)THEN
++	      DD(I,:)=FAC*SIGN(ONE,S(I))*DS(I,:)
++	    ELSE
++	      DD(I,:)=FAC*0.5_LDP*SIGN(ONE,D(I))*DD(I,:)
++	    END IF
++	  END IF
++	END DO
++	P=0.0_LDP
++	DO I=1,NF
++	  K=POS(I)
++! Model nodes have an exact single-column response. Avoid spurious
++! roundoff-size couplings from evaluating the endpoint cubic at Z~1.
++	  IF(RF(I).EQ.RSM(K))THEN
++	    P(I,K)=YF(I)/Y(K)
++	    CYCLE
++	  ELSE IF(RF(I).EQ.RSM(K+1))THEN
++	    P(I,K+1)=YF(I)/Y(K+1)
++	    CYCLE
++	  END IF
++	  T1=RF(I)-RSM(K); Z=T1/H(K)
++	  WT0=2*Z**3-3*Z**2+ONE; WT1=-2*Z**3+3*Z**2
++	  WTD0=(Z**3-2*Z**2+Z)*H(K); WTD1=(Z**3-Z**2)*H(K)
++	  P(I,:)=WTD0*DD(K,:)+WTD1*DD(K+1,:)
++	  P(I,K)=P(I,K)+WT0; P(I,K+1)=P(I,K+1)+WT1
++	  DO J=MAX(1,K-1),MIN(NC,K+2)
++	    P(I,J)=P(I,J)*YF(I)/Y(J)
++	  END DO
++	END DO
++	END
++! Compose the actual EXTEND3OPAC log-value map with internal moment insertion.
++	SUBROUTINE BUILD_EXTENDED_MOM_JAC(CM,EM,SM,CE,EE,SE,RE,JE,COEF,INDX,NC,NE,COHERENT)
++	USE SET_KIND_MODULE
++	USE MOD_MOM_J_V11, ONLY: NF=>ND,RF=>R,CF=>CHI,SF=>ESEC,R_PNT,LOG_R_SM,
++	1 GRID_ETA,GRID_PCHI,GRID_PETA,GRID_PESC
++	IMPLICIT NONE
++	INTEGER NC,NE,INDX(NE),I,J,K
++	REAL(KIND=LDP) CM(NC),EM(NC),SM(NC),CE(NE),EE(NE),SE(NE),RE(NE),JE(NE),COEF(0:3,NE)
++	REAL(KIND=LDP) PC(NE,NC),PE(NE,NC),PS(NE,NC),PF(NF,NE),ETOT(NE)
++	LOGICAL COHERENT
++	PC=0.0_LDP; PE=0.0_LDP; PS=0.0_LDP
++	DO I=1,NE
++	 DO J=0,3
++	  K=INDX(I)+J
++	  PC(I,K)=PC(I,K)+CE(I)*COEF(J,I)/CM(K)
++	  PE(I,K)=PE(I,K)+EE(I)*COEF(J,I)/EM(K)
++	  PS(I,K)=PS(I,K)+SE(I)*COEF(J,I)/SM(K)
++	 END DO
++	END DO
++	CALL MON_LOG_GRID_JAC(CE,CF,RE,LOG_R_SM,RF,R_PNT,NE,NF,PF)
++	GRID_PCHI=MATMUL(PF,PC)
++	ETOT=EE
++	IF(.NOT.COHERENT)ETOT=ETOT+SE*JE
++	CALL MON_LOG_GRID_VALUE(ETOT,RE,LOG_R_SM,RF,R_PNT,NE,NF,GRID_ETA)
++	CALL MON_LOG_GRID_JAC(ETOT,GRID_ETA,RE,LOG_R_SM,RF,R_PNT,NE,NF,PF)
++	GRID_PETA=MATMUL(PF,PE)
++	IF(COHERENT)THEN
++	 CALL MON_LOG_GRID_JAC(SE,SF,RE,LOG_R_SM,RF,R_PNT,NE,NF,PF)
++	ELSE
++	 DO I=1,NE
++	  PS(I,:)=PS(I,:)*JE(I)
++	 END DO
++	END IF
++	GRID_PESC=MATMUL(PF,PS)
++	END
++!
++! Fixed geometric projection for model flux locations, including odd first
++! extensions where the model midpoint is not an extended-grid midpoint.
++	SUBROUTINE MOM_MODEL_H_MAP(RM,NC,RF,NF,LEFT,RIGHT,WL,WR)
++	USE SET_KIND_MODULE
++	IMPLICIT NONE
++	INTEGER NC,NF,LEFT(NC-1),RIGHT(NC-1),I,K
++	REAL(KIND=LDP) RM(NC),RF(NF),WL(NC-1),WR(NC-1),X,A,B
++	DO I=1,NC-1
++	 X=0.5_LDP*(RM(I)+RM(I+1)); K=1
++	 DO WHILE(K.LT.NF-2)
++	  IF(X.GE.0.5_LDP*(RF(K+1)+RF(K+2)))EXIT
++	  K=K+1
++	 END DO
++	 A=0.5_LDP*(RF(K)+RF(K+1)); B=0.5_LDP*(RF(K+1)+RF(K+2))
++	 LEFT(I)=K; RIGHT(I)=K+1
++	 WL(I)=(X-B)/(A-B); WR(I)=1.0_LDP-WL(I)
++	END DO
++	END
+diff --git a/plane/mom_j_ddt_v6.f b/plane/mom_j_ddt_v6.f
+--- a/plane/mom_j_ddt_v6.f
++++ b/plane/mom_j_ddt_v6.f
+@@ -5,6 +5,10 @@
+ 	MODULE MOD_MOM_J_DDT_V6
+ 	USE SET_KIND_MODULE
+ 	IMPLICIT NONE
++	REAL(KIND=LDP) MODEL_FREQ
++	DATA MODEL_FREQ/0.0_LDP/
++	LOGICAL MODEL_VALID
++	DATA MODEL_VALID/.FALSE./
+ !
+ ! Dimensioned ND_SM,4
+ ! ND_SM is the depth dimension passed to the routine, and hence is the same
+@@ -104,6 +108,7 @@
+ 	INTEGER, ALLOCATABLE :: H_INDX(:)
+ !
+ 	INTEGER ND
++	DATA ND/0/
+ 	INTEGER, SAVE :: LU_MOM
+ 	INTEGER, SAVE :: ND_SAV=0
+ 	INTEGER, SAVE :: ND_SM_SAV=0
+@@ -514,6 +519,12 @@
+             T1=LOG(R(I)/R_SM(K))
+             V(I)=((V_COEF(K,1)*T1+V_COEF(K,2))*T1+V_COEF(K,3))*T1+V_COEF(K,4)
+           END DO
++! Preserve a supplied homologous velocity law exactly on inserted radii.
++! Polynomial interpolation of V against log(R) otherwise breaks V/R=constant.
++	  T2=V_SM(ND_SM)/R_SM(ND_SM)
++	  IF(ND.GT.ND_SM .AND. MAXVAL(ABS(V_SM-T2*R_SM)).LE.
++	1       32.0_LDP*EPSILON(T2)*MAXVAL(ABS(V_SM)))V=T2*R
++
+ !
+ 	  K=1
+ 	  DO I=1,ND_SM
+@@ -783,7 +794,8 @@
+ !
+ 	TA(1)=0.0_LDP
+ 	DJDt(1)=RECIP_CDELTAT/CHI(1)
+-	IF(INIT)DJDt(1)=0.0_LDP
++! INIT starts the frequency sweep, not a steady-state time step.
++! The temporal outer-boundary term remains active when DO_TIME_VAR is true.
+ 	IF(OUTER_BND_METH .EQ. 'HONJ')THEN
+ 	  HONJ_OUTBC=(HPLUS_OB-HMIN_OB)/(JPLUS_OB+JMIN_OB)
+ 	  PSI(1)=GAM(1)*HONJ_OUTBC
+@@ -803,7 +815,8 @@
+ 	  XM(1)=PSIPREV(1)*RSQJNU_PREV(1) + DJDt(1)*RSQJNU_OLDt(1)*ROLD_ON_R*HONJ_OUTBC_OLDT
+ !
+ 	  TB(1)=TB(1)+0.1_LDP*F(1)*Q(1)/DTAU(1)
+-	  XM(1)=XM(1)+0.1_LDP*F(1)*Q(1)*(JPLUS_OB+JMIN_OB)/DTAU(1)
++	  ! XM is r^2 J, so the stabilizing ray intensity needs the same r^2.
++	  XM(1)=XM(1)+0.1_LDP*F(1)*Q(1)*R(1)**2*(JPLUS_OB+JMIN_OB)/DTAU(1)
+ !
+ 	ELSE IF(OUTER_BND_METH .EQ. 'HALF_MOM')THEN
+ 	  MOD_DTAU=0.5_LDP*(CHI(1)+CHI(2))*(R(1)-R(2))
+@@ -856,6 +869,8 @@
+ ! away).
+ !
+ 	ELSE IF(INNER_BND_METH .EQ. 'HOLLOW')THEN
++! The inward intensity also carries the current-time flux term.
++	  DJDt(ND)=RECIP_CDELTAT/CHI(ND)
+ 	  T1=R(ND)*R(ND)
+ 	  HMIN=HMIN_IB/JMIN_IB
+ 	  FPLUS=KPLUS_IB/JPLUS_IB
+@@ -1011,6 +1026,7 @@
+ 	HONJ_OUTBC_SAV=HONJ_OUTBC
+ 	RSQH_AT_IB_SAV=RSQH_AT_IB
+ 	RSQH_AT_OB_SAV=RSQH_AT_OB
++	MODEL_FREQ=FREQ; MODEL_VALID=.TRUE.
+ 	FIRST_TIME=.FALSE.
+ !
+ 	HFLUX_AT_IB=RSQH_AT_IB/R(ND)/R(ND)
+diff --git a/plane/mom_jrel_v9.f b/plane/mom_jrel_v9.f
+--- a/plane/mom_jrel_v9.f
++++ b/plane/mom_jrel_v9.f
+@@ -3,6 +3,7 @@
+ 	IMPLICIT NONE
+ !
+ 	INTEGER ND
++	DATA ND/0/
+ 	INTEGER ND_SAV
+ 	INTEGER MOM_ERR_CNT
+ 	INTEGER, PARAMETER :: N_ERR_MAX=1000
+@@ -66,6 +67,7 @@
+ 	REAL(KIND=LDP), ALLOCATABLE :: EPS(:),EPS_PREV(:)
+ !
+ 	REAL(KIND=LDP) FREQ_SAVE
++	DATA FREQ_SAVE/0.0_LDP/
+ 	REAL(KIND=LDP) IN_NBC_SAVE
+ 	REAL(KIND=LDP) IN_NBC_PREV
+ 	INTEGER, SAVE :: LU_MOM=0
+@@ -87,6 +89,68 @@
+ !
+ 	LUER=ERROR_LU()
+ !
++! A new initialized sweep may require a different velocity-refined grid.
++	IF(ALLOCATED(AV_SIGMA))THEN
++	 IF(ND.NE.ND_SAV)THEN
++	  IF(ALLOCATED(ETA))DEALLOCATE(ETA)
++	  IF(ALLOCATED(CHI))DEALLOCATE(CHI)
++	  IF(ALLOCATED(ESEC))DEALLOCATE(ESEC)
++	  IF(ALLOCATED(V))DEALLOCATE(V)
++	  IF(ALLOCATED(SIGMA))DEALLOCATE(SIGMA)
++	  IF(ALLOCATED(R))DEALLOCATE(R)
++	  IF(ALLOCATED(R_PNT))DEALLOCATE(R_PNT)
++	  IF(ALLOCATED(J_INDX))DEALLOCATE(J_INDX)
++	  IF(ALLOCATED(H_INDX))DEALLOCATE(H_INDX)
++	  IF(ALLOCATED(AV_SIGMA))DEALLOCATE(AV_SIGMA)
++	  IF(ALLOCATED(BETA))DEALLOCATE(BETA)
++	  IF(ALLOCATED(BETA_FREQ))DEALLOCATE(BETA_FREQ)
++	  IF(ALLOCATED(GAM_REL))DEALLOCATE(GAM_REL)
++	  IF(ALLOCATED(GAM_REL_SQ))DEALLOCATE(GAM_REL_SQ)
++	  IF(ALLOCATED(CON_DELTA))DEALLOCATE(CON_DELTA)
++	  IF(ALLOCATED(CON_DELTAH))DEALLOCATE(CON_DELTAH)
++	  IF(ALLOCATED(CON_dKdNUH))DEALLOCATE(CON_dKdNUH)
++	  IF(ALLOCATED(CON_dNdNUH))DEALLOCATE(CON_dNdNUH)
++	  IF(ALLOCATED(CON_dKdNU))DEALLOCATE(CON_dKdNU)
++	  IF(ALLOCATED(CON_dHdNU))DEALLOCATE(CON_dHdNU)
++	  IF(ALLOCATED(GAM_RSQJNU))DEALLOCATE(GAM_RSQJNU)
++	  IF(ALLOCATED(GAM_RSQHNU))DEALLOCATE(GAM_RSQHNU)
++	  IF(ALLOCATED(GAM_RSQJNU_PREV))DEALLOCATE(GAM_RSQJNU_PREV)
++	  IF(ALLOCATED(GAM_RSQHNU_PREV))DEALLOCATE(GAM_RSQHNU_PREV)
++	  IF(ALLOCATED(GAM_RSQJNU_SAVE))DEALLOCATE(GAM_RSQJNU_SAVE)
++	  IF(ALLOCATED(GAM_RSQHNU_SAVE))DEALLOCATE(GAM_RSQHNU_SAVE)
++	  IF(ALLOCATED(GAM_RSQJOLD))DEALLOCATE(GAM_RSQJOLD)
++	  IF(ALLOCATED(TA))DEALLOCATE(TA)
++	  IF(ALLOCATED(TB))DEALLOCATE(TB)
++	  IF(ALLOCATED(TC))DEALLOCATE(TC)
++	  IF(ALLOCATED(CHI_H))DEALLOCATE(CHI_H)
++	  IF(ALLOCATED(CHI_J))DEALLOCATE(CHI_J)
++	  IF(ALLOCATED(DTAU_H))DEALLOCATE(DTAU_H)
++	  IF(ALLOCATED(DTAU_J))DEALLOCATE(DTAU_J)
++	  IF(ALLOCATED(DTAUONQ))DEALLOCATE(DTAUONQ)
++	  IF(ALLOCATED(Q))DEALLOCATE(Q)
++	  IF(ALLOCATED(XM))DEALLOCATE(XM)
++	  IF(ALLOCATED(SOURCE))DEALLOCATE(SOURCE)
++	  IF(ALLOCATED(VB))DEALLOCATE(VB)
++	  IF(ALLOCATED(VC))DEALLOCATE(VC)
++	  IF(ALLOCATED(COH_VEC))DEALLOCATE(COH_VEC)
++	  IF(ALLOCATED(HU))DEALLOCATE(HU)
++	  IF(ALLOCATED(HL))DEALLOCATE(HL)
++	  IF(ALLOCATED(HS))DEALLOCATE(HS)
++	  IF(ALLOCATED(HD))DEALLOCATE(HD)
++	  IF(ALLOCATED(P_H))DEALLOCATE(P_H)
++	  IF(ALLOCATED(P_J))DEALLOCATE(P_J)
++	  IF(ALLOCATED(VdJdR_TERM))DEALLOCATE(VdJdR_TERM)
++	  IF(ALLOCATED(VdHdR_TERM))DEALLOCATE(VdHdR_TERM)
++	  IF(ALLOCATED(DELTA))DEALLOCATE(DELTA)
++	  IF(ALLOCATED(DELTAH))DEALLOCATE(DELTAH)
++	  IF(ALLOCATED(W))DEALLOCATE(W)
++	  IF(ALLOCATED(WPREV))DEALLOCATE(WPREV)
++	  IF(ALLOCATED(PSI))DEALLOCATE(PSI)
++	  IF(ALLOCATED(PSIPREV))DEALLOCATE(PSIPREV)
++	  IF(ALLOCATED(EPS))DEALLOCATE(EPS)
++	  IF(ALLOCATED(EPS_PREV))DEALLOCATE(EPS_PREV)
++	 END IF
++	END IF
+ 	IF(.NOT. ALLOCATED(AV_SIGMA))THEN
+ !
+ 	  FREQ_SAVE=0.0_LDP
+diff --git a/plane/var_jrel_v5.f b/plane/var_jrel_v5.f
+--- a/plane/var_jrel_v5.f
++++ b/plane/var_jrel_v5.f
+@@ -103,7 +103,7 @@
+ !
+ ! Local variables.
+ !
+-	REAL(KIND=LDP) T1
++	REAL(KIND=LDP) T1,HBOUND(ND),BASE_IB,LOCAL_IB_STAB,IB_HISTORY,IB_Z,IB_DBASE,IB_DTAU
+ 	REAL(KIND=LDP) DTAU
+ 	REAL(KIND=LDP) FREQ
+         REAL(KIND=LDP) RSQ_JP,RSQ_HP,RSQ_NP
+@@ -117,6 +117,12 @@
+ 	INTEGER IFAIL
+ ! 
+ !
++! Legacy square entry must never consume a fine-grid angular prefix.
++	IF(SIZE(K_ON_J).NE.ND)THEN
++	  LUER=ERROR_LU()
++	  WRITE(LUER,*)'VAR_JREL_V5: moment grid mismatch; use VAR_JREL_GRID_V1'
++	  STOP
++	END IF
+ 	IF(INIT)CALL ALLOC_MOD_VAR_JREL_V2(ND)
+ !
+ ! Zero relevant vectors and matrices.
+@@ -409,47 +415,23 @@
+ 	  TB(ND)=(1.0_LDP+IB_STAB_FACTOR)*TB(ND)
+ 	  RHS_JNU=JPLUS_IB+JMIN_IB
+ 	ELSE IF(INNER_BND_METH .EQ. 'HOLLOW')THEN
+-	  RSQ_JP=GAM_REL(ND)*R(ND)*R(ND)*JPLUS_IB
+-	  RSQ_HP=GAM_REL(ND)*R(ND)*R(ND)*HPLUS_IB
+-	  RSQ_NP=GAM_REL(ND)*R(ND)*R(ND)*NPLUS_IB
+-	  HMIN=HMIN_IB/JMIN_IB
+-	  NMIN=NMIN_IB/JMIN_IB
+-	  FPLUS=KPLUS_IB/JPLUS_IB
+-	  FMIN=KMIN_IB/JMIN_IB
++	  RSQ_JP=GAM_RSQ(ND)*JPLUS_IB; RSQ_HP=GAM_RSQ(ND)*HPLUS_IB
++	  HMIN=HMIN_IB/JMIN_IB; FPLUS=KPLUS_IB/JPLUS_IB; FMIN=KMIN_IB/JMIN_IB
+ 	  DTAU=0.5_LDP*(R(ND-1)-R(ND))*(CHI(ND)+CHI(ND-1))
+-	  IF(INIT)THEN
+-	    TA(ND)=-GAM_RSQ(ND-1)*K_ON_J(ND-1)/DTAU
+-	    TB(ND)=GAM_RSQ(ND)*(FMIN/DTAU + (1.0_LDP-FMIN)/R(ND)/CHI(ND) + HMIN)
+-	    XM(ND)=RSQ_HP-FPLUS*RSQ_JP/DTAU-(1.0_LDP-FPLUS)*RSQ_JP/R(ND)/CHI(ND)
+-	    XM(ND-1)=XM(ND-1)-RSQ_JP*TC(ND-1)
+-	  ELSE
+-            T1=CON_DELTA(ND)/dLOG_NU/CHI(ND)
+-            TA(ND)=-GAM_RSQ(ND-1)*K_ON_J(ND-1)/DTAU
+-            TB(ND)=GAM_RSQ(ND)*(FMIN/DTAU + (1.0_LDP-FMIN)/R(ND)/CHI(ND) + HMIN*(1.0_LDP+T1))
+-            XM(ND)=RSQ_HP-FPLUS*RSQ_JP/DTAU-(1.0_LDP-FPLUS)*RSQ_JP/R(ND)/CHI(ND)
+-	1                    +T1*(RSQ_HP-IN_HBC_PREV)
+-	    XM(ND-1)=XM(ND-1)-RSQ_JP*TC(ND-1)
+-!
+-	    XM(ND)=XM(ND)+IB_STAB_FACTOR*TB(ND)*(JMIN_IB+JPLUS_IB)
+-	    TB(ND)=(1.0_LDP+IB_STAB_FACTOR)*TB(ND)
+-!
+-! For the first 5 lines:
+-!      dIBCHI_A refers to derivative of TB(ND) with respect to CHI(ND).
+-!      dIBCHI_B refers to derivative of TB(ND) with respect to CHI(ND-1).
+-!
+-	    dIBCHI_B=(1.0_LDP+IB_STAB_FACTOR)*GAM_RSQ(ND)*FMIN/DTAU/DTAU
+-	    dIBCHI_B=dIBCHI_B*0.5_LDP*(R(ND-1)-R(ND))
+-	    dIBCHI_A=dIBCHI_B+(1.0_LDP+IB_STAB_FACTOR)*((1.0_LDP-FMIN)/R(ND)/CHI(ND)+HMIN*T1)/CHI(ND)
+-	    dIBCHI_B=dIBCHI_B*JNU(ND)-IB_STAB_FACTOR*(JMIN_IB+JPLUS_IB)
+-	    dIBCHI_A=dIBCHI_A*JNU(ND)-IB_STAB_FACTOR*(JMIN_IB+JPLUS_IB)
+-!
+-! dIBCHI_A now refers to derivative of TA and TB with respect to CHI(ND).
+-! dIBCHI_B now refers to derivative of TA and TB with respect to CHI(ND-1).
+-!
+-	    dIBCHI_A=dIBCHI_A+TA(ND)*JNU(ND-1)**0.5_LDP*(R(ND-1)-R(ND))/DTAU
+-	    dIBCHI_B=dIBCHI_B+TA(ND)*JNU(ND-1)**0.5_LDP*(R(ND-1)-R(ND))/DTAU
+-
++	  T1=0.0_LDP; LOCAL_IB_STAB=0.0_LDP
++	  IF(.NOT.INIT)THEN
++	    T1=CON_DELTA(ND)/dLOG_NU/CHI(ND)
++	    LOCAL_IB_STAB=IB_STAB_FACTOR
+ 	  END IF
++	  BASE_IB=FMIN/DTAU+(1.0_LDP-FMIN)/R(ND)/CHI(ND)+HMIN*(1.0_LDP+T1)
++	  TA(ND)=-GAM_RSQ(ND-1)*K_ON_J(ND-1)/DTAU
++	  TB(ND)=GAM_RSQ(ND)*(1.0_LDP+LOCAL_IB_STAB)*BASE_IB
++! Forward MOM solves for inward J at the last point, then adds JPLUS.
++! Shift its boundary equation to total J before solving the variation field.
++	  XM(ND)=RSQ_HP-FPLUS*RSQ_JP/DTAU-(1.0_LDP-FPLUS)*RSQ_JP/R(ND)/CHI(ND)
++	1       +T1*(RSQ_HP-IN_HBC_PREV)+LOCAL_IB_STAB*BASE_IB*GAM_RSQ(ND)*JMIN_IB
++	1       +TB(ND)*JPLUS_IB
++	  IB_HISTORY=T1*GAM_RSQ(ND)*HOLLOW_HMIN_PREV
+ 	ELSE
+ 	  TA(ND)=-GAM_RSQ(ND-1)*Q(ND-1)*(K_ON_J(ND-1)+VdHdR_TERM(ND-1))/DTAU_H(ND-1)
+ 	  TB(ND)=GAM_RSQ(ND)*(K_ON_J(ND)+VdHdR_TERM(ND))/DTAU_H(ND-1)+IN_HBC*GAM_RSQ(ND)
+@@ -459,6 +441,7 @@
+ 	VB(ND)=0.0_LDP
+ 	VC(ND)=0.0_LDP
+ 	PSIPREV(ND)=0.0_LDP
++	IF(INNER_BND_METH.EQ.'HOLLOW')PSIPREV(ND)=IB_HISTORY
+ !
+ ! We create PSIPREV_MOD to save multiplications in the UP_TX_TVX routine/
+ ! It is only different from PSIPREV when N_ON_J is non zero.
+@@ -547,10 +530,10 @@
+ ! We use TA as a temporary vector for Gam. R^2. J
+ !
+ 	HERR=.FALSE.
+-	TA=GAM_RSQ*JNU
++	HBOUND=GAM_RSQ*JNU
+ 	IF(H_CHK_OPTION .EQ. 'AV_VAL')THEN
+ 	  DO I=1,ND-1
+-	    T1=(TA(I)+TA(I+1))/2.0_LDP
++	    T1=(HBOUND(I)+HBOUND(I+1))/2.0_LDP
+ 	    IF(GAM_RSQHNU(I) .GT. T1)THEN
+ 	      GAM_RSQHNU(I)=0.99_LDP*T1
+ 	      HERR(I)=.TRUE.
+@@ -561,7 +544,7 @@
+ 	  END DO
+ 	ELSE IF(H_CHK_OPTION .EQ. 'MAX_VAL')THEN
+ 	  DO I=1,ND-1
+-	    T1=MAX(TA(I),TA(I+1))
++	    T1=MAX(HBOUND(I),HBOUND(I+1))
+ 	    IF(GAM_RSQHNU(I) .GT. T1)THEN
+ 	      GAM_RSQHNU(I)=0.99_LDP*T1
+ 	      HERR(I)=.TRUE.
+@@ -611,6 +594,20 @@
+ !
+ ! Compute d{non-radiation field}/dchi matrix.
+ !
++	IF(INNER_BND_METH.EQ.'HOLLOW')THEN
++	  T1=0.0_LDP
++	  IF(.NOT.INIT)T1=CON_DELTA(ND)/dLOG_NU/CHI(ND)
++	  IB_Z=GAM_RSQ(ND)*((1.0_LDP+LOCAL_IB_STAB)*(JPLUS_IB-JNU(ND))+LOCAL_IB_STAB*JMIN_IB)
++	  IB_DTAU=0.5_LDP*(R(ND-1)-R(ND))
++	  dIBCHI_B=(KPLUS_IB*GAM_RSQ(ND)-GAM_RSQ(ND-1)*K_ON_J(ND-1)*JNU(ND-1)
++	1           -IB_Z*FMIN)*IB_DTAU/DTAU**2
++	  dIBCHI_A=dIBCHI_B+(JPLUS_IB-KPLUS_IB)*GAM_RSQ(ND)/R(ND)/CHI(ND)**2
++	1          -T1*(RSQ_HP-IN_HBC_PREV)/CHI(ND)
++	1          -IB_Z*((1.0_LDP-FMIN)/R(ND)/CHI(ND)**2+HMIN*T1/CHI(ND))
++! EDD's final column conversion divides by gamma; these are already
++! derivatives with respect to physical CHI, so compensate for that conversion.
++	  dIBCHI_A=dIBCHI_A*GAM_REL(ND); dIBCHI_B=dIBCHI_B*GAM_REL(ND-1)
++	END IF
+ 	CALL TUNE(1,'EDD_JREL_V3')
+ 	CALL EDD_JREL_VAR_V3(KI,RHS_dHdCHI,
+ 	1          R,SIGMA,CHI,ESEC,K_ON_J,dIBCHI_A,dIBCHI_B,RHS_JNU,
+@@ -688,6 +685,7 @@
+ !
+ ! Save JNU and GAM_RSQHNU for next frequency integration.
+ !
++	IF(INNER_BND_METH.EQ.'HOLLOW')HOLLOW_HMIN_PREV=HMIN_IB/JMIN_IB
+ 	JNU_PREV(:)=JNU(:)
+ 	GAM_RSQHNU_PREV(:)=GAM_RSQHNU(:)
+ !
+@@ -702,3 +700,693 @@
+ !
+ 	RETURN
+ 	END
++
++! Rectangular relativistic moment response on the actual transport grid.
++	SUBROUTINE VAR_JREL_GRID_V1(ETA,CHI,ESEC,THETA,V,SIGMA,R,
++	1                  TX,TVX,TX_DIF_d_T,TX_DIF_d_dTdR,
++	1                  TVX_DIF_d_T,TVX_DIF_d_dTdR,KI,WORKMAT,RHS_dHdCHI,
++	1                  INIT,FREQ,dLOG_NU,
++	1                  XM_CHK_OPTION,J_CHK_OPTION,H_CHK_OPTION,
++	1                  INNER_BND_METH,OUTER_BND_METH,IB_STAB_FACTOR,
++	1                  dTdR,DBB,dDBBdT,IC,
++	1	           INCL_ADVEC_TERMS,INCL_REL_TERMS,
++	1                  DO_THIS_TX_MATRIX,METHOD,ND,NC,NM,NM_KI,
++	1                  PCHI,PETA,PESC,ESC_RESPONSE,ESC_H)
++	USE SET_KIND_MODULE
++	USE MOD_VAR_JREL_V2
++	USE MOD_RAY_MOM_STORE
++	USE MOD_TRAP_DERIVATIVES
++	IMPLICIT NONE
++!
++! Altered: 21-Sep-2021 : Fixed bug with J_CHK_OPTION='FORM_VAL' option.
++! Altered: 02-May-2019 : FIxed problem whith H check.
++! Altered: 29-Apr-2019 : Changed to V5. XM_CHK_OPTION and J_CHK_OPTION added to call.
++! Altered: 17-Oct-2016 : Changed to V4: CHECK_H_ON J added to call.
++! Altered: 17-Feb-2015 : Check that |r^2.H| < r^2.J
++!                         [OSPREY/cur_cmf_gam: 24-Jan-2015]
++! Altered: 14-Feb-2-14 : Changed to V3 -- Added INNER_BND_METH,OUTER_BND_METH to call.
++!                         Removed DIF from call.
++! Altered: 27-Dec-2008 :
++! Created:
++!
++	INTEGER ND,NC
++	INTEGER NM
++	INTEGER NM_KI
++!
++	REAL(KIND=LDP) ETA(ND)
++	REAL(KIND=LDP) CHI(ND)
++	REAL(KIND=LDP) ESEC(ND)
++	REAL(KIND=LDP) THETA(ND)
++	REAL(KIND=LDP) R(ND)
++	REAL(KIND=LDP) V(ND)
++	REAL(KIND=LDP) SIGMA(ND)
++!
++! Variation arrays and vectors.
++!
++	REAL(KIND=LDP) TX(ND,NC,NM)
++	REAL(KIND=LDP) TVX(ND-1,NC,NM)
++	REAL(KIND=LDP) KI(ND,ND,NM_KI)
++	REAL(KIND=LDP) WORKMAT(ND,ND)
++	REAL(KIND=LDP) RHS_dHdCHI(ND-1,ND)
++	REAL(KIND=LDP) TX_DIF_d_T(ND),TX_DIF_d_dTdR(ND)
++	REAL(KIND=LDP) TVX_DIF_d_T(ND),TVX_DIF_d_dTdR(ND)
++!
++	LOGICAL DO_THIS_TX_MATRIX(NM)
++!
++	REAL(KIND=LDP) IB_STAB_FACTOR
++	REAL(KIND=LDP) dLOG_NU,dTdR,DBB,dDBBdT,IC
++	REAL(KIND=LDP) dIBCHI_A,dIBCHI_B
++	CHARACTER(LEN=*) METHOD
++	CHARACTER(LEN=*) INNER_BND_METH
++	CHARACTER(LEN=*) OUTER_BND_METH
++	CHARACTER(LEN=*) J_CHK_OPTION
++	CHARACTER(LEN=*) H_CHK_OPTION
++	CHARACTER(LEN=*) XM_CHK_OPTION
++!
++! Record locations where J and H are fudged to avoid physical inconsistencies.
++!
++	LOGICAL JERR(ND),HERR(ND)
++!
++! INIT is used to indicate that there is no coupling to the previous frequency.
++! We are thus solving the normal continuum transfer equation (i.e. the absence
++! of velocity fields)
++!
++	LOGICAL INIT
++	LOGICAL INCL_ADVEC_TERMS
++	LOGICAL INCL_REL_TERMS
++	LOGICAL J_AT_INB_EQ_B
++!
++! Local variables.
++!
++	REAL(KIND=LDP) T1,HBOUND(ND),BASE_IB,LOCAL_IB_STAB,IB_HISTORY,IB_Z,IB_DBASE,IB_DTAU
++	REAL(KIND=LDP) DTAU
++	REAL(KIND=LDP) FREQ
++        REAL(KIND=LDP) RSQ_JP,RSQ_HP,RSQ_NP
++        REAL(KIND=LDP) FMIN,FPLUS,HMIN,NMIN
++	REAL(KIND=LDP) RHS_JNU
++!
++	REAL(KIND=LDP) PCHI(ND,NC),PETA(ND,NC),PESC(ND,NC)
++	REAL(KIND=LDP) KI_MODEL(ND,NC,2),RHS_MODEL(ND-1,NC),OLD_MODEL(ND,NC)
++	REAL(KIND=LDP) ESC_RESPONSE(ND,NC),ESC_H(ND-1,NC)
++	INTEGER IR,JM,JF
++	INTEGER LUER,ERROR_LU
++        EXTERNAL ERROR_LU
++	INTEGER I,J
++	INTEGER ICNT
++	INTEGER IFAIL
++! 
++!
++	IF(INIT)CALL ALLOC_MOD_VAR_JREL_V2(ND)
++!
++! Zero relevant vectors and matrices.
++!
++	JNU=0.0_LDP			!1:ND
++	GAM_RSQHNU=0.0_LDP		!1:ND
++	LUER=6
++!
++	IF(INIT)THEN
++	  TX(:,:,:)=0.0_LDP		!ND*ND*NM
++	  TVX(:,:,:)=0.0_LDP		!(ND-1)*ND*NM )
++	  JNU_PREV=0.0_LDP
++	  GAM_RSQHNU_PREV=0.0_LDP
++	  W=0.0_LDP
++	  WPREV=0.0_LDP
++	  PSI=0.0_LDP
++	  PSIPREV=0.0_LDP
++	  TX_DIF_d_T=0.0_LDP
++	  TX_DIF_d_dTdR=0.0_LDP
++	  EPS_A=0.0_LDP
++	  EPS_B=0.0_LDP
++	  EPS_PREV_A=0.0_LDP
++	  EPS_PREV_B=0.0_LDP
++	  DELTAH(:)=0.0_LDP
++	  DELTA(:)=0.0_LDP
++	  PSIPREV(:)=0.0_LDP
++!
++	  H_ON_J_PREV(:)=0.0_LDP
++	  K_ON_J_PREV(:)=0.0_LDP
++	  N_ON_J_PREV(:)=0.0_LDP
++	  NMID_ON_HMID_PREV(:)=0.0_LDP
++	  NMID_ON_J_PREV(:)=0.0_LDP
++	  KMID_ON_J_PREV(:)=0.0_LDP
++	END IF
++!
++	IF(INIT)THEN
++!
++! Assume (1)	SIGMAd+1/2 = 0.5*( SIGMAd+1+SIGMAd )
++! 	 (2)	Vd+1/2=0.5*( Vd + Vd+1 )
++! Note that V is in km/s and SIGMA=(dlnV/dlnR-1.0)
++!
++	
++	  BETA_FREQ(1:ND)=V(1:ND)*3.33564E-06_LDP       !/2.99794D+05
++	  IF(INCL_REL_TERMS)THEN
++	    BETA(1:ND)=BETA_FREQ(1:ND)
++	  ELSE
++	    BETA(1:ND)=0.0_LDP
++	  END IF
++!
++	  IF(INCL_REL_TERMS)THEN
++	    GAM_REL_SQ(1:ND)=1.0_LDP/(1.0_LDP-BETA(1:ND)*BETA(1:ND))
++	    GAM_REL(1:ND)=SQRT(GAM_REL_SQ(1:ND))
++	  ELSE
++	    GAM_REL_SQ(1:ND)=1.0_LDP
++	    GAM_REL(1:ND)=1.0_LDP
++	  END IF
++	  GAM_RSQ(1:ND)=GAM_REL(1:ND)*R(1:ND)*R(1:ND)
++	  CON_DELTA(1:ND)=BETA_FREQ(1:ND)/R(1:ND)
++	  CON_dKdNU(1:ND)=GAM_REL_SQ(1:ND)*(SIGMA(1:ND)+1.0_LDP)-1.0_LDP
++	  CON_dHdNU(1:ND)=BETA(1:ND)*GAM_REL_SQ(1:ND)*(SIGMA(1:ND)+1.0_LDP)
++!
++	  DO I=1,ND-1
++	    T1=0.5_LDP*(BETA(I)+BETA(I+1))
++	    AV_SIGMA(I)=0.5_LDP*(SIGMA(I)+SIGMA(I+1))
++	    CON_DELTAH(I)=2.0_LDP*(BETA_FREQ(I)+BETA_FREQ(I+1))/(R(I)+R(I+1))
++	    CON_dKdNUH(I)=T1*(AV_SIGMA(I)+1.0_LDP)/(1.0_LDP-T1*T1)
++	    CON_dNdNUH(I)=(AV_SIGMA(I)+1.0_LDP)/(1.0_LDP-T1*T1) -1.0_LDP
++	  END DO
++!
++! These are set to zero to insure all velocity terms are neglected.
++!
++	  WRITE(171,*)' FREQ',FREQ
++	  WRITE(171,*)'  DBB',DBB
++	  WRITE(171,*)'  ETA',ETA(1),ETA(ND)
++	  WRITE(171,*)'  CHI',CHI(1),CHI(ND)
++	  WRITE(171,*)' ESEC',ESEC(1),ESEC(ND)
++	  WRITE(171,*)'THETA',THETA(1),THETA(ND)
++	  WRITE(171,*)' SRCE',ETA(1)/(CHI(1)-ESEC(1)),ETA(ND)/(CHI(ND)-ESEC(ND))
++	  WRITE(171,*)'    R',R(1),R(ND)
++	  WRITE(171,*)'    V',V(1),V(ND)
++	  WRITE(171,*)'SIGMA',SIGMA(1),SIGMA(ND)
++	  WRITE(171,*)' K_ON_J',K_ON_J(1),K_ON_J(ND)
++	  WRITE(171,*)'  H/J',H_ON_J(1),H_ON_J(ND)
++	  WRITE(171,*)'  N/J',N_ON_J(1),N_ON_J(ND)
++	  WRITE(171,*)'RN/RJ',NMID_ON_J(1),NMID_ON_J(ND)
++	  CLOSE(UNIT=171)
++!
++	  H_ON_J(1:ND)=0.0_LDP
++	  N_ON_J(1:ND)=0.0_LDP
++	  KMID_ON_J(1:ND)=0.0_LDP
++          NMID_ON_J(1:ND)=0.0_LDP
++!
++	END IF
++!
++! Zero relevant vectors and matrices.
++!
++	JNU(:)=0.0_LDP
++	GAM_RSQHNU(:)=0.0_LDP
++!
++	IF(INCL_ADVEC_TERMS)THEN
++	  VdHdR_TERM(1:ND)=H_ON_J(1:ND)*BETA(1:ND)
++	ELSE
++	  VdHdR_TERM(1:ND)=0.0_LDP
++	END IF
++!
++!*****************************************************************************
++!
++! CHI_H refers to the modified CHI term that multiplies H in the 1ST
++! moment equation. We evaluate it at the grid points, and then use the
++! averaging procedure used in the non-relativistic case.
++!
++! CHI_J refers the the modified CHI term that multiplies J in the 0th
++! moment equation.
++!
++	IF(INCL_REL_TERMS)THEN
++	  DO I=1,ND
++	    CHI_H(I)=CHI(I)/GAM_REL(I)+CON_DELTA(I)*(
++	1       1.0_LDP+2.0_LDP*GAM_REL_SQ(I)*(SIGMA(I)+1.0_LDP) )
++	    P_H(I)=1.0_LDP
++	  END DO
++	  IF(INCL_ADVEC_TERMS)THEN
++	    DO I=1,ND
++	      CHI_J(I)=CHI(I)/GAM_REL(I)+CON_DELTA(I)*(1.0_LDP+SIGMA(I))
++	    END DO
++	  ELSE
++	    DO I=1,ND
++	      CHI_J(I)=CHI(I)/GAM_REL(I)+CON_DELTA(I)*(
++	1                   2.0_LDP+GAM_REL_SQ(I)*(1.0_LDP+SIGMA(I)) )
++	    END DO
++	  END IF
++	ELSE
++	  DO I=1,ND
++	    CHI_H(I)=CHI(I)
++	    P_H(I)=1.0_LDP
++	    CHI_J(I)=CHI(I)
++	  END DO
++	END IF
++!
++	SOURCE(1:ND)=ETA(1:ND)/CHI_J(1:ND)
++	COH_VEC(1:ND)=THETA(1:ND)*CHI(1:ND)/CHI_J(1:ND)/GAM_REL(1:ND)
++!
++! Compute the Q factors from F. The Q is used to make the J and K terms
++! appearing in the first moment equation a perfect differential.
++! Note that we integrate from the core outwards, and normalize Q to the
++! value of unity at the core.
++!
++	DO I=1,ND
++	  TA(ND-I+1)=( 3.0_LDP*K_ON_J(I)-1.0_LDP+
++	1           BETA(I)*N_ON_J(I)-(SIGMA(I)+1.0_LDP)*VdHdR_TERM(I)+
++	1      GAM_REL_SQ(I)*BETA(I)*(SIGMA(I)+1.0_LDP)*
++	1       (BETA(I)*(1.0_LDP-K_ON_J(I)-VdHdR_TERM(I))-N_ON_J(I))
++	1            )/(K_ON_J(I)+VdHdR_TERM(I))/R(I)
++	  TB(I)=R(ND-I+1)
++	END DO
++	CALL INTEGRATE(TB,TA,Q,IFAIL,ND)
++!
++	DO I=1,ND-1		!Q(ND) undefined after exiting INTEGRATE
++	  TB(I)=EXP(Q(ND-I))
++	END DO
++!
++! Scale by r^2
++!
++	DO I=1,ND-1
++	  Q(I)=TB(I)/(R(I)/R(ND))**2
++	END DO
++	Q(ND)=1.0_LDP
++!
++! Compute optical depth scales. We also compute the dTAUdCHI matrices
++! for use in EDD_JREL_VAR.
++!
++	TA(1:ND)=CHI_H(1:ND)*Q(1:ND)
++	CALL DERIVCHI(TB,TA,R,ND,METHOD)
++	CALL d_DERIVCHI_dCHI(TB,TA,R,ND,METHOD)
++	CALL NORDTAU(DTAU_H,TA,R,R,TB,ND)
++	CALL MOM_GRID_DTAU_JAC(CHI_H,Q,R,ND,METHOD,dTAUdCHI_H)
++!
++	TA(1:ND)=CHI_J(1:ND)*Q(1:ND)
++	CALL DERIVCHI(TB,TA,R,ND,METHOD)
++	CALL d_DERIVCHI_dCHI(TB,TA,R,ND,METHOD)
++        CALL NORDTAU(DTAU_J,TA,R,R,TB,ND)
++	CALL MOM_GRID_DTAU_JAC(CHI_J,Q,R,ND,METHOD,dTAUdCHI_J)
++!
++	IF(.NOT. INIT)THEN
++!
++! We are integrating from blue to red. dLOG_NU is define as vd / dv which is
++! the same as d / d ln v.
++!
++! EPS is used if we define N in terms of J rather than H, This is sometimes
++! useful as H can approach zero, and hence N/H is undefined.
++!
++	  DO I=1,ND-1
++	    DELTAH(I)=CON_DELTAH(I)/dLOG_NU/(CHI_H(I)+CHI_H(I+1))
++	    W(I)=DELTAH(I)*(1.0_LDP+CON_dNdNUH(I)*NMID_ON_HMID(I))
++	    WPREV(I)=DELTAH(I)*(1.0_LDP+CON_dNdNUH(I)*NMID_ON_HMID_PREV(I))
++	    EPS_A(I)=DELTAH(I)*(CON_dNdNUH(I)*NMID_ON_J(I)+
++	1            CON_dKdNUH(I)*KMID_ON_J(I))/(P_H(I)+W(I))
++	    EPS_B(I)=EPS_A(I)*GAM_RSQ(I+1)
++	    EPS_A(I)=EPS_A(I)*GAM_RSQ(I)
++	    EPS_PREV_A(I)=DELTAH(I)*(CON_dNdNUH(I)*NMID_ON_J_PREV(I)+
++	1            CON_dKdNUH(I)*KMID_ON_J_PREV(I))/(P_H(I)+W(I))
++	    EPS_PREV_B(I)=EPS_PREV_A(I)*GAM_RSQ(I+1)
++	    EPS_PREV_A(I)=EPS_PREV_A(I)*GAM_RSQ(I)
++	  END DO
++!
++	  DO I=2,ND
++	    DELTA(I)=CON_DELTA(I)/CHI_J(I)/dLOG_NU
++	  END DO
++	  DELTA(1)=CON_DELTA(1)/CHI_H(1)/dLOG_NU
++	END IF
++!
++	DO I=2,ND-1
++	  GAM_RSQ_DTAUONQ(I)=0.5_LDP*GAM_RSQ(I)*(DTAU_J(I)+DTAU_J(I-1))/Q(I)
++	  PSI(I)=GAM_RSQ_DTAUONQ(I)*DELTA(I)*
++	1            (1.0_LDP+CON_dKdNU(I)*K_ON_J(I)+CON_dHdNU(I)*H_ON_J(I) )
++	  PSIPREV(I)=GAM_RSQ_DTAUONQ(I)*DELTA(I)*
++	1            (1.0_LDP+CON_dKdNU(I)*K_ON_J_PREV(I)+
++	1                       CON_dHdNU(I)*H_ON_J_PREV(I) )
++	END DO
++!
++! Compute vectors used to compute the flux vector H.
++!
++	DO I=1,ND-1
++	  HU(I)=GAM_RSQ(I+1)*(K_ON_J(I+1)+VdHdR_TERM(I+1))*Q(I+1)/(P_H(I)+W(I))/DTAU_H(I)
++	  HL(I)=GAM_RSQ(I)*(K_ON_J(I)+VdHdR_TERM(I))*Q(I)/(P_H(I)+W(I))/DTAU_H(I)
++	  HS(I)=WPREV(I)/(P_H(I)+W(I))
++	END DO
++!
++! 
++!
++! We know dlnJdlnR, so we don't need to iterate.
++!
++	IF(INCL_ADVEC_TERMS)THEN
++!	  VdJdR_TERM(1:ND)=GAM_RSQ(1:ND)*CON_DELTA(1:ND)*dlnGRSQJdlnR(1:ND)/CHI_J(1:ND)
++	  VdJdR_TERM(1:ND)=CON_DELTA(1:ND)*dlnGRSQJdlnR(1:ND)/CHI_J(1:ND)
++	  P_J(1:ND)=1.0_LDP+VdJdR_TERM(1:ND)
++	ELSE
++	  VdJdR_TERM(1:ND)=0.0_LDP
++	  P_J(1:ND)=1.0_LDP
++	END IF
++!
++! Compute the TRIDIAGONAL operators, and the RHS source vector. These
++! vectors either depend  on dlnJdlnR etc, or are corrupted in the
++! solution.
++!
++	DO I=2,ND-1
++	  TA(I)=-HL(I-1)-EPS_A(I-1)
++	  TC(I)=-HU(I)+EPS_B(I)
++	  TB(I)=GAM_RSQ_DTAUONQ(I)*(P_J(I)-COH_VEC(I)) + PSI(I) + HL(I) +
++	1             HU(I-1)-EPS_B(I-1)+EPS_A(I)
++	  VB(I)=-HS(I-1)
++	  VC(I)=HS(I)
++	  XM(I)=GAM_RSQ_DTAUONQ(I)*SOURCE(I)/GAM_REL(I)
++	END DO
++	XM(1)=0.0_LDP; XM(ND)=0.0_LDP
++!
++! Evaluate TA,TB,TC for boundary conditions
++! PSIPREV is equivalent to the U vector of FORMSOL.
++!
++	PSI(1)=GAM_RSQ(1)*DELTA(1)*( HBC-NBC+(NBC+BETA(1)*K_ON_J(1))*
++	1             GAM_REL_SQ(1)*(SIGMA(1)+1.0_LDP) )
++	PSIPREV(1)=GAM_RSQ(1)*DELTA(1)*( HBC_PREV-NBC_PREV+(NBC_PREV+
++	1             BETA(1)*K_ON_J_PREV(1))*GAM_REL_SQ(1)*(SIGMA(1)+1.0_LDP) )
++!
++	TA(1)=0.0_LDP
++	TC(1)= -GAM_RSQ(2)*( K_ON_J(2)+VdHdR_TERM(2) )*Q(2)/DTAU_H(1)
++	TB(1)=  GAM_RSQ(1)*( K_ON_J(1)+VdHdR_TERM(1) )*Q(1)/DTAU_H(1) +
++	1                    PSI(1) + HBC*GAM_RSQ(1)*P_H(1)
++	XM(1)=0.0_LDP
++	VB(1)=0.0_LDP
++	VC(1)=0.0_LDP
++!
++! Need to include relativistic terms.
++!
++! CHECK INHBC TERM.
++!
++	J_AT_INB_EQ_B=.FALSE.     !TRUE.
++	IF(J_AT_INB_EQ_B)THEN
++	  TA(ND)=0.0_LDP; TC(ND)=0.0_LDP;
++	  TB(ND)=1.0_LDP
++	  XM(ND)=IC
++	ELSE IF(INNER_BND_METH .EQ. 'DIFFUSION')THEN
++	  TA(ND)=-GAM_RSQ(ND-1)*Q(ND-1)*(K_ON_J(ND-1)+VdHdR_TERM(ND-1))/DTAU_H(ND-1)
++	  TB(ND)=GAM_RSQ(ND)*(K_ON_J(ND)+VdHdR_TERM(ND))/DTAU_H(ND-1)
++	  XM(ND)=GAM_RSQ(ND)*DBB/3.0_LDP/CHI(ND)
++	ELSE IF(INNER_BND_METH .EQ. 'ZERO_FLUX')THEN
++	  TA(ND)=-GAM_RSQ(ND-1)*Q(ND-1)*(K_ON_J(ND-1)+VdHdR_TERM(ND-1))/DTAU_H(ND-1)
++	  TB(ND)=GAM_RSQ(ND)*(K_ON_J(ND)+VdHdR_TERM(ND))/DTAU_H(ND-1)
++	  XM(ND)=0.0_LDP
++	  XM(ND)=XM(ND)+IB_STAB_FACTOR*TB(ND)*(JPLUS_IB+JMIN_IB)
++	  TB(ND)=(1.0_LDP+IB_STAB_FACTOR)*TB(ND)
++	  RHS_JNU=JPLUS_IB+JMIN_IB
++	ELSE IF(INNER_BND_METH .EQ. 'HOLLOW')THEN
++	  RSQ_JP=GAM_RSQ(ND)*JPLUS_IB; RSQ_HP=GAM_RSQ(ND)*HPLUS_IB
++	  HMIN=HMIN_IB/JMIN_IB; FPLUS=KPLUS_IB/JPLUS_IB; FMIN=KMIN_IB/JMIN_IB
++	  DTAU=0.5_LDP*(R(ND-1)-R(ND))*(CHI(ND)+CHI(ND-1))
++	  T1=0.0_LDP; LOCAL_IB_STAB=0.0_LDP
++	  IF(.NOT.INIT)THEN
++	    T1=CON_DELTA(ND)/dLOG_NU/CHI(ND)
++	    LOCAL_IB_STAB=IB_STAB_FACTOR
++	  END IF
++	  BASE_IB=FMIN/DTAU+(1.0_LDP-FMIN)/R(ND)/CHI(ND)+HMIN*(1.0_LDP+T1)
++	  TA(ND)=-GAM_RSQ(ND-1)*K_ON_J(ND-1)/DTAU
++	  TB(ND)=GAM_RSQ(ND)*(1.0_LDP+LOCAL_IB_STAB)*BASE_IB
++! Forward MOM solves for inward J at the last point, then adds JPLUS.
++! Shift its boundary equation to total J before solving the variation field.
++	  XM(ND)=RSQ_HP-FPLUS*RSQ_JP/DTAU-(1.0_LDP-FPLUS)*RSQ_JP/R(ND)/CHI(ND)
++	1       +T1*(RSQ_HP-IN_HBC_PREV)+LOCAL_IB_STAB*BASE_IB*GAM_RSQ(ND)*JMIN_IB
++	1       +TB(ND)*JPLUS_IB
++	  IB_HISTORY=T1*GAM_RSQ(ND)*HOLLOW_HMIN_PREV
++	ELSE
++	  TA(ND)=-GAM_RSQ(ND-1)*Q(ND-1)*(K_ON_J(ND-1)+VdHdR_TERM(ND-1))/DTAU_H(ND-1)
++	  TB(ND)=GAM_RSQ(ND)*(K_ON_J(ND)+VdHdR_TERM(ND))/DTAU_H(ND-1)+IN_HBC*GAM_RSQ(ND)
++	  XM(ND)=GAM_RSQ(ND)*IC*(0.25_LDP+0.5_LDP*IN_HBC)
++	END IF
++	TC(ND)=0.0_LDP
++	VB(ND)=0.0_LDP
++	VC(ND)=0.0_LDP
++	PSIPREV(ND)=0.0_LDP
++	IF(INNER_BND_METH.EQ.'HOLLOW')PSIPREV(ND)=IB_HISTORY
++!
++! We create PSIPREV_MOD to save multiplications in the UP_TX_TVX routine/
++! It is only different from PSIPREV when N_ON_J is non zero.
++!
++	PSIPREV_MOD(1)=PSIPREV(1)
++	PSIPREV_MOD(ND)=PSIPREV(ND)
++	DO I=2,ND-1
++	  PSIPREV_MOD(I)=(EPS_PREV_A(I)-EPS_PREV_B(I-1)) + PSIPREV(I)
++	END DO
++!
++	XM(1)=XM(1) + PSIPREV(1)*JNU_PREV(1)
++	DO I=2,ND-1
++	  XM(I)=XM(I) + VB(I)*GAM_RSQHNU_PREV(I-1) + VC(I)*GAM_RSQHNU_PREV(I)
++	1          + PSIPREV_MOD(I)*JNU_PREV(I)
++	1          + ( EPS_PREV_B(I)*JNU_PREV(I+1) - EPS_PREV_A(I-1)*JNU_PREV(I-1) )
++	END DO
++	XM(ND)=XM(ND)
++!
++	DERIV_SCL_FAC=1.0_LDP
++	IF(XM_CHK_OPTION .EQ. 'SET_POS')THEN
++	  DO I=2,ND-1
++	    ICNT=0
++	    DO WHILE(XM(I) .LE. 0.0_LDP .AND. ICNT .LT. 5)
++	      DERIV_SCL_FAC(I)=DERIV_SCL_FAC(I)*0.5_LDP
++	      XM(I)=GAM_RSQ_DTAUONQ(I)*SOURCE(I)/GAM_REL(I)
++	1             + DERIV_SCL_FAC(I)*(VB(I)*GAM_RSQHNU_PREV(I-1) + VC(I)*GAM_RSQHNU_PREV(I))
++	1             + PSIPREV_MOD(I)*JNU_PREV(I)
++	1             + ( EPS_PREV_B(I)*JNU_PREV(I+1) - EPS_PREV_A(I-1)*JNU_PREV(I-1) )
++	      ICNT=ICNT+1
++	    END DO
++	  END DO
++	ELSE IF(XM_CHK_OPTION .EQ. 'NONE')THEN
++	ELSE
++          WRITE(LUER,*)'Error - XM_CHK_OPTION not recognized in MOM_JREL_V9'
++          WRITE(LUER,*)'Value is: ',TRIM(XM_CHK_OPTION)
++          WRITE(LUER,*)'Allowed values are: SET_POS, NONE'
++	END IF
++!
++! Solve for the radiation field along ray for this frequency.
++!
++	TA_SAV=TA; TB_SAV=TB; TC_SAV=TC; XM_SAV=XM
++	CALL THOMAS(TA,TB,TC,XM,ND,1)
++!
++	DO I=1,ND
++	  IF(XM(I) .GT. 1.0E+20_LDP)THEN
++	    WRITE(LUER,*)'Error in VAR_JREL_V2: RJ blowing up'
++	    WRITE(LUER,'(6ES12.4)')(XM(J),J=1,ND)
++	    STOP
++	  END IF
++	END DO
++!
++! Check that no negative mean intensities have been computed.
++!
++	JERR=.FALSE.
++	IF(J_CHK_OPTION .EQ. 'ABS_VAL')THEN
++	  DO I=1,ND
++	    IF(XM(I) .LT. 0.0_LDP)THEN
++	      XM(I)=ABS(XM(I))/10.0_LDP
++	      JERR(I)=.TRUE.
++	    END IF
++	  END DO
++	ELSE IF(J_CHK_OPTION .EQ. 'FORM_VAL')THEN
++	  DO I=1,ND
++	    IF(XM(I) .LT. 0.0_LDP)THEN
++	      XM(I)=JNU_STORE(I)
++	      JERR(I)=.TRUE.
++	    END IF
++	  END DO
++	ELSE IF(J_CHK_OPTION .EQ. 'NONE')THEN
++	ELSE
++          WRITE(LUER,*)'Error - J_CHK_OPTION not recognized in MOM_JREL_V9'
++          WRITE(LUER,*)'Value is: ',TRIM(J_CHK_OPTION)
++          WRITE(LUER,*)'Allowed values are: ABS_VAL, NONE'
++	END IF
++!
++! Store J and evaluate GAM.R^2.H
++!
++	JNU(1:ND)=XM(1:ND)
++	DO I=1,ND-1
++	  GAM_RSQHNU(I)=HU(I)*XM(I+1)-HL(I)*XM(I)+HS(I)*GAM_RSQHNU_PREV(I) +
++	1              (EPS_PREV_A(I)*JNU_PREV(I)  -EPS_A(I)*XM(I)) +
++	1              (EPS_PREV_B(I)*JNU_PREV(I+1)-EPS_B(I)*XM(I+1))
++	END DO
++!
++! Make sure H satisfies that basic requirement that it is less than J.
++! We use TA as a temporary vector for Gam. R^2. J
++!
++	HERR=.FALSE.
++	HBOUND=GAM_RSQ*JNU
++	IF(H_CHK_OPTION .EQ. 'AV_VAL')THEN
++	  DO I=1,ND-1
++	    T1=(HBOUND(I)+HBOUND(I+1))/2.0_LDP
++	    IF(GAM_RSQHNU(I) .GT. T1)THEN
++	      GAM_RSQHNU(I)=0.99_LDP*T1
++	      HERR(I)=.TRUE.
++	    ELSE IF(GAM_RSQHNU(I) .LT. -T1)THEN
++	      GAM_RSQHNU(I)=-0.99_LDP*T1
++	      HERR(I)=.TRUE.
++	    END IF
++	  END DO
++	ELSE IF(H_CHK_OPTION .EQ. 'MAX_VAL')THEN
++	  DO I=1,ND-1
++	    T1=MAX(HBOUND(I),HBOUND(I+1))
++	    IF(GAM_RSQHNU(I) .GT. T1)THEN
++	      GAM_RSQHNU(I)=0.99_LDP*T1
++	      HERR(I)=.TRUE.
++	    ELSE IF(GAM_RSQHNU(I) .LT. -T1)THEN
++	      GAM_RSQHNU(I)=-0.99_LDP*T1
++	      HERR(I)=.TRUE.
++	    END IF
++	  END DO
++	ELSE IF(H_CHK_OPTION .EQ. 'NONE')THEN
++	ELSE
++          WRITE(LUER,*)'Error - H_CHK_OPTION not recognized in MOM_JREL_V9'
++          WRITE(LUER,*)'Value is :',TRIM(H_CHK_OPTION)
++          WRITE(LUER,*)'Allowed values are: MAX_VAL, AV_VAL, NONE'
++	END IF
++!
++! NB: A & C are d[dx/dr]/dx where x=gam.r^2.J
++!
++	IF(INCL_ADVEC_TERMS)THEN
++	  TC(1:ND)=GAM_RSQ(1:ND)*XM(1:ND)
++	  CALL DERIVCHI(TB,TC,R,ND,'LINMON')
++	  CALL d_DERIVCHI_dCHI(TB,TC,R,ND,'LINMON')
++!	  DO I=1,ND
++!	   WRITE(216,'(I3,5ES18.8)')I,FREQ,GAM_RSQ(I)*XM(I),dlnGRSQJdlnR(I),R(I)*TB(I)/GAM_RSQ(I)/XM(I)
++!	  END DO
++	  TA=TA_SAV; TB=TB_SAV; TC=TC_SAV
++!	  WRITE(215,*)'New freq'
++!	  DO I=1,ND
++!	    WRITE(215,'(I3,5ES18.8)')I,FREQ,TA(I),TB(I),TC(I),(TA(I)+TB(I)+TC(I))/TB(I)
++!	  END DO
++	  DO I=2,ND-1
++	    TA(I)=TA(I)+GAM_RSQ_DTAUONQ(I)*BETA(I)*A(I)*GAM_RSQ(I-1)/GAM_RSQ(I)/CHI_J(I)
++	    TB(I)=TB(I)+GAM_RSQ_DTAUONQ(I)*BETA(I)*(B(I)-dlnGRSQJdlnR(I)/R(I))/CHI_J(I)
++	    TC(I)=TC(I)+GAM_RSQ_DTAUONQ(I)*BETA(I)*C(I)*GAM_RSQ(I+1)/GAM_RSQ(I)/CHI_J(I)
++	  END DO
++!	  DO I=1,ND
++!	    T1=R(I)*( A(I)*GAM_RSQ(I-1)*XM(I-1) + B(I)*GAM_RSQ(I)*XM(I) + C(I)*GAM_RSQ(I+1)*XM(I+1))/XM(I)/GAM_RSQ(I)
++!	    WRITE(215,'(I3,7ES18.8)')I,FREQ,TA(I),TB(I),TC(I),(TA(I)+TB(I)+TC(I))/TB(I),dlnGRSQJdlnR(I),T1
++!	  END DO
++	  CALL THOMAS(TA,TB,TC,XM_SAV,ND,1)
++	END IF
++!	WRITE(211,'(8ES14.4)')FREQ,GAM_RSQ(1:7)*XM_SAV(1:7)
++!
++! 
++!
++! The J and H components of the radiation field have been found. We can thus
++! begin the variation computation.
++!
++! Compute d{non-radiation field}/dchi matrix.
++!
++	IF(INNER_BND_METH.EQ.'HOLLOW')THEN
++	  T1=0.0_LDP
++	  IF(.NOT.INIT)T1=CON_DELTA(ND)/dLOG_NU/CHI(ND)
++	  IB_Z=GAM_RSQ(ND)*((1.0_LDP+LOCAL_IB_STAB)*(JPLUS_IB-JNU(ND))+LOCAL_IB_STAB*JMIN_IB)
++	  IB_DTAU=0.5_LDP*(R(ND-1)-R(ND))
++	  dIBCHI_B=(KPLUS_IB*GAM_RSQ(ND)-GAM_RSQ(ND-1)*K_ON_J(ND-1)*JNU(ND-1)
++	1           -IB_Z*FMIN)*IB_DTAU/DTAU**2
++	  dIBCHI_A=dIBCHI_B+(JPLUS_IB-KPLUS_IB)*GAM_RSQ(ND)/R(ND)/CHI(ND)**2
++	1          -T1*(RSQ_HP-IN_HBC_PREV)/CHI(ND)
++	1          -IB_Z*((1.0_LDP-FMIN)/R(ND)/CHI(ND)**2+HMIN*T1/CHI(ND))
++! EDD's final column conversion divides by gamma; these are already
++! derivatives with respect to physical CHI, so compensate for that conversion.
++	  dIBCHI_A=dIBCHI_A*GAM_REL(ND); dIBCHI_B=dIBCHI_B*GAM_REL(ND-1)
++	END IF
++	CALL TUNE(1,'EDD_JREL_V3')
++	CALL EDD_JREL_VAR_V3(KI,RHS_dHdCHI,
++	1          R,SIGMA,CHI,ESEC,K_ON_J,dIBCHI_A,dIBCHI_B,RHS_JNU,
++	1          IB_STAB_FACTOR,DBB,INNER_BND_METH,METHOD,ND,NM_KI)
++	CALL TUNE(2,'EDD_JREL_V3')
++!
++!	IF( ABS(FREQ-9.487047E-01) .LT. 1.0D-05)THEN
++!	  OPEN(UNIT=7,FILE='KI_TEST',STATUS='UNKNOWN')
++!	    CALL WR2D_V2(KI(1,1,1),ND,ND,'dCHI','*',.TRUE.,7)
++!	    CALL WR2D_V2(KI(1,1,2),ND,ND,'dETA','#',.TRUE.,7)
++!	    CALL WR2D_V2(RHS_dHdCHI,ND,ND,'dH','%',.TRUE.,7)
++!	  CLOSE(UNIT=7)
++!	END IF
++!
++! Evaluate the intensity variations.
++!                                  TX=dJ/d(chi,eta,....)
++!                          and     TVX=dRSQH/d(chi,eta,...)
++!
++! WORKMAT is dimension (ND,ND) is is used to temporarily save TX( , ,K) for
++! each K.
++!
++! Chain actual fine-grid opacity/emissivity parameters to model variables.
++	KI_MODEL=0.0_LDP; RHS_MODEL=0.0_LDP; ESC_RESPONSE=0.0_LDP
++	DO JM=1,NC
++	  DO JF=1,ND
++	    KI_MODEL(:,JM,1)=KI_MODEL(:,JM,1)+KI(:,JF,1)*PCHI(JF,JM)
++	    KI_MODEL(:,JM,2)=KI_MODEL(:,JM,2)+KI(:,JF,2)*PETA(JF,JM)
++	    RHS_MODEL(:,JM)=RHS_MODEL(:,JM)+RHS_dHdCHI(:,JF)*PCHI(JF,JM)
++	    ESC_RESPONSE(:,JM)=ESC_RESPONSE(:,JM)+KI(:,JF,2)*JNU(JF)*PESC(JF,JM)
++	  END DO
++	END DO
++	CALL SIMPTH(TA,TB,TC,ESC_RESPONSE,ND,NC)
++	DO JM=1,NC
++	  DO IR=1,ND-1
++	    ESC_H(IR,JM)=(HU(IR)-EPS_B(IR))*ESC_RESPONSE(IR+1,JM)
++	1                  -(HL(IR)+EPS_A(IR))*ESC_RESPONSE(IR,JM)
++	  END DO
++	END DO
++	CALL TUNE(1,'UP_TX')
++	CALL UP_TX_TVX_GRID_V1(TX,TVX,KI_MODEL,TA,TB,TC,PSIPREV_MOD,
++	1                       VB,VC,HU,HL,HS,RHS_MODEL,
++	1                       EPS_A,EPS_B,EPS_PREV_A,EPS_PREV_B,
++	1                       OLD_MODEL,ND,NC,NM,NM_KI,0.0_LDP,1,
++	1                       INIT,DO_THIS_TX_MATRIX)
++	CALL TUNE(2,'UP_TX')
++!
++! 
++!
++! Evaluate diffusion variation. TXD is initially the value from the
++! previous frequency.
++!
++	DO I=1,ND
++	  TX_OLD_d_T(I)=TX_DIF_d_T(I)
++	  TX_OLD_d_dTdR(I)=TX_DIF_d_dTDR(I)
++	END DO
++	IF(INNER_BND_METH .EQ. 'DIFFUSION')THEN
++	  TX_DIF_d_T(1)=PSIPREV(1)*TX_DIF_d_T(1)
++	  TX_DIF_d_dTdR(1)=PSIPREV(1)*TX_DIF_d_dTdR(1)
++	  DO I=2,ND-1
++	    TX_DIF_d_T(I)= PSIPREV_MOD(I)*TX_DIF_d_T(I)
++	1             + VB(I)*TVX_DIF_d_T(I-1) + VC(I)*TVX_DIF_d_T(I)
++	1          + ( EPS_PREV_B(I)*TX_OLD_d_T(I+1)
++	1               - EPS_PREV_A(I-1)*TX_OLD_d_T(I-1) )
++	    TX_DIF_d_dTdR(I)= PSIPREV_MOD(I)*TX_DIF_d_dTdR(I)
++	1             + VB(I)*TVX_DIF_d_dTdR(I-1) + VC(I)*TVX_DIF_d_dTdR(I)
++	1          + ( EPS_PREV_B(I)*TX_OLD_d_dTdR(I+1)
++	1               - EPS_PREV_A(I-1)*TX_OLD_d_dTdR(I-1) )
++	  END DO
++	  TX_DIF_d_T(ND)=GAM_RSQ(ND)*dDBBdT/3.0_LDP/CHI(ND) +
++	1                       PSIPREV(ND)*TX_DIF_d_T(ND)
++	  TX_DIF_d_dTdR(ND)=GAM_RSQ(ND)*DBB/dTdR/3.0_LDP/CHI(ND) +
++	1                       PSIPREV(ND)*TX_DIF_d_dTdR(ND)
++!
++! Solve for the radiation field along ray for this frequency.
++!
++	  CALL SIMPTH(TA,TB,TC,TX_DIF_d_T,ND,1)
++	  CALL SIMPTH(TA,TB,TC,TX_DIF_d_dTdR,ND,1)
++!
++	  DO I=1,ND-1
++	    TVX_DIF_d_T(I)=HU(I)*TX_DIF_d_T(I+1) - HL(I)*TX_DIF_d_T(I) +
++	1        HS(I)*TVX_DIF_d_T(I) +
++	1        (EPS_PREV_A(I)*TX_OLD_d_T(I)-EPS_A(I)*TX_DIF_d_T(I)) +
++	1        (EPS_PREV_B(I)*TX_OLD_d_T(I+1)-EPS_B(I)*TX_DIF_d_T(I+1))
++	    TVX_DIF_d_dTdR(I)=HU(I)*TX_DIF_d_dTdR(I+1) -
++	1     HL(I)*TX_DIF_d_dTdR(I) +
++	1     HS(I)*TVX_DIF_d_dTdR(I) +
++	1     (EPS_PREV_A(I)*TX_OLD_d_dTdR(I)-EPS_A(I)*TX_DIF_d_dTdR(I)) +
++	1     (EPS_PREV_B(I)*TX_OLD_d_dTdR(I+1)-EPS_B(I)*TX_DIF_d_dTdR(I+1))
++	  END DO
++!
++	END IF	    	    !DIF END
++!
++! Save JNU and GAM_RSQHNU for next frequency integration.
++!
++	IF(INNER_BND_METH.EQ.'HOLLOW')HOLLOW_HMIN_PREV=HMIN_IB/JMIN_IB
++	JNU_PREV(:)=JNU(:)
++	GAM_RSQHNU_PREV(:)=GAM_RSQHNU(:)
++!
++! Zero variation in J and H where we have fudged values to physically correct.
++!
++!	DO I=1,ND
++!	  IF(JERR(I))TX(I,:,:)=0.0D0
++!	END DO
++!	DO I=1,ND-1
++!	  IF(HERR(I))TVX(I,:,:)=0.0D0
++!	END DO
++!
++	RETURN
++	END
 diff --git a/plane/var_mom_j_cmf_v12.f b/plane/var_mom_j_cmf_v12.f
 --- a/plane/var_mom_j_cmf_v12.f
 +++ b/plane/var_mom_j_cmf_v12.f
-@@ -422,3 +422,444 @@
+@@ -339,7 +339,8 @@
+ ! Compute d{non-radiation field}/dchi matrix.
+ !
+ 	CALL TUNE(1,'MOM_EDD')
+-	CALL EDD_J_VAR_V6(KI,RHS_dHdCHI,WORKMAT,
++	CALL MOM_GRID_DTAU_JAC(CHI,Q,R,ND,METHOD,WORKMAT)
++	CALL EDD_J_VAR_GRID_V1(KI,RHS_dHdCHI,WORKMAT,
+ 	1           SOURCE,CHI,ESEC,THETA,DTAU,R,SIGMA,
+ 	1           K_ON_J,Q,HU,HL,HS,RSQ_DTAUONQ,
+ 	1           W,WPREV,PSI,PSIPREV,
+@@ -348,6 +349,15 @@
+ 	1           LOCAL_DBB,DIF_OR_ZF,HBC,OUT_BC_TYPE,
+ 	1           ND,NM_KI)
+ 	CALL TUNE(2,'MOM_EDD')
++! ZERO_FLUX stabilizer multiplies both the boundary diagonal and source.
++! Its opacity derivative must use the same factor as the forward equation.
++	IF(INNER_BND_METH .EQ. 'ZERO_FLUX')THEN
++	  T1=IB_STAB_FACTOR*R(ND)*R(ND)*K_ON_J(ND)/DTAU(ND-1)**2
++	1      *(JNU(ND)-R(ND)*R(ND)*(JPLUS_IB+JMIN_IB))
++	  KI(ND,:,1)=KI(ND,:,1)+T1*WORKMAT(ND-1,:)
++	END IF
++
++
+ !
+ ! Evaluate the intensity variations.
+ !                                  TX=dJ/d(chi,eta,....)
+@@ -377,6 +387,12 @@
+ 	IF(INNER_BND_METH .EQ. 'DIFFUSION')THEN
+ 	  TX_DIF_d_T(1)=PSIPREV(1)*TX_DIF_d_T(1)
+ 	  TX_DIF_d_dTdR(1)=PSIPREV(1)*TX_DIF_d_dTdR(1)
++	  IF(OUT_BC_TYPE.GT.1)THEN
++	    TX_DIF_d_T(1)=-PSIPREV(1)*TX_OLD_d_T(1)-HS(1)*TVX_DIF_d_T(1)/DTAU_BND
++	1      -(EPS_PREV_A(1)*TX_OLD_d_T(1)+EPS_PREV_B(1)*TX_OLD_d_T(2))/DTAU_BND
++	    TX_DIF_d_dTdR(1)=-PSIPREV(1)*TX_OLD_d_dTdR(1)-HS(1)*TVX_DIF_d_dTdR(1)/DTAU_BND
++	1      -(EPS_PREV_A(1)*TX_OLD_d_dTdR(1)+EPS_PREV_B(1)*TX_OLD_d_dTdR(2))/DTAU_BND
++	  END IF
+ 	  DO I=2,ND-1
+ 	    TX_DIF_d_T(I)= PSIPREV_MOD(I)*TX_DIF_d_T(I)
+ 	1             + VB(I)*TVX_DIF_d_T(I-1) + VC(I)*TVX_DIF_d_T(I)
+@@ -422,3 +438,450 @@
  !
  	RETURN
  	END
@@ -1945,6 +4138,7 @@ diff --git a/plane/var_mom_j_cmf_v12.f b/plane/var_mom_j_cmf_v12.f
 +	INTEGER I
 +	REAL(KIND=LDP) AV_SIGMA
 +	REAL(KIND=LDP) LOCAL_DBB
++	LOGICAL COHERENT_RESPONSE
 +	LOGICAL DIF_OR_ZF
 +!
 +! 
@@ -2188,13 +4382,18 @@ diff --git a/plane/var_mom_j_cmf_v12.f b/plane/var_mom_j_cmf_v12.f
 +
 +! Chain fine-grid opacity/emissivity partials to MODEL variables using the
 +! derivative of the same Steffen log-radius/log-value interpolation.
++	COHERENT_RESPONSE=ANY(THETA.NE.0.0_LDP)
 +	KI_MODEL=0.0_LDP; RHS_MODEL=0.0_LDP; ESC_RESPONSE=0.0_LDP
 +	DO JF=1,ND
-+	  DO JM=MAX(1,R_PNT(JF)-1),MIN(NC,R_PNT(JF)+2)
++	  DO JM=1,NC
 +	    DO IR=1,ND
 +	      KI_MODEL(IR,JM,1)=KI_MODEL(IR,JM,1)+KI(IR,JF,1)*PCHI(JF,JM)
 +	      KI_MODEL(IR,JM,2)=KI_MODEL(IR,JM,2)+KI(IR,JF,2)*PETA(JF,JM)
++	      IF(COHERENT_RESPONSE)THEN
 +	      ESC_RESPONSE(IR,JM)=ESC_RESPONSE(IR,JM)+KI(IR,JF,2)*JNU(JF)*PESC(JF,JM)
++	    ELSE
++	      ESC_RESPONSE(IR,JM)=ESC_RESPONSE(IR,JM)+KI(IR,JF,2)*PESC(JF,JM)
++	    END IF
 +	    END DO
 +	    DO IR=1,ND-1
 +	      RHS_MODEL(IR,JM)=RHS_MODEL(IR,JM)+RHS_dHdCHI(IR,JF)*PCHI(JF,JM)
@@ -2291,6 +4490,728 @@ diff --git a/plane/var_mom_j_cmf_v12.f b/plane/var_mom_j_cmf_v12.f
 +!
 +	RETURN
 +	END
+diff --git a/plane/var_mom_j_ddt_v6.f b/plane/var_mom_j_ddt_v6.f
+--- a/plane/var_mom_j_ddt_v6.f
++++ b/plane/var_mom_j_ddt_v6.f
+@@ -53,6 +53,8 @@
+ 	REAL(KIND=LDP) DELTA_TIME_SECS
+ 	REAL(KIND=LDP) RECIP_CDELTAT
+ !
++	REAL(KIND=LDP), SAVE :: RSQH_AT_OB_PREV=0.0_LDP
++	REAL(KIND=LDP), SAVE :: HOLLOW_HMIN_PREV=0.0_LDP,HALF_HPLUS_PREV=0.0_LDP
+ 	LOGICAL, SAVE :: FIRST_TIME=.TRUE.
+ !
+  	END MODULE MOD_VAR_HUB_J_V6
+@@ -676,3 +678,683 @@
+ !
+ 	RETURN
+ 	END
++
++! Rectangular time-dependent response, retaining the actual moment grid.
++	SUBROUTINE VAR_MOM_J_DDT_GRID_V1(ETA,CHI,ESEC,THETA,V,R,
++	1                  TX,TVX,TX_DIF_d_T,TX_DIF_d_dTdR,
++	1                  TVX_DIF_d_T,TVX_DIF_d_dTdR,
++	1                  KI,WORKMAT,RHS_dHdCHI,F,
++	1                  DO_TIME_VAR,USE_DR4JDT,RELAX_PARAM,INIT,FREQ,dLOG_NU,
++	1                  dTdR,DBB,dDBBdT,
++	1                  DO_THIS_TX_MATRIX,METHOD,
++	1                  XM_CHK_OPTION,J_CHK_OPTION,H_CHK_OPTION,
++	1                  INNER_BND_METH,OUTER_BND_METH,
++	1                  ND,NC,NM,NM_KI,PCHI,PETA,PESC,ESC_RESPONSE,ESC_H)
++	USE SET_KIND_MODULE
++ 	USE MOD_VAR_HUB_J_V6
++	USE MOD_RAY_MOM_STORE
++	IMPLICIT NONE
++!
++! Altered: 29-Oct-2019 - Changed to V6. XM_CHK_OPTION added to call.
++! Altered: 18-Oct-2019 - Changed to V5. J_CHK_OPTION added to call.
++! Altered: 17-Oct-2016 - Changed to V4. H_CHK_OPTION added to call.
++! Altered: 02-Oct-2016 - Changed from UP_TX_TVX to UP_TX_TVX_NOEPS.
++! Altered: 10-Feb-2010 - Minor correction to dRHSdCHI_IB for DIFFUSION approximation.
++! Altered:  2-Feb-2010 - Bug fix with DJDt_OLDT(1).
++! Altered: 18-Jan-2010 - Changed to V2.
++!                        Installed INNER_BND_METH,OUTER_BND_METH and now use MOD_RAY_MOM_STORE.
++!                        Changes to allow "THIN" inner boundary condition, and more flexible
++!                          boundary conditions.
++! Created: 16-July-2006
++!
++	INTEGER ND,NC
++	INTEGER NM
++	INTEGER NM_KI
++!
++	REAL(KIND=LDP) R(ND)
++	REAL(KIND=LDP) V(ND)
++	REAL(KIND=LDP) ETA(ND)
++	REAL(KIND=LDP) CHI(ND)
++	REAL(KIND=LDP) ESEC(ND)
++	REAL(KIND=LDP) THETA(ND)
++!
++! Variation arrays and vectors.
++!
++	REAL(KIND=LDP) TX(ND,NC,NM)
++	REAL(KIND=LDP) TVX(ND-1,NC,NM)
++	REAL(KIND=LDP) KI(ND,ND,NM_KI)
++	REAL(KIND=LDP) WORKMAT(ND,ND)
++	REAL(KIND=LDP) RHS_dHdCHI(ND-1,ND)
++	REAL(KIND=LDP) TX_DIF_d_T(ND)
++	REAL(KIND=LDP) TX_DIF_d_dTdR(ND)
++	REAL(KIND=LDP) TVX_DIF_d_T(ND)
++	REAL(KIND=LDP) TVX_DIF_d_dTdR(ND)
++!
++	LOGICAL DO_THIS_TX_MATRIX(NM)
++!
++! "Eddington factors"
++!
++	REAL(KIND=LDP) F(ND)
++	REAL(KIND=LDP) HONJ_OUTBC
++	REAL(KIND=LDP) RSQH_AT_IB
++	REAL(KIND=LDP) RSQH_AT_OB
++!
++	REAL(KIND=LDP) dLOG_NU,dTdR,DBB,dDBBdT,IC
++	REAL(KIND=LDP) dNU_TERM_DIF_BC
++	REAL(KIND=LDP) dRHSdCHI_IB
++	REAL(KIND=LDP) dRHSdCHI_OB
++	REAL(KIND=LDP) FREQ
++	REAL(KIND=LDP) C_KMS
++	REAL(KIND=LDP) T1,T2,T3
++	REAL(KIND=LDP) GAM_INB
++	REAL(KIND=LDP) MOD_DTAU
++	REAL(KIND=LDP) HPLUS,FPLUS
++	REAL(KIND=LDP) HMIN,FMIN
++	REAL(KIND=LDP) RSQ
++	REAL(KIND=LDP) RELAX_PARAM
++	CHARACTER(LEN=*) METHOD
++	CHARACTER(LEN=*) INNER_BND_METH
++	CHARACTER(LEN=*) OUTER_BND_METH
++	CHARACTER(LEN=*) XM_CHK_OPTION
++	CHARACTER(LEN=*) J_CHK_OPTION
++	CHARACTER(LEN=*) H_CHK_OPTION
++!
++! INIT is used to indicate that there is no coupling to the previous frequency.
++! We are thus solving the normal continuum transfer equation (i.e., the absence
++! of velocity fields)
++!
++	LOGICAL DO_TIME_VAR
++	LOGICAL USE_DR4JDT
++	LOGICAL INIT
++!
++	REAL(KIND=LDP) SPEED_OF_LIGHT
++	REAL(KIND=LDP) BC_TIME,BC_TAU,BC_G,BC_GP,BC_DTAU,BC_Z,BC_EXTRA
++	REAL(KIND=LDP) PCHI(ND,NC),PETA(ND,NC),PESC(ND,NC),ZERO_EPS(ND)
++	REAL(KIND=LDP) KI_MODEL(ND,NC,2),RHS_MODEL(ND-1,NC),OLD_MODEL(ND,NC)
++	REAL(KIND=LDP) ESC_RESPONSE(ND,NC),ESC_H(ND-1,NC)
++	INTEGER IR,JM,JF
++	INTEGER ERROR_LU
++	EXTERNAL SPEED_OF_LIGHT,ERROR_LU
++	CHARACTER(LEN=6), PARAMETER :: OPTION='NORMAL'
++!
++! Local variables.
++!
++	INTEGER I
++	INTEGER ICNT
++!
++	C_KMS=1.0E-05_LDP*SPEED_OF_LIGHT()
++!
++	IF(INIT .AND. ALLOCATED(JNU))THEN
++	 IF(SIZE(JNU).NE.ND)THEN
++	  IF(ALLOCATED(JNU))DEALLOCATE(JNU)
++	  IF(ALLOCATED(JNUM1))DEALLOCATE(JNUM1)
++	  IF(ALLOCATED(JNU_OLDT))DEALLOCATE(JNU_OLDT)
++	  IF(ALLOCATED(JNU_MOD))DEALLOCATE(JNU_MOD)
++	  IF(ALLOCATED(RSQ_HNU))DEALLOCATE(RSQ_HNU)
++	  IF(ALLOCATED(RSQ_HNUM1))DEALLOCATE(RSQ_HNUM1)
++	  IF(ALLOCATED(RSQ_HNU_OLDT))DEALLOCATE(RSQ_HNU_OLDT)
++	  IF(ALLOCATED(dH))DEALLOCATE(dH)
++	  IF(ALLOCATED(dH_OLDT))DEALLOCATE(dH_OLDT)
++	  IF(ALLOCATED(DJDt))DEALLOCATE(DJDt)
++	  IF(ALLOCATED(DJDt_OLDT))DEALLOCATE(DJDt_OLDT)
++	  IF(ALLOCATED(DTAU))DEALLOCATE(DTAU)
++	  IF(ALLOCATED(DUMMY_VEC))DEALLOCATE(DUMMY_VEC)
++	  IF(ALLOCATED(HU))DEALLOCATE(HU)
++	  IF(ALLOCATED(HL))DEALLOCATE(HL)
++	  IF(ALLOCATED(HS))DEALLOCATE(HS)
++	  IF(ALLOCATED(HT))DEALLOCATE(HT)
++	  IF(ALLOCATED(GAM))DEALLOCATE(GAM)
++	  IF(ALLOCATED(GAMH))DEALLOCATE(GAMH)
++	  IF(ALLOCATED(PSI))DEALLOCATE(PSI)
++	  IF(ALLOCATED(PSIPREV))DEALLOCATE(PSIPREV)
++	  IF(ALLOCATED(Q))DEALLOCATE(Q)
++	  IF(ALLOCATED(RSQ_DTAUONQ))DEALLOCATE(RSQ_DTAUONQ)
++	  IF(ALLOCATED(SOURCE))DEALLOCATE(SOURCE)
++	  IF(ALLOCATED(TA))DEALLOCATE(TA)
++	  IF(ALLOCATED(TB))DEALLOCATE(TB)
++	  IF(ALLOCATED(TC))DEALLOCATE(TC)
++	  IF(ALLOCATED(TX_OLD_d_T))DEALLOCATE(TX_OLD_d_T)
++	  IF(ALLOCATED(TX_OLD_d_dTdR))DEALLOCATE(TX_OLD_d_dTdR)
++	  IF(ALLOCATED(VB))DEALLOCATE(VB)
++	  IF(ALLOCATED(VC))DEALLOCATE(VC)
++	  IF(ALLOCATED(W))DEALLOCATE(W)
++	  IF(ALLOCATED(WPREV))DEALLOCATE(WPREV)
++	  IF(ALLOCATED(XM))DEALLOCATE(XM)
++	  IF(ALLOCATED(DERIV_SCL_FAC))DEALLOCATE(DERIV_SCL_FAC)
++	  IF(ALLOCATED(COH_VEC))DEALLOCATE(COH_VEC)
++	  FIRST_TIME=.TRUE.
++	 END IF
++	END IF
++	IF(FIRST_TIME)THEN
++	  ALLOCATE ( JNU(ND) )
++	  ALLOCATE ( JNUM1(ND) )
++	  ALLOCATE ( JNU_OLDT(ND) )
++	  ALLOCATE ( JNU_MOD(ND) )
++	  ALLOCATE ( RSQ_HNU(ND) )
++	  ALLOCATE ( RSQ_HNUM1(ND) )
++	  ALLOCATE ( RSQ_HNU_OLDT(ND) )
++!
++	  ALLOCATE ( dH(ND) )
++	  ALLOCATE ( dH_OLDT(ND) )
++	  ALLOCATE ( DJDt(ND) )
++	  ALLOCATE ( DJDt_OLDT(ND) )
++	  ALLOCATE ( DTAU(ND) )
++	  ALLOCATE ( DUMMY_VEC(ND) )
++	  ALLOCATE ( HU(ND) )
++	  ALLOCATE ( HL(ND) )
++	  ALLOCATE ( HS(ND) )
++	  ALLOCATE ( HT(ND) )
++	  ALLOCATE ( GAM(ND) )
++	  ALLOCATE ( GAMH(ND) )
++	  ALLOCATE ( PSI(ND) )
++	  ALLOCATE ( PSIPREV(ND) )
++	  ALLOCATE ( Q(ND) )
++	  ALLOCATE ( RSQ_DTAUONQ(ND) )
++	  ALLOCATE ( SOURCE(ND) )
++	  ALLOCATE ( TA(ND) )
++	  ALLOCATE ( TB(ND) )
++	  ALLOCATE ( TC(ND) )
++	  ALLOCATE ( TX_OLD_d_T(ND) )
++	  ALLOCATE ( TX_OLD_d_dTdR(ND) )
++	  ALLOCATE ( VB(ND) )
++	  ALLOCATE ( VC(ND) )
++	  ALLOCATE ( W(ND) )
++	  ALLOCATE ( WPREV(ND) )
++	  ALLOCATE ( XM(ND) )
++	  ALLOCATE ( DERIV_SCL_FAC(ND) )
++	  ALLOCATE ( COH_VEC(ND) )
++!
++	  FIRST_TIME=.FALSE.
++	END IF
++!
++! 
++!
++! Zero relevant vectors and matrices.
++!
++	DO I=1,ND
++	  JNU(I)=0.0_LDP
++	  RSQ_HNU(I)=0.0_LDP
++	END DO
++!
++	DO I=1,ND
++	  SOURCE(I)=ETA(I)/CHI(I)
++	END DO
++!
++! We use TA as a temporary variable for ROLD.
++!
++	IF(DO_TIME_VAR)THEN
++	  CALL GET_JH_AT_PREV_TIME_STEP(JNU_OLDt,RSQ_HNU_OLDt,
++	1        RSQH_AT_IB_OLDT,HONJ_OUTBC_OLDT,
++	1        DELTA_TIME_SECS,FREQ,R,V,ND,INIT,'NORMAL')
++	  TA(1:ND)=R(1:ND)-1.0E-05_LDP*V(1:ND)*DELTA_TIME_SECS
++	  JNU_OLDT(1:ND)=JNU_OLDT(1:ND)/TA(1:ND)/TA(1:ND)
++	ELSE
++	  JNU_OLDT=0.0_LDP; RSQ_HNU_OLDt=0.0_LDP
++	  RSQH_AT_IB_OLDT=0.0_LDP; HONJ_OUTBC_OLDT=0.0_LDP
++	END IF
++!
++! NB: The factor of 10^10 occurs because c. /\t is a length, and R in
++!     cmfgen is in units of 10^10 cm. NB: In the differenced equations
++!     we always have terms like 1/(c . /\t . chi)
++!
++!     The factor of 10^{-5} in ROLD_ON_R occurs because V is in km/s, and
++!      R is in units of 10^10cm..
++!
++	IF(INIT)THEN
++	  IF(DO_TIME_VAR)THEN
++	    RECIP_CDELTAT=1.0E+10_LDP*RELAX_PARAM/SPEED_OF_LIGHT()/DELTA_TIME_SECS
++	    ROLD_ON_R=1.0_LDP-1.0E-05_LDP*V(ND)*DELTA_TIME_SECS/R(ND)
++	  ELSE
++	    RECIP_CDELTAT=0.0_LDP
++	    ROLD_ON_R=0.0_LDP
++	  END IF
++	END IF
++	R_FAC_FOR_J=ROLD_ON_R
++	IF(USE_DR4JDT)R_FAC_FOR_J=ROLD_ON_R*ROLD_ON_R
++!
++! Compute the Q factors from F. Then compute optical depth scale.
++!
++	CALL QFROMF(F,Q,R,TA,TB,ND)	!TA work vector
++	DO I=1,ND
++	  TA(I)=CHI(I)*Q(I)
++	END DO
++	CALL DERIVCHI(TB,TA,R,ND,METHOD)
++!
++! We need to call d_DERIVCHI_dCHI to set the TRAP derivatives.
++!
++	CALL d_DERIVCHI_dCHI(TB,TA,R,ND,METHOD)
++	CALL NORDTAU(DTAU,TA,R,R,TB,ND)
++	DO I=2,ND-1
++	  RSQ_DTAUONQ(I)=0.5_LDP*R(I)*R(I)*(DTAU(I)+DTAU(I-1))/Q(I)
++	END DO
++!
++! 
++!
++! Assume (1) Vd+1/2=0.5*( Vd + Vd+1 )
++! Note that V is in km/s.
++!
++! We evaluate and store the constant terms in the computation of GAMH and
++! GAM, since number of operations only proportional to ND. Later on scaling is
++! proportional to NM*ND*ND.
++!
++	IF(INIT)THEN
++	  TX=0.0_LDP		! ND:ND:NM
++	  TVX=0.0_LDP		! ND-1:ND:NM
++	  DO I=1,ND
++	    JNUM1(I)=0.0_LDP
++	    RSQ_HNUM1(I)=0.0_LDP
++	    GAMH(I)=0.0_LDP
++	    GAM(I)=0.0_LDP
++	    W(I)=0.0_LDP
++	    WPREV(I)=0.0_LDP
++	    PSI(I)=0.0_LDP
++	    PSIPREV(I)=0.0_LDP
++	    TX_DIF_d_T(I)=0.0_LDP
++	    TX_DIF_d_dTdR(I)=0.0_LDP
++	    DJDT(I)=0.0_LDP
++	    DJDT_OLDT(I)=0.0_LDP
++ 	  END DO
++	  CHI_AT_INB_PREV=1.0_LDP
++	ELSE
++	  DO I=1,ND-1
++	    GAMH(I)=2.0_LDP*(V(I)+V(I+1))/(R(I)+R(I+1))/dLOG_NU/( CHI(I)+CHI(I+1) )/C_KMS
++	    dH(I)=2.0_LDP*RECIP_CDELTAT/( CHI(I)+CHI(I+1) )
++	    dH_OLDT(I)=dH(I)*ROLD_ON_R
++	    W(I)=GAMH(I)+dH(I)
++	    WPREV(I)=GAMH(I)
++	  END DO
++	  DO I=1,ND
++	    GAM(I)=V(I)/R(I)/CHI(I)/dLOG_NU/C_KMS
++	  END DO
++	  T1=R_FAC_FOR_J*ROLD_ON_R*ROLD_ON_R
++	  DO I=2,ND-1
++	    PSI(I)=RSQ_DTAUONQ(I)*GAM(I)
++	    PSIPREV(I)=RSQ_DTAUONQ(I)*GAM(I)
++	    DJDT(I)=RSQ_DTAUONQ(I)*RECIP_CDELTAT/CHI(I)
++	    DJDT_OLDT(I)=T1*RSQ_DTAUONQ(I)*RECIP_CDELTAT/CHI(I)
++	  END DO
++	END IF
++!
++! If if it is the first frequency, we still need to allow for the time variability
++! terms.
++!
++	IF(INIT .AND. DO_TIME_VAR)THEN
++	  DO I=1,ND-1
++	    dH(I)=2.0_LDP*RECIP_CDELTAT/( CHI(I)+CHI(I+1) )
++	    dH_OLDT(I)=dH(I)*ROLD_ON_R
++	    W(I)=dH(I)
++	  END DO
++	  T1=R_FAC_FOR_J*ROLD_ON_R*ROLD_ON_R
++	  DO I=2,ND-1
++	    DJDT(I)=RSQ_DTAUONQ(I)*RECIP_CDELTAT/CHI(I)
++	    DJDT_OLDT(I)=T1*RSQ_DTAUONQ(I)*RECIP_CDELTAT/CHI(I)
++	  END DO
++	END IF
++!
++! 
++!
++! Compute vectors used to compute the flux vector H.
++!
++	DO I=1,ND-1
++	  HU(I)=R(I+1)*R(I+1)*F(I+1)*Q(I+1)/(1.0_LDP+W(I))/DTAU(I)
++	  HL(I)=R(I)*R(I)*F(I)*Q(I)/(1.0_LDP+W(I))/DTAU(I)
++	  HS(I)=WPREV(I)/(1.0_LDP+W(I))
++	  HT(I)=dH_OLDT(I)/(1.0_LDP+W(I))
++	END DO
++!
++! Compute the TRIDIAGONAL operators, and the RHS source vector.
++!
++	IF(USE_DR4JDT)THEN
++	  DO I=2,ND-1
++	    COH_VEC(I)=THETA(I)+V(I)/R(I)/C_KMS/CHI(I)
++	  END DO
++	ELSE
++	  DO I=2,ND-1
++	    COH_VEC(I)=THETA(I)
++	  END DO
++	END IF
++!
++	DO I=2,ND-1
++	  TA(I)=-HL(I-1)
++	  TC(I)=-HU(I)
++	  TB(I)=RSQ_DTAUONQ(I)*(1.0_LDP-COH_VEC(I)) + PSI(I) + DJDT(I) +HU(I-1) +HL(I)
++	  VB(I)=-HS(I-1)
++	  VC(I)=HS(I)
++	  XM(I)=RSQ_DTAUONQ(I)*SOURCE(I)
++	END DO
++!
++	DO I=2,ND-1
++	  XM(I)=XM(I) +
++	1        (VB(I)*RSQ_HNUM1(I-1) + VC(I)*RSQ_HNUM1(I)) +
++	1        (HT(I)*RSQ_HNU_OLDT(I) - HT(I-1)*RSQ_HNU_OLDT(I-1)) +
++	1         PSIPREV(I)*JNUM1(I) + DJDT_OLDT(I)*JNU_OLDt(I)
++	END DO
++!
++	DERIV_SCL_FAC=1.0_LDP
++	IF(XM_CHK_OPTION .EQ. 'SET_POS')THEN
++	  DO I=2,ND-1
++	    ICNT=0
++	    DO WHILE(XM(I) .LE. 0.0_LDP .AND. ICNT .LT. 5)
++	      DERIV_SCL_FAC(I)=0.5_LDP*DERIV_SCL_FAC(I)
++	      XM(I)=RSQ_DTAUONQ(I)*SOURCE(I) +
++	1          DERIV_SCL_FAC(I)*(VB(I)*RSQ_HNUM1(I-1) + VC(I)*RSQ_HNUM1(I)) +
++	1          (HT(I)*RSQ_HNU_OLDT(I) - HT(I-1)*RSQ_HNU_OLDT(I-1)) +
++	1           PSIPREV(I)*JNUM1(I) + DJDT_OLDT(I)*JNU_OLDt(I)
++	      ICNT=ICNT+1
++	    END DO
++	  END DO
++        ELSE IF(XM_CHK_OPTION .EQ. 'NONE')THEN
++	ELSE
++	  I=ERROR_LU()
++	  WRITE(I,*)'Unrecognized H_CHK_OPTION in VAR_MOM_J_DDT_V6: ',TRIM(H_CHK_OPTION)
++	  STOP
++	END IF
++!
++! Evaluate TA,TB,TC for boundary conditions
++! NB: GAM(1) is zero if inital frequency. Likewise, RECIP_CDELTAT is zero if not doing
++!            time variation.
++!
++! NB: dRHSdCHI_OB is only used for contributions directly related to CHI, but not
++! those related to PSI and DJDt.
++!
++	TA(1)=0.0_LDP
++	VB(1)=0.0_LDP
++	VC(1)=0.0_LDP
++        HONJ_OUTBC=(HPLUS_OB-HMIN_OB)/(JPLUS_OB+JMIN_OB)
++        IF(OUTER_BND_METH .EQ. 'HONJ'.OR.OUTER_BND_METH.EQ.'HONJM')THEN
++	  DJDt(1)=R(1)*R(1)*RECIP_CDELTAT*HONJ_OUTBC/CHI(1)
++	  DJDt_OLDT(1)=(ROLD_ON_R**3)*R(1)*R(1)*RECIP_CDELTAT*HONJ_OUTBC_OLDT/CHI(1)
++	  PSI(1)=R(1)*R(1)*GAM(1)*HONJ_OUTBC
++	  PSIPREV(1)=R(1)*R(1)*GAM(1)*HONJ_OUTBC_PREV
++	  TC(1)=-R(2)*R(2)*F(2)*Q(2)/DTAU(1)
++	  TB(1)=R(1)*R(1)*( F(1)*Q(1)/DTAU(1) + HONJ_OUTBC ) + PSI(1) + DJDt(1)
++	  XM(1)=PSIPREV(1)*JNUM1(1) + DJDT_OLDT(1)*JNU_OLDt(1)
++	  dRHSdCHI_OB=0.0_LDP
++!
++	  IF(OUTER_BND_METH.EQ.'HONJM')THEN
++	    BC_EXTRA=0.1_LDP*R(1)**2*F(1)*Q(1)/DTAU(1)
++	    TB(1)=TB(1)+BC_EXTRA
++	    XM(1)=XM(1)+BC_EXTRA*(JPLUS_OB+JMIN_OB)
++	  END IF
++	ELSE IF(OUTER_BND_METH .EQ. 'HALF_MOM')THEN
++	  MOD_DTAU=0.5_LDP*(CHI(1)+CHI(2))*(R(1)-R(2))
++	  RSQ=R(1)**2; HPLUS=HPLUS_OB/JPLUS_OB; FPLUS=KPLUS_OB/JPLUS_OB
++	  BC_TIME=RECIP_CDELTAT/CHI(1)
++	  TC(1)=-R(2)**2*F(2)/MOD_DTAU
++	  TB(1)=RSQ*(FPLUS/MOD_DTAU-(1.0_LDP-FPLUS)/R(1)/CHI(1)
++	1              +HPLUS*(1.0_LDP+GAM(1)+BC_TIME))
++	  XM(1)=RSQ*(HMIN_OB-KMIN_OB/MOD_DTAU+(JMIN_OB-KMIN_OB)/R(1)/CHI(1))
++	1           +GAM(1)*(RSQ*HMIN_OB+RSQH_AT_OB_PREV)
++	1           +BC_TIME*(RSQ*HMIN_OB+ROLD_ON_R**3*R(1)**2*JNU_OLDT(1)*HONJ_OUTBC_OLDT)
++	1           +TB(1)*JMIN_OB
++	  PSI(1)=RSQ*HPLUS*GAM(1)
++	  PSIPREV(1)=RSQ*GAM(1)*HALF_HPLUS_PREV
++	  DJDt(1)=0.0_LDP; DJDt_OLDt(1)=0.0_LDP
++	  dRHSdCHI_OB=0.0_LDP
++	ELSE
++	  I=ERROR_LU()
++	  WRITE(I,*)'Only HONJ & HALF_MD boundary conditions implemented at outer boundary'
++	  WRITE(I,*)'Routine is VAR_MOM_J_DDT_V2'
++	  STOP
++	END IF
++!
++	IF(INNER_BND_METH .EQ. 'DIFFUSION')THEN
++	  PSI(ND)=0.0_LDP
++	  PSIPREV(ND)=0.0_LDP
++	  DJDT(ND)=0.0_LDP
++	  DJDT_OLDt(ND)=0.0_LDP
++	  RSQH_AT_IB=DBB*R(ND)*R(ND)/3.0_LDP/CHI(ND)
++	  GAM_INB=0.0_LDP                               !or set to GAM(ND)
++	  dNU_TERM_DIF_BC=GAM_INB*(RSQH_AT_IB-RSQH_AT_IB_PREV)
++	  T1=RECIP_CDELTAT*(RSQH_AT_IB-RSQH_AT_IB_OLDt*ROLD_ON_R)/CHI(ND)
++	  TA(ND)=-R(ND-1)*R(ND-1)*F(ND-1)*Q(ND-1)/DTAU(ND-1)
++	  TB(ND)=R(ND)*R(ND)*F(ND)/DTAU(ND-1)
++	  XM(ND)=RSQH_AT_IB+T1+dNU_TERM_DIF_BC
++	  dRHSdCHI_IB=RSQH_AT_IB + T1 + dNU_TERM_DIF_BC + (RECIP_CDELTAT/CHI(ND)+GAM_INB)*RSQH_AT_IB
++	  dRHSdCHI_IB=-dRHSdCHI_IB/CHI(ND)
++!
++	ELSE IF(INNER_BND_METH .EQ. 'ZERO_FLUX')THEN
++!
++	  RSQH_AT_IB=0.0_LDP
++	  PSI(ND)=0.0_LDP
++	  PSIPREV(ND)=0.0_LDP
++	  DJDT(ND)=0.0_LDP
++	  DJDT_OLDt(ND)=0.0_LDP
++	  TA(ND)=-R(ND-1)*R(ND-1)*F(ND-1)*Q(ND-1)/DTAU(ND-1)
++	  TB(ND)=R(ND)*R(ND)*F(ND)/DTAU(ND-1)
++	  T1=RECIP_CDELTAt*(RSQH_AT_IB-ROLD_ON_R*RSQH_AT_IB_OLDt)/CHI(ND)
++	  XM(ND)=RSQH_AT_IB + T1
++	  dRHSdCHI_IB=-T1/CHI(ND)
++!
++	  TB(ND)=TB(ND)+0.1_LDP*R(ND)*R(ND)*F(ND)/DTAU(ND-1)
++	  XM(ND)=XM(ND)+0.1_LDP*R(ND)*R(ND)*F(ND)*(JPLUS_IB+JMIN_IB)/DTAU(ND-1)
++!
++! Since Q(ND)=1, we can still use DTAU(ND-1) at the inner boundary.
++! [Terms contain a /Q(ND)].
++!
++	ELSE IF(INNER_BND_METH(1:6) .EQ. 'HOLLOW')THEN
++	  RSQ=R(ND)**2; HMIN=HMIN_IB/JMIN_IB; FMIN=KMIN_IB/JMIN_IB
++	  BC_TIME=RECIP_CDELTAT/CHI(ND)
++	  TA(ND)=-R(ND-1)**2*F(ND-1)/DTAU(ND-1)
++	  TB(ND)=RSQ*(1.1_LDP*FMIN/DTAU(ND-1)+(1.0_LDP-FMIN)/R(ND)/CHI(ND)
++	1          +HMIN*(1.0_LDP+GAM(ND)+BC_TIME))
++	  XM(ND)=RSQ*(HPLUS_IB-KPLUS_IB/DTAU(ND-1)-(JPLUS_IB-KPLUS_IB)/R(ND)/CHI(ND))
++	1          +GAM(ND)*(RSQ*HPLUS_IB-RSQH_AT_IB_PREV)
++	1          +BC_TIME*(RSQ*HPLUS_IB-ROLD_ON_R*RSQH_AT_IB_OLDT)
++	1          +0.1_LDP*RSQ*FMIN*JMIN_IB/DTAU(ND-1)+TB(ND)*JPLUS_IB
++	  PSI(ND)=RSQ*HMIN*GAM(ND)
++	  PSIPREV(ND)=RSQ*GAM(ND)*HOLLOW_HMIN_PREV
++	  DJDt(ND)=0.0_LDP; DJDt_OLDt(ND)=0.0_LDP
++	ELSE
++	  I=ERROR_LU()
++	  WRITE(I,*)'Only DIF (diffusion), ZERO_FLUX & HOLLOW boundary conditions currently implemented'
++	  WRITE(I,*)'Routine is VAR_MOM_J_DDT_V2'
++	  STOP
++	END IF
++	TC(ND)=0.0_LDP
++	VB(ND)=0.0_LDP
++	VC(ND)=0.0_LDP
++!
++! Solve for the radiation field along ray for this frequency.
++!
++	CALL THOMAS(TA,TB,TC,XM,ND,1)
++!
++	JNU_MOD(1:ND)=XM(1:ND)
++        IF(INNER_BND_METH(1:6) .EQ. 'HOLLOW')THEN
++          RSQH_AT_IB=R(ND)*R(ND)*(HPLUS_IB-HMIN*(XM(ND)-JPLUS_IB))
++        END IF
++        IF(OUTER_BND_METH .EQ. 'HALF_MOM')THEN
++          RSQH_AT_OB=R(1)*R(1)*(HPLUS*(XM(1)-JMIN_OB)-HMIN_OB)
++        ELSE
++          RSQH_AT_OB=R(1)*R(1)*HONJ_OUTBC*XM(1)
++        END IF
++!
++	IF(XM(I) .LT. 0.0_LDP)THEN
++          IF(J_CHK_OPTION .EQ. 'FORM_VAL')THEN
++	    XM(I)=JNU_STORE(I)
++	  ELSE IF(J_CHK_OPTION .EQ. 'ABS_VAL')THEN
++	     XM(I)=ABS(XM(I))/10.0_LDP
++	  ELSE IF(J_CHK_OPTION .EQ. 'NONE')THEN
++	  ELSE
++	    I=ERROR_LU()
++	    WRITE(I,*)'Unrecognized J_CHK_OPTION in VAR_MOM_J_DDT_V6: ',TRIM(J_CHK_OPTION)
++	    STOP
++	  END IF	
++	END IF
++!
++	JNU(1:ND)=XM(1:ND)
++	DO I=1,ND-1
++	  RSQ_HNU(I)=(HU(I)*XM(I+1)-HL(I)*XM(I))+HS(I)*RSQ_HNUM1(I)+HT(I)*RSQ_HNU_OLDT(I)
++	END DO
++!
++!
++! Make sure H satisfies the basic requirement that it is less than J.
++!
++        IF(H_CHK_OPTION .EQ. 'AV_VAL')THEN
++          DO I=1,ND-1
++            T1=(R(I)*R(I)*XM(I)+R(I+1)*R(I+1)*XM(I+1))/2.0_LDP
++            IF(RSQ_HNU(I) .GT. T1)THEN
++              RSQ_HNU(I)=T1
++            ELSE IF(RSQ_HNU(I) .LT. -T1)THEN
++              RSQ_HNU(I)=-T1
++            END IF
++          END DO
++        ELSE IF(H_CHK_OPTION .EQ. 'MAX_VAL')THEN
++          DO I=1,ND-1
++            T1=MAX(R(I)*R(I)*XM(I),R(I+1)*R(I+1)*XM(I+1))
++            IF(RSQ_HNU(I) .GT. T1)THEN
++              RSQ_HNU(I)=0.99_LDP*T1
++            ELSE IF(RSQ_HNU(I) .LT. -T1)THEN
++              RSQ_HNU(I)=-0.99_LDP*T1
++            END IF
++          END DO
++        ELSE IF(H_CHK_OPTION .EQ. 'NONE')THEN
++	ELSE
++	  I=ERROR_LU()
++	  WRITE(I,*)'Unrecognized H_CHK_OPTION in VAR_MOM_J_DDT_V6: ',TRIM(H_CHK_OPTION)
++	  STOP
++	END IF
++!
++! 
++!
++! The J and H components of the radiation field have been found. We can thus
++! begin the variation computation.
++!
++! Compute d{non-radiation field}/dchi matrix.
++!
++	CALL TUNE(1,'MOM_EDD')
++	CALL MOM_GRID_DTAU_JAC(CHI,Q,R,ND,METHOD,WORKMAT)
++	CALL EDD_J_HUB_GRID_V1(KI,RHS_dHdCHI,WORKMAT,
++	1                SOURCE,CHI,ESEC,COH_VEC,DTAU,R,
++	1                F,Q,HU,HL,HS,HT,RSQ_DTAUONQ,DERIV_SCL_FAC,
++	1                W,WPREV,PSI,PSIPREV,DJDt,DJDT_OLDT,
++	1                JNU,JNUM1,JNU_OLDT,JNU_MOD,
++	1                RSQ_HNUM1,RSQ_HNU_OLDT,
++	1                dRHSdCHI_IB,dRHSdCHI_OB,
++	1                JMIN_IB,KMIN_IB,JPLUS_IB,KPLUS_IB,
++	1                JMIN_OB,KMIN_OB,JPLUS_OB,KPLUS_OB,
++	1                INNER_BND_METH,OUTER_BND_METH,
++	1                ND,NM_KI)
++	CALL TUNE(2,'MOM_EDD')
++	IF(INNER_BND_METH.EQ.'HOLLOW')THEN
++	 BC_G=R(ND)**2; BC_GP=R(ND-1)**2; FMIN=KMIN_IB/JMIN_IB
++	 HMIN=HMIN_IB/JMIN_IB; BC_TIME=RECIP_CDELTAT/CHI(ND)
++	 BC_Z=JPLUS_IB-JNU(ND)
++	 BC_DTAU=(BC_G*(KPLUS_IB-0.1_LDP*FMIN*JMIN_IB-1.1_LDP*FMIN*BC_Z)
++	1          -BC_GP*F(ND-1)*JNU(ND-1))/DTAU(ND-1)**2
++	 KI(ND,:,1)=BC_DTAU*WORKMAT(ND-1,:)
++	 KI(ND,ND,1)=KI(ND,ND,1)+BC_G*(JPLUS_IB-KPLUS_IB)/R(ND)/CHI(ND)**2
++	1  -GAM(ND)*(BC_G*HPLUS_IB-RSQH_AT_IB_PREV)/CHI(ND)
++	1  -BC_TIME*(BC_G*HPLUS_IB-ROLD_ON_R*RSQH_AT_IB_OLDT)/CHI(ND)
++	1  -BC_G*BC_Z*((1.0_LDP-FMIN)/R(ND)/CHI(ND)**2+HMIN*(GAM(ND)+BC_TIME)/CHI(ND))
++	END IF
++	IF(OUTER_BND_METH.EQ.'HALF_MOM')THEN
++	 BC_G=R(1)**2; BC_GP=R(2)**2; FPLUS=KPLUS_OB/JPLUS_OB; HPLUS=HPLUS_OB/JPLUS_OB
++	 BC_TIME=RECIP_CDELTAT/CHI(1); BC_Z=JMIN_OB-JNU(1)
++	 BC_TAU=0.5_LDP*(R(1)-R(2))*(CHI(1)+CHI(2))
++	 BC_DTAU=(BC_G*(KMIN_OB-FPLUS*BC_Z)-BC_GP*F(2)*JNU(2))
++	1                     *0.5_LDP*(R(1)-R(2))/BC_TAU**2
++	 KI(1,:,1)=0.0_LDP
++	 KI(1,1,1)=BC_DTAU-BC_G*((JMIN_OB-KMIN_OB)-(1.0_LDP-FPLUS)*BC_Z)/R(1)/CHI(1)**2
++	1  -GAM(1)*(BC_G*HMIN_OB+RSQH_AT_OB_PREV+BC_G*HPLUS*BC_Z)/CHI(1)
++	1  -BC_TIME*(BC_G*HMIN_OB+ROLD_ON_R**3*R(1)**2*JNU_OLDT(1)*HONJ_OUTBC_OLDT
++	1                 +BC_G*HPLUS*BC_Z)/CHI(1)
++	 KI(1,2,1)=BC_DTAU
++	END IF
++	IF(OUTER_BND_METH.EQ.'HONJM')THEN
++	 BC_DTAU=0.1_LDP*R(1)**2*F(1)*Q(1)*(JNU(1)-JPLUS_OB-JMIN_OB)/DTAU(1)**2
++	 KI(1,:,1)=KI(1,:,1)+BC_DTAU*WORKMAT(1,:)
++	END IF
++
++!
++! Evaluate the intensity variations.
++!                                  TX=dJ/d(chi,eta,....)
++!                          and     TVX=dRSQH/d(chi,eta,...)
++!
++! WORKMAT is dimension (ND,ND) is is used to temporarily save TX( , ,K) for
++! each K. We don't need to pass HT, since JNU_OLDT is fixed --- it does
++! not vary in the linearization.
++!
++	KI_MODEL=0.0_LDP; RHS_MODEL=0.0_LDP; ESC_RESPONSE=0.0_LDP
++	DO JM=1,NC
++	  DO JF=1,ND
++	    KI_MODEL(:,JM,1)=KI_MODEL(:,JM,1)+KI(:,JF,1)*PCHI(JF,JM)
++	    KI_MODEL(:,JM,2)=KI_MODEL(:,JM,2)+KI(:,JF,2)*PETA(JF,JM)
++	    RHS_MODEL(:,JM)=RHS_MODEL(:,JM)+RHS_dHdCHI(:,JF)*PCHI(JF,JM)
++	    ESC_RESPONSE(:,JM)=ESC_RESPONSE(:,JM)+KI(:,JF,2)*JNU(JF)*PESC(JF,JM)
++	  END DO
++	END DO
++	CALL SIMPTH(TA,TB,TC,ESC_RESPONSE,ND,NC)
++	DO JM=1,NC
++	  DO IR=1,ND-1
++	    ESC_H(IR,JM)=HU(IR)*ESC_RESPONSE(IR+1,JM)-HL(IR)*ESC_RESPONSE(IR,JM)
++	  END DO
++	END DO
++	ZERO_EPS=0.0_LDP
++	CALL TUNE(1,'UP_TX')
++	CALL UP_TX_TVX_GRID_V1(TX,TVX,KI_MODEL,TA,TB,TC,PSIPREV,
++	1                       VB,VC,HU,HL,HS,RHS_MODEL,
++	1                       ZERO_EPS,ZERO_EPS,ZERO_EPS,ZERO_EPS,
++	1                       OLD_MODEL,ND,NC,NM,NM_KI,0.0_LDP,1,
++	1                       INIT,DO_THIS_TX_MATRIX)
++	CALL TUNE(2,'UP_TX')
++!
++! 
++!
++! Evaluate diffusion variation. TXD is initially the value from the
++! previous frequency.
++!
++	DO I=1,ND
++	  TX_OLD_d_T(I)=TX_DIF_d_T(I)
++	  TX_OLD_d_dTdR(I)=TX_DIF_d_dTDR(I)
++	END DO
++	IF(INNER_BND_METH .EQ. 'DIFFUSION')THEN
++	  TX_DIF_d_T(1)=PSIPREV(1)*TX_DIF_d_T(1)
++	  TX_DIF_d_dTdR(1)=PSIPREV(1)*TX_DIF_d_dTdR(1)
++	  DO I=2,ND-1
++	    TX_DIF_d_T(I)= PSIPREV(I)*TX_DIF_d_T(I)
++	1             + VB(I)*TVX_DIF_d_T(I-1) + VC(I)*TVX_DIF_d_T(I)
++	    TX_DIF_d_dTdR(I)= PSIPREV(I)*TX_DIF_d_dTdR(I)
++	1             + VB(I)*TVX_DIF_d_dTdR(I-1) + VC(I)*TVX_DIF_d_dTdR(I)
++	  END DO
++	  T1=R(ND)*R(ND)/3.0_LDP/CHI(ND)
++	  TX_DIF_d_T(ND)=T1*dDBBdT*(1.0_LDP+RECIP_CDELTAT/CHI(ND)) +
++	1          T1*GAM_INB*(dDBBdT-dDBBdT_PREV*CHI(ND)/CHI_AT_INB_PREV)
++	  T1=T1/dTdR
++	  TX_DIF_d_dTdR(ND)=T1*DBB*(1.0_LDP+RECIP_CDELTAT/CHI(ND)) +
++	1          T1*GAM_INB*(DBB-DBB_PREV*CHI(ND)/CHI_AT_INB_PREV)
++!
++! Solve for the radiation field along ray for this frequency.
++!
++	  CALL SIMPTH(TA,TB,TC,TX_DIF_d_T,ND,1)
++	  CALL SIMPTH(TA,TB,TC,TX_DIF_d_dTdR,ND,1)
++!
++	  DO I=1,ND-1
++	    TVX_DIF_d_T(I)=HU(I)*TX_DIF_d_T(I+1) - HL(I)*TX_DIF_d_T(I) +
++	1        HS(I)*TVX_DIF_d_T(I)
++	    TVX_DIF_d_dTdR(I)=HU(I)*TX_DIF_d_dTdR(I+1) -
++	1     HL(I)*TX_DIF_d_dTdR(I) +
++	1     HS(I)*TVX_DIF_d_dTdR(I)
++	  END DO
++!
++	END IF	    	    !DIF END
++!
++! 
++!
++! Save JNU and RSQ_HNU for next frequency integration.
++!
++	DO I=1,ND
++	  JNUM1(I)=JNU(I)
++	  RSQ_HNUM1(I)=RSQ_HNU(I)
++	END DO
++	DBB_PREV=DBB
++	dDBBdT_PREV=dDBBdT
++	CHI_AT_INB_PREV=CHI(ND)
++	HONJ_OUTBC_PREV=HONJ_OUTBC
++	RSQH_AT_IB_PREV=RSQH_AT_IB
++	RSQH_AT_OB_PREV=RSQH_AT_OB
++	IF(INNER_BND_METH.EQ.'HOLLOW')HOLLOW_HMIN_PREV=HMIN_IB/JMIN_IB
++	IF(OUTER_BND_METH.EQ.'HALF_MOM')HALF_HPLUS_PREV=HPLUS_OB/JPLUS_OB
++!
++	RETURN
++	END
+diff --git a/plane/var_mom_jext_cmf_v3.f b/plane/var_mom_jext_cmf_v3.f
+--- a/plane/var_mom_jext_cmf_v3.f
++++ b/plane/var_mom_jext_cmf_v3.f
+@@ -148,6 +148,13 @@
+ C PROGDESC is a variable used to confirm that the scratch block is not
+ C being used by some other routine.
+ C
++! The production INC_GRID path uses the composed fine-grid variation.
++! Refuse a legacy direct call with factors from a different moment grid.
++	IF(SIZE(K_ON_J).NE.ND)THEN
++	  I=ERROR_LU()
++	  WRITE(I,*)'VAR_MOM_JEXT_CMF_V3: moment grid mismatch; use composed grid variation'
++	  STOP
++	END IF
+ 	PROGDESC=PROG_ID
+ 	IF(ND .GT. NV)THEN
+ 	  I=ERROR_LU()
+@@ -248,7 +255,7 @@
+ 	    GAMH(I)=2.0_LDP*3.33564E-06_LDP*(V(I)+V(I+1))/(R(I)+R(I+1))
+ 	1         /dLOG_NU/( CHI(I)+CHI(I+1) )
+ 	    W(I)=GAMH(I)*( 1.0_LDP+AV_SIGMA*NMID_ON_HMID(I) )
+-	    WPREV(I)=GAMH(I)*( 1.0_LDP+AV_SIGMA*NMID_ON_HMID(I) )
++	    WPREV(I)=GAMH(I)*( 1.0_LDP+AV_SIGMA*NMID_ON_HMID_PREV(I) )
+ 	    EPS_A(I)=GAMH(I)*AV_SIGMA*NMID_ON_J(I)/(1.0_LDP+W(I))
+ 	    EPS_B(I)=EPS_A(I)*R(I+1)*R(I+1)
+ 	    EPS_A(I)=EPS_A(I)*R(I)*R(I)
 diff --git a/stark/get_prof_storage_limits.f b/stark/get_prof_storage_limits.f
 --- a/stark/get_prof_storage_limits.f
 +++ b/stark/get_prof_storage_limits.f
@@ -2681,10 +5602,38 @@ diff --git a/subs/regrid_t_ed_v3.f b/subs/regrid_t_ed_v3.f
  	END DO
  !
  ! Free up memory.
+diff --git a/subs/up_tx_tvx.f b/subs/up_tx_tvx.f
+--- a/subs/up_tx_tvx.f
++++ b/subs/up_tx_tvx.f
+@@ -100,6 +100,7 @@
+ !$OMP PARALLEL DO SCHEDULE(DYNAMIC) PRIVATE(I,J,OLD_TX)
+ 	DO K=1,NM_TX
+ 	  IF(DO_THIS_TX_MATRIX(K))THEN
++	    IF(INIT)OLD_TX=0.0_LDP
+ 	    IF(USE_EPS .AND. .NOT. INIT)THEN
+ 	      DO J=1,ND
+ 	        DO I=1,ND
 diff --git a/subs/up_tx_tvx_v2.f b/subs/up_tx_tvx_v2.f
 --- a/subs/up_tx_tvx_v2.f
 +++ b/subs/up_tx_tvx_v2.f
-@@ -185,3 +185,172 @@
+@@ -74,7 +74,7 @@
+ C Need to check both EPS_A and EPS_PREV_A because only 1 frequency may be using
+ C RSQN_ON_RSQJ. NO need to check _B, since differ by constant (factor) only.
+ C
+-	USE_EPS=.FALSE.			!G Eddington factor only
++	USE_EPS=OUT_BC_TYPE.GT.1			!G Eddington factor only
+ 	DO I=1,ND
+ 	  IF(EPS_A(I) .NE. 0.0_LDP .OR. EPS_PREV_A(I) .NE. 0.0_LDP)USE_EPS=.TRUE.
+ 	END DO
+@@ -103,6 +103,7 @@
+ !$OMP PARALLEL DO SCHEDULE(DYNAMIC) PRIVATE(I,J,OLD_TX)
+ 	DO K=1,NM_TX
+ 	  IF(DO_THIS_TX_MATRIX(K))THEN
++	    IF(INIT)OLD_TX=0.0_LDP
+ 	    IF(USE_EPS .AND. .NOT. INIT)THEN
+ 	      DO J=1,ND
+ 	        DO I=1,ND
+@@ -185,3 +186,172 @@
  !
  	RETURN
  	END

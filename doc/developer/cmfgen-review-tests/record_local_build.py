@@ -9,9 +9,11 @@ import argparse
 from datetime import datetime, timezone
 import hashlib
 import json
+import os
 from pathlib import Path
 import shlex
 import subprocess
+import tempfile
 
 
 def sha(path):
@@ -43,8 +45,16 @@ def relink(root):
             if target.parent == root/'exe' and target.name in names:
                 if target.name in found:
                     raise ValueError('Ambiguous executable link command: '+target.name)
-                subprocess.run(args, cwd=root/folder, check=True)
-                commands.append({'cwd':str(root/folder), 'command':args})
+                # Never truncate an executable that an existing model run may
+                # still have mapped. Link a fresh file and replace the pathname.
+                with tempfile.TemporaryDirectory(prefix='.cmfgen-link-', dir=root/'exe') as stage:
+                    built = Path(stage)/target.name
+                    command = args.copy()
+                    command[command.index('-o')+1] = str(built)
+                    subprocess.run(command, cwd=root/folder, check=True)
+                    os.replace(built, target)
+                commands.append({'cwd':str(root/folder), 'command':command,
+                                 'installed_as':str(target), 'installation':'atomic replacement'})
                 found.add(target.name)
         if found != names:
             raise ValueError('Missing executable link command in '+folder)
@@ -70,7 +80,8 @@ def record(root, manifest):
     data = {'schema_version':1, 'recorded_at_utc':datetime.now(timezone.utc).isoformat(),
             'source_checkout':str(root), 'source_patch_sha256':manifest['patch_sha256'],
             'capabilities':['line-jacobian-v1','ba-restart-v1','lte-charge-v1',
-                            'grey-intensity-guard-v1','ng-temperature-v1','moment-grid-jacobian-v1'],
+                            'grey-intensity-guard-v1','ng-temperature-v1','moment-grid-jacobian-v1',
+                            'moment-grid-family-v1'],
             'sources':{f['path']:f['sha256'] for f in scientific}, 'executables':executables,
             'meaning':'Verified source snapshot and rebuild ordering; not a model-convergence certificate.'}
     target = root/'cmfgen-local-build.json'

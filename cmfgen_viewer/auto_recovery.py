@@ -92,9 +92,12 @@ def ray_refinement(ctx):
     mom = number(ctx.model, 'VADAT', 'VFRAC_MOM', 20000)
     if fg <= .1:
         raise Declined('Negative luminosities persist with VFRAC_FG<=0.1; no finer-ray remedy established')
-    if mom != 20000 and not repaired_runtime(
-            ctx.native_plan, required=('line-jacobian-v1', 'ba-restart-v1', 'moment-grid-jacobian-v1')):
-        raise Declined('Inserted moment grids require an authenticated moment-grid-jacobian-v1 repair')
+    family_grid = any(enabled(ctx.model, key) for key in ('USE_J_REL', 'USE_DJDT_RTE', 'INC_GRID'))
+    capability = 'moment-grid-family-v1' if family_grid else 'moment-grid-jacobian-v1'
+    if (family_grid or mom != 20000) and not repaired_runtime(
+            ctx.native_plan, required=('line-jacobian-v1', 'ba-restart-v1', capability)):
+        raise Declined('Inserted moment grids and alternate solver families require an authenticated '
+                       + capability + ' repair')
     return Decision('action', 'Negative normalized luminosities with coarse formal rays; refine VFRAC_FG to0.1 '
                     'on the existing moment grid and require guarded full continuation',
                     action='ray_refinement', changes={'VADAT': {'VFRAC_FG': '0.1', 'COMP_BA': 'T',

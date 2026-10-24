@@ -1,0 +1,134 @@
+! Prescribed model/ray inputs; actual forward solvers and DO_VAR_CONT prefix.
+subroutine family_workflow_sample(c,e,s,rr,vv,ss,vd,external,nu,bb,first,coh,inner,meth,outer,node, &
+  k,fraction,field_only,n,nm,nfine,j,h,jcheck,hcheck,xt,xh,dt,dg,ht,hg)
+use set_kind_module
+use mod_cmfgen, only:r,v,sigma,t,clump_fac
+use opac_mod
+use radiation_mod
+use var_rad_mod
+use line_mod
+use control_variable_mod
+use mod_mom_j_v11, only:nn=>nd,rnonrel=>r,jn=>j_indx,hn=>h_indx,hforward=>rsqhnu
+use mod_jrel_v9, only:nr=>nd,jr=>j_indx,hr=>h_indx,br=>beta
+use mod_mom_j_ddt_v6, only:ntd=>nd,jtd=>j_indx,htd=>h_indx
+use mod_var_mom_j_cmf, only:var_jn=>jnu,var_hn=>rsq_hnu
+use mod_var_jrel_v2, only:var_jr=>jnu,var_hr=>gam_rsqhnu
+use mod_var_hub_j_v6, only:var_jtd=>jnu,var_htd=>rsq_hnu
+implicit none
+integer n,nm,nfine,outer,node,k,i,ii,m,l,q,seg,ne,mode,stat
+integer left(n-1),right(n-1)
+real(ldp) c(n),e(n),s(n),rr(n),vv(n),ss(n),vd(n),external(n),nu,bb,fraction
+real(ldp) j(n),h(n-1),jcheck(n),hcheck(n-1),xt(n,n,nm),xh(n-1,n,nm)
+real(ldp) dt(n),dg(n),ht(n-1),hg(n-1),pops(4,n),fmodel(n),term(n),hib,hob,wl(n-1),wr(n-1)
+real(ldp),allocatable,save::eeff(:),jext(:),hext(:),ve(:),segeom(:),vde(:)
+real(ldp) chibf,chiff,hdkt,twohcsq,oplin,emlin
+common/constants/chibf,chiff,hdkt,twohcsq
+common/line/oplin,emlin
+logical first,coh,field_only
+logical,save::allocated_model=.false.
+character(*) inner,meth
+character(32) arg,outer_method
+call get_environment_variable('MOM_TEST_FAMILY',arg,status=stat)
+mode=1
+if(stat==0)read(arg,*)mode
+seg=1
+if(mode==4)seg=2
+if(mode==5)seg=3
+ne=(n-1)*seg+1
+if(.not.allocated_model)then
+ allocate(r(n),v(n),sigma(n),t(n),clump_fac(n),eta_cont(n),eta_clump(n),chi_clump(n), &
+  chi_scat_clump(n),esec_clump(n),es_coh_vec(n),chi_noscat_prev(n),chi_noscat(n),eta_prev(n), &
+  ta(ne),tb(ne),wm(ne,ne),rj(n),rj_es(n))
+ call set_var_rad_mod_v2(n,ne,4,n,nm,1,2,mode>=4,.true.)
+ call set_line_mod(n,4,1,nm)
+ r=rr;v=vv;sigma=ss;t=3.5_ldp;clump_fac=[(.4_ldp+.03_ldp*i,i=1,n)]
+ eta_cont=0;eta_prev=0
+ this_freq_ext=.false.;cont_vel=.true.;accurate=mode>=4;plane_parallel=.false.
+ plane_parallel_no_v=.false.;use_j_rel=mode==2;use_lam_es=.false.;use_djdt_rte=mode==3
+ mixed_es_var=.false.;do_clump_model=.true.;do_srce_var_only=.false.;include_dsldt=.true.
+ hdkt=0;low_pointer=7;up_pointer=8;var_in_use_cnt=1
+ weak_line=.false.;resonance_zone=.true.;line_opac_con=.06_ldp;line_emis_con=.04_ldp
+ sim_nl=1;sim_nup=2;dl_rat_dt=.02_ldp;du_rat_dt=.03_ldp
+ line_prof_sim=1;neg_opac_fac=1;l_star_ratio=1;u_star_ratio=1;gldgu=.5_ldp
+ allocate(eeff(ne),jext(ne),hext(ne),ve(ne),segeom(ne),vde(ne))
+ if(mode>=4)then
+  allocate(rext(ne),chiext(ne),etaext(ne),esecext(ne),rjext_es(ne), &
+   coef(0:3,ne),indx(ne),pos_in_new_grid(n))
+ endif
+ allocated_model=.true.
+endif
+coherent_es=coh;inner_bnd_meth=inner;method=meth;out_bc_type=outer
+outer_method='HONJ';call get_environment_variable('MOM_TEST_OUTER',arg,status=stat)
+if(stat==0)outer_method=arg
+outer_bnd_meth=outer_method
+h_chk_option='NONE';xm_chk_option='NONE';j_chk_option='NONE'
+dlog_nu=.01_ldp;dtdr=.7_ldp;dbb=bb;ddbbdt=.03_ldp;ic=1;ib_stab_factor=100
+incl_advec_terms_in_trans_eq=outer==2;incl_rel_terms=.true.
+incl_djdt_terms=outer==2;use_dr4jdt=node==1;djdt_relax_param=1
+eta_prev=eta_cont;eta_cont=e/clump_fac
+chi_noscat=(c-s)/clump_fac;chi_noscat_prev=chi_noscat
+chi_clump=c;chi_scat_clump=s;esec_clump=s;eta_clump=e
+rj_es=external;pops=1
+if(mode>=4)then
+ do i=1,n-1
+  do l=0,seg-1
+   ii=(i-1)*seg+l+1;rext(ii)=rr(i)+(rr(i+1)-rr(i))*real(l,ldp)/seg
+  enddo
+ enddo
+ rext(ne)=rr(n);pos_in_new_grid=[((i-1)*seg+1,i=1,n)]
+ coef=0
+ do ii=1,ne
+  i=min((ii-1)/seg+1,n-1);q=max(1,min(i-1,n-3));indx(ii)=q
+  do l=0,3
+   coef(l,ii)=1
+   do m=0,3
+    if(m/=l)coef(l,ii)=coef(l,ii)*(rext(ii)-rr(q+m))/(rr(q+l)-rr(q+m))
+   enddo
+  enddo
+ enddo
+ call extend3opac(chiext,etaext,esecext,coef,indx,ne,c,e,s,n)
+ ve=15._ldp+10._ldp*(rext-1);segeom=10*rext/ve-1;vde=17.5_ldp
+ rjext_es=.8_ldp*(1/rext**2+.01_ldp)
+ eeff=etaext
+ if(.not.coh)eeff=eeff+esecext*rjext_es
+ call mom_j_cmf_v11(eeff,chiext,esecext,ve,segeom,rext,jext,hext,vde,fraction,nu,.01_ldp, &
+  inner,bb,1._ldp,100._ldp,'N_ON_J','NONE',meth,coh,outer,first,.true.,2,ne+2,ne)
+ nfine=nn;j=jext(pos_in_new_grid)
+ call mom_model_h_map(rr,n,rnonrel,nn,left,right,wl,wr)
+ h=hforward(left)*wl+hforward(right)*wr
+else
+ eeff=e
+ if(.not.coh)eeff=e+s*external
+ select case(mode)
+ case(1)
+ call mom_j_cmf_v11(eeff,c,s,vv,ss,rr,j,hext,vd,fraction,nu,.01_ldp,inner,bb,1._ldp,100._ldp, &
+  'N_ON_J','NONE',meth,coh,outer,first,.true.,2,n+2,n)
+ nfine=nn;h=hext(1:n-1)
+ case(2)
+ call mom_jrel_v9(eeff,c,s,vv,ss,rr,j,hext,hib,hob,vd,fraction,nu,.01_ldp,bb, &
+  'NONE','NONE','NONE',100._ldp,inner,outer_method,meth,coh,'N_ON_J',outer==2,.true.,first,n)
+ nfine=nr;h=hext(1:n-1)
+ case(3)
+ fmodel=.34_ldp+.12_ldp*(rr-1)/9+.015_ldp*k
+ call mom_j_ddt_v6(eeff,c,s,vv,rr,fmodel,j,hext,term,hib,hob,vd,fraction,nu,.01_ldp,bb, &
+  'NONE','NONE','NONE',inner,outer_method,meth,coh,first,.true.,outer==2,node==1,1._ldp,2,n+2,n,3)
+ nfine=ntd;h=hext(1:n-1)
+ end select
+endif
+rj=j
+if(field_only)return
+call do_var_cont(pops,'TEST',.true.,nu,nu,1,first,6,n,2,n+2,n,1,4,nm,ne,2,ne+2,1,2)
+xt=tx;xh=tvx;dt=dj_dif_d_t(1:n);dg=dj_dif_d_dtdr(1:n)
+ht=drsqh_dif_d_t(1:n-1);hg=drsqh_dif_d_dtdr(1:n-1)
+select case(mode)
+case(1)
+jcheck=var_jn(jn(1:n));hcheck=var_hn(hn(1:n-1))
+case(2)
+jcheck=var_jr(jr(1:n))
+hcheck=var_hr(hr(1:n-1))*sqrt(1-(.5_ldp*(br(hr(1:n-1))+br(hr(1:n-1)+1)))**2)
+case(3)
+jcheck=var_jtd(jtd(1:n));hcheck=var_htd(htd(1:n-1))
+case(4,5)
+jcheck=var_jn(jn(pos_in_new_grid));hcheck=var_hn(left)*wl+var_hn(right)*wr
+end select
+end subroutine

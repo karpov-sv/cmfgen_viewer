@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
-  "captured_at_utc": "2026-10-24T17:36:53.015392+00:00",
+  "captured_at_utc": "2026-10-24T23:07:39.734545+00:00",
   "source_checkout": "~/CMFGEN2023/cur_cmf/",
   "baseline_release": "18jun25",
   "baseline_description": "CMFGEN website release as of 18 Jun 2025; extracted release contents, including documentation changes absent from the archive's Git tree",
   "patch_file": "cmfgen-current.patch",
-  "patch_sha256": "43a3018242bb18e863788263364a3e0c3b956a2d1848754ac6a047dd9b5eeaed",
+  "patch_sha256": "8e662f9fcbdcfc0f67154bd9a7a5c88bfc74d78306c0eed5d9cfec9c3e685799",
   "files": [
     {
       "path": "Makefile_definitions",
@@ -28,7 +28,7 @@
     {
       "path": "new_main/mod_subs/Makefile",
       "status": "modified",
-      "sha256": "3579af5a79110d38f220961991ba5f681c58003a9d11e75f16423be991e1858d",
+      "sha256": "440f7664d39544d0b17de43f24e8731eff835e63baf1a89c8d498218fd0b5140",
       "baseline_sha256": "9d0509b63c624bf8a60885ec890b4b6a1ff70195abf900b88f8569c0f7abab0f"
     },
     {
@@ -40,13 +40,13 @@
     {
       "path": "new_main/mod_subs/do_var_cont.f",
       "status": "modified",
-      "sha256": "7bd8f5a3b565288b938dc84f83eeb468f40b92aa4e1d1a770421b424fb5da0bc",
+      "sha256": "bbd5d643414027047de17b1e290d9cf09ffcebcdd4b247f43b02b0232eda3feb",
       "baseline_sha256": "553f5c44b8df9c527e39a39b7b2d75d7c422d604cf2ac8aae8c77f50d9a89f8f"
     },
     {
       "path": "new_main/mod_subs/init_line_opac_var_v2.f",
       "status": "modified",
-      "sha256": "e17a2cb8e32352ff36b90c1d4a7a9d21f77750bc6bac57d72402b28c4af1b00c",
+      "sha256": "a8d66d4073e4deec309448822c5020afaa090653ccc0bb5520a1b70a9e0f5203",
       "baseline_sha256": "b7071275342757fcf2f2bbb06756d8470ce966be997af343f021f953782b046f"
     },
     {
@@ -160,14 +160,38 @@
     {
       "path": "plane/Makefile",
       "status": "modified",
-      "sha256": "e86bccec8024ad7b7c8a8435efcf6d0a492f30cffb245f8e6e2d8d5d5d08fec5",
+      "sha256": "d8a48239d0a3273f3ecdcfc8cfb14e9745ef072bea05af60623eea46941d58a0",
       "baseline_sha256": "377c88016fa2cf8681f89e87c3a4638f740feeb41caa4821e87f63f8c28f8905"
+    },
+    {
+      "path": "plane/edd_j_hub_var_v3.f",
+      "status": "modified",
+      "sha256": "43e4caa7875520ae2558999a88f44ed92c558568f0fa48c9c25bc24cb1e3584d",
+      "baseline_sha256": "3e4f91ace6d438581c4c4178cd3c33775e9da1bd6e990bbdcfa4cb6f72b21c11"
+    },
+    {
+      "path": "plane/get_jh_at_prev_time_step.f",
+      "status": "modified",
+      "sha256": "d8ca6cc79671afd92ebd80b149d1f272e2040c128a6b6d9fe61cea963c7a95d5",
+      "baseline_sha256": "ebcf92527b731533c7d2ee3377eb273f8fbdc88fd76bcc4cdecb133e39c5f388"
     },
     {
       "path": "plane/get_moms_non_rel.f",
       "status": "modified",
       "sha256": "5562460455acfe464d41925496c554ac074fb0d6661028743875b233cf90f2e4",
       "baseline_sha256": "f1a53867356b2d913967d75fe783d25a0aaf26c68879d2ebee688f5819346656"
+    },
+    {
+      "path": "plane/get_moms_rel.f",
+      "status": "modified",
+      "sha256": "9b54f9944585f11dfec3d2a2f79bbfe738bde87a6bd693cc3f08a2122bf9987a",
+      "baseline_sha256": "7e4fc1af4da16361ce5e278496222db88903b9ff98801c879ddd240f26ab49e5"
+    },
+    {
+      "path": "plane/mod_var_jrel_v2.f",
+      "status": "modified",
+      "sha256": "122c80e7e6dc150c541c7dcc870e103d24e9e2971d84c969ad915108a0279483",
+      "baseline_sha256": "f3346f23f90598a59c2f10b9e709d5bd856390fe6f9bca84e207d71374ff96b3"
     },
     {
       "path": "plane/mod_var_mom_j_cmf.f",
@@ -178,14 +202,44 @@
     {
       "path": "plane/mom_j_cmf_v11.f",
       "status": "modified",
-      "sha256": "f360dfff1e49272df93bf7c5ff21c75cf2f581130472a307f9190872014598e4",
+      "sha256": "812a24533bff2f9408357fd24abea5d4d728f6e6363cbf130a4ab100edd43449",
       "baseline_sha256": "1c82188bdfedb8dd85e93ffcc7ee4d2c7e35cd3d43b8dec519bcd77df3e59c2e"
+    },
+    {
+      "path": "plane/mom_j_ddt_v6.f",
+      "status": "modified",
+      "sha256": "662cefa49abc16dd50725ccd63bcecec8c1e9cdc62386cce67b733f4b6bf98d1",
+      "baseline_sha256": "9378098569cb9ab2918d1a7c2d7d41002637d3037d94478db580030ec3c18ebe"
+    },
+    {
+      "path": "plane/mom_jrel_v9.f",
+      "status": "modified",
+      "sha256": "6c015e5477720e454e61c2ded7925ffb7f803fba6610dbe60e3cf7adeeb5498f",
+      "baseline_sha256": "150bcb6d864dac4a2c99a50eb59f2f6f531870f0f535184dc1a8e72d6692af25"
+    },
+    {
+      "path": "plane/var_jrel_v5.f",
+      "status": "modified",
+      "sha256": "76bdedbb7cb5bd142e0a180b795bbc262f97efa5404e875de214bd6c123c46b4",
+      "baseline_sha256": "6dbdbde3e4816a9af58fce3567b57ebc89d82d0e92d8b1d14feca79c9d7ab44d"
     },
     {
       "path": "plane/var_mom_j_cmf_v12.f",
       "status": "modified",
-      "sha256": "b449d42eef54d5680f4df28decf10260fc9673de1c6859e6082a00022d78d86b",
+      "sha256": "d791a48af95b20f34125b90fb18190bfc6522cafb90975c5006829a567991e18",
       "baseline_sha256": "c052f3efa4283a2fe44bed59e101f3fc86bc4d9d098557437fa2f386756f91a8"
+    },
+    {
+      "path": "plane/var_mom_j_ddt_v6.f",
+      "status": "modified",
+      "sha256": "cdbff2381a0ced8a0e9581e1a78303273fa0a7b6eb912f4166b1fccfa9bb3f93",
+      "baseline_sha256": "d9b88c7edc7dee2e5f21507242a69ef89318c727affcdab37558c467c523947a"
+    },
+    {
+      "path": "plane/var_mom_jext_cmf_v3.f",
+      "status": "modified",
+      "sha256": "fedfc58845feb0e353f2f8276e5eb9c1f7ad6ba2458662be6ed5eab8654168fd",
+      "baseline_sha256": "38a4662fb7c491faa1ab1ba1dd94a1e7b9c02f3c6f53b592106c825d9acb917d"
     },
     {
       "path": "stark/get_prof_storage_limits.f",
@@ -212,9 +266,15 @@
       "baseline_sha256": "66e6b83e558e1418ae655d753263a854e62439ea1367432e4ec2e33297ddf43e"
     },
     {
+      "path": "subs/up_tx_tvx.f",
+      "status": "modified",
+      "sha256": "d56165b057edae66b80ce5dbd48f44a04a2dee2ff2da0e26ef4f6788242386bd",
+      "baseline_sha256": "3a70388b31b859ca6e79597f6ac92be93c37e2e635b626f3c9964d7f3ae4704b"
+    },
+    {
       "path": "subs/up_tx_tvx_v2.f",
       "status": "modified",
-      "sha256": "33c743f272740eb3816f80ecdee238ba018af95e8c3556b38ace6696a41e2f04",
+      "sha256": "b7de17be80057e5afb713b345d89e485daa74b948b925ad66428f3b69f83b48a",
       "baseline_sha256": "babd1775dc1caf6216b1046b9f62377d059ede8892bc94359b97d5e964b75d30"
     }
   ],
@@ -228,29 +288,33 @@
   "verification": "git apply --check and application against baseline contents; every patched file verified by SHA-256",
   "validated_patch_roundtrip": true,
   "moment_grid_validation": {
-    "capability": "moment-grid-jacobian-v1",
-    "report": "../cmfgen-inserted-moment-grid.md",
-    "scope": "Native frozen-ray transport and production variation wrapper; no new atmosphere convergence claim",
-    "evidence_directory": "/Users/karpov/sciwork/cmfgen_viewer/models/test/.model_Bstar3502-diagnostics/moment-grid-fix-v1"
+    "capabilities": [
+      "moment-grid-jacobian-v1",
+      "moment-grid-family-v1"
+    ],
+    "report": "../cmfgen-related-moment-repairs.md",
+    "scope": "Native frozen-ray kernels and production variation prefix; no new atmosphere convergence claim",
+    "evidence_directory": "/Users/karpov/sciwork/cmfgen_viewer/models/test/.model_Bstar3502-diagnostics/related-moment-fixes-v1"
   },
   "installed_build": {
     "schema_version": 1,
-    "recorded_at_utc": "2026-10-24T17:37:03.506894+00:00",
+    "recorded_at_utc": "2026-10-24T23:13:50.190132+00:00",
     "source_checkout": "/Users/karpov/CMFGEN2023/cur_cmf",
-    "source_patch_sha256": "43a3018242bb18e863788263364a3e0c3b956a2d1848754ac6a047dd9b5eeaed",
+    "source_patch_sha256": "8e662f9fcbdcfc0f67154bd9a7a5c88bfc74d78306c0eed5d9cfec9c3e685799",
     "capabilities": [
       "line-jacobian-v1",
       "ba-restart-v1",
       "lte-charge-v1",
       "grey-intensity-guard-v1",
       "ng-temperature-v1",
-      "moment-grid-jacobian-v1"
+      "moment-grid-jacobian-v1",
+      "moment-grid-family-v1"
     ],
     "sources": {
       "new_main/cmfgen_sub.f": "c6b46473a9c45a3917e14d661c787f8d09d3c89ea037ef0169ebf8e5cdc45cc1",
       "new_main/mod_subs/comp_grey_v4.f": "154a9d5212c4c9ccddd084f2a01245f3e8f549d06c5928d39b8ad1e1577b80b2",
-      "new_main/mod_subs/do_var_cont.f": "7bd8f5a3b565288b938dc84f83eeb468f40b92aa4e1d1a770421b424fb5da0bc",
-      "new_main/mod_subs/init_line_opac_var_v2.f": "e17a2cb8e32352ff36b90c1d4a7a9d21f77750bc6bac57d72402b28c4af1b00c",
+      "new_main/mod_subs/do_var_cont.f": "bbd5d643414027047de17b1e290d9cf09ffcebcdd4b247f43b02b0232eda3feb",
+      "new_main/mod_subs/init_line_opac_var_v2.f": "a8d66d4073e4deec309448822c5020afaa090653ccc0bb5520a1b70a9e0f5203",
       "new_main/mod_subs/init_population_estimates.f90": "cf7cea0b4972cf775d69155781934e82eceb0227b625273f091a49608f9095b0",
       "new_main/mod_subs/mod_lev_dis_blk.f": "7a804e51d6b0d5349a7c9b71a818306c66415f72f9ae7e98ce57a4f5668dc1dd",
       "new_main/mod_subs/rd_control_variables.f": "70671200c08a15f3274c0762cae3a380bc05c63e0c63b1d5ca8612fcfcce2618",
@@ -269,32 +333,42 @@
       "newsubs/rdphot_gen_v2.f": "21432fa96aa28a40b3fd876a6697c02725110375418fdd320562f5924e3a259e",
       "obs/cmf_flux_sub_v5.f": "4a1d33f3feabc864c8bbfead16aaecb8e31db78adeb1e498b6d541817f3d19ed",
       "opac/par_opac_sub.f": "ecba7a6a0e4e2b3b7de6038285a9d993d168bab824efb55d3ebb542ad6536063",
+      "plane/edd_j_hub_var_v3.f": "43e4caa7875520ae2558999a88f44ed92c558568f0fa48c9c25bc24cb1e3584d",
+      "plane/get_jh_at_prev_time_step.f": "d8ca6cc79671afd92ebd80b149d1f272e2040c128a6b6d9fe61cea963c7a95d5",
       "plane/get_moms_non_rel.f": "5562460455acfe464d41925496c554ac074fb0d6661028743875b233cf90f2e4",
+      "plane/get_moms_rel.f": "9b54f9944585f11dfec3d2a2f79bbfe738bde87a6bd693cc3f08a2122bf9987a",
+      "plane/mod_var_jrel_v2.f": "122c80e7e6dc150c541c7dcc870e103d24e9e2971d84c969ad915108a0279483",
       "plane/mod_var_mom_j_cmf.f": "f2b4e12c5a0b45d3431972b4cc9462c758b47c063e1fbed4a19d4e80b031445f",
-      "plane/mom_j_cmf_v11.f": "f360dfff1e49272df93bf7c5ff21c75cf2f581130472a307f9190872014598e4",
-      "plane/var_mom_j_cmf_v12.f": "b449d42eef54d5680f4df28decf10260fc9673de1c6859e6082a00022d78d86b",
+      "plane/mom_j_cmf_v11.f": "812a24533bff2f9408357fd24abea5d4d728f6e6363cbf130a4ab100edd43449",
+      "plane/mom_j_ddt_v6.f": "662cefa49abc16dd50725ccd63bcecec8c1e9cdc62386cce67b733f4b6bf98d1",
+      "plane/mom_jrel_v9.f": "6c015e5477720e454e61c2ded7925ffb7f803fba6610dbe60e3cf7adeeb5498f",
+      "plane/var_jrel_v5.f": "76bdedbb7cb5bd142e0a180b795bbc262f97efa5404e875de214bd6c123c46b4",
+      "plane/var_mom_j_cmf_v12.f": "d791a48af95b20f34125b90fb18190bfc6522cafb90975c5006829a567991e18",
+      "plane/var_mom_j_ddt_v6.f": "cdbff2381a0ced8a0e9581e1a78303273fa0a7b6eb912f4166b1fccfa9bb3f93",
+      "plane/var_mom_jext_cmf_v3.f": "fedfc58845feb0e353f2f8276e5eb9c1f7ad6ba2458662be6ed5eab8654168fd",
       "stark/get_prof_storage_limits.f": "8f251f11a7e00e0c0b438dfeca60a16bafed219775a1bfb5e1b7ef359795355c",
       "stark/get_prof_storage_limits_v2.f": "4cf0b642b80aab77bde55f4bf4ee3d762d5d92e2102fdd710af76d85aa554eac",
       "subs/edd_j_var_v6.f": "a985e609cace5d130dbc971c424c234e44aa36ad8bba1f892169adafed200532",
       "subs/regrid_t_ed_v3.f": "b0a60352a8d846fa4638ba136dacfc157956bd2f9a33d7c78f8723780d2428a0",
-      "subs/up_tx_tvx_v2.f": "33c743f272740eb3816f80ecdee238ba018af95e8c3556b38ace6696a41e2f04"
+      "subs/up_tx_tvx.f": "d56165b057edae66b80ce5dbd48f44a04a2dee2ff2da0e26ef4f6788242386bd",
+      "subs/up_tx_tvx_v2.f": "b7de17be80057e5afb713b345d89e485daa74b948b925ad66428f3b69f83b48a"
     },
     "executables": {
       "cmfgen_dev.exe": {
-        "sha256": "ff678bc4bc57908e31096d7eeb26d101e645249eb540b3b4624091a3d024c467",
-        "size": 2941376
+        "sha256": "06e2929692b331b6260dc996a0a36e513732035d7cad1bc37a088f7b8c69f738",
+        "size": 2991216
       },
       "cmf_flux.exe": {
-        "sha256": "8543644fae1b98b08f0b226ad142a9137e5f4b3c27e5c633a23f7b07ee54b57c",
-        "size": 1323424
+        "sha256": "1f8497ad14cd7c0b09feb8fc8e361bb98cfcb28f1515900e827869aee2b7f710",
+        "size": 1323584
       },
       "obs_frame.exe": {
-        "sha256": "4ed72f7016c6db65bcdb38b87a468ac2851bf49a20d42249da2c5254f08c093e",
+        "sha256": "b21a2674337533a105d9f205dc5152db32b8b892c0acaf301bb04f823f11c0b4",
         "size": 174064
       }
     },
     "meaning": "Verified source snapshot and rebuild ordering; not a model-convergence certificate.",
-    "build_evidence": "/Users/karpov/sciwork/cmfgen_viewer/models/test/.model_Bstar3502-diagnostics/moment-grid-fix-v1",
+    "build_evidence": "/Users/karpov/sciwork/cmfgen_viewer/models/test/.model_Bstar3502-diagnostics/related-moment-fixes-v1",
     "final_link_commands": [
       {
         "cwd": "/Users/karpov/CMFGEN2023/cur_cmf/new_main",
@@ -312,8 +386,10 @@
           "-L/opt/local/lib",
           "-lopenblas",
           "-o",
-          "/Users/karpov/CMFGEN2023/cur_cmf/exe/cmfgen_dev.exe"
-        ]
+          "/Users/karpov/CMFGEN2023/cur_cmf/exe/.cmfgen-link-27jvtd6_/cmfgen_dev.exe"
+        ],
+        "installed_as": "/Users/karpov/CMFGEN2023/cur_cmf/exe/cmfgen_dev.exe",
+        "installation": "atomic replacement"
       },
       {
         "cwd": "/Users/karpov/CMFGEN2023/cur_cmf/obs",
@@ -345,8 +421,10 @@
           "-ldisp",
           "-lmod",
           "-o",
-          "/Users/karpov/CMFGEN2023/cur_cmf/exe/cmf_flux.exe"
-        ]
+          "/Users/karpov/CMFGEN2023/cur_cmf/exe/.cmfgen-link-ix9277xp/cmf_flux.exe"
+        ],
+        "installed_as": "/Users/karpov/CMFGEN2023/cur_cmf/exe/cmf_flux.exe",
+        "installation": "atomic replacement"
       },
       {
         "cwd": "/Users/karpov/CMFGEN2023/cur_cmf/obs",
@@ -361,8 +439,10 @@
           "-ldisp",
           "-lsubs",
           "-o",
-          "/Users/karpov/CMFGEN2023/cur_cmf/exe/obs_frame.exe"
-        ]
+          "/Users/karpov/CMFGEN2023/cur_cmf/exe/.cmfgen-link-a6yruc5v/obs_frame.exe"
+        ],
+        "installed_as": "/Users/karpov/CMFGEN2023/cur_cmf/exe/obs_frame.exe",
+        "installation": "atomic replacement"
       }
     ]
   }

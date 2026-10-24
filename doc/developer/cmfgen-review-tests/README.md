@@ -60,3 +60,17 @@ It requires NumPy and compatible built CMFGEN modules/libraries. Use
 `--optimization O2 --threads 5` for the threaded check and `--baseline-root` for
 bit-for-bit comparisons with saved pre-fix source. See the
 [repair report](../cmfgen-inserted-moment-grid.md) for scope and instrumentation.
+
+`check_related_moment_paths.py` is an audit driver for unresolved related paths.
+It reports native `GET_MOMS_REL` bounds/initialization observations and unrefined
+finite-difference discrepancies; it is not a pass/fail certificate. See the
+[related-path audit](../cmfgen-related-moment-paths-audit.md) for reachability and scope.
+
+
+`check_moment_families.py` validates the related REL, DDT and two-level
+`INC_GRID` repairs, the actual production variation prefix, angular values and
+bounds, native old-time cache resizing, full line-slot reuse, and first-frequency
+OpenMP-private history. Run both the default O0/one-thread configuration and
+`--optimization O2 --threads 5`. It writes source/fixture hashes, commands and
+finite-difference evidence into a fresh isolated directory. See
+[scope and forward changes](../cmfgen-related-moment-repairs.md).

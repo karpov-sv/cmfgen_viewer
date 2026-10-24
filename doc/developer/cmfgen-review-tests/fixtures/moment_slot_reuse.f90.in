@@ -1,0 +1,40 @@
+! Exercise the complete production slot allocator, including rectangular clears.
+program moment_slot_reuse
+use set_kind_module
+use mod_cmfgen, only:imp_var
+use var_rad_mod
+use line_mod
+use control_variable_mod
+use mod_mom_j_v11, only:grid_tx,grid_tvx,allocate_mom_variations
+implicit none
+integer,parameter::n=7,ne=13,nm=10
+integer i
+call set_var_rad_mod_v2(n,ne,4,n,nm,1,2,.true.,.true.)
+call set_line_mod(n,4,1,nm)
+call allocate_mom_variations(n,nm,.true.,17)
+allocate(imp_var(4));imp_var=.true.
+accurate=.true.;compute_ba=.true.;lambda_iteration=.false.
+weak_with_net=.false.;new_var_storage_method=.true.
+new_line_storage=.true.;sim_nl=1;sim_nup=2
+var_lev_id=0;var_lev_id(1:6)=-1;var_in_use_cnt=0
+imp_trans_vec=.false.
+tx=2;tvx=3;tx_ext=4;tvx_ext=5;grid_tx=6;grid_tvx=7;dz=8
+call init_line_opac_var_v2(3,6,n,6,1,nm)
+if(low_pointer(1)/=7.or.up_pointer(1)/=8)error stop 'unexpected reused slots'
+do i=1,nm
+ if(i==7.or.i==8)then
+  if(any(tx(:,:,i)/=0).or.any(tvx(:,:,i)/=0))error stop 'model slot not cleared'
+  if(any(tx_ext(:,:,i)/=0).or.any(tvx_ext(:,:,i)/=0))error stop 'extended slot not cleared'
+  if(any(grid_tx(:,:,i)/=0).or.any(grid_tvx(:,:,i)/=0))error stop 'fine slot not cleared'
+ else
+  if(any(tx(:,:,i)/=2).or.any(tvx(:,:,i)/=3))error stop 'neighbor model slot overwritten'
+  if(any(tx_ext(:,:,i)/=4).or.any(tvx_ext(:,:,i)/=5))error stop 'neighbor extended slot overwritten'
+  if(any(grid_tx(:,:,i)/=6).or.any(grid_tvx(:,:,i)/=7))error stop 'neighbor fine slot overwritten'
+ endif
+enddo
+print *,'model, extended and fine slot reuse passed'
+end program
+subroutine tune(i,name)
+integer i
+character(*) name
+end subroutine

@@ -1,0 +1,34 @@
+! The first frequency must initialize the OpenMP-private history as well
+! as the caller's array. Nonzero previous coefficients make that visible.
+program private_history
+use set_kind_module
+use, intrinsic :: ieee_arithmetic
+implicit none
+integer,parameter::n=7,nm=9
+real(ldp) tx(n,n,nm),tvx(n-1,n,nm),ki(n,n,2),a(n),b(n),c(n),z(n),hu(n),hl(n), &
+ ea(n),eb(n),ep(n),rhs(n-1,n),old(n,n),expected(n-1,n)
+logical selected(nm)
+integer routine,repeat,k
+ki(:,:,1)=2;ki(:,:,2)=3;a=0;b=1;c=0;z=0;hu=.6_ldp;hl=.2_ldp
+ea=.1_ldp;eb=.15_ldp;ep=.25_ldp;rhs=.07_ldp;selected=.true.
+do routine=1,2
+ do repeat=1,50
+  tx=ieee_value(1._ldp,ieee_quiet_nan);tvx=tx(1:n-1,:,:);old=tx(:,:,1)
+  if(routine==1)then
+   call up_tx_tvx(tx,tvx,ki,a,b,c,z,z,z,hu,hl,z,rhs,ea,eb,ep,ep,old,n,nm,2,.true.,selected)
+  else
+   call up_tx_tvx_v2(tx,tvx,ki,a,b,c,z,z,z,hu,hl,z,rhs,ea,eb,ep,ep,old,n,nm,2,1._ldp,1,.true.,selected)
+  endif
+  if(.not.all(ieee_is_finite(tx)).or..not.all(ieee_is_finite(tvx)))error stop 'private history nonfinite'
+  if(maxval(abs(tx(:,:,1)-2._ldp))>1.e-12_ldp.or.maxval(abs(tx(:,:,2)-3._ldp))>1.e-12_ldp) &
+   error stop 'initial current response'
+  if(any(tx(:,:,3:nm)/=0).or.any(tvx(:,:,3:nm)/=0))error stop 'initial unused response'
+  do k=1,2
+   expected=.15_ldp*ki(1:n-1,:,k)
+   if(k==1)expected=expected+rhs
+   if(maxval(abs(tvx(:,:,k)-expected))>1.e-12_ldp)error stop 'initial flux history'
+  enddo
+ enddo
+enddo
+print *, 'OpenMP-private first-frequency history passed'
+end program

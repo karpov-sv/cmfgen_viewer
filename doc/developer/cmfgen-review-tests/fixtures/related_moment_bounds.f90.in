@@ -1,0 +1,37 @@
+program audit_get_moms_rel
+use set_kind_module
+use mod_ray_mom_store
+implicit none
+integer::i,n,ns,which
+real(ldp)::r(13),v(13)
+character(16)::arg
+call get_command_argument(1,arg);read(arg,*)which
+ns=7;n=7
+if(which==1)ns=13
+if(which==3)n=13
+nd_store=ns
+allocate(r_store(ns),rmid_store(ns),ext_rmid_store(ns+1),jnu_store(ns),hnu_store(ns), &
+ nnu_store(ns),knu_store(ns),gam_rel_store(ns))
+r_store=[(10._ldp-9._ldp*(i-1)/(ns-1),i=1,ns)]
+rmid_store=1;rmid_store(1:ns-1)=.5_ldp*(r_store(1:ns-1)+r_store(2:ns))
+ext_rmid_store(1)=10;ext_rmid_store(2:ns)=rmid_store(1:ns-1);ext_rmid_store(ns+1)=1
+jnu_store=1/r_store**2;hnu_store=.15_ldp*jnu_store;knu_store=.4_ldp*jnu_store;nnu_store=.03_ldp*jnu_store
+gam_rel_store=1;hnu_at_ob=.15_ldp/100;hnu_at_ib=.15_ldp;nnu_at_ob=.03_ldp/100;nnu_at_ib=.03_ldp
+hn_def_on_nodes=which<=2
+if(.not.hn_def_on_nodes)then
+ hnu_store(1:ns-1)=.15_ldp/rmid_store(1:ns-1)**2
+ nnu_store(1:ns-1)=.03_ldp/rmid_store(1:ns-1)**2
+endif
+r(1:n)=[(10._ldp-9._ldp*(i-1)/(n-1),i=1,n)];v=0
+call get_moms_rel(r,v,1._ldp,'N_ON_J',n)
+if(which==2)then
+ n=13;r=[(10._ldp-9._ldp*(i-1)/(n-1),i=1,n)]
+ call get_moms_rel(r,v,1._ldp,'N_ON_J',n)
+endif
+if(maxval(abs(k_on_j-.4_ldp))>1.e-12_ldp)error stop 'K/J values'
+if(maxval(abs(h_on_j-.15_ldp))>1.e-12_ldp)error stop 'H/J values'
+if(maxval(abs(n_on_j-.03_ldp))>1.e-12_ldp)error stop 'N/J values'
+if(maxval(abs(kmid_on_j(1:n-1)-.2_ldp))>1.e-12_ldp)error stop 'Kmid/J values'
+if(maxval(abs(nmid_on_j(1:n-1)-.015_ldp))>1.e-12_ldp)error stop 'Nmid/J values'
+print *,'completed dimensions and numeric values',which
+end program
