@@ -43,6 +43,7 @@ class Decision:
     evidence: dict = field(default_factory=dict)
     batch_iterations: int | None = None
     retain_failed_checkpoint: bool = False
+    preserve_caches: bool = False
 
     def summary(self):
         return {'policy_id': self.policy_id, 'kind': self.kind, 'reason': self.reason,
@@ -50,6 +51,7 @@ class Decision:
                 'next_phase': self.next_phase, 'evidence': self.evidence,
                 'batch_iterations': self.batch_iterations,
                 'retain_failed_checkpoint': self.retain_failed_checkpoint,
+                'preserve_caches': self.preserve_caches,
                 'steps': [{'name': s.name, 'iterations': s.iterations,
                            'native_options': s.native_options} for s in self.steps]}
 
@@ -227,6 +229,25 @@ def _cache(ctx):
                         caches=('EDDFACTOR', 'EDDFACTOR_INFO'))
 
 
+def _nonfinite_cache(ctx):
+    # An unknown layout or a generic native crash is never evidence of a
+    # corrupt cache. Inspect only when reuse was explicitly requested.
+    if control_value(ctx.model, 'VADAT', 'COMP_F', '').upper().strip('.') not in {'F', 'FALSE'}:
+        return
+    from .radiation_cache import inspect_radiation_cache
+    evidence = inspect_radiation_cache(ctx.model)
+    if evidence['status'] != 'nonfinite':
+        return
+    if enabled(ctx.model, 'USE_FIXED_J'):
+        return Decision('stop', 'Nonfinite EDDFACTOR cannot be regenerated with USE_FIXED_J=T',
+                        evidence=evidence)
+    return Decision('action', 'Recognized EDDFACTOR contains nonfinite radiation data; '
+                    'preserve it and regenerate radiation before native execution',
+                    action='nonfinite_radiation_cache', changes={'VADAT': {'COMP_F': 'T'}},
+                    caches=('EDDFACTOR', 'EDDFACTOR_INFO'), preserve_caches=True,
+                    evidence=evidence)
+
+
 def _verified(ctx):
     if ctx.phase == 'verify' and ctx.evidence['fresh_verified']:
         return Decision('converged', 'Verified with fresh Jacobians')
@@ -362,6 +383,7 @@ from .auto_recovery import (temperature_coupling, population_bootstrap, populati
                             ray_refinement, ng_cadence)
 
 POLICIES = (
+    Policy('nonfinite_radiation_cache', 1, 'prepare', 'Preserve nonfinite EDDFACTOR and recompute radiation before execution', _nonfinite_cache, 1),
     Policy('invalid_numerical_state', 1, 'failure', 'Reject nonfinite model states and invalid selected checkpoints', _invalid_state),
     Policy('pop_initialization', 1, 'failure', 'Compatible saved-model population interpolation and verified continuation', _pop, 1),
     Policy('lte_initialization', 2, 'failure', 'Confirmed fresh-start population failure: temporary LTE and verified continuation', _lte, 1),
@@ -383,7 +405,7 @@ POLICIES = (
 def manifest():
     if len({p.id for p in POLICIES}) != len(POLICIES):
         raise RunnerError('Duplicate automatic policy identifiers')
-    if any(p.when not in {'failure', 'success'} or p.version < 1 or
+    if any(p.when not in {'prepare', 'failure', 'success'} or p.version < 1 or
            (p.max_applications is not None and p.max_applications < 1) for p in POLICIES):
         raise RunnerError('Invalid automatic policy declaration')
     return [{'id': p.id, 'version': p.version, 'when': p.when, 'description': p.description,
@@ -407,6 +429,8 @@ def choose(ctx):
             trail.append({'policy_id': policy.id, 'outcome': 'not_matched'})
             continue
         if (decision.kind not in {'continue', 'action', 'stop', 'converged'} or
+                (ctx.when == 'prepare' and (decision.kind == 'converged' or decision.steps or
+                                            decision.batch_iterations is not None or decision.retain_failed_checkpoint)) or
                 decision.next_phase not in {'iterate', 'verify'} or
                 (decision.steps and decision.kind != 'action') or
                 (decision.retain_failed_checkpoint and (not decision.steps or policy.id != 'population_guard')) or
@@ -422,6 +446,8 @@ def choose(ctx):
         decision = replace(decision, policy_id=policy.id)
         trail.append({'policy_id': policy.id, 'outcome': decision.kind, 'reason': decision.reason})
         return decision, trail
+    if ctx.when == 'prepare':
+        return Decision('continue', 'Native preparation checks completed', policy_id='prepared'), trail
     if ctx.when == 'success':
         return Decision('continue', 'Continue from the accepted checkpoint', policy_id='continue'), trail
     titles = list(dict.fromkeys(f['title'] for p in ctx.native_result.get('passes', [])

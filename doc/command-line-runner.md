@@ -154,6 +154,7 @@ The initial policy is deliberately limited to measured numerical conditions:
 | Persistent, localized, sign-alternating temperature requests | With `SCALE_OPT=MAJOR`, install depth-local fractional relaxation: `RELAX=0.25`, then `0.125` if necessary. Set local `T_LIM=0.2` so a tighter temperature cap does not suppress the conditional native RELAX branch. |
 | Corrections stall across three batches | Request fresh matrices with `COMP_BA=T`, `N_FIX_BA=0`, `FIX_BA=0.0`, and retire `BAMAT`/`BAMATPNT`. Stop for review if already using fresh matrices. |
 | Native error explicitly says “incorrect reading of EDDFACTOR” | Restore the latest accepted checkpoint, invalidate generated caches, and retry once. Repeated errors stop. |
+| Before execution, a supported EDDFACTOR requested with `COMP_F=F` contains NaN/Infinity | Preserve the cache and metadata as `.bak` files in the action journal and set `COMP_F=T` to regenerate radiation. A generic crash or unrecognized cache layout does not trigger this remedy; `USE_FIXED_J=T` requires review. |
 | Confirmed fresh-start population failure before iteration | With compatible initialization controls, try temporary LTE estimates, restore normal controls, and verify continuation; at most one LTE recovery procedure. |
 | Luminosity safeguard prevents an explicitly scheduled hydro revision | If the documented eligibility checks below pass, run one temporary guard-off iteration and a mandatory guarded follow-up. |
 | Convergence candidate | Run a separate verification batch of up to 3 iterations with fresh Jacobians. |

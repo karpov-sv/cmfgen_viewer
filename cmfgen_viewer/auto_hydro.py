@@ -55,7 +55,7 @@ def capture_controls(model):
     return result
 
 
-def native_updates(model, text, before):
+def native_updates(model, text, before, *, fresh_start=False):
     """Accept documented native-owned changes with matching solver evidence.
 
     Other input changes still stop the controller. This does not authenticate
@@ -71,6 +71,27 @@ def native_updates(model, text, before):
     vd_keys = {k for k in old.keys() | new.keys() if old.get(k) != new.get(k)}
     allowed = set()
     records = _parse_iteration_records(text)
+    hydro_before = before['HYDRO_DEFAULTS']
+    reset = False
+    if (fresh_start and enabled(model, 'DO_HYDRO') and hydro_before is not None and
+            'Starting a new model.' in text and
+            'Setting ITS_DONE keyword in HYDRO_DEFAULTS to 0' in text):
+        rows = control_occurrences(hydro_before)
+        old_h = _values(hydro_before)
+        try:
+            if int(old_h['ITS_DONE']) < 0:
+                raise ValueError('Negative ITS_DONE')
+        except (KeyError, ValueError) as exc:
+            raise RunnerError('Invalid native fresh-start hydro counter') from exc
+        # UPDATE_KEYWORD writes zero at column one and trims trailing blanks.
+        expected = hydro_before.splitlines()
+        index = rows['ITS_DONE'][0]['line_index']
+        column = expected[index].index('[ITS_DONE]')
+        expected[index] = '0' + ' ' * (column - 1) + expected[index][column:]
+        hydro_before = '\n'.join(line.rstrip() for line in expected) + '\n'
+        if not completed and [line.rstrip() for line in (after['HYDRO_DEFAULTS'] or '').splitlines()] != hydro_before.splitlines():
+            raise RunnerError('Unexpected HYDRO_DEFAULTS edit during native fresh-start reset')
+        reset = True
     if 'IN_ITS' in changed:
         old_its = _values(before['IN_ITS'] or '')
         new_its = _values(after['IN_ITS'] or '')
@@ -104,7 +125,7 @@ def native_updates(model, text, before):
     if completed:
         if not enabled(model, 'DO_HYDRO') or before['HYDRO_DEFAULTS'] is None:
             raise RunnerError('Hydro completion without the reviewed hydro configuration')
-        old_h = _values(before['HYDRO_DEFAULTS'])
+        old_h = _values(hydro_before)
         new_h = _values(after['HYDRO_DEFAULTS'] or '')
         try:
             delta = int(new_h['ITS_DONE']) - int(old_h['ITS_DONE'])
@@ -125,7 +146,7 @@ def native_updates(model, text, before):
             value = parse_float_token(new.get(key, ''))
             if value is None or not math.isfinite(value) or value <= 0:
                 raise RunnerError(f'Invalid native hydro [{key}]')
-    elif changed - {'VADAT', 'IN_ITS'}:
+    elif changed - ({'VADAT', 'IN_ITS', 'HYDRO_DEFAULTS'} if reset else {'VADAT', 'IN_ITS'}):
         raise RunnerError('Structure controls changed without completed native hydro evidence')
     if vd_keys - allowed:
         raise RunnerError('Unexpected VADAT edit during execution; preserving it for review')

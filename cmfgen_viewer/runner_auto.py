@@ -145,13 +145,17 @@ def _restore(model, recovery, *, report_directory=None):
     _json(report, record)
 
 
-def _action(model, journal, actions, kind, reason, changes=None, caches=(), *, policy_id=''):
+def _action(model, journal, actions, kind, reason, changes=None, caches=(), *, policy_id='',
+            evidence=None, preserve_caches=False):
     """One journaled, reversible control action. Cache removals are whitelisted."""
     from .runner import _json, _write_control
     folder = journal / f'action-{len(actions)+1:03d}'
     mkdir_readable(folder)
     record = {'kind': kind, 'policy_id': policy_id, 'reason': reason, 'changes': changes or {},
               'retired_caches': [], 'status': 'planned', 'directory': str(folder)}
+    record['evidence'] = evidence or {}
+    if preserve_caches and set(caches) - {'EDDFACTOR', 'EDDFACTOR_INFO'}:
+        raise RunnerError('Only diagnosed radiation caches may be preserved by an automatic action')
     actions.append(record)
     _json(folder/'action.json', record)
     rendered = {}
@@ -172,10 +176,31 @@ def _action(model, journal, actions, kind, reason, changes=None, caches=(), *, p
             raise RunnerError('Unsupported automatic cache retirement')
         path = model/name
         _safe(path)
+        if preserve_caches:
+            import hashlib
+            key = 'sha256' if name == 'EDDFACTOR' else 'info_sha256'
+            digest = hashlib.sha256()
+            with path.open('rb') as stream:
+                for block in iter(lambda: stream.read(1024*1024), b''):
+                    digest.update(block)
+            if digest.hexdigest() != (evidence or {}).get(key):
+                raise RunnerError('Radiation cache changed after diagnosis; preserving current files for review')
+    for name in caches:
+        path = model/name
         if path.exists():
             record['retired_caches'].append(snapshot(path))
             _json(folder/'action.json', record)
-            retire_recovery(path, folder/name)
+            if preserve_caches:
+                # .bak also survives the ordinary recovery-compaction policy.
+                # Rename within the model filesystem; do not duplicate a large
+                # cache or replace it with the runner's bounded log excerpt.
+                from .workflow_permissions import make_readable
+                destination = folder/(name + '.bak')
+                path.rename(destination)
+                make_readable(destination)
+                record.setdefault('preserved_caches', {})[name] = str(destination)
+            else:
+                retire_recovery(path, folder/name)
     for name, data in rendered.items():
         path = model/name
         from .workflow_permissions import readable_mode
@@ -192,6 +217,7 @@ def _issue_report(journal, plan, result, native_result):
               'reason': result.get('reason'), 'policies': plan['auto']['policies'],
               'executable': plan['executable_snapshot'],
               'recovery_directory': result['recovery_directory'],
+              'preparation': result.get('preparation'),
               'attempts': [{k: a[k] for k in ('attempt', 'phase', 'status', 'journal',
                             'decision', 'policy_evaluations', 'validation_error') if k in a}
                            for a in result['attempts']],
@@ -269,7 +295,8 @@ def run_auto_plan(plan, emit=None):
             with model_mutation_guard(model, RunnerError):
                 check_inputs()
                 record = _action(model, journal, result['actions'], decision.action, decision.reason,
-                                 decision.changes, decision.caches, policy_id=decision.policy_id)
+                                 decision.changes, decision.caches, policy_id=decision.policy_id,
+                                 evidence=decision.evidence, preserve_caches=decision.preserve_caches)
                 if not decision.steps and pending is None:
                     recovery = _capture(model, journal, recovery)
                 for path in expected:
@@ -294,6 +321,18 @@ def run_auto_plan(plan, emit=None):
         _json(journal/'result.json', result)
         try:
             event('auto_started', policy=options)
+            with model_mutation_guard(model, RunnerError):
+                check_inputs()
+                preparation, trail = policies.choose(policies.Context(
+                    model, 'prepare', plan, {}, {}, {}, [], 'iterate', result['actions'], ''))
+                result['preparation'] = {'decision': preparation.summary(), 'policy_evaluations': trail}
+            event('auto_preparation', **result['preparation'])
+            if preparation.kind == 'stop':
+                raise RunnerError(preparation.reason)
+            if preparation.kind == 'action':
+                action(preparation)
+            elif preparation.kind != 'continue':
+                raise RunnerError('Unsupported automatic preparation decision')
             for attempt in range(1, options['max_attempts']+1):
                 step = pending.steps[step_index] if pending else None
                 phase = step.name if step else base_phase
@@ -373,7 +412,9 @@ def run_auto_plan(plan, emit=None):
                 _json(journal/'result.json', result)
                 with model_mutation_guard(model, RunnerError):
                     text = latest_main_log(_tail(model/'OUTGEN', 32*1024*1024))
-                    adopted = native_updates(model, text, controls_before)
+                    observed = native_result.get('startup_observed', {})
+                    adopted = native_updates(model, text, controls_before,
+                        fresh_start=native['restart']['mode'] == 'fresh' and observed.get('mode') == 'fresh')
                     if adopted:
                         entry['native_control_updates'] = adopted
                         for name in adopted:

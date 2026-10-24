@@ -13,6 +13,7 @@ after investigation, the validated remedy becomes another registered policy.
 - `auto_recovery.py`: refined formal rays, superlevel T derivatives, physical Lambda bootstrap and first-Ng batch cadence.
 - `checkpoint_physics.py`: recognized binary/ion metadata, charge, element sums, geometry and fixed-T recovery checks.
 - `auto_hydro.py`: native hydro handoff evidence and profile/scheduling checks.
+- `radiation_cache.py`: bounded inspection of supported native EDDFACTOR layouts.
 - `auto_policies.py`: ordered, versioned `POLICIES` and read-only decision functions.
 - `runner_auto.py`: shared execution engine, locks, budgets, recovery snapshots,
   guarded mutations, provisional procedures, policy events, and issue reports.
@@ -34,7 +35,7 @@ appropriate. Expected file/validation errors stop for review rather than
 allowing an uncontrolled retry.
 
 Register a `Policy` in the ordered `POLICIES` tuple with a unique, stable `id`,
-a positive `version`, a `when` value (`failure` or `success`), a description,
+a positive `version`, a `when` value (`prepare`, `failure` or `success`), a description,
 the evaluator, and a per-invocation `max_applications` for a bounded remedy.
 Raise the version whenever eligibility or remedy semantics change. Plans retain
 the registry manifest and reject changes between preview and execution.
@@ -54,6 +55,7 @@ and its validation error. Cancellation and timeout always stop immediately.
 | `action` | Stable action name for the journal |
 | `changes` | Value-only patches to supported model controls |
 | `caches` | Explicitly supported regenerable caches to retire |
+| `preserve_caches` | Preserve diagnosed EDDFACTOR/metadata as `.bak` files, with checksums verified before moving either file |
 | `steps` | Optional tuple of provisional `RecoveryStep` objects |
 | `next_phase` | `iterate` or `verify` after a simple action |
 | `batch_iterations` | Optional subsequent normal batch size (2–20); the next complete batch must fit the remaining budget |
@@ -71,6 +73,38 @@ scripts and source/executable edits are not policy actions.
 The engine independently requires fresh-Jacobian verification before accepting
 `converged`, even if a buggy rule requests it earlier. Scientific quality
 remains a separate assessment. Rules cannot redefine this acceptance invariant.
+
+## Nonfinite radiation-cache preparation
+
+The `nonfinite_radiation_cache` preparation policy runs before the first native
+attempt when `COMP_F=F` explicitly requests cache reuse. It recognizes the
+2017 EDDFACTOR direct-access layout from its metadata, record dimensions,
+completion marker and pointers. A bounded chunk scan detects NaN/Infinity
+in radiation records and records the first affected record, depth/frequency,
+total invalid values and SHA-256. Supported layouts include 4/8-byte reals,
+4/8-byte integers and either byte order; inspection is capped at 2 GiB.
+
+A diagnosed cache and its metadata are renamed into the action journal as
+`EDDFACTOR.bak` and `EDDFACTOR_INFO.bak`, which survive ordinary recovery
+compaction. `COMP_F=T` is installed and retained, so subsequent native execution
+regenerates radiation. The ordinary checkpoint, correction and independent
+fresh-Jacobian verification requirements still apply. Preparation uses no native
+attempt or iteration allowance and may apply once per automatic invocation.
+
+Healthy caches and unknown/incomplete layouts do not match this policy. A
+generic `SIGILL` does not authorize it. Explicit `USE_FIXED_J=T` stops for review
+because regeneration conflicts with that constraint. Unreadable files or a
+checksum change between inspection and application also stop for review.
+Ordinary finite runs do not apply this remedy automatically.
+
+The native fresh-start reset of `HYDRO_DEFAULTS [ITS_DONE]` is adopted only
+when the requested and observed startup are fresh, the current native log
+announces the reset, and no unrelated HYDRO_DEFAULTS edit accompanies it.
+If native hydro revisions follow, their counter deltas are measured from zero.
+
+The evidence and bounded native comparison behind the remedy are recorded in
+[the Bstar3100 investigation](bstar3100-failure-investigation.md). Passing that
+startup check does not establish later convergence of an individual model.
 
 ## Multi-step remedies
 
