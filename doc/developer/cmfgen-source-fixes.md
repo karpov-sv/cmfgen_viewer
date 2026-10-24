@@ -1,19 +1,22 @@
 # CMFGEN local source fixes — consolidated record
 
-Fixes validated 20 October 2026; source snapshot captured 21 October 2026.
-Source checkout: `~/CMFGEN2023/cur_cmf/`, based on the CMFGEN website release
-**version 18jun25** (released version as of 18 Jun 2025).
+Updated **24 October 2026**. Source checkout: `~/CMFGEN2023/cur_cmf/`, based on
+CMFGEN website release **version 18jun25**. This is the current implementation
+record for the original ten fixes and eight additions from the Bstar3502
+investigation. Earlier investigation documents retain their historical status.
 
-This is the single current summary of the ten fixes from the source review
-and Bstar3000 reconstruction investigation. Earlier documents retain the
-historical evidence; use this document for implementation status, controls,
-validation, and rebuild instructions.
+**Status:** all eighteen fixes below are installed. The atmosphere executable
+`exe/cmfgen_dev.exe` and the spectrum executables `exe/cmf_flux.exe` and
+`exe/obs_frame.exe` were rebuilt serially on 24 October. Existing compiler,
+platform, aliases and FORMAT adaptations are preserved. No user model controls
+or checkpoints were changed by this installation.
 
-**Status:** all ten fixes are applied to the source checkout. Existing build
-settings, aliases, and local FORMAT fixes are preserved. A complete atmosphere
-executable containing all ten fixes was built and tested separately, preserving
-the installed binaries during that work. The snapshot below records source
-contents; it does not establish which source built the currently installed binaries.
+The exact build hashes, source hashes and rollback directory are in
+`~/CMFGEN2023/cur_cmf/cmfgen-local-build.json` and the tracked
+[patch manifest](patches/cmfgen-current.json). The new atmosphere executable SHA-256
+is `c1be1f22fc5bae65fca03657360be29750603e0e8363e6d119141d2c15f3cfc1`.
+The installed source contains the tested scientific repairs, without matrix/ray
+recorders, transport-only STOP branches, or experimental Q-integration changes.
 
 ## Fix inventory
 
@@ -29,14 +32,21 @@ contents; it does not establish which source built the currently installed binar
 | 8 | Radius rounding makes temperature/Ne interpolation discard the outer saved depth while departure-coefficient interpolation keeps it. | Snap near-identical endpoints within `1e-10` relative, matching the existing departure-file tolerance. Guard overlap searches, fill genuine inner/outer extensions, and handle a single overlapping target point without calling LINPOP with one point. | `subs/regrid_t_ed_v3.f` |
 | 9 | Interpolating log departure coefficients across steep temperature gradients produces artificial ionization spikes. | Add opt-in `DC_METH=POP`: reconstruct populations on the saved grid, interpolate superlevel fractions, normalize each element at the target density, and derive Ne from charge conservation. | `new_main/mod_subs/init_population_estimates.f90`, `set_new_model_estimates.f`, `rd_control_variables.f`, `Makefile` |
 | 10 | Text initialization evaluates occupation probabilities using total atom density before knowing the actual charged-ion density. High levels consequently do not round-trip consistently. | Retain original log(b) and continuum seeds while iterating reconstruction and elemental normalization to a self-consistent charged-ion density. Resize occupation-probability work arrays when switching between source and target grids. | `new_main/mod_subs/init_population_estimates.f90`, `set_new_model_estimates.f`, `mod_lev_dis_blk.f` |
+| 11 | `DET_LTE_ED` attempts to impose a starting-temperature floor but assigns the original temperature again. | Use `TMIN` for the temporary Saha estimate below the floor; do not change the model temperature. | `new_main/subs/det_lte_ed.f` |
+| 12 | LTE text reconstruction can retain an electron estimate inconsistent with the actual normalized ionic populations. | For `DC_METH=LTE`, iterate reconstructed populations and Ne to charge consistency with positive finite checks; leave other methods unchanged. | `new_main/mod_subs/init_population_estimates.f90`, `Makefile` |
+| 13 | Nonpositive/nonfinite grey mean intensity reaches a fractional power and can trap. | Emit `GREY_RJ_INVALID`, return `COMPUTED=F`, and let the existing caller skip unsuccessful grey diagnostics; never manufacture a temperature. | `new_main/mod_subs/comp_grey_v4.f` |
+| 14 | Lambda/weak-line upper population derivatives subtract huge nearly opposite terms and lose the finite spontaneous term. | Use the actual integrated profile weight `LINE_QW_SUM` in the algebraically equivalent derivative. | `new_main/subs/update_ba_for_line.f` |
+| 15 | Full strong-line derivatives have a separate source-function cancellation. | Combine the explicit emissivity term with the integrated profile weight at assembly; retain distinct-level population and heating responses. | `new_main/subs/update_ba_for_line.f` |
+| 16 | A line whose two levels share a superlevel loses or double counts population/heating derivatives, depending on pointer layout; its temperature expression also cancels. | Explicit physical shared-superlevel treatment for both pointer layouts and stable heating/temperature expressions, including the model's cooling reset. Supersedes the intermediate strong-line candidate. | `new_main/subs/update_ba_for_line.f` |
+| 17 | BA reader swaps the producer's FIXED_T/COMPUTE_BA flags, can alter FIXED_T on failure, accepts truncated tails, and the initial caller ignores a fresh-compute request. | Read the writer's flag order, commit FIXED_T only after a complete read, handle EOF, and forward `COMPUTE_BARDIN` at initial read. | `new_main/subs/read_ba_data_v3.f`, `new_main/cmfgen_sub.f` |
+| 18 | Ng temperature-direction guard checks appended `Sigma+1` instead of physical T. | Pass the physical temperature index to a private V4 helper; initialize the guard ratio. Preserve the separate V1 ABI, geometry and existing Ng validity checks. | `new_main/subs/do_ng_accel_band_v4.f` |
 
-The ten fixes affect fifteen source/build files. The complete current checkout
-diff is tracked as [cmfgen-current.patch](patches/cmfgen-current.patch), with its
-baseline release, capture time, patch SHA-256, and before/after file SHA-256 values
-in [cmfgen-current.json](patches/cmfgen-current.json). This snapshot includes
-nineteen modified tracked files and the new
-`new_main/mod_subs/init_population_estimates.f90` module, which an ordinary
-`git diff` would omit while it remains untracked in the external checkout.
+The complete current checkout diff is
+[cmfgen-current.patch](patches/cmfgen-current.patch), with the release baseline,
+capture time, patch SHA-256, installed executable hashes and before/after file
+SHA-256 values in [cmfgen-current.json](patches/cmfgen-current.json). It captures
+**25 files**, including the new population-initialization module which ordinary
+`git diff` would omit while untracked in the external checkout.
 
 The full diff also preserves local macOS and Ubuntu compiler/linker settings
 in `Makefile_definitions`, local directory aliases in `com/aliases_for_cmfgen.sh`,
@@ -46,7 +56,7 @@ as they stand; the Ubuntu configuration was not covered by the validation below.
 Generated modules, binaries, logs, save files, and scratch patches are excluded.
 
 Patch application was checked against the baseline contents in a fresh temporary
-directory. All twenty resulting files matched the captured checkout byte for
+directory. All 25 resulting files matched the captured checkout byte for
 byte by SHA-256. Do not apply the patch again to the already patched checkout.
 
 ## Using population-based initialization
@@ -113,10 +123,10 @@ The corrections improve consistency with the input estimates. Finite text
 precision, old exports made with different constants or physics, and changes
 in atomic setup can still prevent exact binary/text equality.
 
-## Validation
+## Earlier validation of fixes 1–10
 
 A separate serial build of `cmfgen_dev.exe` completed with MacPorts gfortran
-15.2 and OpenBLAS, including all ten fixes. Installed executables were preserved.
+15.2 and OpenBLAS, including all ten original fixes. Installed executables were preserved.
 No user model folders were modified: native tests ran with zero solver
 iterations in fresh temporary model copies.
 
@@ -143,6 +153,69 @@ one thread. Native atmosphere tests verify initialization and text reconstructio
 not radiation iterations or final convergence. Non-GRID grey iteration, SN/dust
 models and arbitrary changes in atomic data have not been certified by these tests.
 
+## Bstar3502 validation and automatic remedies
+
+The final line routine passes **8250 physical derivative comparisons** across
+Lambda, weak/strong branches and both shared-level pointer layouts, with maximum
+relative error about `1.12e-15`. Native BA tests pass all flag combinations,
+failed/missing/truncated reads and fresh-compute bypass. The corrected Ng wrapper
+passes **25 cases** covering both temperature directions and fixed T across five
+band widths, with bounds and floating-point traps enabled. The existing O2/five-
+thread source review passes again, including the actual N I reader/rates and a
+new LTE charge/element reconstruction case with inconsistent starting Ne (level dissolution disabled for that charge-loop test).
+
+Matched model tests and subsequent isolated recovery establish the importance
+of fixes 14–17. Enabling **`INCL_dSLdT=T`**, an existing native option, removes the
+remaining outer thermal cycle. Refining **`VFRAC_FG=0.1`** removes the reproduced
+negative-luminosity ray-transport collapse on the original moment grid. The
+successful recovery includes fresh-process continuation and full variable-T,
+fresh-BA steps with positive populations and conservation near machine precision.
+The Ng guard fix was tested separately: its effect on actual Ng93 is small and
+it is not claimed as the cause of the recovery. The installed binary has been
+rebuilt; a new full atmosphere run with that installed binary was not required
+or performed during installation.
+
+The automatic workflow now registers these additional remedies, also exposed
+as read-only recommendations outside auto mode:
+
+- `ray_refinement`: fresh negative normalized luminosities after the native
+  luminosity safeguard, coarse formal rays and fixed structure/original moment
+  grid. Try finer rays without bypassing guards; require two guarded fresh-BA
+  solves. Native Lambda steps may settle populations before full verification.
+- `superlevel_temperature`: measured persistent T oscillation with superlevel
+  T derivatives disabled. Enable the derivatives and fresh BA before damping.
+- `population_bootstrap`: extreme finite population increases with fresh BA,
+  an authenticated repaired runtime, `SCALE_OPT=MAJOR` and a physically auditable
+  checkpoint. Three fixed-T Lambda steps use temporary `MAX_LAM=1e12`; all normal
+  controls are restored before two full/fresh-BA checks. Charge, element sums,
+  geometry and fixed bootstrap T are independently checked.
+- `population_guard`: the exact zero-exit, post-save `MAX_CHNG` stop can enter
+  that same provisional procedure only after an independent before/after
+  physical audit and a matching single solved/saved counter. Its original
+  failure status is retained; failed follow-up restores the pre-failure state.
+- `ng_cadence`: repeated short full batches below native `BEG_NG`, past
+  `IBEG_NG`, with `LAST_NG=-1000` and Ng enabled. Use eight contiguous physical
+  solves so process restarts do not keep postponing the first Ng. Native
+  scheduling/validity tests and all automatic work limits remain active.
+
+Bootstrap recognition needs `cmfgen-local-build.json` whose atmosphere-executable
+hash matches the running binary and advertises the line/BA repairs. Rebuilding
+changes that hash: refresh the build record after source regression checks,
+using `cmfgen-review-tests/record_local_build.py`. Unknown binaries are declined.
+
+These are numerical controls, not changes to stellar parameters, atomic data,
+Rmax or population floors. They never raise `EPS_TERM` or bypass the luminosity
+or `MAX_CHNG` safeguards. The original instability is resolved in the tested
+recovery branch; formal final model convergence is a separate task. See
+[rule conditions and limits](../main-computation.md#automatic-convergence-and-recovery-rules)
+and the [source investigation](cmfgen-line-jacobian-cancellation.md).
+
+**Known scope limitation:** inserted moment grids still have an independently
+reproduced `VAR_MOM_J` angular-prefix mapping issue. No validated correction for
+that routine is included here. Auto ray refinement keeps `VFRAC_MOM=20000` and
+declines an already inserted moment grid. The alternative log-radius `QFROMF`
+integration and diagnostic-only instrumentation remain excluded.
+
 ## Reproduce and rebuild
 
 To restore the captured changes, start with a separate clean copy of the CMFGEN
@@ -166,6 +239,9 @@ Run the source-level regressions:
 
 ```sh
 python doc/developer/cmfgen-review-tests/run_review.py ~/CMFGEN2023/cur_cmf/
+python doc/developer/cmfgen-review-tests/check_line_jacobian_branches.py --shared-check physical
+python doc/developer/cmfgen-review-tests/check_ba_restart_flags.py
+python doc/developer/cmfgen-review-tests/check_ng_temperature_guard.py
 python doc/developer/cmfgen-review-tests/run_review.py ~/CMFGEN2023/cur_cmf/ \
   --optimization O2 --threads 5 --atomic-data ~/CMFGEN2023/atomic/
 ```
@@ -183,10 +259,13 @@ For production use, rebuild serially in the external checkout:
 ```sh
 cd ~/CMFGEN2023/cur_cmf/
 make -C new_main INSTALL_DIR="$PWD/"
+make -C obs INSTALL_DIR="$PWD/"
+python ~/sciwork/cmfgen_viewer/doc/developer/cmfgen-review-tests/record_local_build.py --relink "$PWD"
 ```
 
-Rebuild other executables that use the modified libraries as well, including
-CMF_FLUX if it is used. Keep pre-fix executables and binary checkpoints separate
+The helper performs the three final links after both recursive builds have
+finished updating shared archives; it then checks source hashes and executable
+ordering before recording capabilities. Rebuild other affected executables if used. The 24 October installation preserved source/executable backups in the build record's `build_evidence` directory under `installed-before/`. Keep pre-fix executables and binary checkpoints separate
 for comparisons. Do not run a parallel make: the archives and module directories
 are shared by recursive targets. No source fixes from this work were committed
 to the external Git repository.

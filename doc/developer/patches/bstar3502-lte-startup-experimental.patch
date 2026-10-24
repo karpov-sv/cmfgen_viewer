@@ -1,0 +1,76 @@
+--- a/new_main/subs/det_lte_ed.f
++++ b/new_main/subs/det_lte_ed.f
+@@ -51,7 +51,7 @@
+ !
+ 	TEMP(1:ND)=T(1:ND)
+ 	DO I=1,ND
+-	  IF(T(I) .LT. TMIN)TEMP(I)=T(I)
++	  IF(T(I) .LT. TMIN)TEMP(I)=TMIN
+ 	END DO
+ 	ED_OLD=0.0_LDP
+ 	ED=POP_ATOM
+--- a/new_main/mod_subs/init_population_estimates.f90
++++ b/new_main/mod_subs/init_population_estimates.f90
+@@ -2,6 +2,7 @@
+ module init_population_estimates_mod
+   use set_kind_module
+   use mod_cmfgen
++  use control_variable_mod, only: dc_interp_method
+   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
+   implicit none
+   private
+@@ -106,7 +107,9 @@
+     integer, intent(in) :: n, lu
+     logical, intent(in) :: scale, dissolve
+     type(initial_ion) :: data(num_ions)
+-    integer :: id
++    integer :: id, charge_iteration
++    real(ldp) :: charge(n), charge_error
++    logical :: charge_converged
+     do id=1,num_ions-1
+       if(.not.atm(id)%xzv_pres) cycle
+       data(id)%dc=atm(id)%xzv_f
+@@ -114,7 +117,31 @@
+       allocate(data(id)%ion(n),data(id)%pop(atm(id)%nxzv_f,n))
+     end do
+     popion=pop_atom
+-    call convert_dc(data,n,ed,t,popion,dissolve,scale,pop_species,lu)
++    charge_converged=.false.
++    do charge_iteration=1,100
++      call convert_dc(data,n,ed,t,popion,dissolve,scale,pop_species,lu)
++      if(dc_interp_method/='LTE') exit
++      charge=0.0_ldp
++      do id=1,num_ions-1
++        if(.not.atm(id)%xzv_pres) cycle
++        charge=charge+(atm(id)%zxzv-1.0_ldp)*sum(data(id)%pop,dim=1)
++        if(.not.atm(id+1)%xzv_pres) charge=charge+atm(id)%zxzv*data(id)%ion
++      end do
++      if(any(charge<=0.0_ldp).or..not.all(ieee_is_finite(charge))) &
++        call fail('invalid LTE charge sum',lu)
++      charge_error=maxval(abs(charge-ed)/max(charge,ed))
++      if(charge_error<1.0e-10_ldp) then
++        ed=charge
++        charge_converged=.true.
++        exit
++      end if
++      ed=exp(0.5_ldp*(log(ed)+log(charge)))
++    end do
++    if(dc_interp_method=='LTE') then
++      if(.not.charge_converged) call fail('LTE Ne did not converge',lu)
++      write(lu,'(A,I4,A,ES12.4)') 'LTE charge consistency: iterations=', &
++        charge_iteration,' residual=',charge_error
++    end if
+     do id=1,num_ions-1
+       if(.not.atm(id)%xzv_pres) cycle
+       atm(id)%xzv_f=data(id)%pop
+--- a/new_main/mod_subs/Makefile
++++ b/new_main/mod_subs/Makefile
+@@ -79,7 +79,7 @@
+ 	$(F90) -c $(OPTION) $< 
+ 	ar $(AR_OPTION) $(LIB) $*.o
+ 
+-$(LIB_MOD)(init_population_estimates.o) : init_population_estimates.f90 $(LIB_MOD)(mod_cmfgen.o) $(LIB_MOD)(mod_lev_dis_blk.o)
++$(LIB_MOD)(init_population_estimates.o) : init_population_estimates.f90 $(LIB_MOD)(mod_cmfgen.o) $(LIB_MOD)(mod_lev_dis_blk.o) $(LIB_MOD)(control_variable_mod.o)
+ 	$(F90) -c $(FFREE) init_population_estimates.f90
+ 	ar $(AR_OPTION) $(LIB_MOD) init_population_estimates.o
+ 

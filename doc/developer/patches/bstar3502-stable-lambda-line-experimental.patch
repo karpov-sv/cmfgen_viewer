@@ -1,0 +1,17 @@
+--- a/new_main/subs/update_ba_for_line.f
++++ b/new_main/subs/update_ba_for_line.f
+@@ -283,10 +283,13 @@
+ 	        SCL_FAC=(AVE_ENERGY(NL)-AVE_ENERGY(NUP))/FL_SIM(SIM_INDX)
+ 	        IF(ABS(SCL_FAC-1.0_LDP) .GT. SCL_LINE_HT_FAC)SCL_FAC=1.0_LDP
+ 	      END IF
++! ZNET_SIM = LINE_QW_SUM - JBAR_SIM*CHIL_MAT/ETAL_MAT.
++! Cancel that term algebraically, before rounded large opposite sums.
++! Keep the exact profile normalization, including incomplete profiles.
+ 	      DO K=1,ND
+ 	        L=GET_DIAG(K)
+ 	        dRATE_dUP=EINA(SIM_INDX)*U_STAR_RATIO(K,SIM_INDX)*
+-	1                   (ZNET_SIM(K,SIM_INDX)+VC(K)+STIM_FAC*VB(K))
++	1                   (LINE_QW_SUM(K,SIM_INDX)+STIM_FAC*VB(K))
+ 	        dRATE_dLOW=-EINA(SIM_INDX)*OPAC_FAC*L_STAR_RATIO(K,SIM_INDX)*VB(K)
+ 	        SE(ID)%BA(MNUP,MNUP,L,K)=SE(ID)%BA(MNUP,MNUP,L,K)-dRATE_dUP
+ 	        SE(ID)%BA(MNUP,MNL,L,K) =SE(ID)%BA(MNUP,MNL,L,K) -dRATE_dLOW

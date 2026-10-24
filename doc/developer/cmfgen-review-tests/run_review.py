@@ -44,7 +44,8 @@ cases = {
     "global": [fixtures / "test_global.f90", root / "new_main/subs/solveba_v13.f"],
 }
 if (root / "new_main/mod_subs/init_population_estimates.f90").exists():
-    cases["initialization"] = [root / "new_main/mod_subs/mod_cmfgen.f",
+    cases["initialization"] = [root / "new_main/mod_subs/control_variable_mod.f",
+        root / "new_main/mod_subs/mod_cmfgen.f",
         root / "new_main/mod_subs/mod_lev_dis_blk.f", root / "subs/occupation_prob.f",
         root / "subs/ltepop_wld_v2.f", root / "new_main/mod_subs/init_population_estimates.f90",
         fixtures / "test_initialization.f90"]

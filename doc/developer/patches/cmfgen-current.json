@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
-  "captured_at_utc": "2026-10-21T10:53:22+00:00",
+  "captured_at_utc": "2026-10-24T13:25:22.414073+00:00",
   "source_checkout": "~/CMFGEN2023/cur_cmf/",
   "baseline_release": "18jun25",
   "baseline_description": "CMFGEN website release as of 18 Jun 2025; extracted release contents, including documentation changes absent from the archive's Git tree",
   "patch_file": "cmfgen-current.patch",
-  "patch_sha256": "41681c7843e1dae5cc2060dcb30e9b5e7f07af2abcae5c14dddc9b0eed7e53d2",
+  "patch_sha256": "0137e30d96b52f950fcc055dbbb3f03d63048b7186fbae8f88fef0622f4653cf",
   "files": [
     {
       "path": "Makefile_definitions",
@@ -22,19 +22,25 @@
     {
       "path": "new_main/cmfgen_sub.f",
       "status": "modified",
-      "sha256": "13f8753338902c6f2cc795b3cfc51a854d68dc62276c0a096d12172616cd493a",
+      "sha256": "c6b46473a9c45a3917e14d661c787f8d09d3c89ea037ef0169ebf8e5cdc45cc1",
       "baseline_sha256": "092f8526661b1f9a5eaeb7a875f07f55623f427ad07c383f2659f2fb67143374"
     },
     {
       "path": "new_main/mod_subs/Makefile",
       "status": "modified",
-      "sha256": "b34a977ce29f589e8f961315b0ca03176519bd0fb627aaff0394306723d3659b",
+      "sha256": "40a9f23c6bdd33b3ebeda64d5b0e1204076a440456197995e23bf32a9d593f33",
       "baseline_sha256": "9d0509b63c624bf8a60885ec890b4b6a1ff70195abf900b88f8569c0f7abab0f"
+    },
+    {
+      "path": "new_main/mod_subs/comp_grey_v4.f",
+      "status": "modified",
+      "sha256": "154a9d5212c4c9ccddd084f2a01245f3e8f549d06c5928d39b8ad1e1577b80b2",
+      "baseline_sha256": "66dbb28d02c2fa852c366d0ef545d87d6b511fd1b6b46941c2ab6bf72f9c1272"
     },
     {
       "path": "new_main/mod_subs/init_population_estimates.f90",
       "status": "added",
-      "sha256": "4a0a763d80298b3409c322874fafb8893c1a5bc7176b1f7f771d410ec754f71a",
+      "sha256": "cf7cea0b4972cf775d69155781934e82eceb0227b625273f091a49608f9095b0",
       "baseline_sha256": null
     },
     {
@@ -62,16 +68,40 @@
       "baseline_sha256": "6639b33ed6d595c00cbf91385b22ec3a54efddc9c2bd771ed617594c04c90af2"
     },
     {
+      "path": "new_main/subs/det_lte_ed.f",
+      "status": "modified",
+      "sha256": "db5c0780a776c4f8eb9855ba8f327d3e8bc5850fd2d124d7f99f007c31d9ff09",
+      "baseline_sha256": "9e528f8f4078b845fed3756dd784e6e07b1886dc32f092a8662c8ef649a54bf3"
+    },
+    {
+      "path": "new_main/subs/do_ng_accel_band_v4.f",
+      "status": "modified",
+      "sha256": "046f7e99fe8fd9d6c7d283f7485793b4484249c2e3323828189a6013aed7200f",
+      "baseline_sha256": "347735360e951c5e59b13fb25bf39d20d56d96a39b02151d6b5e3f22b27f09bb"
+    },
+    {
       "path": "new_main/subs/evalse_qwvj_v8.f",
       "status": "modified",
       "sha256": "5ebea335a3a8e43433db45a66efc20e380d31423a4b33ac40f88a671b0c64cb4",
       "baseline_sha256": "656689e66c830c2b53d08efffb300bafec770169621952b4710368b859ce2562"
     },
     {
+      "path": "new_main/subs/read_ba_data_v3.f",
+      "status": "modified",
+      "sha256": "ef502e02eea15e858c9c53574e9517dd8ac8d0a876bc2e060d1802d7dea2832d",
+      "baseline_sha256": "8a7d741918b2b7e7ce4af36d324c0fadd9ae633435db08464fbf7e4aadc62869"
+    },
+    {
       "path": "new_main/subs/solveba_v13.f",
       "status": "modified",
       "sha256": "011f812dbef2c1f87851a53854db3c2d5e125e5ef7fa899277ee7d6d4d7547e5",
       "baseline_sha256": "8210020b3a3df9a0c1af31de26eedd73fefcdb365547a2677e21b3b83faa63e8"
+    },
+    {
+      "path": "new_main/subs/update_ba_for_line.f",
+      "status": "modified",
+      "sha256": "5d25f41fe09a4e1ea791b66e6fd4454a2907d560fd45d0ce4da495f20f94bc9c",
+      "baseline_sha256": "be4f1cf9de954c91f7f004e0cc1727dacce6639b3bc7de8d2f7a181cb0913a2a"
     },
     {
       "path": "new_main/subs/vsebyj_multi_v8.f",
@@ -135,5 +165,129 @@
     "AGENTS.md local workflow notes",
     "1.diff scratch patch"
   ],
-  "verification": "git apply --check and application against baseline contents; every patched file verified by SHA-256"
+  "verification": "git apply --check and application against baseline contents; every patched file verified by SHA-256",
+  "validated_patch_roundtrip": true,
+  "installed_build": {
+    "schema_version": 1,
+    "recorded_at_utc": "2026-10-24T13:52:10.699726+00:00",
+    "source_checkout": "/Users/karpov/CMFGEN2023/cur_cmf",
+    "source_patch_sha256": "0137e30d96b52f950fcc055dbbb3f03d63048b7186fbae8f88fef0622f4653cf",
+    "capabilities": [
+      "line-jacobian-v1",
+      "ba-restart-v1",
+      "lte-charge-v1",
+      "grey-intensity-guard-v1",
+      "ng-temperature-v1"
+    ],
+    "sources": {
+      "new_main/cmfgen_sub.f": "c6b46473a9c45a3917e14d661c787f8d09d3c89ea037ef0169ebf8e5cdc45cc1",
+      "new_main/mod_subs/comp_grey_v4.f": "154a9d5212c4c9ccddd084f2a01245f3e8f549d06c5928d39b8ad1e1577b80b2",
+      "new_main/mod_subs/init_population_estimates.f90": "cf7cea0b4972cf775d69155781934e82eceb0227b625273f091a49608f9095b0",
+      "new_main/mod_subs/mod_lev_dis_blk.f": "7a804e51d6b0d5349a7c9b71a818306c66415f72f9ae7e98ce57a4f5668dc1dd",
+      "new_main/mod_subs/rd_control_variables.f": "70671200c08a15f3274c0762cae3a380bc05c63e0c63b1d5ca8612fcfcce2618",
+      "new_main/mod_subs/set_new_model_estimates.f": "57daa1c7936ea81d1f562d93a54c82e961da00c6d170c810509311fb3a775c77",
+      "new_main/subs/auto_add_ion.f": "060bfc141825830439d5f44334b089f200b90f978d4d90d05538395602f9a132",
+      "new_main/subs/det_lte_ed.f": "db5c0780a776c4f8eb9855ba8f327d3e8bc5850fd2d124d7f99f007c31d9ff09",
+      "new_main/subs/do_ng_accel_band_v4.f": "046f7e99fe8fd9d6c7d283f7485793b4484249c2e3323828189a6013aed7200f",
+      "new_main/subs/evalse_qwvj_v8.f": "5ebea335a3a8e43433db45a66efc20e380d31423a4b33ac40f88a671b0c64cb4",
+      "new_main/subs/read_ba_data_v3.f": "ef502e02eea15e858c9c53574e9517dd8ac8d0a876bc2e060d1802d7dea2832d",
+      "new_main/subs/solveba_v13.f": "011f812dbef2c1f87851a53854db3c2d5e125e5ef7fa899277ee7d6d4d7547e5",
+      "new_main/subs/update_ba_for_line.f": "5d25f41fe09a4e1ea791b66e6fd4454a2907d560fd45d0ce4da495f20f94bc9c",
+      "new_main/subs/vsebyj_multi_v8.f": "d83d6f81eeb253739035c37399d58b7a5b94e094703bd885e978f10164a13daf",
+      "new_main/subs/vsebyj_x_v7.f": "0a07f509252ac9f3d70eb50fabeb6548a85983f28ace64f6fe747fd9a19d6408",
+      "newsubs/omega_gen_v3.f": "b0673823415316da261e97150b3461a30d20f4cc3d50e8c1e51d35841929ea4e",
+      "newsubs/rdphot_gen_v2.f": "21432fa96aa28a40b3fd876a6697c02725110375418fdd320562f5924e3a259e",
+      "obs/cmf_flux_sub_v5.f": "4a1d33f3feabc864c8bbfead16aaecb8e31db78adeb1e498b6d541817f3d19ed",
+      "opac/par_opac_sub.f": "ecba7a6a0e4e2b3b7de6038285a9d993d168bab824efb55d3ebb542ad6536063",
+      "stark/get_prof_storage_limits.f": "8f251f11a7e00e0c0b438dfeca60a16bafed219775a1bfb5e1b7ef359795355c",
+      "stark/get_prof_storage_limits_v2.f": "4cf0b642b80aab77bde55f4bf4ee3d762d5d92e2102fdd710af76d85aa554eac",
+      "subs/regrid_t_ed_v3.f": "b0a60352a8d846fa4638ba136dacfc157956bd2f9a33d7c78f8723780d2428a0"
+    },
+    "executables": {
+      "cmfgen_dev.exe": {
+        "sha256": "c1be1f22fc5bae65fca03657360be29750603e0e8363e6d119141d2c15f3cfc1",
+        "size": 2906592
+      },
+      "cmf_flux.exe": {
+        "sha256": "af861d4bc783f56e53de82b0f40575154a0038cd4be516387857b94af57432c5",
+        "size": 1323424
+      },
+      "obs_frame.exe": {
+        "sha256": "4ed72f7016c6db65bcdb38b87a468ac2851bf49a20d42249da2c5254f08c093e",
+        "size": 174064
+      }
+    },
+    "meaning": "Verified source snapshot and rebuild ordering; not a model-convergence certificate.",
+    "build_evidence": "/var/folders/wl/wfbkqm_s6bg4vj9w04rdml4m0000gn/T/cmfgen-promote-20261024-fjp0tjea",
+    "final_link_commands": [
+      {
+        "cwd": "/Users/karpov/CMFGEN2023/cur_cmf/new_main",
+        "command": [
+          "gfortran",
+          "-fopenmp",
+          "-fallow-argument-mismatch",
+          "-Wl,-stack_size,0x4000000",
+          "cmfgen.o",
+          "cmfgen_sub.o",
+          "-L/Users/karpov/CMFGEN2023/cur_cmf/lib/",
+          "-lsubs",
+          "-lpgplt",
+          "-lmod",
+          "-L/opt/local/lib",
+          "-lopenblas",
+          "-o",
+          "/Users/karpov/CMFGEN2023/cur_cmf/exe/cmfgen_dev.exe"
+        ]
+      },
+      {
+        "cwd": "/Users/karpov/CMFGEN2023/cur_cmf/obs",
+        "command": [
+          "gfortran",
+          "-fopenmp",
+          "-fallow-argument-mismatch",
+          "-Wl,-stack_size,0x4000000",
+          "cmf_flux_v5.o",
+          "cmf_flux_sub_v5.o",
+          "mod_cmf_obs.o",
+          "mod_freq_obs.o",
+          "cmf_flux_cntrl_var_mod.o",
+          "rd_cmf_flux_controls.o",
+          "check_cmf_flux_param_consis.o",
+          "rd_model_file.o",
+          "revise_obs_p.o",
+          "ins_line_v5.o",
+          "obs_frame_sub_v9.o",
+          "ins_line_obs_v4.o",
+          "rd_cont_j_obs.o",
+          "set_forbid_zero.o",
+          "form_ew.o",
+          "comp_ew_abs_ew.o",
+          "griem_stark_mod.o",
+          "-L/Users/karpov/CMFGEN2023/cur_cmf/lib/",
+          "-lsubs",
+          "-lpgplt",
+          "-ldisp",
+          "-lmod",
+          "-o",
+          "/Users/karpov/CMFGEN2023/cur_cmf/exe/cmf_flux.exe"
+        ]
+      },
+      {
+        "cwd": "/Users/karpov/CMFGEN2023/cur_cmf/obs",
+        "command": [
+          "gfortran",
+          "-fopenmp",
+          "-fallow-argument-mismatch",
+          "-Wl,-stack_size,0x4000000",
+          "obs_frame_v2.o",
+          "obs_frame_sub_v9.o",
+          "-L/Users/karpov/CMFGEN2023/cur_cmf/lib/",
+          "-ldisp",
+          "-lsubs",
+          "-o",
+          "/Users/karpov/CMFGEN2023/cur_cmf/exe/obs_frame.exe"
+        ]
+      }
+    ]
+  }
 }

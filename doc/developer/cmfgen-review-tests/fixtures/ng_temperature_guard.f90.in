@@ -1,0 +1,62 @@
+module fixture_history
+ use set_kind_module
+ implicit none
+ real(kind=ldp)::history(2,4,4)
+end module
+program check_outer_wrapper
+ use fixture_history
+ implicit none
+ integer,parameter::nd=4,nt=2
+ real(kind=ldp)::p(nt,nd),r(nd),v(nd),sigma(nd),rold(nd),tv(4),pv(4),maxdec,maxinc,expected_t,expected_p
+ logical::done,expected_done
+ integer::scenario,ib,bands(5)=[0,1,2,3,4],band,j,d
+ do scenario=1,5
+  select case(scenario)
+  case(1)
+   tv=[1.0_ldp,.98_ldp,.97_ldp,.965_ldp];pv=2*tv
+   expected_t=1.0_ldp;expected_p=2.0_ldp;expected_done=.false.
+  case(2)
+   tv=[1.0_ldp,1.02_ldp,1.03_ldp,1.035_ldp];pv=2*tv
+   expected_t=1.0_ldp;expected_p=2.0_ldp;expected_done=.false.
+  case(3)
+   tv=[1.0_ldp,.98_ldp,.94_ldp,.86_ldp];pv=2*tv
+   expected_t=1.02_ldp;expected_p=2.04_ldp;expected_done=.true.
+  case(4)
+   tv=[1.0_ldp,1.02_ldp,1.06_ldp,1.14_ldp];pv=2*tv
+   expected_t=.98_ldp;expected_p=1.96_ldp;expected_done=.true.
+  case(5)
+   tv=1.0_ldp;pv=[2.0_ldp,1.96_ldp,1.88_ldp,1.72_ldp]
+   expected_t=1.0_ldp;expected_p=2.04_ldp;expected_done=.true.
+  end select
+  do ib=1,5
+   band=bands(ib)
+   do j=1,4
+    do d=1,nd
+     history(1,d,j)=pv(j);history(2,d,j)=tv(j)
+    end do
+   end do
+   p=history(:,:,1);r=3;v=4;sigma=.5_ldp;rold=r
+   open(7,status='scratch')
+   call do_ng_band_accel_v4(p,r,v,sigma,rold,nt,nd,band,done,maxdec,maxinc,.false.,8,7)
+   close(7)
+   BASELINE_EXPECTATION
+   if(done.neqv.expected_done) stop 1
+   if(maxval(abs(p(2,:)-expected_t))>1.e-12_ldp) stop 2
+   if(maxval(abs(p(1,:)-expected_p))>1.e-12_ldp) stop 3
+   if(any(r/=3.0_ldp).or.any(v/=4.0_ldp).or.any(sigma/=.5_ldp).or.any(rold/=3.0_ldp)) stop 4
+   write(*,'(a,2i4,l2,2es24.16)') 'CASE ',scenario,band,done,p(1,1),p(2,1)
+  end do
+ end do
+end program
+subroutine scr_read_v2(r,v,sigma,p,irec,nitsf,rites,lstng,write_rvsig,nt,nd,luscr,newmod)
+ use fixture_history
+ implicit none
+ integer::irec,nitsf,rites,lstng,nt,nd,luscr,j
+ real(kind=ldp)::r(nd),v(nd),sigma(nd),p(nt,nd)
+ logical::write_rvsig,newmod
+ if(nt/=2.or.nd/=4) stop 5
+ if(irec==0)irec=4
+ if(irec<1.or.irec>4)stop 6
+ j=5-irec;p=history(:,:,j);r=3;v=4;sigma=.5_ldp
+ nitsf=4;lstng=-1000;write_rvsig=.true.;newmod=.false.
+end subroutine

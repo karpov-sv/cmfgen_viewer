@@ -1,5 +1,4 @@
 diff --git a/Makefile_definitions b/Makefile_definitions
-index c5d179e109732dae7f2cdccb08ea0fb11f5e5387..af94bb91d9ed5ecb2781329ed567762719912c11 100644
 --- a/Makefile_definitions
 +++ b/Makefile_definitions
 @@ -2,7 +2,7 @@
@@ -11,7 +10,7 @@ index c5d179e109732dae7f2cdccb08ea0fb11f5e5387..af94bb91d9ed5ecb2781329ed5677627
  #      FG are options for f90 files in fixed format
  #      FFREE are options for f90 files in free format.
  #      FD are options for f90 files in fixed format with debug.
-@@ -19,7 +19,8 @@ AR_OPTION = ruv
+@@ -19,7 +19,8 @@
  
  HOST :=$(shell hostname)
  
@@ -21,18 +20,18 @@ index c5d179e109732dae7f2cdccb08ea0fb11f5e5387..af94bb91d9ed5ecb2781329ed5677627
  COMPILER=gcc
  DEBUG=nodebug
  
-@@ -29,6 +30,10 @@ ifeq ($(HOST),crc)
- INSTALL_DIR=$(HOME)/cur_cmf/
- endif
+@@ -27,6 +28,10 @@
  
-+ifeq ($(HOST),macos)
-+INSTALL_DIR=$(HOME)/CMFGEN2023/cur_cmf/
+ ifeq ($(HOST),crc)
+ INSTALL_DIR=$(HOME)/cur_cmf/
 +endif
 +
++ifeq ($(HOST),macos)
++INSTALL_DIR=$(HOME)/CMFGEN2023/cur_cmf/
+ endif
+ 
  ifeq ($(DEBUG),nodebug)
-  MOD_DIR=$(INSTALL_DIR)mod/
-  LIB_DIR=$(INSTALL_DIR)lib/
-@@ -42,10 +47,10 @@ ifeq ($(DEBUG),debug)
+@@ -42,10 +47,10 @@
  endif
  
  ifeq ($(COMPILE_OPT),crc_gcc_nodebug)
@@ -46,7 +45,7 @@ index c5d179e109732dae7f2cdccb08ea0fb11f5e5387..af94bb91d9ed5ecb2781329ed5677627
   FFREE  = -O -fno-backslash -I$(MOD_DIR) -J$(MOD_DIR)
   FFRED  = -g -fno-backslash -O0 -I$(MOD_DIR) -J$(MOD_DIR)
   BLAS=
-@@ -58,8 +63,8 @@ endif
+@@ -58,8 +63,8 @@
  ifeq ($(COMPILE_OPT),crc_gcc_debug)
   F90 = gfortran -fopenmp -m64
   F90nomp = gfortran -m64
@@ -57,7 +56,7 @@ index c5d179e109732dae7f2cdccb08ea0fb11f5e5387..af94bb91d9ed5ecb2781329ed5677627
   FFREE  = -g -fno-backslash -O0 -I$(MOD_DIR) -J$(MOD_DIR)
   FFRED  = -g -fno-backslash -O0 -I$(MOD_DIR) -J$(MOD_DIR)
   BLAS=
-@@ -97,3 +102,39 @@ ifeq ($(COMPILE_OPT),crc_intel_debug)
+@@ -97,3 +102,39 @@
   PGLIB=-L$(PGPLOT_DIR) -lpgplot
  endif
  
@@ -98,10 +97,9 @@ index c5d179e109732dae7f2cdccb08ea0fb11f5e5387..af94bb91d9ed5ecb2781329ed5677627
 + X11LIB = -L$(MACPORTS_PREFIX)/lib -lX11
 +endif
 diff --git a/com/aliases_for_cmfgen.sh b/com/aliases_for_cmfgen.sh
-index 59e394c43fa05cbb4fb32df30620d96566531d06..83a0f80522f21eab5a469e11887a95c1b625c538 100755
 --- a/com/aliases_for_cmfgen.sh
 +++ b/com/aliases_for_cmfgen.sh
-@@ -52,6 +52,13 @@ endif
+@@ -52,6 +52,13 @@
    set SN_ATOMIC  = ~hillier/cmfgen_atomic_data/sn_atomic 
    setenv cmfdist  ~hillier/cur_cmf
    setenv CMFDIST  ~hillier/cur_cmf
@@ -116,9 +114,17 @@ index 59e394c43fa05cbb4fb32df30620d96566531d06..83a0f80522f21eab5a469e11887a95c1
  #  echo 'Name of machine not recognized'
  #  echo 'Update cmfdist/com/aliases_for_cmfgen.sh'
 diff --git a/new_main/cmfgen_sub.f b/new_main/cmfgen_sub.f
-index 14c82b0add8e6d2255e967316adf412fbed55606..2df5f7447daae77e647d789a18e25d5d169a8b0e 100644
 --- a/new_main/cmfgen_sub.f
 +++ b/new_main/cmfgen_sub.f
+@@ -1209,7 +1209,7 @@
+ ! Read in BA and STEQ arrays. We only attempt this if we have an existing
+ ! model.
+ !
+-	CHK=.FALSE.
++	CHK=COMPUTE_BARDIN
+ 	IF(.NOT. NEWMOD)THEN
+           CALL READ_BA_DATA_V3(LU_BA,NION,NUM_BNDS,ND,CHK,FIXED_T,SUCCESS,'BAMAT')
+ 	END IF
 @@ -2269,7 +2269,7 @@
  	       IF(NEG_OPACITY(I) .AND. K .EQ. 0)K=I
  	       IF(NEG_OPACITY(I))J=I
@@ -129,10 +135,9 @@ index 14c82b0add8e6d2255e967316adf412fbed55606..2df5f7447daae77e647d789a18e25d5d
  	    END IF
  !
 diff --git a/new_main/mod_subs/Makefile b/new_main/mod_subs/Makefile
-index 5abcd7fc1afa03d2b1df15b17f891bb761b16154..67ba8dc9d8db17e5a64c42c9d34d4d5a1cc95a60 100644
 --- a/new_main/mod_subs/Makefile
 +++ b/new_main/mod_subs/Makefile
-@@ -12,6 +12,7 @@ OPTION=$(FG)
+@@ -12,6 +12,7 @@
  # Entries for library
  
  MOD = $(LIB_MOD)(mod_cmfgen.o)\
@@ -140,18 +145,18 @@ index 5abcd7fc1afa03d2b1df15b17f891bb761b16154..67ba8dc9d8db17e5a64c42c9d34d4d5a
        $(LIB_MOD)(ang_qw_mod.o)\
        $(LIB_MOD)(chg_exch_mod_v3.o)\
        $(LIB_MOD)(cmf_sob_mod.o)\
-@@ -78,6 +79,10 @@ $(LIB)(%.o) : %.f
+@@ -78,6 +79,10 @@
  	$(F90) -c $(OPTION) $< 
  	ar $(AR_OPTION) $(LIB) $*.o
  
-+$(LIB_MOD)(init_population_estimates.o) : init_population_estimates.f90 $(LIB_MOD)(mod_cmfgen.o) $(LIB_MOD)(mod_lev_dis_blk.o)
++$(LIB_MOD)(init_population_estimates.o) : init_population_estimates.f90 $(LIB_MOD)(mod_cmfgen.o) $(LIB_MOD)(mod_lev_dis_blk.o) $(LIB_MOD)(control_variable_mod.o)
 +	$(F90) -c $(FFREE) init_population_estimates.f90
 +	ar $(AR_OPTION) $(LIB_MOD) init_population_estimates.o
 +
  $(MOD_LIB)(%.o) : %.f90
  	$(F90) -c $(FFREE) $<
  	ar $(AR_OPTION) $(LIB_MOD) $*.o
-@@ -162,7 +167,7 @@ $(LIB)(set_line_opac.o) : set_line_opac.f $(LIB)(opac_mod.o) $(LIB_MOD)(control_
+@@ -162,7 +167,7 @@
  	$(F90) -c $(OPTION) set_line_opac.f
  	ar $(AR_OPTION) $(LIB) set_line_opac.o
                                                                                                                        
@@ -160,503 +165,41 @@ index 5abcd7fc1afa03d2b1df15b17f891bb761b16154..67ba8dc9d8db17e5a64c42c9d34d4d5a
                $(LIB_MOD)(line_mod.o) $(LIB_MOD)(line_vec_mod.o) $(LIB_MOD)(mod_cmfgen.o) $(LIB_MOD)(ang_qw_mod.o)
  	$(F90) -c $(OPTION) set_new_model_estimates.f
  	ar $(AR_OPTION) $(LIB) set_new_model_estimates.o
-diff --git a/new_main/mod_subs/mod_lev_dis_blk.f b/new_main/mod_subs/mod_lev_dis_blk.f
-index 2b27d30d7aa2d47f17821d69054656fa18810223..c70189e89e4a2e04c142c406f6de59454cc244c5 100644
---- a/new_main/mod_subs/mod_lev_dis_blk.f
-+++ b/new_main/mod_subs/mod_lev_dis_blk.f
-@@ -45,6 +45,13 @@
- 	REAL(KIND=LDP) T(ND)
- 	LOGICAL DO_LEV_DIS
- !
-+! POP initialization temporarily evaluates occupation probabilities on the
-+! saved grid. Restore the appropriate vector sizes when changing grids.
-+	IF(ALLOCATED(B_LEV_DIS))THEN
-+	  IF(SIZE(B_LEV_DIS) .NE. ND)THEN
-+	    DEALLOCATE(B_LEV_DIS,A_LEV_DIS,X_LEV_DIS)
-+	  END IF
-+	END IF
- 	IF(.NOT. ALLOCATED(B_LEV_DIS))THEN
- 	  ALLOCATE( B_LEV_DIS(ND) )
- 	  ALLOCATE( A_LEV_DIS(ND) )
-diff --git a/new_main/mod_subs/rd_control_variables.f b/new_main/mod_subs/rd_control_variables.f
-index c373eeca12b86f42cbc7a25299a573afa05b46ba..ccd66b217fd32576d78e39ee2596c630b569a05d 100644
---- a/new_main/mod_subs/rd_control_variables.f
-+++ b/new_main/mod_subs/rd_control_variables.f
-@@ -835,7 +835,7 @@
- 	  DC_INTERP_METHOD='ED'
- 	  IF(GRID)DC_INTERP_METHOD='R'
- 	  CALL RD_STORE_NCHAR(DC_INTERP_METHOD,'DC_METH',ITEN,L_FALSE,
--	1        'Interpolation method: TR, R, ED, LTE, SPH_TAU')
-+	1        'Interpolation method: POP (GRID only), TR, R, ED, LTE, SPH_TAU')
- 	  CALL RD_STORE_LOG(INTERP_DC_SPH_TAU,'DC_SPH_TAU',L_FALSE,
- 	1        'Interpolate d.c''s on the spherical TAU scale?')
- 	  IF(INTERP_DC_SPH_TAU)DC_INTERP_METHOD='SPH_TAU'
-diff --git a/new_main/mod_subs/set_new_model_estimates.f b/new_main/mod_subs/set_new_model_estimates.f
-index bcc1aea11458f950724aea07c70e9942b6944450..1a5db9f34a5d081fa9dd6a801fdb7a9d52f02e08 100644
---- a/new_main/mod_subs/set_new_model_estimates.f
-+++ b/new_main/mod_subs/set_new_model_estimates.f
-@@ -32,6 +32,7 @@
+diff --git a/new_main/mod_subs/comp_grey_v4.f b/new_main/mod_subs/comp_grey_v4.f
+--- a/new_main/mod_subs/comp_grey_v4.f
++++ b/new_main/mod_subs/comp_grey_v4.f
+@@ -14,6 +14,7 @@
+ 	USE ANG_QW_MOD
+ 	USE MOD_CMFGEN
  	USE CONTROL_VARIABLE_MOD
- 	USE LINE_VEC_MOD
- 	USE LINE_MOD
-+	USE INIT_POPULATION_ESTIMATES_MOD
++	USE, INTRINSIC :: IEEE_ARITHMETIC, ONLY: IEEE_IS_FINITE
  	IMPLICIT NONE
  !
- ! Altered 28-Aug-2019 : Compute T and ED before DC's when GRID=TRUE.
-@@ -150,8 +151,17 @@
- ! too allow NDOLD in the input files to be larger than ND.
- ! The first call to REGRIDWS is effectively used to compute DHeI only.
+ ! Altered 06-Dec-2023 : Fixed REL option to handle zero flux and or hollow core inner boundary options.
+@@ -274,6 +275,13 @@
+ ! at boundary.
  !
--	WRITE(6,*)'Calling AUTO_ADD_ION';  FLUSH(UNIT=6)
--	CALL AUTO_ADD_ION()
-+	IF(DC_INTERP_METHOD .EQ. 'POP')THEN
-+	  IF(.NOT. GRID .OR. .NOT. DO_POP_SCALE)THEN
-+	    WRITE(LUER,*)'DC_METH=POP requires LIN_INT=T and POP_SCALE=T'
-+	    ERROR STOP 'Invalid controls for population interpolation'
+ 	DO I=1,ND
++	  IF(.NOT. IEEE_IS_FINITE(RJ(I)) .OR. RJ(I) .LE. 0.0_LDP)THEN
++	    WRITE(LUER,*)'GREY_RJ_INVALID: depth,J,Ross,Planck,R,T=',
++	1         I,RJ(I),ROSSMEAN(I),PLANCKMEAN(I),R(I),T(I)
++	    FLUSH(LUER)
++	    COMPUTED=.FALSE.
++	    RETURN
 +	  END IF
-+	END IF
-+! POP reconstructs a supplied source atom set; do not synthesize missing inputs.
-+	IF(DC_INTERP_METHOD .NE. 'POP')THEN
-+	  WRITE(6,*)'Calling AUTO_ADD_ION'; FLUSH(UNIT=6)
-+	  CALL AUTO_ADD_ION()
-+	END IF
- 	IF(GRID) THEN
- 	  WRITE(LUER,'(/,A,/)')' Using direct interpolation option (i.e. GRID) for new model.'
- !
-@@ -161,26 +171,30 @@
- ! coefficient file).
- !
- 	  CALL REGRID_T_ED_V3(R,ED,T,POP_ATOM,ND,DC_INTERP_METHOD,'T_IN')
--	  DO ID=1,NUM_IONS-1
--	    IF(ATM(ID)%XzV_PRES)THEN
--	      TMP_STRING=TRIM(ION_ID(ID))//'_IN'
--	      ISPEC=SPECIES_LNK(ID)
--	      CALL REGRID_LOG_DC_V1( ATM(ID)%XzV_F,R,ED,T, ATM(ID)%DXzV_F,CLUMP_FAC,
-+	  IF(DC_INTERP_METHOD .EQ. 'POP')THEN
-+	    CALL READ_POPULATION_ESTIMATES(ND,DO_LEV_DISSOLUTION,LUIN,LUER)
-+	  ELSE
-+	    DO ID=1,NUM_IONS-1
-+	      IF(ATM(ID)%XzV_PRES)THEN
-+	        TMP_STRING=TRIM(ION_ID(ID))//'_IN'
-+	        ISPEC=SPECIES_LNK(ID)
-+	        CALL REGRID_LOG_DC_V1( ATM(ID)%XzV_F,R,ED,T, ATM(ID)%DXzV_F,CLUMP_FAC,
- 	1             ATM(ID)%EDGEXzV_F, ATM(ID)%F_TO_S_XzV, ATM(ID)%INT_SEQ_XzV,
- 	1             POP_SPECIES(1,ISPEC),ATM(ID)%NXzV_F,ND,LUIN,DC_INTERP_METHOD,TMP_STRING)
--	    END IF
--	  END DO
-+	      END IF
-+	    END DO
-+	  END IF
- !
- ! SPEC_DEN will contain the density of each species, while
- ! AT_NO_VEC will contain the the atomic number. These are set at all depths.
- !
--!	  IF(VAR_MDOT)THEN
-+!	  IF(VAR_MDOT .AND. DC_INTERP_METHOD .NE. 'POP')THEN
- !	    DO I=1,ND
- !	      ED(I)=POP_SPECIES(I,1)+2.0D0*POP_SPECIES(I,2)
- !	    END DO
- !	  END IF
- !
--	  IF(VAR_MDOT)THEN
-+	  IF(VAR_MDOT .AND. DC_INTERP_METHOD .NE. 'POP')THEN
- 	    I=0
- 	    DO ISPEC=1,NUM_SPECIES
- 	      CALL ELEC_PREP(SPEC_DEN,AT_NO_VEC,I,NUM_SPECIES,
-@@ -340,58 +354,14 @@
- ! constants are the same for all species. These are stored in a common block,
- ! and are required by SUP_TO_FULL and LTE_POP_WLD.
- !
--! As a first estimate of POPION, we assume all species are fully ionized.
--! The POPION is just the number of atoms.
-+! Reconstruct from saved log(b) with self-consistent occupation probabilities.
-+! POP has already reconstructed and interpolated the source populations.
-+! The other modes retain their selected independent interpolation variable.
- !
--	DO I=1,ND
--	  POPION(I)=POP_ATOM(I)
--	END DO
--	CALL COMP_LEV_DIS_BLK(ED,POPION,T,DO_LEV_DISSOLUTION,ND)
--!
--! Compute the LTE populations and convert from departure coefficients to
--! populations. The populations are scaled to ensure number conservation -
--! during the scaling the ionization remains fixed. On each call to CNVT_FR_DC,
--! TA is incremented by the population. IF FIRST is .TRUE., TA is zeroed first.
--! The second flag indicates whether to add in the ION contribution, which
--! will also be added as the ground state population of the next species.
--! If it is FALSE, the higher ionization stage is assumed not to be present,
--! and DION is added in.
--!
--! TB is used as a dummy vector when we are dealing with the lowest ionization
--! stage. It is returned with the ground state population.
--!
--	DO ISPEC=1,NUM_SPECIES
--	  FIRST=.TRUE.
--	  DO ID=SPECIES_END_ID(ISPEC),SPECIES_BEG_ID(ISPEC),-1
--	    IF(ATM(ID)%XzV_PRES)THEN
--	      CALL LTEPOP_WLD_V2(ATM(ID)%XzVLTE_F, ATM(ID)%LOG_XzVLTE_F, ATM(ID)%W_XzV_F,
--	1              ATM(ID)%EDGEXzV_F, ATM(ID)%GXzV_F,
--	1              ATM(ID)%ZXzV,      ATM(ID)%GIONXzV_F,
--	1              ATM(ID)%NXzV_F,    ATM(ID)%DXzV_F,     ED,T,ND)
--	      CALL CNVT_FR_DC_V2(ATM(ID)%XzV_F, ATM(ID)%LOG_XzVLTE_F,
--	1              ATM(ID)%DXzV_F,    ATM(ID)%NXzV_F,
--	1              TB,                TA,ND,
--	1              FIRST,             ATM(ID+1)%XzV_PRES)
--	      IF(ID .NE. SPECIES_BEG_ID(ISPEC))ATM(ID-1)%DXzV_F(1:ND)=TB(1:ND)
--  	    END IF
--	  END DO
--!
--! Now scale the population for EACH species to ensure that the species
--! conservation equation is satisfied.
--!
--! This option should always be set if new model with T iteration
--! and correction. With the GRID=T option it may provide a convenient
--! method for reducing the populations temporarily (in conjunction with
--! DISPGEN) in the outer layers to overcome a large jump in optical
--! depth.
-+	IF(DC_INTERP_METHOD .NE. 'POP')THEN
-+	  CALL RECONSTRUCT_DC_ESTIMATES(ND,DO_POP_SCALE,DO_LEV_DISSOLUTION,LUER)
-+	END IF
- !
--	  IF(DO_POP_SCALE)THEN
--	    DO ID=SPECIES_BEG_ID(ISPEC),SPECIES_END_ID(ISPEC)-1
--	      CALL SCALE_POPS(ATM(ID)%XzV_F,ATM(ID)%DXzV_F,
--	1              POP_SPECIES(1,ISPEC),TA,ATM(ID)%NXzV_F,ND)
--	    END DO
--	  END IF
--	END DO			!ISPEC
- !
- ! We now need to compute the populations for the model atom with Super-levels.
- ! We do this in reverse order (i.e. highest ionization stage first) in order
-@@ -428,6 +398,8 @@
- !
- ! Evaluates LTE populations for both the FULL atom, and super levels.
- !
-+	IF(DC_INTERP_METHOD .EQ. 'POP')
-+	1  CALL SUP_TO_FULL_V4(POPS,Z_POP,DO_LEV_DISSOLUTION,ND,NT)
- 	CALL EVAL_LTE_V5(DO_LEV_DISSOLUTION,ND)
- !
- ! 
-diff --git a/new_main/subs/auto_add_ion.f b/new_main/subs/auto_add_ion.f
-index b99b9e75416dc93cbbad2d7e0d67100e0dae5031..a52a1420f7d200e42fa94d57f2bc09dbebd64be0 100644
---- a/new_main/subs/auto_add_ion.f
-+++ b/new_main/subs/auto_add_ion.f
-@@ -75,7 +75,7 @@
- !
- 	  DO NID=LST_ID+1,SPECIES_END_ID(ISPEC)-1
- 	    WRITE(6,*)'Generating input file for ',SPECIES(ISPEC),ION_ID(NID)
--	    CALL SUB_GUESS_DC_V2(ATM(ID)%NXzV_F,ION_ID(NID),ION_ID(NID-1),ATM(NID)%GXZV_F(1),ATM(NID-1)%GXZV_F(1))
-+	    CALL SUB_GUESS_DC_V2(ATM(NID)%NXzV_F,ION_ID(NID),ION_ID(NID-1),ATM(NID)%GXZV_F(1),ATM(NID-1)%GXZV_F(1))
- 	  END DO
- !
- ! When no ionization stages are present, we need to add all ionization stages.
-@@ -84,7 +84,7 @@
- 	    WRITE(6,*)SPECIES_BEG_ID(ISPEC),SPECIES_END_ID(ISPEC)-1; FLUSH(UNIT=6)
- 	    DO NID=SPECIES_BEG_ID(ISPEC),SPECIES_END_ID(ISPEC)-1
- 	      WRITE(6,*)'Generating input file for ',SPECIES(ISPEC),ION_ID(NID)
--	      CALL SUB_GUESS_DC_V2(ATM(ID)%NXzV_F,ION_ID(NID),ION_ID(NID),ATM(NID)%GXZV_F(1),ATM(NID)%GXZV_F(1))
-+	      CALL SUB_GUESS_DC_V2(ATM(NID)%NXzV_F,ION_ID(NID),ION_ID(NID),ATM(NID)%GXZV_F(1),ATM(NID)%GXZV_F(1))
- 	    END DO
- 	  END IF
- !
-diff --git a/new_main/subs/evalse_qwvj_v8.f b/new_main/subs/evalse_qwvj_v8.f
-index 03272cd1ac9ac8d4b1369e7f4e518bf275c5e529..23a0a6386b9d0b812397a4bf8490a56eb826d733 100644
---- a/new_main/subs/evalse_qwvj_v8.f
-+++ b/new_main/subs/evalse_qwvj_v8.f
-@@ -84,7 +84,7 @@
- 	REAL(KIND=LDP) REV_HNST
- !
- 	REAL(KIND=LDP) SUM_SE,SUM_VJ_R,SUM_VJ_P
--	REAL(KIND=LDP) B_RAT
-+	REAL(KIND=LDP) LOG_B_RAT
- 	REAL(KIND=LDP) PLANCKS_CONSTANT,PC
- 	EXTERNAL PLANCKS_CONSTANT
- !
-@@ -108,11 +108,18 @@
- 	  SUM_SE=0.0_LDP
- 	  SUM_VJ_R=0.0_LDP
- 	  SUM_VJ_P=0.0_LDP
--	  B_RAT=EXP(LOG_DIST(1,J)-LOG_DIST(ION_LEV,J))*(DI(ION_LEV,J)/DI(1,J))
-+	  LOG_B_RAT=0.0_LDP
-+	  IF(ION_LEV .NE. 1)THEN
-+	    LOG_B_RAT=(LOG(DI(ION_LEV,J))-LOG(DI(1,J))) +
-+	1              (LOG_DIST(1,J)-LOG_DIST(ION_LEV,J))
-+	  END IF
- 	  DO I=1,NLEV
- 	    IF(WSE(I,J) .NE. 0.0_LDP)THEN
--	      REV_HNST=HNST(I,J)*B_RAT
--!	      WRITE(6,*)I,J,REV_HNST,HNST(I,J),B_RAT; FLUSH(UNIT=6)
-+! Combine the source LTE population and target ratio before exponentiating.
-+	      REV_HNST=HNST(I,J)
-+	      IF(ION_LEV .NE. 1 .AND. HNST(I,J) .GT. 0.0_LDP)
-+	1        REV_HNST=EXP(LOG(HNST(I,J))+LOG_B_RAT)
-+!	      WRITE(6,*)I,J,REV_HNST,HNST(I,J),LOG_B_RAT; FLUSH(UNIT=6)
- !	      WRITE(6,*)HN(I,J),JREC(J),JPHOT(J); FLUSH(UNIT=6)
- !	      WRITE(6,*)WSE(I,J); FLUSH(UNIT=6)
- 	      NETR=WSE(I,J)*( REV_HNST*JREC(J)-HN(I,J)*JPHOT(J) )
-diff --git a/new_main/subs/solveba_v13.f b/new_main/subs/solveba_v13.f
-index bfc9d250439fb3d5e02088bc4c7e4fb16ba0f744..019ba49e2155acda9b4a8d6b184a32a292329b4f 100644
---- a/new_main/subs/solveba_v13.f
-+++ b/new_main/subs/solveba_v13.f
-@@ -374,12 +374,10 @@
- 	    END IF
- 	  END DO
- !
--! Limit the change in T to a maximum of 20%.
-+! Limit the change in T at every depth to MAX_dT_COR.
- !
--	  DO I=1,ND
--	    T3=MAX( 0.2_LDP,ABS(STEQ(NT,I)) )
--	  END DO
--	  SCALE=MIN( 0.2_LDP/T3,SCALE )
-+	  T3=MAX( MAX_dT_COR,MAXVAL(ABS(STEQ(NT,1:ND))) )
-+	  SCALE=MIN( MAX_dT_COR/T3,SCALE )
- 	  WRITE(LUER,'(A,1PE12.4)')' The value of scale is:',SCALE
- !
- ! Update the population levels (and the temperature) .
-diff --git a/new_main/subs/vsebyj_multi_v8.f b/new_main/subs/vsebyj_multi_v8.f
-index a0c2fa530c1622611965ea233a32608b78efc4c1..19632190ba573994b5cb87d8ba88b336bff420ea 100644
---- a/new_main/subs/vsebyj_multi_v8.f
-+++ b/new_main/subs/vsebyj_multi_v8.f
-@@ -71,7 +71,6 @@
- 	INTEGER ION_V
- 	INTEGER ION_EQ
- 	REAL(KIND=LDP) T3
--	REAL(KIND=LDP) B_RAT
- 	REAL(KIND=LDP) LOG_B_RAT
- !
- ! REV_HNST referes to the LTE population  of the level defined with respect
-@@ -89,15 +88,13 @@
- 	ION_V=ION_EQ
- 	L=(NUM_BNDS/2)+1
- !
--!$OMP PARALLEL DO PRIVATE(J,K,LOG_B_RAT,B_RAT,WSE_BY_RJ,REV_HNST,T3,DI_FAC,ED_FAC,T_FAC)
-+!$OMP PARALLEL DO PRIVATE(J,K,LOG_B_RAT,WSE_BY_RJ,REV_HNST,T3,DI_FAC,ED_FAC,T_FAC)
- !
- 	DO K=DST,DEND			!Which depth point.
- 	  IF(ION_LEV .NE. 1)THEN
--	    LOG_B_RAT=LOG(DI(ION_LEV,K)/DI(1,K))+LOG_DIST(1,K)-LOG_DIST(ION_LEV,K)
--	    B_RAT=0.0_LDP
--	    IF(LOG_B_RAT .LT. 780.0_LDP)B_RAT=EXP(LOG_B_RAT)
-+	    LOG_B_RAT=(LOG(DI(ION_LEV,K))-LOG(DI(1,K))) +
-+	1              (LOG_DIST(1,K)-LOG_DIST(ION_LEV,K))
- 	  ELSE
--	    B_RAT=1.0_LDP
- 	    LOG_B_RAT=0.0_LDP
- 	  END IF
- 
-@@ -106,7 +103,10 @@
- 	      WSE_BY_RJ=WSE(J,K)*JPHOT(K)
- 	      SE(ID)%BA_PAR(J,J,K)=SE(ID)%BA_PAR(J,J,K)-WSE_BY_RJ
- !
--	      REV_HNST=HNST(J,K)*B_RAT
-+! Use the same combined logarithm as EVALSE_QWVJ_V8; no kind-specific cutoff.
-+	      REV_HNST=HNST(J,K)
-+	      IF(ION_LEV .NE. 1 .AND. HNST(J,K) .GT. 0.0_LDP)
-+	1        REV_HNST=EXP(LOG(HNST(J,K))+LOG_B_RAT)
- 	      T3=REV_HNST*WSE(J,K)*JREC(K)
- 	      DI_FAC=T3/DI(ION_LEV,K)
- 	      ED_FAC=T3/ED(K)
-diff --git a/new_main/subs/vsebyj_x_v7.f b/new_main/subs/vsebyj_x_v7.f
-index 9a3cedfa34ec96a669d4170f960c3df65f817ae1..73567eb00520d138fa3c78b072fec2dc2e94a98f 100644
---- a/new_main/subs/vsebyj_x_v7.f
-+++ b/new_main/subs/vsebyj_x_v7.f
-@@ -118,7 +118,7 @@
- 	      IF(.NOT. FIXED_T)THEN
- 	        T4=HNST_A(J,I)*WSE_X(J,I)*RECIP_B_ION
- 	        T_FAC=T3*( dlnHNST_AdlnT(J,I) -
--	1             HDKT*(EDGE_B(1)+1.5_LDP)/T(I) )/T(I) + T4*dJRECdT(I)
-+	1             1.5_LDP - HDKT*EDGE_B(1)/T(I) )/T(I) + T4*dJRECdT(I)
- 	        SE(ID)%BA_PAR(J,NIV,I)  =SE(ID)%BA_PAR(J,NIV,I)   +T_FAC
- 	        SE(ID)%BA_PAR(ION_EQ,NIV,I)  =SE(ID)%BA_PAR(ION_EQ,NIV,I)  -T_FAC
- 	     END IF
-diff --git a/newsubs/omega_gen_v3.f b/newsubs/omega_gen_v3.f
-index 0d0cb5d9a2e65b574f1363ef02fa562db2498eef..4a928716c406a8d1eb63da902946716393b172cb 100644
---- a/newsubs/omega_gen_v3.f
-+++ b/newsubs/omega_gen_v3.f
-@@ -179,7 +179,7 @@
- 	          dln_GBAR_dlnT=(1.0_LDP/EX_E1X-X)
- 	        ELSE
- 	          GBAR=0.066_LDP*(1.0_LDP+1.5_LDP/X)/SQRT(X)
--	          dln_GBAR_dlnT=-0.5_LDP+0.099_LDP/X/GBAR
-+	          dln_GBAR_dlnT=0.5_LDP+1.5_LDP/(X+1.5_LDP)
- 	        END IF
- 	      ELSE
- 	        G1=0.2_LDP
-diff --git a/newsubs/rdphot_gen_v2.f b/newsubs/rdphot_gen_v2.f
-index a01fde5763fce94823359872653b8de6cbf63122..ffe8a86790736231598df62b15b17f5ef9ac7d22 100644
---- a/newsubs/rdphot_gen_v2.f
-+++ b/newsubs/rdphot_gen_v2.f
-@@ -528,6 +528,8 @@
- 	  J=0
- 	  IF(XzSIX_PRES)THEN
- 	    J=F_TO_S_XzSIX(L)
-+! Returned target populations are indexed by SUPER level in the callers.
-+	    XzV_ION_LEV_ID(K)=J
- 	  ELSE
- 	    WRITE(LU_SUM,'(A)')' '
- 	  END IF
-diff --git a/obs/cmf_flux_sub_v5.f b/obs/cmf_flux_sub_v5.f
-index f8e52e407bdd387f4a1dd24c5e554953ec7f01aa..5bbad9b39cc3e2fa00a06327e3a0fef0ce3a484b 100644
---- a/obs/cmf_flux_sub_v5.f
-+++ b/obs/cmf_flux_sub_v5.f
-@@ -1592,7 +1592,7 @@
- 	     IF(NEG_OPACITY(I) .AND. K .EQ. 0)K=I
- 	     IF(NEG_OPACITY(I))J=I
- 	    END DO
--	    WRITE(LU_NEG,'(A,2X,I3,5X,A,2XI3)')
-+	    WRITE(LU_NEG,'(A,2X,I3,5X,A,2X,I3)')
- 	1        ' 1st depth',K,'Last depth',J
- 	  END IF
- 	END IF
-diff --git a/opac/par_opac_sub.f b/opac/par_opac_sub.f
-index c21fe9ecfb8223063c43ba66041a81b808918a07..ffc4cd7a2d10f440da26c85c6a4ba9cd9b4617eb 100644
---- a/opac/par_opac_sub.f
-+++ b/opac/par_opac_sub.f
-@@ -1762,7 +1762,7 @@ C
- 	     IF(NEG_OPACITY(I) .AND. K .EQ. 0)K=I
- 	     IF(NEG_OPACITY(I))J=I
- 	    END DO
--	    WRITE(LU_NEG,'(A,2X,I3,5X,A,2XI3)')
-+	    WRITE(LU_NEG,'(A,2X,I3,5X,A,2X,I3)')
- 	1        ' 1st depth',K,'Last depth',J
- 	  END IF
- C
-diff --git a/stark/get_prof_storage_limits.f b/stark/get_prof_storage_limits.f
-index 54c9559b2b2404a58663f8c10e15ecb91a25f433..d68b5238af8a9ed2631d67d2eba345271b7ed223 100644
---- a/stark/get_prof_storage_limits.f
-+++ b/stark/get_prof_storage_limits.f
-@@ -49,7 +49,7 @@
- 	    IF(LINE_ST_INDX_IN_NU(NL) .GT. ML)EXIT
- 	  END DO
- 	  NPROF_MAX=MAX(NX,NPROF_MAX)
--	  IF(LN_INDX .EQ. NLINES)EXIT
-+	  IF(LN_INDX .GT. NLINES)EXIT
+ 	  TGREY(I)=((PI/5.67E-05_LDP*RJ(I))**0.25_LDP)*1.0E-04_LDP
  	END DO
- !
- 	IF(NPROF_MAX .NE. 0 .OR. NFREQ_MAX .NE. 0)THEN
-diff --git a/stark/get_prof_storage_limits_v2.f b/stark/get_prof_storage_limits_v2.f
-index 5918b8ea652bc1c5cc0915ee9feaccddf6b70133..8b81dc65195a5ba3e266ca715c79057719ad48a0 100644
---- a/stark/get_prof_storage_limits_v2.f
-+++ b/stark/get_prof_storage_limits_v2.f
-@@ -50,7 +50,7 @@
- 	MAX_SIM=0
- 	NFREQ_MAX=0;  NFREQ_MAX_VOIGT=0
- 	NPROF_CNT=0;  NPROF_CNT_VOIGT=0
--	NPROF_CNT_VOIGT=0; NFREQ_AV_VOIGT=0
-+	NFREQ_AV=0; NFREQ_AV_VOIGT=0
- 	DO NL=1,NLINES
- 	  ML=LINE_END_INDX_IN_NU(NL)-LINE_ST_INDX_IN_NU(NL)+1
- 	  IF(VEC_TRANS_TYPE(NL) .EQ. 'SOB')THEN
-@@ -91,7 +91,7 @@
- 	  NPROF_MAX=MAX(NX,NPROF_MAX)
- 	  NPROF_MAX_VOIGT=MAX(NV,NPROF_MAX_VOIGT)
- 	  MAX_SIM=MAX(MAX_SIM,NSIM)
--	  IF(LN_INDX .EQ. NLINES)EXIT
-+	  IF(LN_INDX .GT. NLINES)EXIT
- 	END DO
- !
- 	IF(NPROF_MAX .NE. 0 .OR. NFREQ_MAX .NE. 0)THEN
-diff --git a/subs/regrid_t_ed_v3.f b/subs/regrid_t_ed_v3.f
-index 069bd86f93e92aa204d2936aa050b8d6688ffd65..1734fef81c29142c741bb97844101dac99259e51 100644
---- a/subs/regrid_t_ed_v3.f
-+++ b/subs/regrid_t_ed_v3.f
-@@ -58,7 +58,10 @@
- 	  END DO
- 	  IF( INDEX(STRING,'!Format date') .EQ. 0)REWIND(8)
- !
--	  READ(8,*)RPOLD,T1,NOLD,NDOLD
-+	  READ(8,*,IOSTAT=IOS)RPOLD,T1,NOLD,NDOLD
-+	  IF(IOS .NE. 0)ERROR STOP 'Invalid initialization file header'
-+	  IF(NOLD .LT. 1 .OR. NDOLD .LT. 2 .OR. ND .LT. 1)
-+	1    ERROR STOP 'Invalid initialization dimensions'
- !
- ! Allocate required memory.
- !
-@@ -87,15 +90,34 @@
- 	    OLDR(NDOLD)=R(ND)
- 	  END IF
- 	END IF
-+!
-+! Match departure-file endpoint rounding before classifying extrapolation.
-+	IF(ABS(OLDR(1)/R(1)-1.0_LDP) .LE. 1.0E-10_LDP)OLDR(1)=R(1)
-+	IF(ABS(OLDR(NDOLD)/R(ND)-1.0_LDP) .LE. 1.0E-10_LDP)OLDR(NDOLD)=R(ND)
-+	IF(NDOLD .LT. 2 .OR. ANY(OLDR(1:NDOLD) .LE. 0.0_LDP) .OR.
-+	1  ANY(R .LE. 0.0_LDP))THEN
-+	  WRITE(LUER,*)'Invalid radius grid in REGRID_T_ED_V3'
-+	  ERROR STOP 'Invalid initialization radius grid'
-+	END IF
-+	IF(ANY(OLDR(2:NDOLD) .GE. OLDR(1:NDOLD-1)) .OR.
-+	1  ANY(R(2:ND) .GE. R(1:ND-1)))THEN
-+	  ERROR STOP 'Non-monotonic initialization radius grid'
-+	END IF
- !
- 	NXST=1
--	DO WHILE(R(NXST) .GT. OLDR(1))
-+	DO WHILE(NXST .LE. ND)
-+	  IF(R(NXST) .LE. OLDR(1))EXIT
- 	  NXST=NXST+1
- 	END DO
-         NXEND=ND
--        DO WHILE (R(NXEND) .LT. OLDR(NDOLD))
-+        DO WHILE (NXEND .GE. 1)
-+          IF(R(NXEND) .GE. OLDR(NDOLD))EXIT
-           NXEND=NXEND-1
-         END DO
-+        IF(NXST .GT. NXEND)THEN
-+          WRITE(LUER,*)'No overlapping radius grid in REGRID_T_ED_V3'
-+          ERROR STOP 'No overlapping initialization radius grid'
-+        END IF
-         NX=NXEND-NXST+1
- !
- ! Interpolations are performed in the log plane.
-@@ -109,10 +131,22 @@
- 	  OLDED(I)=LOG(OLDED(I))
- 	END DO
- !
--	CALL LINPOP(RLOG(NXST),T(NXST),NX,OLDR,OLDT,NDOLD)
--	CALL LINPOP(RLOG(NXST),ED(NXST),NX,OLDR,OLDED,NDOLD)
-+! LINPOP inspects its second target point; handle a single overlap directly.
-+	IF(NX .EQ. 1)THEN
-+	  J=1
-+	  DO WHILE(J .LT. NDOLD-1)
-+	    IF(RLOG(NXST) .GE. OLDR(J+1))EXIT
-+	    J=J+1
-+	  END DO
-+	  T1=(RLOG(NXST)-OLDR(J))/(OLDR(J+1)-OLDR(J))
-+	  T(NXST)=(1.0_LDP-T1)*OLDT(J)+T1*OLDT(J+1)
-+	  ED(NXST)=(1.0_LDP-T1)*OLDED(J)+T1*OLDED(J+1)
-+	ELSE
-+	  CALL LINPOP(RLOG(NXST),T(NXST),NX,OLDR,OLDT,NDOLD)
-+	  CALL LINPOP(RLOG(NXST),ED(NXST),NX,OLDR,OLDED,NDOLD)
-+	END IF
- 
--	DO I=NXST,ND
-+	DO I=NXST,NXEND
- 	  T(I)=EXP(T(I))
- 	  ED(I)=EXP(ED(I))
- 	END DO
-@@ -120,6 +154,10 @@
- 	  T(I)=T(NXST)
- 	  ED(I)=ED(NXST)*POPATOM(I)/POPATOM(NXST)
- 	END DO
-+	DO I=NXEND+1,ND
-+	  T(I)=T(NXEND)
-+	  ED(I)=ED(NXEND)*POPATOM(I)/POPATOM(NXEND)
-+	END DO
- !
- ! Free up memory.
  !
 diff --git a/new_main/mod_subs/init_population_estimates.f90 b/new_main/mod_subs/init_population_estimates.f90
 new file mode 100644
-index 0000000000000000000000000000000000000000..207f6612581053ed243ca858d75900c5b8130847
 --- /dev/null
 +++ b/new_main/mod_subs/init_population_estimates.f90
-@@ -0,0 +1,328 @@
+@@ -0,0 +1,355 @@
 +! Population reconstruction shared by text restarts and radius regridding.
 +module init_population_estimates_mod
 +  use set_kind_module
 +  use mod_cmfgen
++  use control_variable_mod, only: dc_interp_method
 +  use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
 +  implicit none
 +  private
@@ -761,7 +304,9 @@ index 0000000000000000000000000000000000000000..207f6612581053ed243ca858d75900c5
 +    integer, intent(in) :: n, lu
 +    logical, intent(in) :: scale, dissolve
 +    type(initial_ion) :: data(num_ions)
-+    integer :: id
++    integer :: id, charge_iteration
++    real(ldp) :: charge(n), charge_error
++    logical :: charge_converged
 +    do id=1,num_ions-1
 +      if(.not.atm(id)%xzv_pres) cycle
 +      data(id)%dc=atm(id)%xzv_f
@@ -769,7 +314,31 @@ index 0000000000000000000000000000000000000000..207f6612581053ed243ca858d75900c5
 +      allocate(data(id)%ion(n),data(id)%pop(atm(id)%nxzv_f,n))
 +    end do
 +    popion=pop_atom
-+    call convert_dc(data,n,ed,t,popion,dissolve,scale,pop_species,lu)
++    charge_converged=.false.
++    do charge_iteration=1,100
++      call convert_dc(data,n,ed,t,popion,dissolve,scale,pop_species,lu)
++      if(dc_interp_method/='LTE') exit
++      charge=0.0_ldp
++      do id=1,num_ions-1
++        if(.not.atm(id)%xzv_pres) cycle
++        charge=charge+(atm(id)%zxzv-1.0_ldp)*sum(data(id)%pop,dim=1)
++        if(.not.atm(id+1)%xzv_pres) charge=charge+atm(id)%zxzv*data(id)%ion
++      end do
++      if(any(charge<=0.0_ldp).or..not.all(ieee_is_finite(charge))) &
++        call fail('invalid LTE charge sum',lu)
++      charge_error=maxval(abs(charge-ed)/max(charge,ed))
++      if(charge_error<1.0e-10_ldp) then
++        ed=charge
++        charge_converged=.true.
++        exit
++      end if
++      ed=exp(0.5_ldp*(log(ed)+log(charge)))
++    end do
++    if(dc_interp_method=='LTE') then
++      if(.not.charge_converged) call fail('LTE Ne did not converge',lu)
++      write(lu,'(A,I4,A,ES12.4)') 'LTE charge consistency: iterations=', &
++        charge_iteration,' residual=',charge_error
++    end if
 +    do id=1,num_ions-1
 +      if(.not.atm(id)%xzv_pres) cycle
 +      atm(id)%xzv_f=data(id)%pop
@@ -981,3 +550,681 @@ index 0000000000000000000000000000000000000000..207f6612581053ed243ca858d75900c5
 +    write(lu,'(A)') 'POP: interpolated source superlevel fractions; Ne set from charge conservation'
 +  end subroutine
 +end module
+diff --git a/new_main/mod_subs/mod_lev_dis_blk.f b/new_main/mod_subs/mod_lev_dis_blk.f
+--- a/new_main/mod_subs/mod_lev_dis_blk.f
++++ b/new_main/mod_subs/mod_lev_dis_blk.f
+@@ -45,6 +45,13 @@
+ 	REAL(KIND=LDP) T(ND)
+ 	LOGICAL DO_LEV_DIS
+ !
++! POP initialization temporarily evaluates occupation probabilities on the
++! saved grid. Restore the appropriate vector sizes when changing grids.
++	IF(ALLOCATED(B_LEV_DIS))THEN
++	  IF(SIZE(B_LEV_DIS) .NE. ND)THEN
++	    DEALLOCATE(B_LEV_DIS,A_LEV_DIS,X_LEV_DIS)
++	  END IF
++	END IF
+ 	IF(.NOT. ALLOCATED(B_LEV_DIS))THEN
+ 	  ALLOCATE( B_LEV_DIS(ND) )
+ 	  ALLOCATE( A_LEV_DIS(ND) )
+diff --git a/new_main/mod_subs/rd_control_variables.f b/new_main/mod_subs/rd_control_variables.f
+--- a/new_main/mod_subs/rd_control_variables.f
++++ b/new_main/mod_subs/rd_control_variables.f
+@@ -835,7 +835,7 @@
+ 	  DC_INTERP_METHOD='ED'
+ 	  IF(GRID)DC_INTERP_METHOD='R'
+ 	  CALL RD_STORE_NCHAR(DC_INTERP_METHOD,'DC_METH',ITEN,L_FALSE,
+-	1        'Interpolation method: TR, R, ED, LTE, SPH_TAU')
++	1        'Interpolation method: POP (GRID only), TR, R, ED, LTE, SPH_TAU')
+ 	  CALL RD_STORE_LOG(INTERP_DC_SPH_TAU,'DC_SPH_TAU',L_FALSE,
+ 	1        'Interpolate d.c''s on the spherical TAU scale?')
+ 	  IF(INTERP_DC_SPH_TAU)DC_INTERP_METHOD='SPH_TAU'
+diff --git a/new_main/mod_subs/set_new_model_estimates.f b/new_main/mod_subs/set_new_model_estimates.f
+--- a/new_main/mod_subs/set_new_model_estimates.f
++++ b/new_main/mod_subs/set_new_model_estimates.f
+@@ -32,6 +32,7 @@
+ 	USE CONTROL_VARIABLE_MOD
+ 	USE LINE_VEC_MOD
+ 	USE LINE_MOD
++	USE INIT_POPULATION_ESTIMATES_MOD
+ 	IMPLICIT NONE
+ !
+ ! Altered 28-Aug-2019 : Compute T and ED before DC's when GRID=TRUE.
+@@ -150,8 +151,17 @@
+ ! too allow NDOLD in the input files to be larger than ND.
+ ! The first call to REGRIDWS is effectively used to compute DHeI only.
+ !
+-	WRITE(6,*)'Calling AUTO_ADD_ION';  FLUSH(UNIT=6)
+-	CALL AUTO_ADD_ION()
++	IF(DC_INTERP_METHOD .EQ. 'POP')THEN
++	  IF(.NOT. GRID .OR. .NOT. DO_POP_SCALE)THEN
++	    WRITE(LUER,*)'DC_METH=POP requires LIN_INT=T and POP_SCALE=T'
++	    ERROR STOP 'Invalid controls for population interpolation'
++	  END IF
++	END IF
++! POP reconstructs a supplied source atom set; do not synthesize missing inputs.
++	IF(DC_INTERP_METHOD .NE. 'POP')THEN
++	  WRITE(6,*)'Calling AUTO_ADD_ION'; FLUSH(UNIT=6)
++	  CALL AUTO_ADD_ION()
++	END IF
+ 	IF(GRID) THEN
+ 	  WRITE(LUER,'(/,A,/)')' Using direct interpolation option (i.e. GRID) for new model.'
+ !
+@@ -161,26 +171,30 @@
+ ! coefficient file).
+ !
+ 	  CALL REGRID_T_ED_V3(R,ED,T,POP_ATOM,ND,DC_INTERP_METHOD,'T_IN')
+-	  DO ID=1,NUM_IONS-1
+-	    IF(ATM(ID)%XzV_PRES)THEN
+-	      TMP_STRING=TRIM(ION_ID(ID))//'_IN'
+-	      ISPEC=SPECIES_LNK(ID)
+-	      CALL REGRID_LOG_DC_V1( ATM(ID)%XzV_F,R,ED,T, ATM(ID)%DXzV_F,CLUMP_FAC,
++	  IF(DC_INTERP_METHOD .EQ. 'POP')THEN
++	    CALL READ_POPULATION_ESTIMATES(ND,DO_LEV_DISSOLUTION,LUIN,LUER)
++	  ELSE
++	    DO ID=1,NUM_IONS-1
++	      IF(ATM(ID)%XzV_PRES)THEN
++	        TMP_STRING=TRIM(ION_ID(ID))//'_IN'
++	        ISPEC=SPECIES_LNK(ID)
++	        CALL REGRID_LOG_DC_V1( ATM(ID)%XzV_F,R,ED,T, ATM(ID)%DXzV_F,CLUMP_FAC,
+ 	1             ATM(ID)%EDGEXzV_F, ATM(ID)%F_TO_S_XzV, ATM(ID)%INT_SEQ_XzV,
+ 	1             POP_SPECIES(1,ISPEC),ATM(ID)%NXzV_F,ND,LUIN,DC_INTERP_METHOD,TMP_STRING)
+-	    END IF
+-	  END DO
++	      END IF
++	    END DO
++	  END IF
+ !
+ ! SPEC_DEN will contain the density of each species, while
+ ! AT_NO_VEC will contain the the atomic number. These are set at all depths.
+ !
+-!	  IF(VAR_MDOT)THEN
++!	  IF(VAR_MDOT .AND. DC_INTERP_METHOD .NE. 'POP')THEN
+ !	    DO I=1,ND
+ !	      ED(I)=POP_SPECIES(I,1)+2.0D0*POP_SPECIES(I,2)
+ !	    END DO
+ !	  END IF
+ !
+-	  IF(VAR_MDOT)THEN
++	  IF(VAR_MDOT .AND. DC_INTERP_METHOD .NE. 'POP')THEN
+ 	    I=0
+ 	    DO ISPEC=1,NUM_SPECIES
+ 	      CALL ELEC_PREP(SPEC_DEN,AT_NO_VEC,I,NUM_SPECIES,
+@@ -340,58 +354,14 @@
+ ! constants are the same for all species. These are stored in a common block,
+ ! and are required by SUP_TO_FULL and LTE_POP_WLD.
+ !
+-! As a first estimate of POPION, we assume all species are fully ionized.
+-! The POPION is just the number of atoms.
+-!
+-	DO I=1,ND
+-	  POPION(I)=POP_ATOM(I)
+-	END DO
+-	CALL COMP_LEV_DIS_BLK(ED,POPION,T,DO_LEV_DISSOLUTION,ND)
+-!
+-! Compute the LTE populations and convert from departure coefficients to
+-! populations. The populations are scaled to ensure number conservation -
+-! during the scaling the ionization remains fixed. On each call to CNVT_FR_DC,
+-! TA is incremented by the population. IF FIRST is .TRUE., TA is zeroed first.
+-! The second flag indicates whether to add in the ION contribution, which
+-! will also be added as the ground state population of the next species.
+-! If it is FALSE, the higher ionization stage is assumed not to be present,
+-! and DION is added in.
+-!
+-! TB is used as a dummy vector when we are dealing with the lowest ionization
+-! stage. It is returned with the ground state population.
+-!
+-	DO ISPEC=1,NUM_SPECIES
+-	  FIRST=.TRUE.
+-	  DO ID=SPECIES_END_ID(ISPEC),SPECIES_BEG_ID(ISPEC),-1
+-	    IF(ATM(ID)%XzV_PRES)THEN
+-	      CALL LTEPOP_WLD_V2(ATM(ID)%XzVLTE_F, ATM(ID)%LOG_XzVLTE_F, ATM(ID)%W_XzV_F,
+-	1              ATM(ID)%EDGEXzV_F, ATM(ID)%GXzV_F,
+-	1              ATM(ID)%ZXzV,      ATM(ID)%GIONXzV_F,
+-	1              ATM(ID)%NXzV_F,    ATM(ID)%DXzV_F,     ED,T,ND)
+-	      CALL CNVT_FR_DC_V2(ATM(ID)%XzV_F, ATM(ID)%LOG_XzVLTE_F,
+-	1              ATM(ID)%DXzV_F,    ATM(ID)%NXzV_F,
+-	1              TB,                TA,ND,
+-	1              FIRST,             ATM(ID+1)%XzV_PRES)
+-	      IF(ID .NE. SPECIES_BEG_ID(ISPEC))ATM(ID-1)%DXzV_F(1:ND)=TB(1:ND)
+-  	    END IF
+-	  END DO
+-!
+-! Now scale the population for EACH species to ensure that the species
+-! conservation equation is satisfied.
+-!
+-! This option should always be set if new model with T iteration
+-! and correction. With the GRID=T option it may provide a convenient
+-! method for reducing the populations temporarily (in conjunction with
+-! DISPGEN) in the outer layers to overcome a large jump in optical
+-! depth.
+-!
+-	  IF(DO_POP_SCALE)THEN
+-	    DO ID=SPECIES_BEG_ID(ISPEC),SPECIES_END_ID(ISPEC)-1
+-	      CALL SCALE_POPS(ATM(ID)%XzV_F,ATM(ID)%DXzV_F,
+-	1              POP_SPECIES(1,ISPEC),TA,ATM(ID)%NXzV_F,ND)
+-	    END DO
+-	  END IF
+-	END DO			!ISPEC
++! Reconstruct from saved log(b) with self-consistent occupation probabilities.
++! POP has already reconstructed and interpolated the source populations.
++! The other modes retain their selected independent interpolation variable.
++!
++	IF(DC_INTERP_METHOD .NE. 'POP')THEN
++	  CALL RECONSTRUCT_DC_ESTIMATES(ND,DO_POP_SCALE,DO_LEV_DISSOLUTION,LUER)
++	END IF
++!
+ !
+ ! We now need to compute the populations for the model atom with Super-levels.
+ ! We do this in reverse order (i.e. highest ionization stage first) in order
+@@ -428,6 +398,8 @@
+ !
+ ! Evaluates LTE populations for both the FULL atom, and super levels.
+ !
++	IF(DC_INTERP_METHOD .EQ. 'POP')
++	1  CALL SUP_TO_FULL_V4(POPS,Z_POP,DO_LEV_DISSOLUTION,ND,NT)
+ 	CALL EVAL_LTE_V5(DO_LEV_DISSOLUTION,ND)
+ !
+ ! 
+diff --git a/new_main/subs/auto_add_ion.f b/new_main/subs/auto_add_ion.f
+--- a/new_main/subs/auto_add_ion.f
++++ b/new_main/subs/auto_add_ion.f
+@@ -75,7 +75,7 @@
+ !
+ 	  DO NID=LST_ID+1,SPECIES_END_ID(ISPEC)-1
+ 	    WRITE(6,*)'Generating input file for ',SPECIES(ISPEC),ION_ID(NID)
+-	    CALL SUB_GUESS_DC_V2(ATM(ID)%NXzV_F,ION_ID(NID),ION_ID(NID-1),ATM(NID)%GXZV_F(1),ATM(NID-1)%GXZV_F(1))
++	    CALL SUB_GUESS_DC_V2(ATM(NID)%NXzV_F,ION_ID(NID),ION_ID(NID-1),ATM(NID)%GXZV_F(1),ATM(NID-1)%GXZV_F(1))
+ 	  END DO
+ !
+ ! When no ionization stages are present, we need to add all ionization stages.
+@@ -84,7 +84,7 @@
+ 	    WRITE(6,*)SPECIES_BEG_ID(ISPEC),SPECIES_END_ID(ISPEC)-1; FLUSH(UNIT=6)
+ 	    DO NID=SPECIES_BEG_ID(ISPEC),SPECIES_END_ID(ISPEC)-1
+ 	      WRITE(6,*)'Generating input file for ',SPECIES(ISPEC),ION_ID(NID)
+-	      CALL SUB_GUESS_DC_V2(ATM(ID)%NXzV_F,ION_ID(NID),ION_ID(NID),ATM(NID)%GXZV_F(1),ATM(NID)%GXZV_F(1))
++	      CALL SUB_GUESS_DC_V2(ATM(NID)%NXzV_F,ION_ID(NID),ION_ID(NID),ATM(NID)%GXZV_F(1),ATM(NID)%GXZV_F(1))
+ 	    END DO
+ 	  END IF
+ !
+diff --git a/new_main/subs/det_lte_ed.f b/new_main/subs/det_lte_ed.f
+--- a/new_main/subs/det_lte_ed.f
++++ b/new_main/subs/det_lte_ed.f
+@@ -51,7 +51,7 @@
+ !
+ 	TEMP(1:ND)=T(1:ND)
+ 	DO I=1,ND
+-	  IF(T(I) .LT. TMIN)TEMP(I)=T(I)
++	  IF(T(I) .LT. TMIN)TEMP(I)=TMIN
+ 	END DO
+ 	ED_OLD=0.0_LDP
+ 	ED=POP_ATOM
+diff --git a/new_main/subs/do_ng_accel_band_v4.f b/new_main/subs/do_ng_accel_band_v4.f
+--- a/new_main/subs/do_ng_accel_band_v4.f
++++ b/new_main/subs/do_ng_accel_band_v4.f
+@@ -129,7 +129,7 @@
+ ! are returned in BIG_POPS.
+ !
+ 	NT_MOD=NT+3
+-	CALL NG_MIT_BAND_OPT_V1(BIG_POPS,RDPOPS,ND,NT_MOD,NG_BAND,NG_DONE,MAXDEC,MAXINC,LUER)
++	CALL NG_MIT_BAND_OPT_V4(BIG_POPS,RDPOPS,ND,NT_MOD,NT,NG_BAND,NG_DONE,MAXDEC,MAXINC,LUER)
+ !
+ ! Check to see is accleration if reasonable.
+ !
+@@ -181,7 +181,7 @@
+ ! Routine is deisgned to allow NG acceleration over NBAND depths
+ ! simultaneously. For use with CMFGEN.
+ !
+-	SUBROUTINE NG_MIT_BAND_OPT_V1(POPS,RDPOPS,ND,NT,NBAND,
++	SUBROUTINE NG_MIT_BAND_OPT_V4(POPS,RDPOPS,ND,NT,I_TEMP,NBAND,
+ 	1                NG_DONE,MAXDEC,MAXINC,LUER)
+ 	USE SET_KIND_MODULE
+ 	IMPLICIT NONE
+@@ -191,6 +191,7 @@
+ 	INTEGER ND
+ 	INTEGER NT
+ 	INTEGER NBAND
++	INTEGER I_TEMP        !Physical temperature index, before appended geometry.
+ 	INTEGER LUER
+ 	REAL(KIND=LDP) POPS(NT,ND)              !Initial/corrected populations (I/O)
+ 	REAL(KIND=LDP) RDPOPS(NT,ND,4)		!Populations to be accelerated
+@@ -256,8 +257,9 @@
+ ! Before storing the NG acceleration at this depth, we check to
+ ! see whether the predicted corrections are "reasonable".
+ !
+-	  T1=NEWPOP(NT,L)-RDPOPS(NT,L,1)
+-	  IF(T1 .NE. 0.0_LDP)T2=(RDPOPS(NT,L,1)-RDPOPS(NT,L,2))/T1
++	  T2=0.0_LDP
++	  T1=NEWPOP(I_TEMP,L)-RDPOPS(I_TEMP,L,1)
++	  IF(T1 .NE. 0.0_LDP)T2=(RDPOPS(I_TEMP,L,1)-RDPOPS(I_TEMP,L,2))/T1
+ 	  IF(T1 .NE. 0 .AND. T2 .LT. 0.0_LDP)THEN
+ 	    NUM_BAD_NG=NUM_BAD_NG+1
+ 	    WRITE(LUER,*)'NUM_BAD_NG=',NUM_BAD_NG
+diff --git a/new_main/subs/evalse_qwvj_v8.f b/new_main/subs/evalse_qwvj_v8.f
+--- a/new_main/subs/evalse_qwvj_v8.f
++++ b/new_main/subs/evalse_qwvj_v8.f
+@@ -84,7 +84,7 @@
+ 	REAL(KIND=LDP) REV_HNST
+ !
+ 	REAL(KIND=LDP) SUM_SE,SUM_VJ_R,SUM_VJ_P
+-	REAL(KIND=LDP) B_RAT
++	REAL(KIND=LDP) LOG_B_RAT
+ 	REAL(KIND=LDP) PLANCKS_CONSTANT,PC
+ 	EXTERNAL PLANCKS_CONSTANT
+ !
+@@ -108,11 +108,18 @@
+ 	  SUM_SE=0.0_LDP
+ 	  SUM_VJ_R=0.0_LDP
+ 	  SUM_VJ_P=0.0_LDP
+-	  B_RAT=EXP(LOG_DIST(1,J)-LOG_DIST(ION_LEV,J))*(DI(ION_LEV,J)/DI(1,J))
++	  LOG_B_RAT=0.0_LDP
++	  IF(ION_LEV .NE. 1)THEN
++	    LOG_B_RAT=(LOG(DI(ION_LEV,J))-LOG(DI(1,J))) +
++	1              (LOG_DIST(1,J)-LOG_DIST(ION_LEV,J))
++	  END IF
+ 	  DO I=1,NLEV
+ 	    IF(WSE(I,J) .NE. 0.0_LDP)THEN
+-	      REV_HNST=HNST(I,J)*B_RAT
+-!	      WRITE(6,*)I,J,REV_HNST,HNST(I,J),B_RAT; FLUSH(UNIT=6)
++! Combine the source LTE population and target ratio before exponentiating.
++	      REV_HNST=HNST(I,J)
++	      IF(ION_LEV .NE. 1 .AND. HNST(I,J) .GT. 0.0_LDP)
++	1        REV_HNST=EXP(LOG(HNST(I,J))+LOG_B_RAT)
++!	      WRITE(6,*)I,J,REV_HNST,HNST(I,J),LOG_B_RAT; FLUSH(UNIT=6)
+ !	      WRITE(6,*)HN(I,J),JREC(J),JPHOT(J); FLUSH(UNIT=6)
+ !	      WRITE(6,*)WSE(I,J); FLUSH(UNIT=6)
+ 	      NETR=WSE(I,J)*( REV_HNST*JREC(J)-HN(I,J)*JPHOT(J) )
+diff --git a/new_main/subs/read_ba_data_v3.f b/new_main/subs/read_ba_data_v3.f
+--- a/new_main/subs/read_ba_data_v3.f
++++ b/new_main/subs/read_ba_data_v3.f
+@@ -33,7 +33,7 @@
+ 	INTEGER LUER,ERROR_LU,IOS
+ 	EXTERNAL ERROR_LU
+ 	LOGICAL FILE_OPEN
+-	LOGICAL COMPUTE_BA_RD
++	LOGICAL COMPUTE_BA_RD,FIXED_T_RD
+ 	INTEGER, PARAMETER :: IZERO=0
+ 	CHARACTER(LEN=200) FILE_NAME
+ 	CHARACTER(LEN=200), SAVE :: SCRATCH_DIR='GARBAGE'
+@@ -53,17 +53,17 @@
+ 	FILE_NAME=TRIM(SCRATCH_DIR)//TRIM(DESC)//'PNT'
+ 	CALL GEN_ASCI_OPEN(LU,TRIM(FILE_NAME),'OLD',' ','READ',IZERO,IOS)
+ 	IF(IOS .NE. 0)GOTO 300
+-	  READ(LU,*,ERR=400,IOSTAT=IOS)SUCCESSFUL_READ
++	  READ(LU,*,ERR=400,END=400,IOSTAT=IOS)SUCCESSFUL_READ
+ 	  IF(.NOT. SUCCESSFUL_READ)THEN
+ 	    WRITE(LUER,*)'Previous store of '//TRIM(FILE_NAME),' was not completed succesfully'
+ 	    CLOSE(UNIT=LU)
+ 	    RETURN
+ 	  END IF
+-	  READ(LU,*,ERR=400,IOSTAT=IOS)COMPUTE_BA_RD
+-	  READ(LU,*,ERR=400,IOSTAT=IOS)FIXED_T
+-	  READ(LU,*,ERR=400,IOSTAT=IOS)NION_RD
+-	  READ(LU,*,ERR=400,IOSTAT=IOS)NUM_BNDS_RD
+-	  READ(LU,*,ERR=400,IOSTAT=IOS)ND_RD
++	  READ(LU,*,ERR=400,END=400,IOSTAT=IOS)FIXED_T_RD
++	  READ(LU,*,ERR=400,END=400,IOSTAT=IOS)COMPUTE_BA_RD
++	  READ(LU,*,ERR=400,END=400,IOSTAT=IOS)NION_RD
++	  READ(LU,*,ERR=400,END=400,IOSTAT=IOS)NUM_BNDS_RD
++	  READ(LU,*,ERR=400,END=400,IOSTAT=IOS)ND_RD
+ 	CLOSE(UNIT=LU)
+ 	WRITE(6,*)'In BA_READ_V3 routine - read BAMATPNT',SUCCESSFUL_READ
+ !
+@@ -82,12 +82,13 @@
+ 	OPEN(UNIT=LU,FORM='UNFORMATTED',FILE=FILE_NAME,IOSTAT=IOS,ERR=500,
+ 	1             ACCESS='SEQUENTIAL',STATUS='OLD',ACTION='READ')
+ 	  DO ID=1,NION
+-	    READ(LU,ERR=600,IOSTAT=IOS)SE(ID)%BA
++	    READ(LU,ERR=600,END=600,IOSTAT=IOS)SE(ID)%BA
+ 	  END DO
+-	  READ(LU,ERR=605,IOSTAT=IOS)BA_ED
+-	  READ(LU,ERR=610,IOSTAT=IOS)BA_T
+-	  READ(LU,ERR=610,IOSTAT=IOS)BA_T_EHB
++	  READ(LU,ERR=605,END=605,IOSTAT=IOS)BA_ED
++	  READ(LU,ERR=610,END=610,IOSTAT=IOS)BA_T
++	  READ(LU,ERR=610,END=610,IOSTAT=IOS)BA_T_EHB
+ 	CLOSE(UNIT=LU)
++	FIXED_T=FIXED_T_RD
+ 	WRITE(6,*)'In BA_READ_V3 routine - finished',SUCCESSFUL_READ
+ 	RETURN
+ !
+diff --git a/new_main/subs/solveba_v13.f b/new_main/subs/solveba_v13.f
+--- a/new_main/subs/solveba_v13.f
++++ b/new_main/subs/solveba_v13.f
+@@ -374,12 +374,10 @@
+ 	    END IF
+ 	  END DO
+ !
+-! Limit the change in T to a maximum of 20%.
+-!
+-	  DO I=1,ND
+-	    T3=MAX( 0.2_LDP,ABS(STEQ(NT,I)) )
+-	  END DO
+-	  SCALE=MIN( 0.2_LDP/T3,SCALE )
++! Limit the change in T at every depth to MAX_dT_COR.
++!
++	  T3=MAX( MAX_dT_COR,MAXVAL(ABS(STEQ(NT,1:ND))) )
++	  SCALE=MIN( MAX_dT_COR/T3,SCALE )
+ 	  WRITE(LUER,'(A,1PE12.4)')' The value of scale is:',SCALE
+ !
+ ! Update the population levels (and the temperature) .
+diff --git a/new_main/subs/update_ba_for_line.f b/new_main/subs/update_ba_for_line.f
+--- a/new_main/subs/update_ba_for_line.f
++++ b/new_main/subs/update_ba_for_line.f
+@@ -278,10 +278,13 @@
+ 	        SCL_FAC=(AVE_ENERGY(NL)-AVE_ENERGY(NUP))/FL_SIM(SIM_INDX)
+ 	        IF(ABS(SCL_FAC-1.0_LDP) .GT. SCL_LINE_HT_FAC)SCL_FAC=1.0_LDP
+ 	      END IF
++! ZNET_SIM = LINE_QW_SUM - JBAR_SIM*CHIL_MAT/ETAL_MAT.
++! Cancel that term algebraically, before rounded large opposite sums.
++! Keep the exact profile normalization, including incomplete profiles.
+ 	      DO K=1,ND
+ 	        L=GET_DIAG(K)
+ 	        dRATE_dUP=EINA(SIM_INDX)*U_STAR_RATIO(K,SIM_INDX)*
+-	1                   (ZNET_SIM(K,SIM_INDX)+VC(K)+STIM_FAC*VB(K))
++	1                   (LINE_QW_SUM(K,SIM_INDX)+STIM_FAC*VB(K))
+ 	        dRATE_dLOW=-EINA(SIM_INDX)*OPAC_FAC*L_STAR_RATIO(K,SIM_INDX)*VB(K)
+ 	        SE(ID)%BA(MNUP,MNUP,L,K)=SE(ID)%BA(MNUP,MNUP,L,K)-dRATE_dUP
+ 	        SE(ID)%BA(MNUP,MNL,L,K) =SE(ID)%BA(MNUP,MNL,L,K) -dRATE_dLOW
+@@ -355,6 +358,9 @@
+ 	        END DO
+ 	      END IF
+ !
++! For distinct superlevels, defer the explicit d(eta_line)/eta_line
++! term to final assembly, where ZNET+JBAR*chi_line/eta_line=QW.
++! Keep radiation and opacity response in dZ; preserve shared-level handling.
+ 	      IF(INCLUDE_dSLdT)THEN
+ 	        NL=SIM_NL(SIM_INDX)
+ 	        NUP=SIM_NUP(SIM_INDX)
+@@ -364,9 +370,10 @@
+ 	          OPAC_FAC=LINE_OPAC_CON(SIM_INDX)*dL_RAT_dT(K,SIM_INDX)*POPS(NL,K)
+ 	          EMIS_FAC=LINE_EMIS_CON(SIM_INDX)*dU_RAT_dT(K,SIM_INDX)*POPS(NUP,K)
+ 	          STIM_FAC=LINE_OPAC_CON(SIM_INDX)*dU_RAT_dT(K,SIM_INDX)*GLDGU(SIM_INDX)*POPS(NUP,K)
++! Defer the explicit emissivity-ratio derivative to final assembly,
++! including transitions whose lower and upper levels share a superlevel.
+ 	          dZ(6,J,K,SIM_INDX)=dZ(6,J,K,SIM_INDX)-
+-	1               MUL_FAC*( dJ_LOC(6,J,K) + RJ(K)*(OPAC_FAC-STIM_FAC)/CHIL_MAT(K,SIM_INDX)
+-	1              - RJ(K)*EMIS_FAC/ETAL_MAT(K,SIM_INDX) )
++	1               MUL_FAC*( dJ_LOC(6,J,K) + RJ(K)*(OPAC_FAC-STIM_FAC)/CHIL_MAT(K,SIM_INDX) )
+ 	        END DO
+ 	      END IF
+ !
+@@ -385,14 +392,18 @@
+ 	          ELSE
+ 	            DO L=3,NM
+ 	              IF(DO_THIS_TX_MATRIX(L))THEN
+-	                IF( L .EQ. LOW_POINTER(SIM_INDX) )THEN
++! A shared population changes both absorptive and stimulated opacity.
++! The explicit emissivity derivative is combined with ZNET at assembly.
++	                IF( L .EQ. LOW_POINTER(SIM_INDX) .AND. L .EQ. UP_POINTER(SIM_INDX) )THEN
++	                  dZ(L,J,K,SIM_INDX)=dZ(L,J,K,SIM_INDX) -
++	1                    MUL_FAC*(dJ_LOC(L,J,K)+RJ(K)*(OPAC_FAC-STIM_FAC)/CHIL_MAT(K,SIM_INDX))
++	                ELSE IF( L .EQ. LOW_POINTER(SIM_INDX) )THEN
+ 	                  dZ(L,J,K,SIM_INDX)=dZ(L,J,K,SIM_INDX) -
+ 	1                    MUL_FAC*( dJ_LOC(L,J,K) + RJ(K)*OPAC_FAC/CHIL_MAT(K,SIM_INDX) )
+ 	                ELSE IF( L .EQ. UP_POINTER(SIM_INDX) )THEN
+ 	                  dZ(L,J,K,SIM_INDX)=dZ(L,J,K,SIM_INDX) -
+ 	1                    MUL_FAC*( dJ_LOC(L,J,K)-
+-	1                    RJ(K)*STIM_FAC/CHIL_MAT(K,SIM_INDX)-
+-	1                    RJ(K)*EMIS_FAC/ETAL_MAT(K,SIM_INDX) )
++	1                    RJ(K)*STIM_FAC/CHIL_MAT(K,SIM_INDX) )
+ 	                ELSE IF(L .EQ. 6 .AND. INCLUDE_dSLdT)THEN
+ 	                ELSE
+ 	                  dZ(L,J,K,SIM_INDX)=dZ(L,J,K,SIM_INDX) - MUL_FAC*dJ_LOC(L,J,K)
+@@ -520,12 +531,19 @@
+ 	      DO L=1,ND					!Equation depth
+ !
+ 	        K=DIAG_INDX
++! The explicit emissivity derivative was excluded from dZ above.
++! Its cancellation with ZNET is exact before rounding: ZNET+VC=QW.
++! Preserve the existing approximation when dZ linearization is skipped.
++	        T4=ABS(ZNET_SIM(L,SIM_INDX)-1.0_LDP)
+ 	        T2=EINA(SIM_INDX)*U_STAR_RATIO(L,SIM_INDX)*ZNET_SIM(L,SIM_INDX)
++	        IF(T4 .GT. ZNET_VAR_LIMIT)T2=EINA(SIM_INDX)*U_STAR_RATIO(L,SIM_INDX)*LINE_QW_SUM(L,SIM_INDX)
+ 	        SE(ID)%BA(MNL,MNUP,K,L)=SE(ID)%BA(MNL,MNUP,K,L) + T2
+ 	        SE(ID)%BA(MNUP,MNUP,K,L)=SE(ID)%BA(MNUP,MNUP,K,L) - T2
+ !
+ 		J=SE(ID)%LNK_TO_IV(NT)
+ 	        T2=EINA(SIM_INDX)*dU_RAT_dT(L,SIM_INDX)*POPS(NUP,L)*ZNET_SIM(L,SIM_INDX)
++	        IF(INCLUDE_dSLdT .AND. T4 .GT. ZNET_VAR_LIMIT)
++	1           T2=EINA(SIM_INDX)*dU_RAT_dT(L,SIM_INDX)*POPS(NUP,L)*LINE_QW_SUM(L,SIM_INDX)
+ 	        SE(ID)%BA(MNL,J,K,L)=SE(ID)%BA(MNL,J,K,L) + T2
+ 	        SE(ID)%BA(MNUP,J,K,L)=SE(ID)%BA(MNUP,J,K,L) - T2
+ !
+@@ -571,8 +589,12 @@
+ 	          K=GET_DIAG(L)
+ 	          T3=SCL_FAC
+ 	          IF(POP_ATOM(L) .GE. SCL_LINE_DENSITY_LIMIT)T3=1.0_LDP
+-	          BA_T(NUP,K,L)=BA_T(NUP,K,L)-T3*ETAL_MAT(L,SIM_INDX)*ZNET_SIM(L,SIM_INDX)/POPS(NUP,L)
+-	          T1=T3*LINE_EMIS_CON(SIM_INDX)*dU_RAT_dT(L,SIM_INDX)*POPS(NUP,L)*ZNET_SIM(L,SIM_INDX)
++	          T4=ZNET_SIM(L,SIM_INDX)
++	          IF(ABS(T4-1.0_LDP) .GT. ZNET_VAR_LIMIT)T4=LINE_QW_SUM(L,SIM_INDX)
++	          BA_T(NUP,K,L)=BA_T(NUP,K,L)-T3*ETAL_MAT(L,SIM_INDX)*T4/POPS(NUP,L)
++	          T4=ZNET_SIM(L,SIM_INDX)
++	          IF(INCLUDE_dSLdT .AND. ABS(T4-1.0_LDP) .GT. ZNET_VAR_LIMIT)T4=LINE_QW_SUM(L,SIM_INDX)
++	          T1=T3*LINE_EMIS_CON(SIM_INDX)*dU_RAT_dT(L,SIM_INDX)*POPS(NUP,L)*T4
+ 	          BA_T(NT,K,L)=BA_T(NT,K,L) - T1
+ 		  T4=ABS(ZNET_SIM(L,SIM_INDX)-1.0_LDP)
+ 	          IF(T4 .GT. ZNET_VAR_LIMIT)THEN
+diff --git a/new_main/subs/vsebyj_multi_v8.f b/new_main/subs/vsebyj_multi_v8.f
+--- a/new_main/subs/vsebyj_multi_v8.f
++++ b/new_main/subs/vsebyj_multi_v8.f
+@@ -71,7 +71,6 @@
+ 	INTEGER ION_V
+ 	INTEGER ION_EQ
+ 	REAL(KIND=LDP) T3
+-	REAL(KIND=LDP) B_RAT
+ 	REAL(KIND=LDP) LOG_B_RAT
+ !
+ ! REV_HNST referes to the LTE population  of the level defined with respect
+@@ -89,15 +88,13 @@
+ 	ION_V=ION_EQ
+ 	L=(NUM_BNDS/2)+1
+ !
+-!$OMP PARALLEL DO PRIVATE(J,K,LOG_B_RAT,B_RAT,WSE_BY_RJ,REV_HNST,T3,DI_FAC,ED_FAC,T_FAC)
++!$OMP PARALLEL DO PRIVATE(J,K,LOG_B_RAT,WSE_BY_RJ,REV_HNST,T3,DI_FAC,ED_FAC,T_FAC)
+ !
+ 	DO K=DST,DEND			!Which depth point.
+ 	  IF(ION_LEV .NE. 1)THEN
+-	    LOG_B_RAT=LOG(DI(ION_LEV,K)/DI(1,K))+LOG_DIST(1,K)-LOG_DIST(ION_LEV,K)
+-	    B_RAT=0.0_LDP
+-	    IF(LOG_B_RAT .LT. 780.0_LDP)B_RAT=EXP(LOG_B_RAT)
++	    LOG_B_RAT=(LOG(DI(ION_LEV,K))-LOG(DI(1,K))) +
++	1              (LOG_DIST(1,K)-LOG_DIST(ION_LEV,K))
+ 	  ELSE
+-	    B_RAT=1.0_LDP
+ 	    LOG_B_RAT=0.0_LDP
+ 	  END IF
+ 
+@@ -106,7 +103,10 @@
+ 	      WSE_BY_RJ=WSE(J,K)*JPHOT(K)
+ 	      SE(ID)%BA_PAR(J,J,K)=SE(ID)%BA_PAR(J,J,K)-WSE_BY_RJ
+ !
+-	      REV_HNST=HNST(J,K)*B_RAT
++! Use the same combined logarithm as EVALSE_QWVJ_V8; no kind-specific cutoff.
++	      REV_HNST=HNST(J,K)
++	      IF(ION_LEV .NE. 1 .AND. HNST(J,K) .GT. 0.0_LDP)
++	1        REV_HNST=EXP(LOG(HNST(J,K))+LOG_B_RAT)
+ 	      T3=REV_HNST*WSE(J,K)*JREC(K)
+ 	      DI_FAC=T3/DI(ION_LEV,K)
+ 	      ED_FAC=T3/ED(K)
+diff --git a/new_main/subs/vsebyj_x_v7.f b/new_main/subs/vsebyj_x_v7.f
+--- a/new_main/subs/vsebyj_x_v7.f
++++ b/new_main/subs/vsebyj_x_v7.f
+@@ -118,7 +118,7 @@
+ 	      IF(.NOT. FIXED_T)THEN
+ 	        T4=HNST_A(J,I)*WSE_X(J,I)*RECIP_B_ION
+ 	        T_FAC=T3*( dlnHNST_AdlnT(J,I) -
+-	1             HDKT*(EDGE_B(1)+1.5_LDP)/T(I) )/T(I) + T4*dJRECdT(I)
++	1             1.5_LDP - HDKT*EDGE_B(1)/T(I) )/T(I) + T4*dJRECdT(I)
+ 	        SE(ID)%BA_PAR(J,NIV,I)  =SE(ID)%BA_PAR(J,NIV,I)   +T_FAC
+ 	        SE(ID)%BA_PAR(ION_EQ,NIV,I)  =SE(ID)%BA_PAR(ION_EQ,NIV,I)  -T_FAC
+ 	     END IF
+diff --git a/newsubs/omega_gen_v3.f b/newsubs/omega_gen_v3.f
+--- a/newsubs/omega_gen_v3.f
++++ b/newsubs/omega_gen_v3.f
+@@ -179,7 +179,7 @@
+ 	          dln_GBAR_dlnT=(1.0_LDP/EX_E1X-X)
+ 	        ELSE
+ 	          GBAR=0.066_LDP*(1.0_LDP+1.5_LDP/X)/SQRT(X)
+-	          dln_GBAR_dlnT=-0.5_LDP+0.099_LDP/X/GBAR
++	          dln_GBAR_dlnT=0.5_LDP+1.5_LDP/(X+1.5_LDP)
+ 	        END IF
+ 	      ELSE
+ 	        G1=0.2_LDP
+diff --git a/newsubs/rdphot_gen_v2.f b/newsubs/rdphot_gen_v2.f
+--- a/newsubs/rdphot_gen_v2.f
++++ b/newsubs/rdphot_gen_v2.f
+@@ -528,6 +528,8 @@
+ 	  J=0
+ 	  IF(XzSIX_PRES)THEN
+ 	    J=F_TO_S_XzSIX(L)
++! Returned target populations are indexed by SUPER level in the callers.
++	    XzV_ION_LEV_ID(K)=J
+ 	  ELSE
+ 	    WRITE(LU_SUM,'(A)')' '
+ 	  END IF
+diff --git a/obs/cmf_flux_sub_v5.f b/obs/cmf_flux_sub_v5.f
+--- a/obs/cmf_flux_sub_v5.f
++++ b/obs/cmf_flux_sub_v5.f
+@@ -1592,7 +1592,7 @@
+ 	     IF(NEG_OPACITY(I) .AND. K .EQ. 0)K=I
+ 	     IF(NEG_OPACITY(I))J=I
+ 	    END DO
+-	    WRITE(LU_NEG,'(A,2X,I3,5X,A,2XI3)')
++	    WRITE(LU_NEG,'(A,2X,I3,5X,A,2X,I3)')
+ 	1        ' 1st depth',K,'Last depth',J
+ 	  END IF
+ 	END IF
+diff --git a/opac/par_opac_sub.f b/opac/par_opac_sub.f
+--- a/opac/par_opac_sub.f
++++ b/opac/par_opac_sub.f
+@@ -1762,7 +1762,7 @@
+ 	     IF(NEG_OPACITY(I) .AND. K .EQ. 0)K=I
+ 	     IF(NEG_OPACITY(I))J=I
+ 	    END DO
+-	    WRITE(LU_NEG,'(A,2X,I3,5X,A,2XI3)')
++	    WRITE(LU_NEG,'(A,2X,I3,5X,A,2X,I3)')
+ 	1        ' 1st depth',K,'Last depth',J
+ 	  END IF
+ C
+diff --git a/stark/get_prof_storage_limits.f b/stark/get_prof_storage_limits.f
+--- a/stark/get_prof_storage_limits.f
++++ b/stark/get_prof_storage_limits.f
+@@ -49,7 +49,7 @@
+ 	    IF(LINE_ST_INDX_IN_NU(NL) .GT. ML)EXIT
+ 	  END DO
+ 	  NPROF_MAX=MAX(NX,NPROF_MAX)
+-	  IF(LN_INDX .EQ. NLINES)EXIT
++	  IF(LN_INDX .GT. NLINES)EXIT
+ 	END DO
+ !
+ 	IF(NPROF_MAX .NE. 0 .OR. NFREQ_MAX .NE. 0)THEN
+diff --git a/stark/get_prof_storage_limits_v2.f b/stark/get_prof_storage_limits_v2.f
+--- a/stark/get_prof_storage_limits_v2.f
++++ b/stark/get_prof_storage_limits_v2.f
+@@ -50,7 +50,7 @@
+ 	MAX_SIM=0
+ 	NFREQ_MAX=0;  NFREQ_MAX_VOIGT=0
+ 	NPROF_CNT=0;  NPROF_CNT_VOIGT=0
+-	NPROF_CNT_VOIGT=0; NFREQ_AV_VOIGT=0
++	NFREQ_AV=0; NFREQ_AV_VOIGT=0
+ 	DO NL=1,NLINES
+ 	  ML=LINE_END_INDX_IN_NU(NL)-LINE_ST_INDX_IN_NU(NL)+1
+ 	  IF(VEC_TRANS_TYPE(NL) .EQ. 'SOB')THEN
+@@ -91,7 +91,7 @@
+ 	  NPROF_MAX=MAX(NX,NPROF_MAX)
+ 	  NPROF_MAX_VOIGT=MAX(NV,NPROF_MAX_VOIGT)
+ 	  MAX_SIM=MAX(MAX_SIM,NSIM)
+-	  IF(LN_INDX .EQ. NLINES)EXIT
++	  IF(LN_INDX .GT. NLINES)EXIT
+ 	END DO
+ !
+ 	IF(NPROF_MAX .NE. 0 .OR. NFREQ_MAX .NE. 0)THEN
+diff --git a/subs/regrid_t_ed_v3.f b/subs/regrid_t_ed_v3.f
+--- a/subs/regrid_t_ed_v3.f
++++ b/subs/regrid_t_ed_v3.f
+@@ -58,7 +58,10 @@
+ 	  END DO
+ 	  IF( INDEX(STRING,'!Format date') .EQ. 0)REWIND(8)
+ !
+-	  READ(8,*)RPOLD,T1,NOLD,NDOLD
++	  READ(8,*,IOSTAT=IOS)RPOLD,T1,NOLD,NDOLD
++	  IF(IOS .NE. 0)ERROR STOP 'Invalid initialization file header'
++	  IF(NOLD .LT. 1 .OR. NDOLD .LT. 2 .OR. ND .LT. 1)
++	1    ERROR STOP 'Invalid initialization dimensions'
+ !
+ ! Allocate required memory.
+ !
+@@ -88,14 +91,33 @@
+ 	  END IF
+ 	END IF
+ !
++! Match departure-file endpoint rounding before classifying extrapolation.
++	IF(ABS(OLDR(1)/R(1)-1.0_LDP) .LE. 1.0E-10_LDP)OLDR(1)=R(1)
++	IF(ABS(OLDR(NDOLD)/R(ND)-1.0_LDP) .LE. 1.0E-10_LDP)OLDR(NDOLD)=R(ND)
++	IF(NDOLD .LT. 2 .OR. ANY(OLDR(1:NDOLD) .LE. 0.0_LDP) .OR.
++	1  ANY(R .LE. 0.0_LDP))THEN
++	  WRITE(LUER,*)'Invalid radius grid in REGRID_T_ED_V3'
++	  ERROR STOP 'Invalid initialization radius grid'
++	END IF
++	IF(ANY(OLDR(2:NDOLD) .GE. OLDR(1:NDOLD-1)) .OR.
++	1  ANY(R(2:ND) .GE. R(1:ND-1)))THEN
++	  ERROR STOP 'Non-monotonic initialization radius grid'
++	END IF
++!
+ 	NXST=1
+-	DO WHILE(R(NXST) .GT. OLDR(1))
++	DO WHILE(NXST .LE. ND)
++	  IF(R(NXST) .LE. OLDR(1))EXIT
+ 	  NXST=NXST+1
+ 	END DO
+         NXEND=ND
+-        DO WHILE (R(NXEND) .LT. OLDR(NDOLD))
++        DO WHILE (NXEND .GE. 1)
++          IF(R(NXEND) .GE. OLDR(NDOLD))EXIT
+           NXEND=NXEND-1
+         END DO
++        IF(NXST .GT. NXEND)THEN
++          WRITE(LUER,*)'No overlapping radius grid in REGRID_T_ED_V3'
++          ERROR STOP 'No overlapping initialization radius grid'
++        END IF
+         NX=NXEND-NXST+1
+ !
+ ! Interpolations are performed in the log plane.
+@@ -109,16 +131,32 @@
+ 	  OLDED(I)=LOG(OLDED(I))
+ 	END DO
+ !
+-	CALL LINPOP(RLOG(NXST),T(NXST),NX,OLDR,OLDT,NDOLD)
+-	CALL LINPOP(RLOG(NXST),ED(NXST),NX,OLDR,OLDED,NDOLD)
++! LINPOP inspects its second target point; handle a single overlap directly.
++	IF(NX .EQ. 1)THEN
++	  J=1
++	  DO WHILE(J .LT. NDOLD-1)
++	    IF(RLOG(NXST) .GE. OLDR(J+1))EXIT
++	    J=J+1
++	  END DO
++	  T1=(RLOG(NXST)-OLDR(J))/(OLDR(J+1)-OLDR(J))
++	  T(NXST)=(1.0_LDP-T1)*OLDT(J)+T1*OLDT(J+1)
++	  ED(NXST)=(1.0_LDP-T1)*OLDED(J)+T1*OLDED(J+1)
++	ELSE
++	  CALL LINPOP(RLOG(NXST),T(NXST),NX,OLDR,OLDT,NDOLD)
++	  CALL LINPOP(RLOG(NXST),ED(NXST),NX,OLDR,OLDED,NDOLD)
++	END IF
+ 
+-	DO I=NXST,ND
++	DO I=NXST,NXEND
+ 	  T(I)=EXP(T(I))
+ 	  ED(I)=EXP(ED(I))
+ 	END DO
+ 	DO I=1,NXST-1
+ 	  T(I)=T(NXST)
+ 	  ED(I)=ED(NXST)*POPATOM(I)/POPATOM(NXST)
++	END DO
++	DO I=NXEND+1,ND
++	  T(I)=T(NXEND)
++	  ED(I)=ED(NXEND)*POPATOM(I)/POPATOM(NXEND)
+ 	END DO
+ !
+ ! Free up memory.

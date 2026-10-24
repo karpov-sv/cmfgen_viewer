@@ -1,0 +1,40 @@
+--- a/new_main/subs/do_ng_accel_band_v4.f
++++ b/new_main/subs/do_ng_accel_band_v4.f
+@@ -129,7 +129,7 @@
+ ! are returned in BIG_POPS.
+ !
+ 	NT_MOD=NT+3
+-	CALL NG_MIT_BAND_OPT_V1(BIG_POPS,RDPOPS,ND,NT_MOD,NG_BAND,NG_DONE,MAXDEC,MAXINC,LUER)
++	CALL NG_MIT_BAND_OPT_V4(BIG_POPS,RDPOPS,ND,NT_MOD,NT,NG_BAND,NG_DONE,MAXDEC,MAXINC,LUER)
+ !
+ ! Check to see is accleration if reasonable.
+ !
+@@ -182,7 +182,7 @@
+ ! Routine is deisgned to allow NG acceleration over NBAND depths
+ ! simultaneously. For use with CMFGEN.
+ !
+-	SUBROUTINE NG_MIT_BAND_OPT_V1(POPS,RDPOPS,ND,NT,NBAND,
++	SUBROUTINE NG_MIT_BAND_OPT_V4(POPS,RDPOPS,ND,NT,I_TEMP,NBAND,
+ 	1                NG_DONE,MAXDEC,MAXINC,LUER)
+ 	USE SET_KIND_MODULE
+ 	IMPLICIT NONE
+@@ -192,6 +192,7 @@
+ 	INTEGER ND
+ 	INTEGER NT
+ 	INTEGER NBAND
++	INTEGER I_TEMP        !Physical temperature index, before appended geometry.
+ 	INTEGER LUER
+ 	REAL(KIND=LDP) POPS(NT,ND)              !Initial/corrected populations (I/O)
+ 	REAL(KIND=LDP) RDPOPS(NT,ND,4)		!Populations to be accelerated
+@@ -257,8 +258,9 @@
+ ! Before storing the NG acceleration at this depth, we check to
+ ! see whether the predicted corrections are "reasonable".
+ !
+-	  T1=NEWPOP(NT,L)-RDPOPS(NT,L,1)
+-	  IF(T1 .NE. 0.0_LDP)T2=(RDPOPS(NT,L,1)-RDPOPS(NT,L,2))/T1
++	  T2=0.0_LDP
++	  T1=NEWPOP(I_TEMP,L)-RDPOPS(I_TEMP,L,1)
++	  IF(T1 .NE. 0.0_LDP)T2=(RDPOPS(I_TEMP,L,1)-RDPOPS(I_TEMP,L,2))/T1
+ 	  IF(T1 .NE. 0 .AND. T2 .LT. 0.0_LDP)THEN
+ 	    NUM_BAD_NG=NUM_BAD_NG+1
+ 	    WRITE(LUER,*)'NUM_BAD_NG=',NUM_BAD_NG

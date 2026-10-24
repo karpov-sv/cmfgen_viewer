@@ -4,6 +4,7 @@ program test_initialization
   use mod_cmfgen
   use mod_lev_dis_blk
   use init_population_estimates_mod
+  use control_variable_mod, only: dc_interp_method
   implicit none
   real(ldp) :: chibf,chiff,hdkt,twohcsq
   common /constants/ chibf,chiff,hdkt,twohcsq
@@ -13,6 +14,7 @@ program test_initialization
   logical :: dissolve
   character(20) :: argument
   hdkt=4.7994145_ldp; chibf=0;chiff=0;twohcsq=0
+  dc_interp_method='R'
   num_ions=2; species_pres=.false.;species_pres(1)=.true.
   species_beg_id=0;species_end_id=0;species_beg_id(1)=1;species_end_id(1)=2
   atm%xzv_pres=.false.;atm(1)%xzv_pres=.true.
@@ -42,6 +44,17 @@ program test_initialization
     fraction(3,k)=source_ne(k)/source_density(k)
   end do
   middle=sqrt(fraction(:,1)*fraction(:,2));middle=middle/sum(middle)
+  ! LTE must solve Ne from the reconstructed charged populations, rather than
+  ! retaining DET_LTE_ED's approximate (possibly TMIN-clamped) starting Ne.
+  dc_interp_method='LTE'
+  atm(1)%xzv_f=0.0_ldp;atm(1)%dxzv_f=pop_atom
+  ed=10.0_ldp*source_ne
+  call reconstruct_dc_estimates(2,.true.,.false.,6)
+  if(maxval(abs(ed/atm(1)%dxzv_f-1))>1e-8_ldp) error stop 'LTE charge consistency'
+  if(maxval(abs((sum(atm(1)%xzv_f,dim=1)+atm(1)%dxzv_f)/pop_atom-1))>1e-8_ldp) &
+      error stop 'LTE elemental normalization'
+  print *, 'PASS LTE charge and element consistency with inconsistent initial Ne'
+  dc_interp_method='R'
   deallocate(r,t,ed,popion,pop_atom,pop_species)
   deallocate(atm(1)%xzv_f,atm(1)%xzv,atm(1)%dxzv_f,atm(1)%dxzv)
   allocate(r(3),t(3),ed(3),popion(3),pop_atom(3),pop_species(3,num_species))

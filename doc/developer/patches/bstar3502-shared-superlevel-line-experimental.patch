@@ -1,0 +1,63 @@
+--- a/new_main/subs/update_ba_for_line.f
++++ b/new_main/subs/update_ba_for_line.f
+@@ -370,15 +370,10 @@
+ 	          OPAC_FAC=LINE_OPAC_CON(SIM_INDX)*dL_RAT_dT(K,SIM_INDX)*POPS(NL,K)
+ 	          EMIS_FAC=LINE_EMIS_CON(SIM_INDX)*dU_RAT_dT(K,SIM_INDX)*POPS(NUP,K)
+ 	          STIM_FAC=LINE_OPAC_CON(SIM_INDX)*dU_RAT_dT(K,SIM_INDX)*GLDGU(SIM_INDX)*POPS(NUP,K)
+-! Shared lower/upper superlevel slots retain their existing approximation.
+-	          IF(SIM_NL(SIM_INDX) .EQ. SIM_NUP(SIM_INDX))THEN
+-	            dZ(6,J,K,SIM_INDX)=dZ(6,J,K,SIM_INDX)-
+-	1               MUL_FAC*( dJ_LOC(6,J,K) + RJ(K)*(OPAC_FAC-STIM_FAC)/CHIL_MAT(K,SIM_INDX)
+-	1              - RJ(K)*EMIS_FAC/ETAL_MAT(K,SIM_INDX) )
+-	          ELSE
++! Defer the explicit emissivity-ratio derivative to final assembly,
++! including transitions whose lower and upper levels share a superlevel.
+ 	          dZ(6,J,K,SIM_INDX)=dZ(6,J,K,SIM_INDX)-
+ 	1               MUL_FAC*( dJ_LOC(6,J,K) + RJ(K)*(OPAC_FAC-STIM_FAC)/CHIL_MAT(K,SIM_INDX) )
+-	          END IF
+ 	        END DO
+ 	      END IF
+ !
+@@ -397,7 +392,12 @@
+ 	          ELSE
+ 	            DO L=3,NM
+ 	              IF(DO_THIS_TX_MATRIX(L))THEN
+-	                IF( L .EQ. LOW_POINTER(SIM_INDX) )THEN
++! A shared population changes both absorptive and stimulated opacity.
++! The explicit emissivity derivative is combined with ZNET at assembly.
++	                IF( L .EQ. LOW_POINTER(SIM_INDX) .AND. L .EQ. UP_POINTER(SIM_INDX) )THEN
++	                  dZ(L,J,K,SIM_INDX)=dZ(L,J,K,SIM_INDX) -
++	1                    MUL_FAC*(dJ_LOC(L,J,K)+RJ(K)*(OPAC_FAC-STIM_FAC)/CHIL_MAT(K,SIM_INDX))
++	                ELSE IF( L .EQ. LOW_POINTER(SIM_INDX) )THEN
+ 	                  dZ(L,J,K,SIM_INDX)=dZ(L,J,K,SIM_INDX) -
+ 	1                    MUL_FAC*( dJ_LOC(L,J,K) + RJ(K)*OPAC_FAC/CHIL_MAT(K,SIM_INDX) )
+ 	                ELSE IF( L .EQ. UP_POINTER(SIM_INDX) )THEN
+@@ -536,13 +536,13 @@
+ ! Preserve the existing approximation when dZ linearization is skipped.
+ 	        T4=ABS(ZNET_SIM(L,SIM_INDX)-1.0_LDP)
+ 	        T2=EINA(SIM_INDX)*U_STAR_RATIO(L,SIM_INDX)*ZNET_SIM(L,SIM_INDX)
+-	        IF(SIM_NL(SIM_INDX) .NE. SIM_NUP(SIM_INDX) .AND. T4 .GT. ZNET_VAR_LIMIT)T2=EINA(SIM_INDX)*U_STAR_RATIO(L,SIM_INDX)*LINE_QW_SUM(L,SIM_INDX)
++	        IF(T4 .GT. ZNET_VAR_LIMIT)T2=EINA(SIM_INDX)*U_STAR_RATIO(L,SIM_INDX)*LINE_QW_SUM(L,SIM_INDX)
+ 	        SE(ID)%BA(MNL,MNUP,K,L)=SE(ID)%BA(MNL,MNUP,K,L) + T2
+ 	        SE(ID)%BA(MNUP,MNUP,K,L)=SE(ID)%BA(MNUP,MNUP,K,L) - T2
+ !
+ 		J=SE(ID)%LNK_TO_IV(NT)
+ 	        T2=EINA(SIM_INDX)*dU_RAT_dT(L,SIM_INDX)*POPS(NUP,L)*ZNET_SIM(L,SIM_INDX)
+-	        IF(INCLUDE_dSLdT .AND. SIM_NL(SIM_INDX) .NE. SIM_NUP(SIM_INDX) .AND. T4 .GT. ZNET_VAR_LIMIT)
++	        IF(INCLUDE_dSLdT .AND. T4 .GT. ZNET_VAR_LIMIT)
+ 	1           T2=EINA(SIM_INDX)*dU_RAT_dT(L,SIM_INDX)*POPS(NUP,L)*LINE_QW_SUM(L,SIM_INDX)
+ 	        SE(ID)%BA(MNL,J,K,L)=SE(ID)%BA(MNL,J,K,L) + T2
+ 	        SE(ID)%BA(MNUP,J,K,L)=SE(ID)%BA(MNUP,J,K,L) - T2
+@@ -590,10 +590,10 @@
+ 	          T3=SCL_FAC
+ 	          IF(POP_ATOM(L) .GE. SCL_LINE_DENSITY_LIMIT)T3=1.0_LDP
+ 	          T4=ZNET_SIM(L,SIM_INDX)
+-	          IF(SIM_NL(SIM_INDX) .NE. SIM_NUP(SIM_INDX) .AND. ABS(T4-1.0_LDP) .GT. ZNET_VAR_LIMIT)T4=LINE_QW_SUM(L,SIM_INDX)
++	          IF(ABS(T4-1.0_LDP) .GT. ZNET_VAR_LIMIT)T4=LINE_QW_SUM(L,SIM_INDX)
+ 	          BA_T(NUP,K,L)=BA_T(NUP,K,L)-T3*ETAL_MAT(L,SIM_INDX)*T4/POPS(NUP,L)
+ 	          T4=ZNET_SIM(L,SIM_INDX)
+-	          IF(INCLUDE_dSLdT .AND. SIM_NL(SIM_INDX) .NE. SIM_NUP(SIM_INDX) .AND. ABS(T4-1.0_LDP) .GT. ZNET_VAR_LIMIT)T4=LINE_QW_SUM(L,SIM_INDX)
++	          IF(INCLUDE_dSLdT .AND. ABS(T4-1.0_LDP) .GT. ZNET_VAR_LIMIT)T4=LINE_QW_SUM(L,SIM_INDX)
+ 	          T1=T3*LINE_EMIS_CON(SIM_INDX)*dU_RAT_dT(L,SIM_INDX)*POPS(NUP,L)*T4
+ 	          BA_T(NT,K,L)=BA_T(NT,K,L) - T1
+ 		  T4=ABS(ZNET_SIM(L,SIM_INDX)-1.0_LDP)

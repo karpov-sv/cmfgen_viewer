@@ -1,0 +1,24 @@
+--- a/new_main/mod_subs/comp_grey_v4.f
++++ b/new_main/mod_subs/comp_grey_v4.f
+@@ -14,6 +14,7 @@
+ 	USE ANG_QW_MOD
+ 	USE MOD_CMFGEN
+ 	USE CONTROL_VARIABLE_MOD
++	USE, INTRINSIC :: IEEE_ARITHMETIC, ONLY: IEEE_IS_FINITE
+ 	IMPLICIT NONE
+ !
+ ! Altered 06-Dec-2023 : Fixed REL option to handle zero flux and or hollow core inner boundary options.
+@@ -274,6 +275,13 @@
+ ! at boundary.
+ !
+ 	DO I=1,ND
++	  IF(.NOT. IEEE_IS_FINITE(RJ(I)) .OR. RJ(I) .LE. 0.0_LDP)THEN
++	    WRITE(LUER,*)'GREY_RJ_INVALID: depth,J,Ross,Planck,R,T=',
++	1         I,RJ(I),ROSSMEAN(I),PLANCKMEAN(I),R(I),T(I)
++	    FLUSH(LUER)
++	    COMPUTED=.FALSE.
++	    RETURN
++	  END IF
+ 	  TGREY(I)=((PI/5.67E-05_LDP*RJ(I))**0.25_LDP)*1.0E-04_LDP
+ 	END DO
+ !
