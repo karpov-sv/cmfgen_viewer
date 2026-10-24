@@ -390,7 +390,7 @@ POLICIES = (
     Policy('hydro_bootstrap', 1, 'failure', 'Scheduled hydro recovery with guard restoration and follow-up', _hydro, 1),
     Policy('radiation_cache', 1, 'failure', 'Explicit EDDFACTOR mismatch recovery', _cache, 1),
     Policy('population_guard', 1, 'failure', 'Physically audited provisional checkpoint after explicit MAX_CHNG stop', population_guard, 1),
-    Policy('ray_refinement', 1, 'failure', 'Negative-luminosity coarse-ray recovery with guarded verification', ray_refinement, 1),
+    Policy('ray_refinement', 2, 'failure', 'Negative-luminosity coarse-ray recovery with guarded verification', ray_refinement, 1),
     Policy('verified_convergence', 1, 'success', 'Independent fresh-Jacobian convergence acceptance', _verified),
     Policy('verify_candidate', 2, 'success', 'Fresh-Jacobian verification of a numerical candidate', _candidate),
     Policy('superlevel_temperature', 1, 'success', 'Superlevel temperature coupling before oscillation damping', temperature_coupling, 1),

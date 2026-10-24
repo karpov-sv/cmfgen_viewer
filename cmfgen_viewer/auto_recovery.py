@@ -17,7 +17,7 @@ def _finite(value):
     return isinstance(value, (int, float)) and math.isfinite(value)
 
 
-def repaired_runtime(plan):
+def repaired_runtime(plan, *, required=('line-jacobian-v1', 'ba-restart-v1')):
     """Authenticate capabilities against the executable, not a source-tree claim."""
     executable = Path(plan.get('executable', ''))
     manifest = executable.parent.parent / BUILD_MANIFEST
@@ -32,7 +32,7 @@ def repaired_runtime(plan):
                 digest.update(block)
         actual = digest.hexdigest()
         return (actual == expected and
-                {'line-jacobian-v1', 'ba-restart-v1'} <= set(data['capabilities']))
+                set(required) <= set(data['capabilities']))
     except (OSError, ValueError, KeyError, TypeError):
         return False
 
@@ -92,8 +92,9 @@ def ray_refinement(ctx):
     mom = number(ctx.model, 'VADAT', 'VFRAC_MOM', 20000)
     if fg <= .1:
         raise Declined('Negative luminosities persist with VFRAC_FG<=0.1; no finer-ray remedy established')
-    if mom != 20000:
-        raise Declined('Inserted moment grids need review: known VAR_MOM_J angular-grid mapping issue')
+    if mom != 20000 and not repaired_runtime(
+            ctx.native_plan, required=('line-jacobian-v1', 'ba-restart-v1', 'moment-grid-jacobian-v1')):
+        raise Declined('Inserted moment grids require an authenticated moment-grid-jacobian-v1 repair')
     return Decision('action', 'Negative normalized luminosities with coarse formal rays; refine VFRAC_FG to0.1 '
                     'on the existing moment grid and require guarded full continuation',
                     action='ray_refinement', changes={'VADAT': {'VFRAC_FG': '0.1', 'COMP_BA': 'T',

@@ -1,0 +1,48 @@
+! Test adapter for the production DO_VAR_CONT prefix through model-grid projection.
+! Atomic-rate assembly after that projection is excluded by the Python builder.
+! Opacity/emissivity/ray fields are prescribed in moment_grid_closure.f90.in.
+subroutine workflow_adapter(c,e,s,rr,vv,ss,jj,external,nu,bb,first,coh,inner,meth,outer,n,nm,xt,xh,dt,dg,ht,hg)
+use set_kind_module
+use mod_cmfgen, only:r,v,sigma,t,clump_fac
+use opac_mod
+use radiation_mod
+use var_rad_mod
+use line_mod
+use control_variable_mod
+implicit none
+integer n,nm,outer,i
+real(ldp) c(n),e(n),s(n),rr(n),vv(n),ss(n),jj(n),external(n),nu,bb
+real(ldp) xt(n,n,nm),xh(n-1,n,nm),dt(n),dg(n),ht(n-1),hg(n-1),pops(4,n)
+real(ldp) chibf,chiff,hdkt,twohcsq,oplin,emlin
+common/constants/chibf,chiff,hdkt,twohcsq
+common/line/oplin,emlin
+logical first,coh
+character(*) inner,meth
+if(first)then
+ allocate(r(n),v(n),sigma(n),t(n),clump_fac(n),eta_cont(n),eta_clump(n),chi_clump(n), &
+  chi_scat_clump(n),esec_clump(n),es_coh_vec(n),chi_noscat_prev(n),chi_noscat(n),eta_prev(n), &
+  ta(n),tb(n),wm(n,n),rj(n),rj_es(n))
+ call set_var_rad_mod_v2(n,n,4,n,nm,1,2,.false.,.true.)
+ call set_line_mod(n,4,1,nm)
+ r=rr;v=vv;sigma=ss;t=3.5_ldp;clump_fac=[(.4_ldp+.03_ldp*i,i=1,n)]
+ this_freq_ext=.false.;cont_vel=.true.;accurate=.false.;plane_parallel=.false.
+ plane_parallel_no_v=.false.;use_j_rel=.false.;use_lam_es=.false.;use_djdt_rte=.false.
+ mixed_es_var=.false.;do_clump_model=.true.;do_srce_var_only=.false.;include_dsldt=.true.
+ hdkt=0.0_ldp ! Isolate line super-level temperature response from continuum temperature terms.
+ low_pointer=7;up_pointer=8;var_in_use_cnt=1
+ weak_line=.false.;resonance_zone=.true.;line_opac_con=.06_ldp;line_emis_con=.04_ldp
+ sim_nl=1;sim_nup=2;dl_rat_dt=.02_ldp;du_rat_dt=.03_ldp
+ line_prof_sim=1;neg_opac_fac=1;l_star_ratio=1;u_star_ratio=1;gldgu=.5_ldp
+endif
+coherent_es=coh;inner_bnd_meth=inner;method=meth;out_bc_type=outer
+h_chk_option='NONE';dlog_nu=.01_ldp;dtdr=.7_ldp;dbb=bb;ddbbdt=.03_ldp;ic=1;ib_stab_factor=100
+eta_prev=eta_cont
+eta_cont=e/clump_fac
+if(.not.coh)eta_cont=(e-s*external)/clump_fac
+chi_noscat=(c-s)/clump_fac;chi_noscat_prev=chi_noscat
+chi_clump=c;chi_scat_clump=s;esec_clump=s;eta_clump=e
+if(.not.coh)eta_clump=e-s*external
+rj=jj;rj_es=external;pops=1
+call do_var_cont(pops,'TEST',.true.,nu,nu,1,first,6,n,2,n+2,n,1,4,nm,n,2,n+2,1,2)
+xt=tx;xh=tvx;dt=dj_dif_d_t;dg=dj_dif_d_dtdr;ht=drsqh_dif_d_t(1:n-1);hg=drsqh_dif_d_dtdr(1:n-1)
+end subroutine

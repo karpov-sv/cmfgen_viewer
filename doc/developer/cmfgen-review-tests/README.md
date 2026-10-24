@@ -52,3 +52,11 @@ This driver requires NumPy and a built atmosphere executable, copies inputs
 and atomic links into fresh temporary folders, and checks same-grid R,
 same-grid POP and refined-grid POP against the saved references. It neither
 runs the templates' shell scripts nor writes to the templates.
+
+`check_moment_grid_jacobian.py` verifies inserted moment grids using actual native
+transport and finite differences, including the production variation wrapper's
+clumping, frequency history, scattering, line-level and temperature transforms.
+It requires NumPy and compatible built CMFGEN modules/libraries. Use
+`--optimization O2 --threads 5` for the threaded check and `--baseline-root` for
+bit-for-bit comparisons with saved pre-fix source. See the
+[repair report](../cmfgen-inserted-moment-grid.md) for scope and instrumentation.

@@ -156,6 +156,32 @@ def test_ray_refinement_requires_negative_fresh_profile_and_original_moment_grid
         ray_refinement(replace(ctx,before={'OBSFLUX':snapshot(tmp_path/'OBSFLUX')}))
 
 
+def test_ray_refinement_authenticates_inserted_moment_repair(tmp_path):
+    ctx = ray_context(tmp_path)
+    (tmp_path/'VADAT').write_text('F [DO_HYDRO]\n20000 [VFRAC_FG]\n0.5 [VFRAC_MOM]\n')
+    root = tmp_path/'runtime'
+    exe = root/'exe/cmfgen_dev.exe'
+    exe.parent.mkdir(parents=True)
+    exe.write_bytes(b'test native executable')
+    ctx = replace(ctx, native_plan={**ctx.native_plan, 'executable':str(exe)})
+    manifest = {'capabilities':['line-jacobian-v1', 'ba-restart-v1'],
+                'executables':{exe.name:{'sha256':hashlib.sha256(exe.read_bytes()).hexdigest()}}}
+    record = root/'cmfgen-local-build.json'
+    record.write_text(json.dumps(manifest))
+    with pytest.raises(policies.Declined, match='moment-grid-jacobian-v1'):
+        ray_refinement(ctx)
+    manifest['capabilities'].append('moment-grid-jacobian-v1')
+    record.write_text(json.dumps(manifest))
+    decision = ray_refinement(ctx)
+    assert decision.changes['VADAT']['VFRAC_FG'] == '0.1'
+    assert 'VFRAC_MOM' not in decision.changes['VADAT']
+    assert decision.evidence['VFRAC_MOM'] == .5
+    assert decision.steps[0].iterations == 2
+    exe.write_bytes(b'unrecorded replacement executable')
+    with pytest.raises(policies.Declined, match='moment-grid-jacobian-v1'):
+        ray_refinement(ctx)
+
+
 def add_guard_stop(model):
     exe=model.parent/'cmf/exe/cmfgen_dev.exe'
     s=exe.read_text().replace("if mode=='population_fail' and", "if mode in ['population_fail','population_guard_fail'] and")

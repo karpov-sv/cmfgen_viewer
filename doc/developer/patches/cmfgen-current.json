@@ -1,16 +1,16 @@
 {
   "schema_version": 1,
-  "captured_at_utc": "2026-10-24T13:25:22.414073+00:00",
+  "captured_at_utc": "2026-10-24T17:36:53.015392+00:00",
   "source_checkout": "~/CMFGEN2023/cur_cmf/",
   "baseline_release": "18jun25",
   "baseline_description": "CMFGEN website release as of 18 Jun 2025; extracted release contents, including documentation changes absent from the archive's Git tree",
   "patch_file": "cmfgen-current.patch",
-  "patch_sha256": "0137e30d96b52f950fcc055dbbb3f03d63048b7186fbae8f88fef0622f4653cf",
+  "patch_sha256": "43a3018242bb18e863788263364a3e0c3b956a2d1848754ac6a047dd9b5eeaed",
   "files": [
     {
       "path": "Makefile_definitions",
       "status": "modified",
-      "sha256": "9d773468992543bf7eb48b294e1c13977ff059bdc76283c645ac20fab1b9e827",
+      "sha256": "953401abb0989f608b034fb8d205b41351b1d196afa767149879fa8d29e52da5",
       "baseline_sha256": "f9a7eb9e8acdb3249b6b19274bf231629449f374dab542d9b6ecd16e39fb8bf3"
     },
     {
@@ -28,7 +28,7 @@
     {
       "path": "new_main/mod_subs/Makefile",
       "status": "modified",
-      "sha256": "40a9f23c6bdd33b3ebeda64d5b0e1204076a440456197995e23bf32a9d593f33",
+      "sha256": "3579af5a79110d38f220961991ba5f681c58003a9d11e75f16423be991e1858d",
       "baseline_sha256": "9d0509b63c624bf8a60885ec890b4b6a1ff70195abf900b88f8569c0f7abab0f"
     },
     {
@@ -36,6 +36,18 @@
       "status": "modified",
       "sha256": "154a9d5212c4c9ccddd084f2a01245f3e8f549d06c5928d39b8ad1e1577b80b2",
       "baseline_sha256": "66dbb28d02c2fa852c366d0ef545d87d6b511fd1b6b46941c2ab6bf72f9c1272"
+    },
+    {
+      "path": "new_main/mod_subs/do_var_cont.f",
+      "status": "modified",
+      "sha256": "7bd8f5a3b565288b938dc84f83eeb468f40b92aa4e1d1a770421b424fb5da0bc",
+      "baseline_sha256": "553f5c44b8df9c527e39a39b7b2d75d7c422d604cf2ac8aae8c77f50d9a89f8f"
+    },
+    {
+      "path": "new_main/mod_subs/init_line_opac_var_v2.f",
+      "status": "modified",
+      "sha256": "e17a2cb8e32352ff36b90c1d4a7a9d21f77750bc6bac57d72402b28c4af1b00c",
+      "baseline_sha256": "b7071275342757fcf2f2bbb06756d8470ce966be997af343f021f953782b046f"
     },
     {
       "path": "new_main/mod_subs/init_population_estimates.f90",
@@ -60,6 +72,12 @@
       "status": "modified",
       "sha256": "57daa1c7936ea81d1f562d93a54c82e961da00c6d170c810509311fb3a775c77",
       "baseline_sha256": "356bf9cb1534992de7ec63ccdee9479c56b5045d66f9aae812680f18a62f43a0"
+    },
+    {
+      "path": "new_main/mod_subs/var_rad_mod.f",
+      "status": "modified",
+      "sha256": "7acc04a04deba1a3541c69219571cc72fb8fe3b62772a3ea0ae1f0cc8e2af0c4",
+      "baseline_sha256": "07cc738b29870e3a0d57e4a7b4ffab633dbc7f08e30329a6c57307d7c3e25e6e"
     },
     {
       "path": "new_main/subs/auto_add_ion.f",
@@ -140,6 +158,36 @@
       "baseline_sha256": "8c4c18a4d6a3f3b474569176fe69f90fa0e2b43c07f45185c4d6c32149be695b"
     },
     {
+      "path": "plane/Makefile",
+      "status": "modified",
+      "sha256": "e86bccec8024ad7b7c8a8435efcf6d0a492f30cffb245f8e6e2d8d5d5d08fec5",
+      "baseline_sha256": "377c88016fa2cf8681f89e87c3a4638f740feeb41caa4821e87f63f8c28f8905"
+    },
+    {
+      "path": "plane/get_moms_non_rel.f",
+      "status": "modified",
+      "sha256": "5562460455acfe464d41925496c554ac074fb0d6661028743875b233cf90f2e4",
+      "baseline_sha256": "f1a53867356b2d913967d75fe783d25a0aaf26c68879d2ebee688f5819346656"
+    },
+    {
+      "path": "plane/mod_var_mom_j_cmf.f",
+      "status": "modified",
+      "sha256": "f2b4e12c5a0b45d3431972b4cc9462c758b47c063e1fbed4a19d4e80b031445f",
+      "baseline_sha256": "79ab5008f85101c6a7745245690ebfff58813e2f639d99d3b18ce46f55cb9f6b"
+    },
+    {
+      "path": "plane/mom_j_cmf_v11.f",
+      "status": "modified",
+      "sha256": "f360dfff1e49272df93bf7c5ff21c75cf2f581130472a307f9190872014598e4",
+      "baseline_sha256": "1c82188bdfedb8dd85e93ffcc7ee4d2c7e35cd3d43b8dec519bcd77df3e59c2e"
+    },
+    {
+      "path": "plane/var_mom_j_cmf_v12.f",
+      "status": "modified",
+      "sha256": "b449d42eef54d5680f4df28decf10260fc9673de1c6859e6082a00022d78d86b",
+      "baseline_sha256": "c052f3efa4283a2fe44bed59e101f3fc86bc4d9d098557437fa2f386756f91a8"
+    },
+    {
       "path": "stark/get_prof_storage_limits.f",
       "status": "modified",
       "sha256": "8f251f11a7e00e0c0b438dfeca60a16bafed219775a1bfb5e1b7ef359795355c",
@@ -152,10 +200,22 @@
       "baseline_sha256": "2b2d2205619526bdc229d78189f6ca459fdc759ac8de3c3112a0782d450fa877"
     },
     {
+      "path": "subs/edd_j_var_v6.f",
+      "status": "modified",
+      "sha256": "a985e609cace5d130dbc971c424c234e44aa36ad8bba1f892169adafed200532",
+      "baseline_sha256": "6e221567f95b0bfb2a574440e449d2a8c4145161d74f4cf993ddd1dc4acfb48e"
+    },
+    {
       "path": "subs/regrid_t_ed_v3.f",
       "status": "modified",
       "sha256": "b0a60352a8d846fa4638ba136dacfc157956bd2f9a33d7c78f8723780d2428a0",
       "baseline_sha256": "66e6b83e558e1418ae655d753263a854e62439ea1367432e4ec2e33297ddf43e"
+    },
+    {
+      "path": "subs/up_tx_tvx_v2.f",
+      "status": "modified",
+      "sha256": "33c743f272740eb3816f80ecdee238ba018af95e8c3556b38ace6696a41e2f04",
+      "baseline_sha256": "babd1775dc1caf6216b1046b9f62377d059ede8892bc94359b97d5e964b75d30"
     }
   ],
   "excluded_untracked_categories": [
@@ -167,25 +227,35 @@
   ],
   "verification": "git apply --check and application against baseline contents; every patched file verified by SHA-256",
   "validated_patch_roundtrip": true,
+  "moment_grid_validation": {
+    "capability": "moment-grid-jacobian-v1",
+    "report": "../cmfgen-inserted-moment-grid.md",
+    "scope": "Native frozen-ray transport and production variation wrapper; no new atmosphere convergence claim",
+    "evidence_directory": "/Users/karpov/sciwork/cmfgen_viewer/models/test/.model_Bstar3502-diagnostics/moment-grid-fix-v1"
+  },
   "installed_build": {
     "schema_version": 1,
-    "recorded_at_utc": "2026-10-24T13:52:10.699726+00:00",
+    "recorded_at_utc": "2026-10-24T17:37:03.506894+00:00",
     "source_checkout": "/Users/karpov/CMFGEN2023/cur_cmf",
-    "source_patch_sha256": "0137e30d96b52f950fcc055dbbb3f03d63048b7186fbae8f88fef0622f4653cf",
+    "source_patch_sha256": "43a3018242bb18e863788263364a3e0c3b956a2d1848754ac6a047dd9b5eeaed",
     "capabilities": [
       "line-jacobian-v1",
       "ba-restart-v1",
       "lte-charge-v1",
       "grey-intensity-guard-v1",
-      "ng-temperature-v1"
+      "ng-temperature-v1",
+      "moment-grid-jacobian-v1"
     ],
     "sources": {
       "new_main/cmfgen_sub.f": "c6b46473a9c45a3917e14d661c787f8d09d3c89ea037ef0169ebf8e5cdc45cc1",
       "new_main/mod_subs/comp_grey_v4.f": "154a9d5212c4c9ccddd084f2a01245f3e8f549d06c5928d39b8ad1e1577b80b2",
+      "new_main/mod_subs/do_var_cont.f": "7bd8f5a3b565288b938dc84f83eeb468f40b92aa4e1d1a770421b424fb5da0bc",
+      "new_main/mod_subs/init_line_opac_var_v2.f": "e17a2cb8e32352ff36b90c1d4a7a9d21f77750bc6bac57d72402b28c4af1b00c",
       "new_main/mod_subs/init_population_estimates.f90": "cf7cea0b4972cf775d69155781934e82eceb0227b625273f091a49608f9095b0",
       "new_main/mod_subs/mod_lev_dis_blk.f": "7a804e51d6b0d5349a7c9b71a818306c66415f72f9ae7e98ce57a4f5668dc1dd",
       "new_main/mod_subs/rd_control_variables.f": "70671200c08a15f3274c0762cae3a380bc05c63e0c63b1d5ca8612fcfcce2618",
       "new_main/mod_subs/set_new_model_estimates.f": "57daa1c7936ea81d1f562d93a54c82e961da00c6d170c810509311fb3a775c77",
+      "new_main/mod_subs/var_rad_mod.f": "7acc04a04deba1a3541c69219571cc72fb8fe3b62772a3ea0ae1f0cc8e2af0c4",
       "new_main/subs/auto_add_ion.f": "060bfc141825830439d5f44334b089f200b90f978d4d90d05538395602f9a132",
       "new_main/subs/det_lte_ed.f": "db5c0780a776c4f8eb9855ba8f327d3e8bc5850fd2d124d7f99f007c31d9ff09",
       "new_main/subs/do_ng_accel_band_v4.f": "046f7e99fe8fd9d6c7d283f7485793b4484249c2e3323828189a6013aed7200f",
@@ -199,17 +269,23 @@
       "newsubs/rdphot_gen_v2.f": "21432fa96aa28a40b3fd876a6697c02725110375418fdd320562f5924e3a259e",
       "obs/cmf_flux_sub_v5.f": "4a1d33f3feabc864c8bbfead16aaecb8e31db78adeb1e498b6d541817f3d19ed",
       "opac/par_opac_sub.f": "ecba7a6a0e4e2b3b7de6038285a9d993d168bab824efb55d3ebb542ad6536063",
+      "plane/get_moms_non_rel.f": "5562460455acfe464d41925496c554ac074fb0d6661028743875b233cf90f2e4",
+      "plane/mod_var_mom_j_cmf.f": "f2b4e12c5a0b45d3431972b4cc9462c758b47c063e1fbed4a19d4e80b031445f",
+      "plane/mom_j_cmf_v11.f": "f360dfff1e49272df93bf7c5ff21c75cf2f581130472a307f9190872014598e4",
+      "plane/var_mom_j_cmf_v12.f": "b449d42eef54d5680f4df28decf10260fc9673de1c6859e6082a00022d78d86b",
       "stark/get_prof_storage_limits.f": "8f251f11a7e00e0c0b438dfeca60a16bafed219775a1bfb5e1b7ef359795355c",
       "stark/get_prof_storage_limits_v2.f": "4cf0b642b80aab77bde55f4bf4ee3d762d5d92e2102fdd710af76d85aa554eac",
-      "subs/regrid_t_ed_v3.f": "b0a60352a8d846fa4638ba136dacfc157956bd2f9a33d7c78f8723780d2428a0"
+      "subs/edd_j_var_v6.f": "a985e609cace5d130dbc971c424c234e44aa36ad8bba1f892169adafed200532",
+      "subs/regrid_t_ed_v3.f": "b0a60352a8d846fa4638ba136dacfc157956bd2f9a33d7c78f8723780d2428a0",
+      "subs/up_tx_tvx_v2.f": "33c743f272740eb3816f80ecdee238ba018af95e8c3556b38ace6696a41e2f04"
     },
     "executables": {
       "cmfgen_dev.exe": {
-        "sha256": "c1be1f22fc5bae65fca03657360be29750603e0e8363e6d119141d2c15f3cfc1",
-        "size": 2906592
+        "sha256": "ff678bc4bc57908e31096d7eeb26d101e645249eb540b3b4624091a3d024c467",
+        "size": 2941376
       },
       "cmf_flux.exe": {
-        "sha256": "af861d4bc783f56e53de82b0f40575154a0038cd4be516387857b94af57432c5",
+        "sha256": "8543644fae1b98b08f0b226ad142a9137e5f4b3c27e5c633a23f7b07ee54b57c",
         "size": 1323424
       },
       "obs_frame.exe": {
@@ -218,7 +294,7 @@
       }
     },
     "meaning": "Verified source snapshot and rebuild ordering; not a model-convergence certificate.",
-    "build_evidence": "/var/folders/wl/wfbkqm_s6bg4vj9w04rdml4m0000gn/T/cmfgen-promote-20261024-fjp0tjea",
+    "build_evidence": "/Users/karpov/sciwork/cmfgen_viewer/models/test/.model_Bstar3502-diagnostics/moment-grid-fix-v1",
     "final_link_commands": [
       {
         "cwd": "/Users/karpov/CMFGEN2023/cur_cmf/new_main",

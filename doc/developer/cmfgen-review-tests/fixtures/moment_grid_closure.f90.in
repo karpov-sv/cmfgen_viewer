@@ -1,0 +1,205 @@
+! Actual MOM/VAR routines and native interpolation/linear algebra; only TUNE is stubbed.
+program moment_grid_closure
+use set_kind_module
+use mod_ray_mom_store
+use mod_mom_j_v11, only: nfine=>nd
+#ifdef MOM_GRID_FIX
+use mod_mom_j_v11, only: rf=>r,vf=>v,sigf=>sigma,chif=>chi,esf=>esec, &
+ grid_tx,grid_tvx,grid_dt,grid_dg,grid_ht,grid_hg,grid_ki,grid_wm,grid_rhs, &
+ grid_esc,grid_esc_h,grid_eta,grid_theta,grid_pchi,grid_peta,grid_pesc,r_pnt, &
+ j_indx,h_indx,log_r_sm,allocate_mom_variations,clear_mom_variation
+#endif
+use mod_var_mom_j_cmf, only: jvar=>jnu,hvar=>rsq_hnu
+implicit none
+integer,parameter::n=7,nm=3,nfreq=3
+integer::ns,i,k,u,perturb,depth,atfreq,nodalmode,bc,repeat,profile,cohflag,outer
+real(ldp)::r(n),v(n),sigma(n),chi(n),eta(n),es(n),theta(n),vdop(n),j(n),h(n)
+real(ldp)::tx(n,n,nm),tvx(n-1,n,nm),ki(n,n,2),wm(n,n),rhs(n-1,n)
+real(ldp)::dt(n),dg(n),ht(n-1),hg(n-1),fraction,delta,nu,dbb,ratio,x,clock
+real(ldp)::factor_view(n,6),esc_j(n,n),esc_h(n-1,n),external_j(n),current_fraction
+real(ldp),allocatable::fine_saved(:,:),prev_saved(:,:)
+logical::selected(nm),init,coherent,field_only
+character(64)::arg,mode
+character(6)::ntype,method
+character(16)::inner
+call get_command_argument(1,arg);read(arg,*)fraction
+call get_command_argument(2,ntype)
+call get_command_argument(3,arg);read(arg,*)ns
+call get_command_argument(4,arg);read(arg,*)nodalmode
+call get_command_argument(5,arg);read(arg,*)bc
+call get_command_argument(6,arg);read(arg,*)perturb
+call get_command_argument(7,arg);read(arg,*)depth
+call get_command_argument(8,arg);read(arg,*)atfreq
+call get_command_argument(9,arg);read(arg,*)delta
+call get_command_argument(10,mode)
+field_only=trim(mode)=='field'
+method='ZERO';call get_command_argument(11,arg);if(len_trim(arg)>0)method=trim(arg)
+profile=0;call get_command_argument(12,arg);if(len_trim(arg)>0)read(arg,*)profile
+cohflag=1;call get_command_argument(13,arg);if(len_trim(arg)>0)read(arg,*)cohflag
+outer=1;call get_command_argument(14,arg);if(len_trim(arg)>0)read(arg,*)outer
+r=[10._ldp,8.5_ldp,7._ldp,5.5_ldp,4._ldp,2.5_ldp,1._ldp]
+v=15._ldp+10._ldp*(r-1._ldp);sigma=10._ldp*r/v-1._ldp;vdop=17.5_ldp
+nd_store=ns
+allocate(r_store(ns),rmid_store(ns),ext_rmid_store(ns+1),jnu_store(ns), &
+         knu_store(ns),hnu_store(ns),nnu_store(ns))
+r_store=[(10._ldp-9._ldp*real(i-1,ldp)/real(ns-1,ldp),i=1,ns)]
+rmid_store=0
+rmid_store(1:ns-1)=.5_ldp*(r_store(1:ns-1)+r_store(2:ns))
+ext_rmid_store(1)=r_store(1);ext_rmid_store(2:ns)=rmid_store(1:ns-1);ext_rmid_store(ns+1)=r_store(ns)
+hn_def_on_nodes=nodalmode==1
+inner='PNT_SRCE'
+if(bc==2)inner='ZERO_FLUX'
+if(bc==3)inner='DIFFUSION'
+if(bc==4)inner='SCHUSTER'
+coherent=cohflag==1;selected=.true.
+external_j=.8_ldp*(1/r**2+.01_ldp)
+tx=0;tvx=0;dt=0;dg=0;ht=0;hg=0
+open(newunit=u,file='output.bin',access='stream',form='unformatted',status='replace')
+do k=1,nfreq
+ nu=exp(-.01_ldp*real(k-1,ldp));init=k==1
+ current_fraction=fraction
+ if(trim(mode)=='rebuild')then
+  init=.true.
+  if(k==2)current_fraction=.02_ldp
+  if(k==3)current_fraction=20000._ldp
+ endif
+ chi=.2_ldp+.05_ldp*r;eta=(.05_ldp+.01_ldp*r)*(1+.03_ldp*k);es=.03_ldp+.001_ldp*r
+ if(profile==1)then
+  chi(3)=chi(3)*2.3_ldp;eta(5)=eta(5)*.12_ldp;es(4)=es(4)*1.6_ldp
+ endif
+ if(k==atfreq)then
+  if(perturb==1)chi(depth)=chi(depth)*(1+delta)
+  if(perturb==2)eta(depth)=eta(depth)*(1+delta)
+  if(perturb==5)then
+   chi(depth)=chi(depth)+es(depth)*delta
+   es(depth)=es(depth)*(1+delta)
+  endif
+ endif
+ if(.not.coherent)eta=eta+es*external_j
+ theta=0
+ if(coherent)theta=es/chi
+ jnu_store=1/r_store**2+.01_ldp
+ knu_store=jnu_store*(.34_ldp+.12_ldp*(r_store-1)/9+.015_ldp*k)
+ if(hn_def_on_nodes)then
+  hnu_store=jnu_store*(.15_ldp+.04_ldp*(r_store-1)/9)
+  nnu_store=hnu_store*(.2_ldp+.05_ldp*(r_store-1)/9+.01_ldp*k)
+ else
+  hnu_store=0;nnu_store=0
+  hnu_store(1:ns-1)=(1/rmid_store(1:ns-1)**2+.01_ldp)*(.15_ldp+.04_ldp*(rmid_store(1:ns-1)-1)/9)
+  nnu_store(1:ns-1)=hnu_store(1:ns-1)*(.2_ldp+.05_ldp*(rmid_store(1:ns-1)-1)/9+.01_ldp*k)
+ endif
+ hnu_at_ob=(1/r(1)**2+.01_ldp)*.19_ldp;nnu_at_ob=hnu_at_ob*(.25_ldp+.01_ldp*k)
+ hnu_at_ib=(1/r(n)**2+.01_ldp)*.15_ldp;nnu_at_ib=hnu_at_ib*(.2_ldp+.01_ldp*k)
+ hbc=.19_ldp;nbc=.25_ldp+.01_ldp*k;in_hbc=.1_ldp
+ jplus_ib=2._ldp;jmin_ib=.2_ldp
+ dbb=.02_ldp
+ if(perturb==3)dbb=dbb+.03_ldp*delta
+ if(perturb==4)dbb=dbb+.02_ldp/.7_ldp*delta
+ call mom_j_cmf_v11(eta,chi,es,v,sigma,r,j,h,vdop,current_fraction,nu,.01_ldp, &
+      inner,dbb,1._ldp,100._ldp,ntype,'NONE',method,coherent,outer,init,.true.,2,n+2,n)
+ if(trim(mode)=='repeat')then
+  call mom_j_cmf_v11(eta,chi,es,v,sigma,r,j,h,vdop,current_fraction,nu,.01_ldp, &
+       inner,dbb,1._ldp,100._ldp,ntype,'NONE',method,coherent,outer,init,.false.,2,n+2,n)
+ endif
+ if(allocated(fine_saved))deallocate(fine_saved,prev_saved)
+ allocate(fine_saved(nfine,6),prev_saved(nfine,3))
+ fine_saved(:,1)=k_on_j;fine_saved(:,2)=nmid_on_hmid;fine_saved(:,3)=nmid_on_j
+ fine_saved(:,4)=k_on_j_save;fine_saved(:,5)=nmid_on_hmid_save;fine_saved(:,6)=nmid_on_j_save
+ prev_saved(:,1)=k_on_j_prev;prev_saved(:,2)=nmid_on_hmid_prev;prev_saved(:,3)=nmid_on_j_prev
+
+ factor_view(:,1)=k_on_j(1:n);factor_view(:,2)=nmid_on_hmid(1:n);factor_view(:,3)=nmid_on_j(1:n)
+ factor_view(:,4)=k_on_j_prev(1:n);factor_view(:,5)=nmid_on_hmid_prev(1:n);factor_view(:,6)=nmid_on_j_prev(1:n)
+
+ if(.not.field_only)then
+  tx(:,:,1:2)=0;tvx(:,:,1:2)=0
+#ifdef MOM_GRID_FIX
+  if(nfine>n)then
+   call allocate_mom_variations(n,nm,init)
+   grid_tx(:,:,1:2)=0;grid_tvx(:,:,1:2)=0
+   call mon_log_grid_jac(chi,chif,r,log_r_sm,rf,r_pnt,n,nfine,grid_pchi)
+   call mon_log_grid_value(eta,r,log_r_sm,rf,r_pnt,n,nfine,grid_eta)
+   call mon_log_grid_jac(eta,grid_eta,r,log_r_sm,rf,r_pnt,n,nfine,grid_peta)
+   call mon_log_grid_jac(es,esf,r,log_r_sm,rf,r_pnt,n,nfine,grid_pesc)
+   grid_theta=0
+   if(coherent)grid_theta=esf/chif
+   call var_mom_j_grid_v1(grid_eta,chif,esf,grid_theta,vf,sigf,rf, &
+        grid_tx,grid_tvx,grid_dt,grid_dg,grid_ht,grid_hg,grid_ki,grid_wm,grid_rhs, &
+        init,.01_ldp,inner,.7_ldp,dbb,.03_ldp,1._ldp,100._ldp,nu,'NONE',outer,selected,method, &
+        nfine,n,nm,2,grid_pchi,grid_peta,grid_pesc,r_pnt,grid_esc,grid_esc_h)
+   do i=1,n
+    tx(:,i,:)=grid_tx(j_indx(:),i,:)
+    tvx(:,i,:)=grid_tvx(h_indx(1:n-1),i,:)
+   enddo
+   dt=grid_dt(j_indx(:));dg=grid_dg(j_indx(:));ht=grid_ht(h_indx(1:n-1));hg=grid_hg(h_indx(1:n-1))
+  else
+  call var_mom_j_cmf_v12(eta,chi,es,theta,v,sigma,r,tx,tvx,dt,dg,ht,hg,ki,wm,rhs, &
+       init,.01_ldp,inner,.7_ldp,dbb,.03_ldp,1._ldp,100._ldp,nu,'NONE',outer,selected,method,n,nm,2)
+  endif
+#else
+  call var_mom_j_cmf_v12(eta,chi,es,theta,v,sigma,r,tx,tvx,dt,dg,ht,hg,ki,wm,rhs, &
+       init,.01_ldp,inner,.7_ldp,dbb,.03_ldp,1._ldp,100._ldp,nu,'NONE',outer,selected,method,n,nm,2)
+#endif
+  if(any(fine_saved(:,1)/=k_on_j).or.any(fine_saved(:,2)/=nmid_on_hmid).or. &
+     any(fine_saved(:,3)/=nmid_on_j).or.any(fine_saved(:,4)/=k_on_j_save).or. &
+     any(fine_saved(:,5)/=nmid_on_hmid_save).or.any(fine_saved(:,6)/=nmid_on_j_save).or. &
+     any(prev_saved(:,1)/=k_on_j_prev).or.any(prev_saved(:,2)/=nmid_on_hmid_prev).or. &
+     any(prev_saved(:,3)/=nmid_on_j_prev))error stop 'variation mutated transport factors'
+ endif
+ write(u)n,nfine,ns,k
+ write(u)j,h(1:n-1),factor_view,fine_saved,prev_saved
+ if(.not.field_only)then
+#ifdef MOM_GRID_FIX
+  if(nfine>n)then
+   esc_j=tx(:,:,1);esc_h=tvx(:,:,1)
+   if(coherent)then
+    esc_j=esc_j+grid_esc(j_indx(:),:);esc_h=esc_h+grid_esc_h(h_indx(1:n-1),:)
+   else
+    do i=1,n
+     esc_j(:,i)=esc_j(:,i)+tx(:,i,2)*external_j(i)
+     esc_h(:,i)=esc_h(:,i)+tvx(:,i,2)*external_j(i)
+    enddo
+   endif
+   write(u)jvar(j_indx(:)),hvar(h_indx(1:n-1)),tx,tvx,dt,dg,ht,hg,esc_j,esc_h
+  else
+   do i=1,n
+    x=jvar(i)
+    if(.not.coherent)x=external_j(i)
+    esc_j(:,i)=tx(:,i,1)+tx(:,i,2)*x
+    esc_h(:,i)=tvx(:,i,1)+tvx(:,i,2)*x
+   enddo
+   write(u)jvar,hvar(1:n-1),tx,tvx,dt,dg,ht,hg,esc_j,esc_h
+  endif
+#else
+   do i=1,n
+    x=jvar(i)
+    if(.not.coherent)x=external_j(i)
+    esc_j(:,i)=tx(:,i,1)+tx(:,i,2)*x
+    esc_h(:,i)=tvx(:,i,1)+tvx(:,i,2)*x
+   enddo
+   write(u)jvar,hvar(1:n-1),tx,tvx,dt,dg,ht,hg,esc_j,esc_h
+#endif
+  if(k==1)then
+   tx(:,:,3)=tx(:,:,1);tvx(:,:,3)=tvx(:,:,1)
+#ifdef MOM_GRID_FIX
+   if(nfine>n)then
+    grid_tx(:,:,3)=grid_tx(:,:,1);grid_tvx(:,:,3)=grid_tvx(:,:,1)
+   endif
+#endif
+  endif
+ endif
+enddo
+#ifdef MOM_GRID_FIX
+if(trim(mode)=='clear'.and.nfine>n)then
+ grid_tx(:,:,3)=1;grid_tvx(:,:,3)=2
+ call clear_mom_variation(3)
+ if(any(grid_tx(:,:,3)/=0).or.any(grid_tvx(:,:,3)/=0))error stop 'reused fine line slot not cleared'
+endif
+#endif
+close(u)
+end program
+
+subroutine tune(i,name)
+implicit none
+integer::i
+character(*)::name
+end subroutine

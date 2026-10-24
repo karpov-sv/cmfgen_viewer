@@ -20,10 +20,14 @@ diff --git a/Makefile_definitions b/Makefile_definitions
  COMPILER=gcc
  DEBUG=nodebug
  
-@@ -27,6 +28,10 @@
+@@ -27,6 +28,14 @@
  
  ifeq ($(HOST),crc)
  INSTALL_DIR=$(HOME)/cur_cmf/
++endif
++
++ifeq ($(HOST),ubuntu)
++INSTALL_DIR=$(HOME)/CMFGEN2023/cur_cmf.25/
 +endif
 +
 +ifeq ($(HOST),macos)
@@ -31,7 +35,7 @@ diff --git a/Makefile_definitions b/Makefile_definitions
  endif
  
  ifeq ($(DEBUG),nodebug)
-@@ -42,10 +47,10 @@
+@@ -42,10 +51,10 @@
  endif
  
  ifeq ($(COMPILE_OPT),crc_gcc_nodebug)
@@ -45,7 +49,7 @@ diff --git a/Makefile_definitions b/Makefile_definitions
   FFREE  = -O -fno-backslash -I$(MOD_DIR) -J$(MOD_DIR)
   FFRED  = -g -fno-backslash -O0 -I$(MOD_DIR) -J$(MOD_DIR)
   BLAS=
-@@ -58,8 +63,8 @@
+@@ -58,8 +67,8 @@
  ifeq ($(COMPILE_OPT),crc_gcc_debug)
   F90 = gfortran -fopenmp -m64
   F90nomp = gfortran -m64
@@ -56,7 +60,7 @@ diff --git a/Makefile_definitions b/Makefile_definitions
   FFREE  = -g -fno-backslash -O0 -I$(MOD_DIR) -J$(MOD_DIR)
   FFRED  = -g -fno-backslash -O0 -I$(MOD_DIR) -J$(MOD_DIR)
   BLAS=
-@@ -97,3 +102,39 @@
+@@ -97,3 +106,39 @@
   PGLIB=-L$(PGPLOT_DIR) -lpgplot
  endif
  
@@ -156,6 +160,24 @@ diff --git a/new_main/mod_subs/Makefile b/new_main/mod_subs/Makefile
  $(MOD_LIB)(%.o) : %.f90
  	$(F90) -c $(FFREE) $<
  	ar $(AR_OPTION) $(LIB_MOD) $*.o
+@@ -117,7 +122,7 @@
+ 
+ $(LIB)(do_var_cont.o) : do_var_cont.f $(LIB)(opac_mod.o) $(LIB_MOD)(control_variable_mod.o)\
+              $(LIB_MOD)(line_mod.o) $(LIB_MOD)(var_rad_mod.o) $(LIB_MOD)(radiation_mod.o) $(LIB_MOD)(mod_cmfgen.o)\
+-             $(LIB_MOD)(ang_qw_mod.o)
++             $(LIB_MOD)(ang_qw_mod.o) $(LIB)(mom_j_cmf_v11.o)
+ 	$(F90) -c $(OPTION) do_var_cont.f
+ 	ar $(AR_OPTION) $(LIB) do_var_cont.o
+                                                                                                                       
+@@ -131,7 +136,7 @@
+ 	ar $(AR_OPTION) $(LIB) grey_t_iterate.o
+                                                                                                                       
+ $(LIB)(init_line_opac_var_v2.o) : init_line_opac_var_v2.f $(LIB)(opac_mod.o) $(LIB_MOD)(control_variable_mod.o)\
+-             $(LIB_MOD)(line_mod.o) $(LIB_MOD)(mod_cmfgen.o) $(LIB_MOD)(var_rad_mod.o)
++             $(LIB_MOD)(line_mod.o) $(LIB_MOD)(mod_cmfgen.o) $(LIB_MOD)(var_rad_mod.o) $(LIB)(mom_j_cmf_v11.o)
+ 	$(F90) -c $(OPTION) init_line_opac_var_v2.f
+ 	ar $(AR_OPTION) $(LIB) init_line_opac_var_v2.o
+                                                                                                                       
 @@ -162,7 +167,7 @@
  	$(F90) -c $(OPTION) set_line_opac.f
  	ar $(AR_OPTION) $(LIB) set_line_opac.o
@@ -165,6 +187,15 @@ diff --git a/new_main/mod_subs/Makefile b/new_main/mod_subs/Makefile
                $(LIB_MOD)(line_mod.o) $(LIB_MOD)(line_vec_mod.o) $(LIB_MOD)(mod_cmfgen.o) $(LIB_MOD)(ang_qw_mod.o)
  	$(F90) -c $(OPTION) set_new_model_estimates.f
  	ar $(AR_OPTION) $(LIB) set_new_model_estimates.o
+@@ -193,3 +198,8 @@
+ 
+ clean :
+ 	rm -f *.o 
++
++# The nonrelativistic moment solver owns the refined-response module.
++# This directory is also built before plane/ in a top-level serial build.
++$(LIB)(mom_j_cmf_v11.o) : ../../plane/mom_j_cmf_v11.f
++	$(MAKE) -C ../../plane '$(LIB)(mom_j_cmf_v11.o)'
 diff --git a/new_main/mod_subs/comp_grey_v4.f b/new_main/mod_subs/comp_grey_v4.f
 --- a/new_main/mod_subs/comp_grey_v4.f
 +++ b/new_main/mod_subs/comp_grey_v4.f
@@ -190,6 +221,324 @@ diff --git a/new_main/mod_subs/comp_grey_v4.f b/new_main/mod_subs/comp_grey_v4.f
  	  TGREY(I)=((PI/5.67E-05_LDP*RJ(I))**0.25_LDP)*1.0E-04_LDP
  	END DO
  !
+diff --git a/new_main/mod_subs/do_var_cont.f b/new_main/mod_subs/do_var_cont.f
+--- a/new_main/mod_subs/do_var_cont.f
++++ b/new_main/mod_subs/do_var_cont.f
+@@ -36,6 +36,10 @@
+ 	USE RADIATION_MOD
+ 	USE VAR_RAD_MOD
+ 	USE CONTROL_VARIABLE_MOD
++	USE MOD_MOM_J_V11, ONLY: MOM_ND=>ND,GRID_TX,GRID_TVX,GRID_DT,GRID_DG,GRID_HT,GRID_HG,
++	1      GRID_KI,GRID_RHS,GRID_WM,GRID_ESC,GRID_ESC_H,GRID_ETA,GRID_THETA,GRID_PCHI,GRID_PETA,GRID_PESC,
++	1      MOM_R=>R,MOM_V=>V,MOM_SIGMA=>SIGMA,MOM_CHI=>CHI,MOM_ESEC=>ESEC,
++	1      R_PNT,J_INDX,H_INDX,LOG_R_SM,MODEL_FREQ,MODEL_GRID_VALID,ALLOCATE_MOM_VARIATIONS
+ 	IMPLICIT NONE
+ !
+ ! Altered 26-Jun-2020 : Fixed bug related when H- is present.
+@@ -79,6 +83,9 @@
+ ! Local variables
+ !
+ 	REAL(KIND=LDP) T1
++	REAL(KIND=LDP), POINTER :: TXW(:,:,:),TVXW(:,:,:)
++	INTEGER NROW,ERROR_LU
++	EXTERNAL ERROR_LU
+ 	INTEGER X_INDX
+ 	INTEGER I,J,L,K
+ 	INTEGER NL,NUP
+@@ -196,9 +203,28 @@
+ ! 
+ !
+ 	  ELSE IF(CONT_VEL .AND. .NOT. ACCURATE)THEN
++	    TXW=>TX; TVXW=>TVX; NROW=ND
++	    IF(.NOT.PLANE_PARALLEL .AND. .NOT.USE_J_REL .AND. .NOT.USE_LAM_ES .AND.
++	1      .NOT.USE_DJDT_RTE .AND. MOM_ND.GT.ND)THEN
++	      IF(MIXED_ES_VAR .AND. .NOT.COHERENT_ES)THEN
++	        I=ERROR_LU(); WRITE(I,*)'Inserted moment variations do not support MIX_COH'
++	        STOP
++	      END IF
++	      IF(.NOT.MODEL_GRID_VALID .OR. SIZE(LOG_R_SM).NE.ND)THEN
++	        I=ERROR_LU(); WRITE(I,*)'Missing/mismatched refined moment model grid'
++	        STOP
++	      END IF
++	      IF(ANY(LOG(R).NE.LOG_R_SM))THEN
++	        I=ERROR_LU(); WRITE(I,*)'Wrong model radii in refined moment variations'
++	        STOP
++	      END IF
++	      CALL ALLOCATE_MOM_VARIATIONS(ND,NM,FIRST_FREQ)
++	      TXW=>GRID_TX; TVXW=>GRID_TVX; NROW=MOM_ND
++	    END IF
++
+ 	    IF(FIRST_FREQ)THEN
+-	      TX(:,:,:)=0.0_LDP
+-	      TVX(:,:,:)=0.0_LDP
++	      TXW(:,:,:)=0.0_LDP
++	      TVXW(:,:,:)=0.0_LDP
+ 	      dJ_DIF_d_T(:)=0.0_LDP
+ 	      dJ_DIF_d_dTdR(:)=0.0_LDP
+ 	      dRSQH_DIF_d_T=0.0_LDP
+@@ -227,19 +253,19 @@
+ !$OMP PARALLEL DO PRIVATE(J,K,T1)
+ 	      DO J=1,ND
+ 	        T1=ETA_CONT(J)*HDKT*(FL_OLD-FL)/T(J)/T(J)
+-	        DO K=1,ND
+-	          TX(K,J,3)=TX(K,J,3) * TA(J)
+-	          TX(K,J,4)=TX(K,J,4) * TB(J)
+-	          TX(K,J,6)=TX(K,J,6) + TX(K,J,4)*T1
++	        DO K=1,NROW
++	          TXW(K,J,3)=TXW(K,J,3) * TA(J)
++	          TXW(K,J,4)=TXW(K,J,4) * TB(J)
++	          TXW(K,J,6)=TXW(K,J,6) + TXW(K,J,4)*T1
+ 	        END DO
+ 	      END DO
+ !$OMP PARALLEL DO PRIVATE(J,K,T1)
+ 	      DO J=1,ND
+ 	        T1=ETA_CONT(J)*HDKT*(FL_OLD-FL)/T(J)/T(J)
+-	        DO K=1,ND-1
+-	          TVX(K,J,3)=TVX(K,J,3) * TA(J)
+-	          TVX(K,J,4)=TVX(K,J,4) * TB(J)
+-	          TVX(K,J,6)=TVX(K,J,6) + TVX(K,J,4)*T1
++	        DO K=1,NROW-1
++	          TVXW(K,J,3)=TVXW(K,J,3) * TA(J)
++	          TVXW(K,J,4)=TVXW(K,J,4) * TB(J)
++	          TVXW(K,J,6)=TVXW(K,J,6) + TVXW(K,J,4)*T1
+ 	        END DO
+ 	      END DO
+ 	    END IF
+@@ -340,15 +366,33 @@
+ 	1           INNER_BND_METH,OUTER_BND_METH,
+ 	1           ND,NM,NM_KI)
+ 	   ELSE
++	    IF(NROW.GT.ND)THEN
++	      IF(.NOT.MODEL_GRID_VALID .OR. MODEL_FREQ.NE.FL)THEN
++	        I=ERROR_LU(); WRITE(I,*)'Stale refined moment solution in DO_VAR_CONT'
++	        STOP
++	      END IF
++	      CALL MON_LOG_GRID_JAC(CHI_CLUMP,MOM_CHI,R,LOG_R_SM,MOM_R,R_PNT,ND,NROW,GRID_PCHI)
++	      CALL MON_LOG_GRID_VALUE(TA,R,LOG_R_SM,MOM_R,R_PNT,ND,NROW,GRID_ETA)
++	      CALL MON_LOG_GRID_JAC(TA,GRID_ETA,R,LOG_R_SM,MOM_R,R_PNT,ND,NROW,GRID_PETA)
++	      CALL MON_LOG_GRID_JAC(CHI_SCAT_CLUMP,MOM_ESEC,R,LOG_R_SM,MOM_R,R_PNT,ND,NROW,GRID_PESC)
++	      GRID_THETA=0.0_LDP
++	      IF(COHERENT_ES)GRID_THETA=MOM_ESEC/MOM_CHI
++	      CALL VAR_MOM_J_GRID_V1(GRID_ETA,MOM_CHI,MOM_ESEC,GRID_THETA,MOM_V,MOM_SIGMA,MOM_R,
++	1        TXW,TVXW,GRID_DT,GRID_DG,GRID_HT,GRID_HG,GRID_KI,GRID_WM,GRID_RHS,
++	1        FIRST_FREQ,dLOG_NU,INNER_BND_METH,dTdR,DBB,dDBBdT,IC,IB_STAB_FACTOR,
++	1        FL,H_CHK_OPTION,OUT_BC_TYPE,DO_THIS_TX_MATRIX,METHOD,NROW,ND,NM,2,
++	1        GRID_PCHI,GRID_PETA,GRID_PESC,R_PNT,GRID_ESC,GRID_ESC_H)
++	    ELSE
+ 	    CALL VAR_MOM_J_CMF_V12(TA,CHI_CLUMP,CHI_SCAT_CLUMP,
+ 	1           ES_COH_VEC,V,SIGMA,R,
+-	1           TX,TVX,dJ_DIF_d_T,dJ_DIF_d_dTdR,
++	1           TXW,TVXW,dJ_DIF_d_T,dJ_DIF_d_dTdR,
+ 	1           dRSQH_DIF_d_T,dRSQH_DIF_d_dTdR,
+ 	1           KI,WM,RHS_dHdCHI,
+ 	1           FIRST_FREQ,dLOG_NU,
+ 	1           INNER_BND_METH,dTdR,DBB,dDBBdT,IC,IB_STAB_FACTOR,
+ 	1           FL,H_CHK_OPTION,OUT_BC_TYPE,DO_THIS_TX_MATRIX,
+ 	1           METHOD,ND,NM,NM_KI)
++	    END IF
+ 	   END IF
+ 	   CALL TUNE(2,'VAR_MOM_J')
+ !
+@@ -357,16 +401,18 @@
+ 	    IF(DO_CLUMP_MODEL)THEN
+ !$OMP PARALLEL DO
+ 	      DO J=1,ND
+-	        DO K=1,ND
+-	          TX(K,J,1)=TX(K,J,1)*CLUMP_FAC(J)
+-	          TX(K,J,2)=TX(K,J,2)*CLUMP_FAC(J)
++	        DO K=1,NROW
++	          TXW(K,J,1)=TXW(K,J,1)*CLUMP_FAC(J)
++	          TXW(K,J,2)=TXW(K,J,2)*CLUMP_FAC(J)
++	          IF(NROW.GT.ND .AND. COHERENT_ES)GRID_ESC(K,J)=GRID_ESC(K,J)*CLUMP_FAC(J)
+ 	        END DO
+ 	      END DO
+ !$OMP PARALLEL DO
+ 	      DO J=1,ND
+-	        DO K=1,ND-1
+-	          TVX(K,J,1)=TVX(K,J,1)*CLUMP_FAC(J)
+-	          TVX(K,J,2)=TVX(K,J,2)*CLUMP_FAC(J)
++	        DO K=1,NROW-1
++	          TVXW(K,J,1)=TVXW(K,J,1)*CLUMP_FAC(J)
++	          TVXW(K,J,2)=TVXW(K,J,2)*CLUMP_FAC(J)
++	          IF(NROW.GT.ND .AND. COHERENT_ES)GRID_ESC_H(K,J)=GRID_ESC_H(K,J)*CLUMP_FAC(J)
+ 	        END DO
+ 	      END DO
+ 	    END IF
+@@ -377,14 +423,14 @@
+ 	   IF(DO_SRCE_VAR_ONLY)THEN
+ 	      DO J=1,ND
+ 	       T1=-ETA_CLUMP(J)/CHI_CLUMP(J)
+-	        DO K=1,ND
+-	          TX(K,J,1)=TX(K,J,2)*T1
++	        DO K=1,NROW
++	          TXW(K,J,1)=TXW(K,J,2)*T1
+ 	        END DO
+ 	      END DO
+ 	      DO J=1,ND
+ 	       T1=-ETA_CLUMP(J)/CHI_CLUMP(J)
+-	        DO K=1,ND-1
+-	          TVX(K,J,1)=TVX(K,J,2)*T1
++	        DO K=1,NROW-1
++	          TVXW(K,J,1)=TVXW(K,J,2)*T1
+ 	        END DO
+ 	      END DO
+ 	   END IF
+@@ -392,10 +438,10 @@
+ !	   K=70
+ !	   T1=CHI(K)-CHI_SCAT(K)
+ !	   WRITE(221,'(12ES16.8)')FL,ETA(K),CHI(K),T1,RJ(K),ETA(K)/T1,
+-!	1             TX(K,K,1),TX(K,K,3),TX(K,K,2),TX(K,K,4),
+-!	1             1.0D0+(TX(K,K,1)+TX(K,K,3))*T1/RJ(K),
+-!	1             (TX(K,K,2)+TX(K,K,4))*T1-1.0D0
+-!	   WRITE(224,'(12ES16.8)')FL,ETA_CONT(K),CHI_CONT(K),T1,RJ(K),TX(K,K,1:6)
++!	1             TXW(K,K,1),TXW(K,K,3),TXW(K,K,2),TXW(K,K,4),
++!	1             1.0D0+(TXW(K,K,1)+TXW(K,K,3))*T1/RJ(K),
++!	1             (TXW(K,K,2)+TXW(K,K,4))*T1-1.0D0
++!	   WRITE(224,'(12ES16.8)')FL,ETA_CONT(K),CHI_CONT(K),T1,RJ(K),TXW(K,K,1:6)
+ !
+ ! We use TB as a temporary vector for J in the electron scattering emissivity.
+ ! Its value depends on whether we have coherent or incoherent e.s.
+@@ -407,25 +453,33 @@
+ 	    END IF
+ !$OMP PARALLEL DO
+ 	    DO J=1,ND
+-	      DO K=1,ND
+-	        TX(K,J,3)=TX(K,J,3) + TX(K,J,1)
+-	        TX(K,J,4)=TX(K,J,4) + TX(K,J,2)
+-	        TX(K,J,5)=TX(K,J,5) + TX(K,J,1) + TX(K,J,2)*TB(J)
++	      DO K=1,NROW
++	        TXW(K,J,3)=TXW(K,J,3) + TXW(K,J,1)
++	        TXW(K,J,4)=TXW(K,J,4) + TXW(K,J,2)
++	        IF(NROW.GT.ND .AND. COHERENT_ES)THEN
++	          TXW(K,J,5)=TXW(K,J,5)+TXW(K,J,1)+GRID_ESC(K,J)
++	        ELSE
++	        TXW(K,J,5)=TXW(K,J,5) + TXW(K,J,1) + TXW(K,J,2)*TB(J)
++	        END IF
+ 	      END DO
+ 	    END DO
+ !$OMP PARALLEL DO
+ 	    DO J=1,ND
+-	      DO K=1,ND-1
+-	        TVX(K,J,3)=TVX(K,J,3) + TVX(K,J,1)
+-	        TVX(K,J,4)=TVX(K,J,4) + TVX(K,J,2)
+-	        TVX(K,J,5)=TVX(K,J,5) + TVX(K,J,1) + TVX(K,J,2)*TB(J)
++	      DO K=1,NROW-1
++	        TVXW(K,J,3)=TVXW(K,J,3) + TVXW(K,J,1)
++	        TVXW(K,J,4)=TVXW(K,J,4) + TVXW(K,J,2)
++	        IF(NROW.GT.ND .AND. COHERENT_ES)THEN
++	          TVXW(K,J,5)=TVXW(K,J,5)+TVXW(K,J,1)+GRID_ESC_H(K,J)
++	        ELSE
++	        TVXW(K,J,5)=TVXW(K,J,5) + TVXW(K,J,1) + TVXW(K,J,2)*TB(J)
++	        END IF
+ 	      END DO
+ 	    END DO
+ !
+ !	   K=70
+ !	   T1=CHI(K)-CHI_SCAT(K)
+ !	   WRITE(225,'(12ES16.8)')FL,ETA(K),CHI(K),T1,RJ(K),ETA(K)/T1,
+-!	1             1.0D0+TX(K,K,3)*T1/RJ(K),TX(K,K,4)*T1-1.0D0,TX(K,K,5)*ESEC(K)/RJ(K)
++!	1             1.0D0+TXW(K,K,3)*T1/RJ(K),TXW(K,K,4)*T1-1.0D0,TXW(K,K,5)*ESEC(K)/RJ(K)
+ !
+ ! Update line variation matrices. Note that the matrices now refer to the
+ ! variation with respect to levels (e.g. the lower and upper level) and
+@@ -448,11 +502,11 @@
+ 	          STIM_FAC=OPAC_FAC*U_STAR_RATIO(J,SIM_INDX)*GLDGU(SIM_INDX)
+ 	          OPAC_FAC=OPAC_FAC*L_STAR_RATIO(J,SIM_INDX)
+ 	          EMIS_FAC=LINE_EMIS_CON(SIM_INDX)*LINE_PROF_SIM(J,SIM_INDX)*U_STAR_RATIO(J,SIM_INDX)
+-	          DO K=1,ND
+-	            TX(K,J,LOW)=TX(K,J,LOW) + OPAC_FAC*TX(K,J,1)
++	          DO K=1,NROW
++	            TXW(K,J,LOW)=TXW(K,J,LOW) + OPAC_FAC*TXW(K,J,1)
+ 	          END DO
+-	          DO K=1,ND
+-	            TX(K,J,UP)=TX(K,J,UP) + ( EMIS_FAC*TX(K,J,2) - STIM_FAC*TX(K,J,1) )
++	          DO K=1,NROW
++	            TXW(K,J,UP)=TXW(K,J,UP) + ( EMIS_FAC*TXW(K,J,2) - STIM_FAC*TXW(K,J,1) )
+ 	          END DO
+ 	        END DO
+ 	      END IF
+@@ -469,11 +523,11 @@
+ 	          STIM_FAC=OPAC_FAC*U_STAR_RATIO(J,SIM_INDX)*GLDGU(SIM_INDX)
+ 	          OPAC_FAC=OPAC_FAC*L_STAR_RATIO(J,SIM_INDX)
+ 	          EMIS_FAC=LINE_EMIS_CON(SIM_INDX)*LINE_PROF_SIM(J,SIM_INDX)*U_STAR_RATIO(J,SIM_INDX)
+-	          DO K=1,ND-1
+-	            TVX(K,J,LOW)=TVX(K,J,LOW) + OPAC_FAC*TVX(K,J,1)
++	          DO K=1,NROW-1
++	            TVXW(K,J,LOW)=TVXW(K,J,LOW) + OPAC_FAC*TVXW(K,J,1)
+ 	          END DO
+-	          DO K=1,ND-1
+-	            TVX(K,J,UP)=TVX(K,J,UP) + ( EMIS_FAC*TVX(K,J,2) - STIM_FAC*TVX(K,J,1) )
++	          DO K=1,NROW-1
++	            TVXW(K,J,UP)=TVXW(K,J,UP) + ( EMIS_FAC*TVXW(K,J,2) - STIM_FAC*TVXW(K,J,1) )
+ 	          END DO
+ 	        END DO
+ 	      END IF
+@@ -490,11 +544,11 @@
+ 	            OPAC_FAC=LINE_OPAC_CON(SIM_INDX)*LINE_PROF_SIM(J,SIM_INDX)*NEG_OPAC_FAC(J)*
+ 	1              (dL_RAT_dT(J,SIM_INDX)*POPS(NL,J)-GLDGU(SIM_INDX)*dU_RAT_dT(J,SIM_INDX)*POPS(NUP,J))
+ 	            EMIS_FAC=LINE_EMIS_CON(SIM_INDX)*LINE_PROF_SIM(J,SIM_INDX)*dU_RAT_dT(J,SIM_INDX)*POPS(NUP,J)
+-	            DO K=1,ND
+-	              TX(K,J,6)=TX(K,J,6) + (OPAC_FAC*TX(K,J,1)+EMIS_FAC*TX(K,J,2))
++	            DO K=1,NROW
++	              TXW(K,J,6)=TXW(K,J,6) + (OPAC_FAC*TXW(K,J,1)+EMIS_FAC*TXW(K,J,2))
+ 	            END DO
+-	            DO K=1,ND-1
+-	              TVX(K,J,6)=TVX(K,J,6) + (OPAC_FAC*TVX(K,J,1)+EMIS_FAC*TVX(K,J,2))
++	            DO K=1,NROW-1
++	              TVXW(K,J,6)=TVXW(K,J,6) + (OPAC_FAC*TVXW(K,J,1)+EMIS_FAC*TVXW(K,J,2))
+ 	            END DO
+ 	          END DO
+ 	        END IF
+@@ -504,8 +558,20 @@
+ ! Now zero dCHI and dETA storage locations. These refer to the TOTAL
+ ! opacity and emissivity.
+ !
+-	    TX(:,:,1:2)=0.0_LDP
+-	    TVX(:,:,1:2)=0.0_LDP
++	    TXW(:,:,1:2)=0.0_LDP
++	    TVXW(:,:,1:2)=0.0_LDP
++	    IF(NROW.GT.ND)THEN
++	      DO I=1,NM
++	        DO J=1,ND
++	          TX(:,J,I)=TXW(J_INDX(:),J,I)
++	          TVX(:,J,I)=TVXW(H_INDX(1:ND-1),J,I)
++	        END DO
++	      END DO
++	      dJ_DIF_d_T(1:ND)=GRID_DT(J_INDX(:)); dJ_DIF_d_dTdR(1:ND)=GRID_DG(J_INDX(:))
++	      dRSQH_DIF_d_T(1:ND-1)=GRID_HT(H_INDX(1:ND-1))
++	      dRSQH_DIF_d_dTdR(1:ND-1)=GRID_HG(H_INDX(1:ND-1))
++	    END IF
++
+ !
+ ! 
+ !
+diff --git a/new_main/mod_subs/init_line_opac_var_v2.f b/new_main/mod_subs/init_line_opac_var_v2.f
+--- a/new_main/mod_subs/init_line_opac_var_v2.f
++++ b/new_main/mod_subs/init_line_opac_var_v2.f
+@@ -13,6 +13,7 @@
+ 	USE CONTROL_VARIABLE_MOD
+ 	USE LINE_MOD
+ 	USE VAR_RAD_MOD
++	USE MOD_MOM_J_V11, ONLY: CLEAR_MOM_VARIATION
+         IMPLICIT NONE
+ !
+ ! Incorporated: 02-Jan-2104: LINE_QW_SUM is now a 2D array.
+@@ -178,6 +179,7 @@
+ 	      IF(VAR_IN_USE_CNT(J) .EQ. 1)THEN	  !Just this line using store.
+ !	        TX(:,:,J)=0.0D0
+ !	        TVX(:,:,J)=0.0D0
++	        CALL CLEAR_MOM_VARIATION(J)
+ 	        CALL ZERO_2D_MAT(TX(1,1,J),ND,ND)
+ 	        CALL ZERO_2D_MAT(TVX(1,1,J),ND-1,ND)
+ 	        IF(ACCURATE)CALL ZERO_2D_MAT(TX_EXT(1,1,J),NDEXT,NDEXT)
+@@ -190,6 +192,7 @@
+ 	      IF(VAR_IN_USE_CNT(J) .EQ. 1)THEN	  !Just this line using store.
+ !	        TX(:,:,J)=0.0D0
+ !	        TVX(:,:,J)=0.0D0
++	        CALL CLEAR_MOM_VARIATION(J)
+ 	        CALL ZERO_2D_MAT(TX(1,1,J),ND,ND)
+ 	        CALL ZERO_2D_MAT(TVX(1,1,J),ND-1,ND)
+ 	        IF(ACCURATE)CALL ZERO_2D_MAT(TX_EXT(1,1,J),NDEXT,NDEXT)
 diff --git a/new_main/mod_subs/init_population_estimates.f90 b/new_main/mod_subs/init_population_estimates.f90
 new file mode 100644
 --- /dev/null
@@ -726,6 +1075,36 @@ diff --git a/new_main/mod_subs/set_new_model_estimates.f b/new_main/mod_subs/set
  	CALL EVAL_LTE_V5(DO_LEV_DISSOLUTION,ND)
  !
  ! 
+diff --git a/new_main/mod_subs/var_rad_mod.f b/new_main/mod_subs/var_rad_mod.f
+--- a/new_main/mod_subs/var_rad_mod.f
++++ b/new_main/mod_subs/var_rad_mod.f
+@@ -24,8 +24,8 @@
+ !
+ ! Variation line arrays
+ !
+-	REAL(KIND=LDP), ALLOCATABLE :: TX(:,:,:)    	!ND,ND,NM -
+-	REAL(KIND=LDP), ALLOCATABLE :: TVX(:,:,:)    	!ND-1,ND,NM -
++	REAL(KIND=LDP), ALLOCATABLE,TARGET :: TX(:,:,:)    	!ND,ND,NM -
++	REAL(KIND=LDP), ALLOCATABLE,TARGET :: TVX(:,:,:)    	!ND-1,ND,NM -
+ !
+ ! We make TX_EXT and TVX_EXT allocatable as they are accessed directly
+ ! in VARCONT and thus must have the correct dimensions.
+@@ -40,11 +40,11 @@
+ !
+ 	REAL(KIND=LDP), ALLOCATABLE :: dJ_DIF_d_T_EXT(:)          !NDMAX -
+ 	REAL(KIND=LDP), ALLOCATABLE :: dJ_DIF_d_dTdR_EXT(:)       !NDMAX -
+-	REAL(KIND=LDP), ALLOCATABLE :: dJ_DIF_d_T(:)              !NDMAX -
+-	REAL(KIND=LDP), ALLOCATABLE :: dJ_DIF_d_dTdR(:)           !NDMAX -
++	REAL(KIND=LDP), ALLOCATABLE,TARGET :: dJ_DIF_d_T(:)              !NDMAX -
++	REAL(KIND=LDP), ALLOCATABLE,TARGET :: dJ_DIF_d_dTdR(:)           !NDMAX -
+ 	REAL(KIND=LDP), ALLOCATABLE :: RHS_dHdCHI(:,:)            !NDMAX,ND -
+-	REAL(KIND=LDP), ALLOCATABLE :: dRSQH_DIF_d_T(:)           !NDMAX -
+-	REAL(KIND=LDP), ALLOCATABLE :: dRSQH_DIF_d_dTdR(:)        !NDMAX -
++	REAL(KIND=LDP), ALLOCATABLE,TARGET :: dRSQH_DIF_d_T(:)           !NDMAX -
++	REAL(KIND=LDP), ALLOCATABLE,TARGET :: dRSQH_DIF_d_dTdR(:)        !NDMAX -
+ !
+ 	END MODULE VAR_RAD_MOD
+ !
 diff --git a/new_main/subs/auto_add_ion.f b/new_main/subs/auto_add_ion.f
 --- a/new_main/subs/auto_add_ion.f
 +++ b/new_main/subs/auto_add_ion.f
@@ -1108,6 +1487,810 @@ diff --git a/opac/par_opac_sub.f b/opac/par_opac_sub.f
  	1        ' 1st depth',K,'Last depth',J
  	  END IF
  C
+diff --git a/plane/Makefile b/plane/Makefile
+--- a/plane/Makefile
++++ b/plane/Makefile
+@@ -208,3 +208,17 @@
+ 
+ clean_lib :
+ 	rm -f *.a
++
++# MOM_J_CMF_V11 owns the persistent refined-grid response module.
++$(LIB)(get_moms_non_rel.o) : get_moms_non_rel.f $(LIB)(mod_ray_mom_store.o)
++	$(F90) -c $(OPTION) get_moms_non_rel.f
++	ar $(AR_OPTION) $(LIB) get_moms_non_rel.o
++
++$(LIB)(mom_j_cmf_v11.o) : mom_j_cmf_v11.f $(LIB)(mod_ray_mom_store.o)
++	$(F90) -c $(OPTION) mom_j_cmf_v11.f
++	ar $(AR_OPTION) $(LIB) mom_j_cmf_v11.o
++	if test -f mod_mom_j_v11.mod; then cp -f mod_mom_j_v11.mod $(MOD_DIR); fi
++
++$(LIB)(var_mom_j_cmf_v12.o) : var_mom_j_cmf_v12.f $(LIB)(mod_ray_mom_store.o) $(LIB)(mod_var_mom_j_cmf.o)
++	$(F90) -c $(OPTION) var_mom_j_cmf_v12.f
++	ar $(AR_OPTION) $(LIB) var_mom_j_cmf_v12.o
+diff --git a/plane/get_moms_non_rel.f b/plane/get_moms_non_rel.f
+--- a/plane/get_moms_non_rel.f
++++ b/plane/get_moms_non_rel.f
+@@ -11,7 +11,7 @@
+ !
+ ! Local vectors
+ !
+-	REAL(KIND=LDP) TMP_VEC(1:ND)
++	REAL(KIND=LDP) TMP_VEC(MAX(ND,ND_STORE+1))
+ 	REAL(KIND=LDP) RSQ_JNU(1:ND)
+ 	REAL(KIND=LDP) RSQ_JNU_MID(1:ND)
+ 	REAL(KIND=LDP) RSQ_HNU_MID(1:ND)
+@@ -27,6 +27,12 @@
+ 	EXTERNAL ERROR_LU
+ !
+ 	NS=ND_STORE
++	IF(ALLOCATED(K_ON_J))THEN
++	  IF(SIZE(K_ON_J).NE.ND)THEN
++	    DEALLOCATE(RMID,K_ON_J,NMID_ON_HMID,NMID_ON_J,K_ON_J_PREV,NMID_ON_HMID_PREV,
++	1      NMID_ON_J_PREV,K_ON_J_SAVE,NMID_ON_HMID_SAVE,NMID_ON_J_SAVE)
++	  END IF
++	END IF
+ 	IF(.NOT. ALLOCATED(K_ON_J))THEN
+ 	   ALLOCATE (RMID(ND),STAT=IOS)
+ !
+diff --git a/plane/mod_var_mom_j_cmf.f b/plane/mod_var_mom_j_cmf.f
+--- a/plane/mod_var_mom_j_cmf.f
++++ b/plane/mod_var_mom_j_cmf.f
+@@ -47,6 +47,13 @@
+ 	INTEGER ERROR_LU
+ 	EXTERNAL ERROR_LU
+ !
++	IF(ALLOCATED(TA))THEN
++	  IF(SIZE(TA).NE.ND)THEN
++	    DEALLOCATE(TA,TB,TC,DTAU,RSQ_DTAUONQ,XM,SOURCE,Q,JNU,RSQ_HNU,
++	1      VB,VC,HU,HL,HS,GAM,GAMH,W,WPREV,PSI,PSIPREV_MOD,PSIPREV,
++	1      EPS_A,EPS_B,EPS_PREV_A,EPS_PREV_B,TX_OLD_d_T,TX_OLD_d_dTdR,JNUM1,RSQ_HNUM1)
++	  END IF
++	END IF
+ 	IF(.NOT. ALLOCATED(TA))THEN
+ 	  ALLOCATE (TA(ND),TB(ND),TC(ND),DTAU(ND),RSQ_DTAUONQ(ND),STAT=IOS)
+ 	  IF(IOS .EQ. 0)ALLOCATE (XM(ND),SOURCE(ND),Q(ND),JNU(ND),RSQ_HNU(ND),STAT=IOS)
+diff --git a/plane/mom_j_cmf_v11.f b/plane/mom_j_cmf_v11.f
+--- a/plane/mom_j_cmf_v11.f
++++ b/plane/mom_j_cmf_v11.f
+@@ -63,9 +63,21 @@
+ 	REAL(KIND=LDP), ALLOCATABLE :: EPS(:)
+ 	REAL(KIND=LDP), ALLOCATABLE :: EPS_PREV(:)
+ !
++! Refined transfer responses retain model-grid columns and their full
++! fine-grid frequency history. Published TX/TVX remain on the model grid.
++	REAL(KIND=LDP), ALLOCATABLE,TARGET :: GRID_TX(:,:,:),GRID_TVX(:,:,:)
++	REAL(KIND=LDP), ALLOCATABLE,TARGET :: GRID_DT(:),GRID_DG(:),GRID_HT(:),GRID_HG(:)
++	REAL(KIND=LDP), ALLOCATABLE :: GRID_KI(:,:,:),GRID_RHS(:,:),GRID_WM(:,:)
++	REAL(KIND=LDP), ALLOCATABLE :: GRID_ESC(:,:),GRID_ESC_H(:,:),GRID_ETA(:),GRID_THETA(:)
++	REAL(KIND=LDP), ALLOCATABLE :: GRID_PCHI(:,:),GRID_PETA(:,:),GRID_PESC(:,:)
++	REAL(KIND=LDP) MODEL_FREQ
++	LOGICAL MODEL_GRID_VALID
++	DATA MODEL_GRID_VALID/.FALSE./
++!
+ 	REAL(KIND=LDP) VDOP_FRAC_SAVE
+ !
+ 	INTEGER ND
++	DATA ND/0/
+ !
+ ! R_PNT(K) defines the interpolation for the variable at depth K.
+ !
+@@ -81,6 +93,46 @@
+ 	LOGICAL FIRST_TIME
+ 	DATA FIRST_TIME/.TRUE./
+ 	DATA VDOP_FRAC_SAVE/-10001.1_LDP/    !Absurd value
++!
++	CONTAINS
++	SUBROUTINE ALLOCATE_MOM_VARIATIONS(NMODEL,NM,RESET)
++	INTEGER NMODEL,NM,LU
++	INTEGER ERROR_LU
++	EXTERNAL ERROR_LU
++	LOGICAL RESET,CHANGED
++	CHANGED=.FALSE.
++	IF(ALLOCATED(GRID_TX))THEN
++	  CHANGED=SIZE(GRID_TX,1).NE.ND .OR. SIZE(GRID_TX,2).NE.NMODEL .OR. SIZE(GRID_TX,3).NE.NM
++	  IF(CHANGED)THEN
++	    IF(.NOT.RESET)THEN
++	      LU=ERROR_LU(); WRITE(LU,*)'Moment variation grid changed within a frequency sweep'
++	      STOP
++	    END IF
++	    DEALLOCATE(GRID_TX,GRID_TVX,GRID_DT,GRID_DG,GRID_HT,GRID_HG,
++	1      GRID_KI,GRID_RHS,GRID_WM,GRID_ESC,GRID_ESC_H,GRID_ETA,GRID_THETA,GRID_PCHI,GRID_PETA,GRID_PESC)
++	  END IF
++	END IF
++	IF(.NOT.ALLOCATED(GRID_TX))THEN
++	  ALLOCATE(GRID_TX(ND,NMODEL,NM),GRID_TVX(ND-1,NMODEL,NM),
++	1    GRID_DT(ND),GRID_DG(ND),GRID_HT(ND-1),GRID_HG(ND-1),
++	1    GRID_KI(ND,ND,2),GRID_RHS(ND-1,ND),GRID_WM(ND,ND),
++	1    GRID_ESC(ND,NMODEL),GRID_ESC_H(ND-1,NMODEL),GRID_ETA(ND),GRID_THETA(ND),
++	1    GRID_PCHI(ND,NMODEL),GRID_PETA(ND,NMODEL),GRID_PESC(ND,NMODEL))
++	  GRID_TX=0.0_LDP; GRID_TVX=0.0_LDP
++	  GRID_DT=0.0_LDP; GRID_DG=0.0_LDP; GRID_HT=0.0_LDP; GRID_HG=0.0_LDP
++	END IF
++	IF(RESET)THEN
++	  GRID_TX=0.0_LDP; GRID_TVX=0.0_LDP
++	  GRID_DT=0.0_LDP; GRID_DG=0.0_LDP; GRID_HT=0.0_LDP; GRID_HG=0.0_LDP
++	END IF
++	END SUBROUTINE
++!
++	SUBROUTINE CLEAR_MOM_VARIATION(SLOT)
++	INTEGER SLOT
++	IF(.NOT.ALLOCATED(GRID_TX))RETURN
++	IF(SLOT.LT.1 .OR. SLOT.GT.SIZE(GRID_TX,3))RETURN
++	GRID_TX(:,:,SLOT)=0.0_LDP; GRID_TVX(:,:,SLOT)=0.0_LDP
++	END SUBROUTINE
+ !
+ 	END MODULE MOD_MOM_J_V11
+ !
+@@ -192,6 +244,9 @@
+ !
+ 	NEW_R_GRID=.FALSE.
+ 	IF(INIT .AND. ALLOCATED(R))THEN
++	  IF(SIZE(LOG_R_SM).NE.ND_SM)THEN
++	    NEW_R_GRID=.TRUE.
++	  ELSE
+ 	  DO I=1,ND_SM
+ 	    IF(LOG(R_SM(I)) .NE. LOG_R_SM(I))THEN
+ 	      NEW_R_GRID=.TRUE.
+@@ -200,6 +255,7 @@
+ 	      EXIT
+ 	    END IF
+ 	  END DO
++	  END IF
+           IF(VDOP_FRAC .NE. VDOP_FRAC_SAVE)NEW_R_GRID=.TRUE.
+ 	END IF
+ 	IF(FIRST_TIME)THEN
+@@ -794,6 +850,202 @@
+ 	HBC_SAVE=HBC
+ 	IN_HBC_SAVE=IN_HBC
+ 	NBC_SAVE=NBC
++	MODEL_FREQ=FREQ; MODEL_GRID_VALID=.TRUE.
+ !
+ 	RETURN
+ 	END
++!
++! Evaluate the same positive log-monotone interpolation used by MOM_J_CMF.
++	SUBROUTINE MON_LOG_GRID_VALUE(Y,RSM,XSM,RF,POS,NC,NF,YF)
++	USE SET_KIND_MODULE
++	IMPLICIT NONE
++	INTEGER NC,NF,POS(NF),I,K,LU,ERROR_LU
++	EXTERNAL ERROR_LU
++	REAL(KIND=LDP) Y(NC),RSM(NC),XSM(NC),RF(NF),YF(NF)
++	REAL(KIND=LDP) COEF(NC,4),LY(NC),T1
++	IF(ANY(Y.LE.0.0_LDP))THEN
++	  LU=ERROR_LU(); WRITE(LU,*)'Nonpositive input to MON_LOG_GRID_VALUE'
++	  STOP
++	END IF
++	LY=LOG(Y)
++	CALL MON_INT_FUNS_V2(COEF,LY,XSM,NC)
++	DO I=1,NF
++	  K=POS(I); T1=LOG(RF(I)/RSM(K))
++	  YF(I)=EXP(((COEF(K,1)*T1+COEF(K,2))*T1+COEF(K,3))*T1+COEF(K,4))
++	END DO
++	END
++!
++! Piecewise derivative of MON_INT_FUNS_V2, including its Steffen slope
++! limiter. Columns are the original model values, not interpolated values.
++! At a completely flat limiter choose the zero-slope generalized derivative.
++	SUBROUTINE MON_LOG_GRID_JAC(Y,YF,RSM,XSM,RF,POS,NC,NF,P)
++	USE SET_KIND_MODULE
++	IMPLICIT NONE
++	INTEGER NC,NF,POS(NF),I,J,K,LU,ERROR_LU
++	EXTERNAL ERROR_LU
++	REAL(KIND=LDP) Y(NC),YF(NF),RSM(NC),XSM(NC),RF(NF),P(NF,NC)
++	REAL(KIND=LDP) H(NC),S(NC),D(NC),DS(NC,NC),DD(NC,NC),LY(NC)
++	REAL(KIND=LDP) A,B,C,FAC,ONE,Z,T1,WT0,WT1,WTD0,WTD1
++	ONE=1.0_LDP
++	IF(NC.LT.3 .OR. ANY(Y.LE.0.0_LDP))THEN
++	  LU=ERROR_LU(); WRITE(LU,*)'Invalid positive grid in MON_LOG_GRID_JAC'
++	  STOP
++	END IF
++	LY=LOG(Y); DS=0.0_LDP; DD=0.0_LDP
++	DO I=1,NC-1
++	  H(I)=XSM(I+1)-XSM(I)
++	  S(I)=(LY(I+1)-LY(I))/H(I)
++	  DS(I,I)=-ONE/H(I); DS(I,I+1)=ONE/H(I)
++	END DO
++	D(1)=S(1)+(S(1)-S(2))*H(1)/(H(1)+H(2))
++	DD(1,:)=DS(1,:)+(DS(1,:)-DS(2,:))*H(1)/(H(1)+H(2))
++	DO I=2,NC-1
++	  D(I)=(S(I-1)*H(I)+S(I)*H(I-1))/(H(I-1)+H(I))
++	  DD(I,:)=(DS(I-1,:)*H(I)+DS(I,:)*H(I-1))/(H(I-1)+H(I))
++	END DO
++	D(NC)=S(NC-1)+(S(NC-1)-S(NC-2))*H(NC-1)/(H(NC-2)+H(NC-1))
++	DD(NC,:)=DS(NC-1,:)+(DS(NC-1,:)-DS(NC-2,:))*H(NC-1)/(H(NC-2)+H(NC-1))
++	DO I=1,NC
++	  IF(I.EQ.1 .OR. I.EQ.NC)THEN
++	    K=1
++	    IF(I.EQ.NC)K=NC-1
++	    FAC=SIGN(ONE,S(K))+SIGN(ONE,D(I)); A=ABS(S(K)); C=0.5_LDP*ABS(D(I))
++	    IF(A.EQ.0.0_LDP .AND. C.EQ.0.0_LDP)THEN
++	      DD(I,:)=0.0_LDP
++	    ELSE IF(A.LE.C)THEN
++	      DD(I,:)=FAC*SIGN(ONE,S(K))*DS(K,:)
++	    ELSE
++	      DD(I,:)=FAC*0.5_LDP*SIGN(ONE,D(I))*DD(I,:)
++	    END IF
++	  ELSE
++	    FAC=SIGN(ONE,S(I-1))+SIGN(ONE,S(I))
++	    A=ABS(S(I-1)); B=ABS(S(I)); C=0.5_LDP*ABS(D(I))
++	    IF(FAC.EQ.0.0_LDP .OR. MAX(A,B,C).EQ.0.0_LDP)THEN
++	      DD(I,:)=0.0_LDP
++	    ELSE IF(A.LE.B .AND. A.LE.C)THEN
++	      DD(I,:)=FAC*SIGN(ONE,S(I-1))*DS(I-1,:)
++	    ELSE IF(B.LE.C)THEN
++	      DD(I,:)=FAC*SIGN(ONE,S(I))*DS(I,:)
++	    ELSE
++	      DD(I,:)=FAC*0.5_LDP*SIGN(ONE,D(I))*DD(I,:)
++	    END IF
++	  END IF
++	END DO
++	P=0.0_LDP
++	DO I=1,NF
++	  K=POS(I); T1=LOG(RF(I)/RSM(K)); Z=T1/H(K)
++	  WT0=2*Z**3-3*Z**2+ONE; WT1=-2*Z**3+3*Z**2
++	  WTD0=(Z**3-2*Z**2+Z)*H(K); WTD1=(Z**3-Z**2)*H(K)
++	  P(I,:)=WTD0*DD(K,:)+WTD1*DD(K+1,:)
++	  P(I,K)=P(I,K)+WT0; P(I,K+1)=P(I,K+1)+WT1
++	  DO J=MAX(1,K-1),MIN(NC,K+2)
++	    P(I,J)=P(I,J)*YF(I)/Y(J)
++	  END DO
++	END DO
++	END
++!
++! Differentiate the actual NORDTAU/DERIVCHI quadrature on the fine grid.
++! The legacy three-diagonal approximation omits boundary slope dependencies
++! and uses approximate limiter switches; it is deliberately unchanged for
++! unrefined callers. This entry keeps all dependencies, including endpoints.
++	SUBROUTINE MOM_GRID_DTAU_JAC(CHI,Q,R,N,METHOD,P)
++	USE SET_KIND_MODULE
++	IMPLICIT NONE
++	INTEGER N,I,J,K,LU,ERROR_LU
++	EXTERNAL ERROR_LU
++	CHARACTER(LEN=*) METHOD
++	REAL(KIND=LDP) CHI(N),Q(N),R(N),P(N,N),Y(N),H(N),S(N),D(N)
++	REAL(KIND=LDP) DS(N,N),DD(N,N),A,B,C,FAC,ONE,T1,T2,ALPHA,BETA
++	LOGICAL LIMITED
++	ONE=1.0_LDP; Y=CHI*Q; DS=0.0_LDP; DD=0.0_LDP; D=0.0_LDP
++	LIMITED=METHOD.EQ.'LOGMON' .OR. METHOD.EQ.'LINMON'
++	IF(METHOD.EQ.'LOGMON' .OR. METHOD.EQ.'LINMON')THEN
++	  DO I=1,N-1
++	    IF(METHOD.EQ.'LOGMON')THEN
++	      H(I)=LOG(R(I+1)/R(I)); S(I)=LOG(Y(I+1)/Y(I))/H(I)
++	      DS(I,I)=-ONE/H(I)/Y(I); DS(I,I+1)=ONE/H(I)/Y(I+1)
++	    ELSE
++	      H(I)=R(I+1)-R(I); S(I)=(Y(I+1)-Y(I))/H(I)
++	      DS(I,I)=-ONE/H(I); DS(I,I+1)=ONE/H(I)
++	    END IF
++	  END DO
++	  D(1)=S(1)+(S(1)-S(2))*H(1)/(H(1)+H(2))
++	  DD(1,:)=DS(1,:)+(DS(1,:)-DS(2,:))*H(1)/(H(1)+H(2))
++	  DO I=2,N-1
++	    D(I)=(S(I-1)*H(I)+S(I)*H(I-1))/(H(I-1)+H(I))
++	    DD(I,:)=(DS(I-1,:)*H(I)+DS(I,:)*H(I-1))/(H(I-1)+H(I))
++	  END DO
++	  D(N)=S(N-1)+(S(N-1)-S(N-2))*H(N-1)/(H(N-2)+H(N-1))
++	  DD(N,:)=DS(N-1,:)+(DS(N-1,:)-DS(N-2,:))*H(N-1)/(H(N-2)+H(N-1))
++	  IF(METHOD.EQ.'LOGMON')THEN
++	    DO I=1,N
++	      DD(I,:)=DD(I,:)*Y(I)/R(I)
++	      DD(I,I)=DD(I,I)+D(I)/R(I)
++	      D(I)=D(I)*Y(I)/R(I)
++	    END DO
++	  END IF
++! Native limiter is applied in linear opacity/radius coordinates.
++	  DS=0.0_LDP
++	  DO I=1,N-1
++	    H(I)=R(I+1)-R(I); S(I)=(Y(I+1)-Y(I))/H(I)
++	    DS(I,I)=-ONE/H(I); DS(I,I+1)=ONE/H(I)
++	  END DO
++	  DO I=1,N
++	    IF(I.EQ.1 .OR. I.EQ.N)THEN
++	      K=1
++	      IF(I.EQ.N)K=N-1
++	      FAC=SIGN(ONE,S(K))+SIGN(ONE,D(I)); A=ABS(S(K)); C=0.5_LDP*ABS(D(I))
++	      IF(MAX(A,C).EQ.0.0_LDP)THEN
++	        DD(I,:)=0.0_LDP
++	      ELSE IF(A.LE.C)THEN
++	        DD(I,:)=FAC*SIGN(ONE,S(K))*DS(K,:)
++	      ELSE
++	        DD(I,:)=FAC*0.5_LDP*SIGN(ONE,D(I))*DD(I,:)
++	      END IF
++	    ELSE
++	      FAC=SIGN(ONE,S(I-1))+SIGN(ONE,S(I))
++	      A=ABS(S(I-1)); B=ABS(S(I)); C=0.5_LDP*ABS(D(I))
++	      IF(FAC.EQ.0.0_LDP .OR. MAX(A,B,C).EQ.0.0_LDP)THEN
++	        DD(I,:)=0.0_LDP
++	      ELSE IF(A.LE.B .AND. A.LE.C)THEN
++	        DD(I,:)=FAC*SIGN(ONE,S(I-1))*DS(I-1,:)
++	      ELSE IF(B.LE.C)THEN
++	        DD(I,:)=FAC*SIGN(ONE,S(I))*DS(I,:)
++	      ELSE
++	        DD(I,:)=FAC*0.5_LDP*SIGN(ONE,D(I))*DD(I,:)
++	      END IF
++	    END IF
++	  END DO
++	ELSE IF(METHOD(1:4).EQ.'ZERO')THEN
++	  DD=0.0_LDP
++	ELSE IF(METHOD.EQ.'LINEAR' .OR. METHOD.EQ.'LOGLIN' .OR. METHOD.EQ.'LOGLOG')THEN
++	  DO I=1,N
++	    K=MAX(1,I-1); J=MIN(N,I+1)
++	    IF(I.EQ.2 .AND. (R(1)-R(3))/(R(1)-R(2)).GT.3.0_LDP)THEN
++	      K=1; J=2
++	    END IF
++	    IF(I.EQ.N-1 .AND. (R(N-2)-R(N))/(R(N-1)-R(N)).GT.3.0_LDP)THEN
++	      K=N-1; J=N
++	    END IF
++	    T1=R(K)-R(J)
++	    IF(METHOD.EQ.'LOGLOG')T1=LOG(R(K)/R(J))
++	    IF(METHOD.EQ.'LINEAR')THEN
++	      DD(I,K)=ONE/T1; DD(I,J)=-ONE/T1
++	    ELSE
++	      T2=Y(I)
++	      IF(METHOD.EQ.'LOGLOG')T2=Y(I)/R(I)
++	      DD(I,K)=T2/T1/Y(K); DD(I,J)=-T2/T1/Y(J)
++	      DD(I,I)=DD(I,I)+LOG(Y(K)/Y(J))*T2/T1/Y(I)
++	    END IF
++	  END DO
++	ELSE
++	  LU=ERROR_LU(); WRITE(LU,*)'Unknown optical-depth method in MOM_GRID_DTAU_JAC: ',METHOD
++	  STOP
++	END IF
++	P=0.0_LDP
++	DO I=1,N-1
++	  ALPHA=0.5_LDP*(R(I)-R(I+1)); BETA=ALPHA*(R(I)-R(I+1))/6.0_LDP
++	  P(I,:)=BETA*(DD(I+1,:)-DD(I,:))*Q
++	  P(I,I)=P(I,I)+ALPHA*Q(I); P(I,I+1)=P(I,I+1)+ALPHA*Q(I+1)
++	END DO
++	END
+diff --git a/plane/var_mom_j_cmf_v12.f b/plane/var_mom_j_cmf_v12.f
+--- a/plane/var_mom_j_cmf_v12.f
++++ b/plane/var_mom_j_cmf_v12.f
+@@ -422,3 +422,444 @@
+ !
+ 	RETURN
+ 	END
++
++! Refined moment-grid operator with MODEL parameter columns.
++	SUBROUTINE VAR_MOM_J_GRID_V1(ETA,CHI,ESEC,THETA,V,SIGMA,R,
++	1               TX,TVX,TX_DIF_d_T,TX_DIF_d_dTdR,
++	1               TVX_DIF_d_T,TVX_DIF_d_dTdR,
++	1               KI,WORKMAT,RHS_dHdCHI,
++	1               INIT,dLOG_NU,
++	1               INNER_BND_METH,dTdR,DBB,dDBBdT,IC,IB_STAB_FACTOR,
++	1               FREQ,H_CHK_OPTION,OUT_BC_TYPE,
++	1               DO_THIS_TX_MATRIX,METHOD,ND,NC,NM,NM_KI,
++	1               PCHI,PETA,PESC,R_PNT,ESC_RESPONSE,ESC_H)
++	USE SET_KIND_MODULE
++	USE MOD_RAY_MOM_STORE
++	USE MOD_VAR_MOM_J_CMF
++	IMPLICIT NONE
++!
++! Altered:   11-Jun-2109 : Added point source option.
++! Altered:   17-Oct-2016 : Changed to V12: CHECK_H_ON J replaced by H_CHK_OPTION.
++! Altered:   17-Feb-2016 : Changed to V11. DIF replaced by INNER_BND_METH and
++!                            IB_STAB_FACTOR added.
++! Altered:   24-Feb-2015 : Added CHECK_H_ON_J to call.
++! Altered:   06-Aug-2007 : Installed integer OUT_BC_TYPE
++!                            so that could have choice of boundary conditions
++!                            This allows other options to be included.
++! Altered:   04-Feb-1997 : THETA now passed. Passed to allow coherent
++!                            scattering at some depths, and non-coherent
++!                            scattering at other depths. Only introduced
++!                            for the variation calculation. Logical variable
++!                            COHERENT no longer required.
++! Altered:   12-Dec-1996 : NM_KI installed. Changed to version V6.
++! Altered:   05-Dec-1996 : PROGDESC set to REAL(KIND=LDP) value, PROG_ID installed
++!                             ERROR_LU installed. TUNE installed.
++! Altered:   25-Jan-1996 : HBC, NBC (and HBC_PREV, NBC_PREV) are now
++!                            scalers. Other quantities were not needed
++!                            with THK option processed by EXTENSION.
++!                            Several lines deleted with HBC(2) etc.
++!                          Changed to V5
++!
++! Altered:   11-Jan-1996 : Bug in calculation of DT_DIF_d_dTDR when using
++!                             RSQN_ON_RSQJ. Initiliazation improved.
++
++! Altered:   11-Mar-1995 : RSQN_ON_RSQJ installed so that N may be written in
++!                          terms of H (using G) or J.
++!                          Call modified, as were subroutines UP_TX_TVX and
++!                          EDD_J_VAR.
++!                          _V4 append to name.
++!
++! Finalized: 04-Nov-1994
++! Created:   27-Sep-1995 : Diffusion approximation not tested yet.
++!
++	INTEGER ND,NC
++	INTEGER NM
++	INTEGER NM_KI
++	REAL(KIND=LDP) ETA(ND),CHI(ND),ESEC(ND),THETA(ND)
++	REAL(KIND=LDP) V(ND),SIGMA(ND),R(ND)
++!
++! Variation arrays and vectors.
++!
++	REAL(KIND=LDP) TX(ND,NC,NM),TVX(ND-1,NC,NM)
++	REAL(KIND=LDP) KI(ND,ND,NM_KI)
++	REAL(KIND=LDP) PCHI(ND,NC),PETA(ND,NC),PESC(ND,NC)
++	REAL(KIND=LDP) KI_MODEL(ND,NC,2),RHS_MODEL(ND-1,NC),OLD_MODEL(ND,NC)
++	REAL(KIND=LDP) ESC_RESPONSE(ND,NC),ESC_H(ND-1,NC)
++	INTEGER R_PNT(ND),JF,JM,IR
++	REAL(KIND=LDP) WORKMAT(ND,ND),RHS_dHdCHI(ND-1,ND)
++	REAL(KIND=LDP) TX_DIF_d_T(ND),TX_DIF_d_dTdR(ND)
++	REAL(KIND=LDP) TVX_DIF_d_T(ND),TVX_DIF_d_dTdR(ND)
++!
++	LOGICAL DO_THIS_TX_MATRIX(NM)
++!
++	REAL(KIND=LDP) dLOG_NU,dTdR,DBB,dDBBdT,IC
++	REAL(KIND=LDP) FREQ
++	REAL(KIND=LDP) IB_STAB_FACTOR
++	CHARACTER*6 METHOD
++!
++! INIT is used to indicate that there is no coupling to the previous frequency.
++! We are thus solving the normal continuum transfer equation (i.e. the absence
++! of velocity fields)
++!
++	LOGICAL INIT
++	INTEGER OUT_BC_TYPE
++	CHARACTER(LEN=*) INNER_BND_METH
++	CHARACTER(LEN=*) H_CHK_OPTION
++!
++	REAL(KIND=LDP) T1
++	REAL(KIND=LDP) DTAU_BND
++!
++	INTEGER ERROR_LU
++	EXTERNAL ERROR_LU
++!
++! Local variables.
++!
++	INTEGER I
++	REAL(KIND=LDP) AV_SIGMA
++	REAL(KIND=LDP) LOCAL_DBB
++	LOGICAL DIF_OR_ZF
++!
++! 
++!
++! This call allocates the vectors, and initialzes vectors such as TA etc.
++! It only allocates TA, if it is not already allocated.
++!
++	CALL MOD_VAR_MOM_ALLOC(ND)
++!
++	IF(INIT)THEN
++	  CALL DP_ZERO(TX, ND*NC*NM )
++	  CALL DP_ZERO(TVX, (ND-1)*NC*NM )
++	  IF(ALLOCATED(TA))THEN
++	    IF(ND .NE. VEC_LENGTH)THEN
++	      I=ERROR_LU()
++	      WRITE(I,*)'Problem in VAR_MOM_J_CMF_V9'
++	      WRITE(I,*)'Incompatible vector size'
++	      WRITE(I,*)'ND=',ND,'ND(vec_size)=',VEC_LENGTH
++	      STOP
++	    END IF
++	  END IF
++	  DO I=1,ND
++	    JNUM1(I)=0.0_LDP
++	    RSQ_HNUM1(I)=0.0_LDP
++ 	  END DO
++	END IF
++!
++! Zero relevant vectors and matrices.
++!
++	DO I=1,ND
++	  JNU(I)=0.0_LDP
++	  RSQ_HNU(I)=0.0_LDP
++	END DO
++!
++	DO I=1,ND
++	  SOURCE(I)=ETA(I)/CHI(I)
++	END DO
++!
++! Compute the Q factors from F. Then compute optical depth scale.
++!
++	CALL QFROMF(K_ON_J,Q,R,TA,TB,ND)	!TA work vector
++	DO I=1,ND
++	  TA(I)=CHI(I)*Q(I)
++	END DO
++	CALL DERIVCHI(TB,TA,R,ND,METHOD)
++!
++! We need to call d_DERIVCHI_dCHI to set the TRAP derivatives.
++!
++! The refined-grid EDD entry consumes the full quadrature Jacobian below.
++	CALL NORDTAU(DTAU,TA,R,R,TB,ND)
++	DO I=2,ND
++	  RSQ_DTAUONQ(I)=0.5_LDP*R(I)*R(I)*(DTAU(I)+DTAU(I-1))/Q(I)
++	END DO
++!
++! 
++!
++! Assume (1)	SIGMAd+1/2 = 0.5*( SIGMAd+1+SIGMAd )
++! 	 (2)	Vd+1/2=0.5*( Vd + Vd+1 )
++! Note that V is in km/s and SIGMA=(dlnV/dlnR-1.0)
++!
++! NB - By definition, G is defined at the mesh midpoints.
++!
++! We evaluate and store the constant terms in the computation of GAMH and
++! GAM, since number of operations only proportional to ND. Later on scaling is
++! proportional to NM*ND*ND.
++!
++	IF(.NOT. INIT)THEN
++	  DO I=1,ND-1
++	    AV_SIGMA=0.5_LDP*(SIGMA(I)+SIGMA(I+1))
++	    GAMH(I)=2.0_LDP*3.33564E-06_LDP*(V(I)+V(I+1))/(R(I)+R(I+1))
++	1         /dLOG_NU/( CHI(I)+CHI(I+1) )
++	    W(I)=GAMH(I)*( 1.0_LDP+AV_SIGMA*NMID_ON_HMID(I) )
++	    WPREV(I)=GAMH(I)*( 1.0_LDP+AV_SIGMA*NMID_ON_HMID_PREV(I) )
++	    EPS_A(I)=GAMH(I)*AV_SIGMA*NMID_ON_J(I)/(1.0_LDP+W(I))
++	    EPS_B(I)=EPS_A(I)*R(I+1)*R(I+1)
++	    EPS_A(I)=EPS_A(I)*R(I)*R(I)
++	    EPS_PREV_A(I)=GAMH(I)*AV_SIGMA*NMID_ON_J_PREV(I)/(1.0_LDP+W(I))
++	    EPS_PREV_B(I)=EPS_PREV_A(I)*R(I+1)*R(I+1)
++	    EPS_PREV_A(I)=EPS_PREV_A(I)*R(I)*R(I)
++	  END DO
++	  DO I=1,ND
++	    GAM(I)=3.33564E-06_LDP*V(I)/R(I)/CHI(I)/dLOG_NU
++	  END DO
++!
++! PSIPREV is equivalent to the U vector of FORMSOL.
++!
++	  DO I=2,ND
++	    PSI(I)=RSQ_DTAUONQ(I)*GAM(I)*( 1.0_LDP+SIGMA(I)*K_ON_J(I) )
++	    PSIPREV(I)=RSQ_DTAUONQ(I)*GAM(I)*( 1.0_LDP+SIGMA(I)*K_ON_J_PREV(I) )
++	  END DO
++	END IF
++!
++! 
++!
++! Compute vectors used to compute the flux vector H.
++!
++	DO I=1,ND-1
++	  HU(I)=R(I+1)*R(I+1)*K_ON_J(I+1)*Q(I+1)/(1.0_LDP+W(I))/DTAU(I)
++	  HL(I)=R(I)*R(I)*K_ON_J(I)*Q(I)/(1.0_LDP+W(I))/DTAU(I)
++	  HS(I)=WPREV(I)/(1.0_LDP+W(I))
++	END DO
++!
++! Compute the TRIDIAGONAL operators, and the RHS source vector.
++!
++	DO I=2,ND-1
++	  TA(I)=-HL(I-1)-EPS_A(I-1)
++	  TC(I)=-HU(I)+EPS_B(I)
++	  TB(I)=RSQ_DTAUONQ(I)*(1.0_LDP-THETA(I)) + PSI(I) +HU(I-1) +HL(I)
++	1             -EPS_B(I-1)+EPS_A(I)
++	  VB(I)=-HS(I-1)
++	  VC(I)=HS(I)
++	  XM(I)=RSQ_DTAUONQ(I)*SOURCE(I)
++	END DO
++!
++! Evaluate TA,TB,TC for boundary conditions
++!
++	IF(OUT_BC_TYPE .LE. 1)THEN
++	  PSI(1)=R(1)*R(1)*GAM(1)*( HBC+NBC*SIGMA(1) )
++	  PSIPREV(1)=R(1)*R(1)*GAM(1)*( HBC_PREV+NBC_PREV*SIGMA(1) )
++	  TC(1)=-R(2)*R(2)*K_ON_J(2)*Q(2)/DTAU(1)
++	  TB(1)=R(1)*R(1)*( K_ON_J(1)*Q(1)/DTAU(1) + HBC ) + PSI(1)
++	  XM(1)=XM(1) + PSIPREV(1)*JNUM1(1)
++	  TA(1)=0.0_LDP
++	  VB(1)=0.0_LDP
++	  VC(1)=0.0_LDP
++	ELSE
++	  PSI(1)=R(1)*R(1)*GAM(1)*(1.0_LDP+SIGMA(1)*K_ON_J(1))
++	  PSIPREV(1)=R(1)*R(1)*GAM(1)*(1.0_LDP+SIGMA(1)*K_ON_J_PREV(1))
++	  T1=0.25_LDP*(CHI(2)+CHI(1))*(R(2)-R(1))
++	  DTAU_BND=T1
++	  TC(1)=(HU(1)-EPS_B(1))/T1
++	  TB(1)=-(HL(1)+R(1)*R(1)*HBC+EPS_A(1))/T1-PSI(1)-R(1)*R(1)*(1.0_LDP-THETA(1))
++	  XM(1)=-SOURCE(1)*R(1)*R(1)- HS(1)*RSQ_HNUM1(1)/T1- PSIPREV(1)*JNUM1(1)
++	  XM(1)=XM(1)-(EPS_PREV_A(1)*JNUM1(1)+EPS_PREV_B(1)*JNUM1(2))/T1
++	END IF
++!
++	TA(ND)=-R(ND-1)*R(ND-1)*K_ON_J(ND-1)*Q(ND-1)/DTAU(ND-1)
++	IF(INNER_BND_METH .EQ. 'DIFFUSION')THEN
++	  TB(ND)=R(ND)*R(ND)*K_ON_J(ND)/DTAU(ND-1)
++	  XM(ND)=DBB*R(ND)*R(ND)/3.0_LDP/CHI(ND)
++	  LOCAL_DBB=DBB
++	  DIF_OR_ZF=.TRUE.
++	ELSE IF(INNER_BND_METH .EQ. 'PNT_SRCE')THEN
++	  TB(ND)=R(ND)*R(ND)*K_ON_J(ND)/DTAU(ND-1)
++	  XM(ND)=HNU_AT_IB*R(ND)*R(ND)
++	  LOCAL_DBB=HNU_AT_IB                     !Not used
++	  DIF_OR_ZF=.FALSE.
++	ELSE IF(INNER_BND_METH .EQ. 'ZERO_FLUX')THEN
++	  TB(ND)=R(ND)*R(ND)*K_ON_J(ND)/DTAU(ND-1)
++	  XM(ND)=IB_STAB_FACTOR*TB(ND)*R(ND)*R(ND)*(JPLUS_IB+JMIN_IB)
++	  TB(ND)=(1.0_LDP+IB_STAB_FACTOR)*TB(ND)
++	  LOCAL_DBB=0.0_LDP
++	  DIF_OR_ZF=.FALSE.
++	ELSE IF(INNER_BND_METH .EQ. 'SCHUSTER')THEN
++	  TB(ND)=R(ND)*R(ND)*K_ON_J(ND)/DTAU(ND-1)+IN_HBC
++	  XM(ND)=R(ND)*R(ND)*IC*(0.25_LDP+0.5_LDP*IN_HBC)
++	  DIF_OR_ZF=.FALSE.
++	END IF
++	TC(ND)=0.0_LDP
++	VB(ND)=0.0_LDP
++	VC(ND)=0.0_LDP
++	PSIPREV(ND)=0.0_LDP
++!
++! We create PSIPREV_MOD to save multiplications in the UP_TX_TVX routine/
++! It is only different from PSIPREV when N_ON_J is non zero.
++!
++	PSIPREV_MOD(1)=PSIPREV(1)
++	PSIPREV_MOD(ND)=PSIPREV(ND)
++	DO I=2,ND-1
++	  PSIPREV_MOD(I)=(EPS_PREV_A(I)-EPS_PREV_B(I-1)) + PSIPREV(I)
++	END DO
++!
++	DO I=2,ND-1
++	  XM(I)=XM(I) + VB(I)*RSQ_HNUM1(I-1) + VC(I)*RSQ_HNUM1(I)
++	1          + PSIPREV_MOD(I)*JNUM1(I)
++	1          + ( EPS_PREV_B(I)*JNUM1(I+1) - EPS_PREV_A(I-1)*JNUM1(I-1) )
++	END DO
++	XM(ND)=XM(ND) + PSIPREV_MOD(ND)*JNUM1(ND)
++!
++! Solve for the radiation field along ray for this frequency.
++!
++	CALL THOMAS(TA,TB,TC,XM,ND,1)
++!
++	DO I=1,ND
++	  JNU(I)=XM(I)
++	END DO
++!
++	DO I=1,ND-1
++	  RSQ_HNU(I)=HU(I)*XM(I+1)-HL(I)*XM(I)+HS(I)*RSQ_HNUM1(I) +
++	1              (EPS_PREV_A(I)*JNUM1(I)-EPS_A(I)*XM(I)) +
++	1              (EPS_PREV_B(I)*JNUM1(I+1)-EPS_B(I)*XM(I+1))
++	END DO
++!
++! Make sure H satisfies the basic requirement that it is less than J.
++!
++	IF(H_CHK_OPTION .EQ. 'AV_VAL')THEN
++	  DO I=1,ND-1
++	    T1=(R(I)*R(I)*XM(I)+R(I+1)*R(I+1)*XM(I+1))/2.0_LDP
++	    IF(RSQ_HNU(I) .GT. T1)THEN
++	      RSQ_HNU(I)=0.99999_LDP*T1
++	    ELSE IF(RSQ_HNU(I) .LT. -T1)THEN
++	      RSQ_HNU(I)=-0.99999_LDP*T1
++	    END IF
++	  END DO
++	ELSE IF(H_CHK_OPTION .EQ. 'MAX_VAL')THEN
++	  DO I=1,ND-1
++	    T1=MAX(R(I)*R(I)*XM(I),R(I+1)*R(I+1)*XM(I+1))
++	    IF(RSQ_HNU(I) .GT. T1)THEN
++	      RSQ_HNU(I)=0.99999_LDP*T1
++	    ELSE IF(RSQ_HNU(I) .LT. -T1)THEN
++	      RSQ_HNU(I)=-0.99999_LDP*T1
++	    END IF
++	  END DO
++	END IF
++!
++! 
++!
++! The J and H components of the radiation field have been found. We can thus
++! begin the variation computation.
++!
++! Compute d{non-radiation field}/dchi matrix.
++!
++	CALL TUNE(1,'MOM_EDD')
++	CALL MOM_GRID_DTAU_JAC(CHI,Q,R,ND,METHOD,WORKMAT)
++	CALL EDD_J_VAR_GRID_V1(KI,RHS_dHdCHI,WORKMAT,
++	1           SOURCE,CHI,ESEC,THETA,DTAU,R,SIGMA,
++	1           K_ON_J,Q,HU,HL,HS,RSQ_DTAUONQ,
++	1           W,WPREV,PSI,PSIPREV,
++	1           EPS_A,EPS_B,EPS_PREV_A,EPS_PREV_B,
++	1           JNU,JNUM1,RSQ_HNUM1,
++	1           LOCAL_DBB,DIF_OR_ZF,HBC,OUT_BC_TYPE,
++	1           ND,NM_KI)
++	CALL TUNE(2,'MOM_EDD')
++! ZERO_FLUX stabilizer multiplies both the boundary diagonal and source.
++! Its opacity derivative must use the same factor as the forward equation.
++	IF(INNER_BND_METH .EQ. 'ZERO_FLUX')THEN
++	  T1=IB_STAB_FACTOR*R(ND)*R(ND)*K_ON_J(ND)/DTAU(ND-1)**2
++	1      *(JNU(ND)-R(ND)*R(ND)*(JPLUS_IB+JMIN_IB))
++	  KI(ND,:,1)=KI(ND,:,1)+T1*WORKMAT(ND-1,:)
++	END IF
++
++! Chain fine-grid opacity/emissivity partials to MODEL variables using the
++! derivative of the same Steffen log-radius/log-value interpolation.
++	KI_MODEL=0.0_LDP; RHS_MODEL=0.0_LDP; ESC_RESPONSE=0.0_LDP
++	DO JF=1,ND
++	  DO JM=MAX(1,R_PNT(JF)-1),MIN(NC,R_PNT(JF)+2)
++	    DO IR=1,ND
++	      KI_MODEL(IR,JM,1)=KI_MODEL(IR,JM,1)+KI(IR,JF,1)*PCHI(JF,JM)
++	      KI_MODEL(IR,JM,2)=KI_MODEL(IR,JM,2)+KI(IR,JF,2)*PETA(JF,JM)
++	      ESC_RESPONSE(IR,JM)=ESC_RESPONSE(IR,JM)+KI(IR,JF,2)*JNU(JF)*PESC(JF,JM)
++	    END DO
++	    DO IR=1,ND-1
++	      RHS_MODEL(IR,JM)=RHS_MODEL(IR,JM)+RHS_dHdCHI(IR,JF)*PCHI(JF,JM)
++	    END DO
++	  END DO
++	END DO
++	CALL SIMPTH(TA,TB,TC,ESC_RESPONSE,ND,NC)
++	DO JM=1,NC
++	  DO IR=1,ND-1
++	    ESC_H(IR,JM)=(HU(IR)-EPS_B(IR))*ESC_RESPONSE(IR+1,JM)
++	1                     -(HL(IR)+EPS_A(IR))*ESC_RESPONSE(IR,JM)
++	  END DO
++	END DO
++
++
++!
++! Evaluate the intensity variations.
++!                                  TX=dJ/d(chi,eta,....)
++!                          and     TVX=dRSQH/d(chi,eta,...)
++!
++! WORKMAT is dimension (ND,ND) is is used to temporarily save TX( , ,K) for
++! each K.
++!
++	CALL TUNE(1,'UP_TX')
++	CALL UP_TX_TVX_GRID_V1(TX,TVX,KI_MODEL,TA,TB,TC,PSIPREV_MOD,
++	1                       VB,VC,HU,HL,HS,RHS_MODEL,
++	1                       EPS_A,EPS_B,EPS_PREV_A,EPS_PREV_B,
++	1                       OLD_MODEL,ND,NC,NM,NM_KI,
++	1                       DTAU_BND,OUT_BC_TYPE,
++	1                       INIT,DO_THIS_TX_MATRIX)
++	CALL TUNE(2,'UP_TX')
++!
++! 
++!
++! Evaluate diffusion variation. TXD is initially the value from the
++! previous frequency.
++!
++	DO I=1,ND
++	  TX_OLD_d_T(I)=TX_DIF_d_T(I)
++	  TX_OLD_d_dTdR(I)=TX_DIF_d_dTDR(I)
++	END DO
++	IF(INNER_BND_METH .EQ. 'DIFFUSION')THEN
++	  TX_DIF_d_T(1)=PSIPREV(1)*TX_DIF_d_T(1)
++	  TX_DIF_d_dTdR(1)=PSIPREV(1)*TX_DIF_d_dTdR(1)
++	  IF(OUT_BC_TYPE.GT.1)THEN
++	    TX_DIF_d_T(1)=-PSIPREV(1)*TX_OLD_d_T(1)-HS(1)*TVX_DIF_d_T(1)/DTAU_BND
++	1      -(EPS_PREV_A(1)*TX_OLD_d_T(1)+EPS_PREV_B(1)*TX_OLD_d_T(2))/DTAU_BND
++	    TX_DIF_d_dTdR(1)=-PSIPREV(1)*TX_OLD_d_dTdR(1)-HS(1)*TVX_DIF_d_dTdR(1)/DTAU_BND
++	1      -(EPS_PREV_A(1)*TX_OLD_d_dTdR(1)+EPS_PREV_B(1)*TX_OLD_d_dTdR(2))/DTAU_BND
++	  END IF
++
++	  DO I=2,ND-1
++	    TX_DIF_d_T(I)= PSIPREV_MOD(I)*TX_DIF_d_T(I)
++	1             + VB(I)*TVX_DIF_d_T(I-1) + VC(I)*TVX_DIF_d_T(I)
++	1          + ( EPS_PREV_B(I)*TX_OLD_d_T(I+1)
++	1               - EPS_PREV_A(I-1)*TX_OLD_d_T(I-1) )
++	    TX_DIF_d_dTdR(I)= PSIPREV_MOD(I)*TX_DIF_d_dTdR(I)
++	1             + VB(I)*TVX_DIF_d_dTdR(I-1) + VC(I)*TVX_DIF_d_dTdR(I)
++	1          + ( EPS_PREV_B(I)*TX_OLD_d_dTdR(I+1)
++	1               - EPS_PREV_A(I-1)*TX_OLD_d_dTdR(I-1) )
++	  END DO
++	  TX_DIF_d_T(ND)=dDBBdT*R(ND)*R(ND)/3.0_LDP/CHI(ND) +
++	1                       PSIPREV(ND)*TX_DIF_d_T(ND)
++	  TX_DIF_d_dTdR(ND)=DBB/dTdR*R(ND)*R(ND)/3.0_LDP/CHI(ND) +
++	1                       PSIPREV(ND)*TX_DIF_d_dTdR(ND)
++!
++! Solve for the radiation field along ray for this frequency.
++!
++	  CALL SIMPTH(TA,TB,TC,TX_DIF_d_T,ND,1)
++	  CALL SIMPTH(TA,TB,TC,TX_DIF_d_dTdR,ND,1)
++!
++	  DO I=1,ND-1
++	    TVX_DIF_d_T(I)=HU(I)*TX_DIF_d_T(I+1) - HL(I)*TX_DIF_d_T(I) +
++	1        HS(I)*TVX_DIF_d_T(I) +
++	1        (EPS_PREV_A(I)*TX_OLD_d_T(I)-EPS_A(I)*TX_DIF_d_T(I)) +
++	1        (EPS_PREV_B(I)*TX_OLD_d_T(I+1)-EPS_B(I)*TX_DIF_d_T(I+1))
++	    TVX_DIF_d_dTdR(I)=HU(I)*TX_DIF_d_dTdR(I+1) -
++	1     HL(I)*TX_DIF_d_dTdR(I) +
++	1     HS(I)*TVX_DIF_d_dTdR(I) +
++	1     (EPS_PREV_A(I)*TX_OLD_d_dTdR(I)-EPS_A(I)*TX_DIF_d_dTdR(I)) +
++	1     (EPS_PREV_B(I)*TX_OLD_d_dTdR(I+1)-EPS_B(I)*TX_DIF_d_dTdR(I+1))
++	  END DO
++!
++	END IF	    	    !DIF END
++!
++! 
++!
++! Save JNU and RSQ_HNU for next frequency integration.
++!
++	DO I=1,ND
++	  JNUM1(I)=JNU(I)
++	  RSQ_HNUM1(I)=RSQ_HNU(I)
++	END DO
++!
++	RETURN
++	END
 diff --git a/stark/get_prof_storage_limits.f b/stark/get_prof_storage_limits.f
 --- a/stark/get_prof_storage_limits.f
 +++ b/stark/get_prof_storage_limits.f
@@ -1141,6 +2324,276 @@ diff --git a/stark/get_prof_storage_limits_v2.f b/stark/get_prof_storage_limits_
  	END DO
  !
  	IF(NPROF_MAX .NE. 0 .OR. NFREQ_MAX .NE. 0)THEN
+diff --git a/subs/edd_j_var_v6.f b/subs/edd_j_var_v6.f
+--- a/subs/edd_j_var_v6.f
++++ b/subs/edd_j_var_v6.f
+@@ -268,3 +268,266 @@
+ !
+ 	RETURN
+ 	END
++
++! Refined-grid entry with caller-supplied full optical-depth Jacobian.
++	SUBROUTINE EDD_J_VAR_GRID_V1(VK,RHS_dHdCHI,dTAUdCHI,
++	1                  SOURCE,CHI,ESEC,ES_COH_VEC,DTAU,R,SIGMA,
++	1                  MIDF,Q,HU,HL,HS,RSQ_DTAUONQ,
++	1                  W,WPREV,PSI,PSIPREV,
++	1                  EPS_A,EPS_B,EPS_PREV_A,EPS_PREV_B,
++	1                  JNU,JNUM1,RSQ_HNUM1,
++	1                  DBB,DIF,HBC,OUT_BC_TYPE,ND,NM)
++	USE SET_KIND_MODULE
++	IMPLICIT NONE
++!
++! Altered 12-Mar-2003 : Evaluation of terms rewritten for better numerical accuracy.
++! Altered 05-Feb-1998 : ES_COH_VEC now passed. Logical variable coherent
++!                         no longer required. Introduced to allow
++!                         coherent scattering at some depths, and
++!                         incoherent scattering at other depths.
++!                         Equivalent to THETA in many programs.
++!                         Changed to version 5.
++! Altered 16-Aug-1996 : Loop splitting to improve vectorization.
++! Altered 24-May-1996 : NV removed (Max valued for ND) using F90
++!                       CALL to DP_ZERO replaced.
++! Created 16-Sep-1994 : Based on EDDLINE_VAR
++!
++	INTEGER ND,NM
++	REAL(KIND=LDP) VK(ND,ND,NM),RHS_dHdCHI(ND-1,ND)
++	REAL(KIND=LDP) dTAUdCHI(ND,ND)
++	REAL(KIND=LDP) SOURCE(ND),CHI(ND),ESEC(ND),ES_COH_VEC(ND)
++	REAL(KIND=LDP) DTAU(ND),R(ND),SIGMA(ND)
++	REAL(KIND=LDP) MIDF(ND),Q(ND),HU(ND),HL(ND),HS(ND),RSQ_DTAUONQ(ND)
++	REAL(KIND=LDP) W(ND),WPREV(ND),PSI(ND),PSIPREV(ND)
++	REAL(KIND=LDP) EPS_A(ND),EPS_B(ND)
++	REAL(KIND=LDP) EPS_PREV_A(ND),EPS_PREV_B(ND)
++	REAL(KIND=LDP) JNU(ND),JNUM1(ND),RSQ_HNUM1(ND)
++	REAL(KIND=LDP) DBB
++	REAL(KIND=LDP) HBC
++	LOGICAL DIF
++	INTEGER OUT_BC_TYPE
++!
++! Local variables.
++!
++	REAL(KIND=LDP) dHUdCHI(ND),dHLdCHI(ND),dHSdCHI(ND)
++	REAL(KIND=LDP) dHUdTAU(ND),dHLdTAU(ND),EPS_FAC(ND)
++	REAL(KIND=LDP) dRHSdI(ND),dRHSdJ(ND)
++!
++	INTEGER ERROR_LU
++	EXTERNAL ERROR_LU
++!
++	INTEGER I,J,K,L
++	REAL(KIND=LDP) T1,T2,T3
++	REAL(KIND=LDP) dUdCHI
++	REAL(KIND=LDP) dTAdCHI_J,dTAdCHI_I
++	REAL(KIND=LDP) dTCdCHI_I,dTCdCHI_K
++	REAL(KIND=LDP) dTBdCHI_J,dTBdCHI_I,dTBdCHI_K,dTBdCHI
++	REAL(KIND=LDP) dXM_EPS_J,dXM_EPS_I,dXM_EPS_K
++!
++! 
++!
++	IF(NM .LT. 2)THEN
++	  I=ERROR_LU()
++	  WRITE(I,*)'Error in EDD_J_VAR_V6 - NM_KI too small'
++	  WRITE(I,*)'NM_KI='
++	  STOP
++	END IF
++	VK(:,:,:)=0.0_LDP
++	RHS_dHdCHI(:,:)=0.0_LDP
++!
++! Compute the dTAUdCHI matrix.
++!
++! dTAUdCHI is supplied by the exact derivative of the forward quadrature.
++!
++! The following derivatives are valid for all ML.
++!
++	DO I=1,ND-1
++	  T1=(1.0_LDP+W(I))*(CHI(I)+CHI(I+1))
++	  dHUdCHI(I)=HU(I)*W(I)/T1
++	  dHUdTAU(I)=-HU(I)/DTAU(I)
++	  dHLdCHI(I)=HL(I)*W(I)/T1
++	  dHLdTAU(I)=-HL(I)/DTAU(I)
++	  dHSdCHI(I)=-HS(I)/T1
++	  EPS_FAC(I)=-1.0_LDP/T1
++	END DO
++!
++! 
++!
++! Firstly we compute the variation of the elements with respect to
++! DTAU. We then multiply by dTAUdCHI matrix.
++!
++! We have 3 separate loops over I to allow vectorization.
++! To improve rounding error, we note that dTBdCHI needs to be added to
++! both dTBdCHI_I and dTBdCHI_J.
++!
++	DO I=2,ND-1
++	  J=I-1
++	  K=I+1
++	  dTAdCHI_J=-dHLdTAU(J)
++	  dTCdCHI_I=-dHUdTAU(I)
++	  T1=0.5_LDP*R(I)*R(I)/Q(I)
++	  dTBdCHI_I=dHLdTAU(I)
++	  dTBdCHI_J=dHUdTAU(J)
++	  dTBdCHI=PSI(I)/(DTAU(J)+DTAU(I))+0.5_LDP*(1.0_LDP-ES_COH_VEC(I))*R(I)*R(I)/Q(I)
++!
++! dDELUB is use as correction because UB(I)=-TB(I)-PSI(I)-PSIPREV(I)
++!
++	  dUdCHI=PSIPREV(I)/(DTAU(J)+DTAU(I))
++!
++	  dRHSdJ(I)=  T1*SOURCE(I)
++	1         - (dTAdCHI_J*JNU(J)+dTBdCHI_J*JNU(I))
++	1         - dTBdCHI*JNU(I)
++	1         + dUdCHI*JNUM1(I)
++!
++	  dRHSdI(I)= T1*SOURCE(I)
++	1         - (dTCdCHI_I*JNU(K)+dTBdCHI_I*JNU(I))
++	1         + (dUdCHI*JNUM1(I)-dTBdCHI*JNU(I))
++!
++	END DO
++!
++	DO I=2,ND-1
++	  J=I-1
++	  K=I+1
++	  DO L=1,ND
++	    VK(I,L,1)=VK(I,L,1)+dRHSdJ(I)*dTAUdCHI(J,L)
++	    VK(I,L,1)=VK(I,L,1)+dRHSdI(I)*dTAUdCHI(I,L)
++	  END DO
++	END DO
++!
++! Can now update VK for direct opacity variation.
++!
++	DO I=2,ND-1
++	  J=I-1
++	  K=I+1
++	  T1=0.5_LDP*R(I)*R(I)/Q(I)
++!
++	  dTAdCHI_J=-dHLdCHI(J)
++	  dTAdCHI_I=-dHLdCHI(J)
++	  dTCdCHI_I=-dHUdCHI(I)
++	  dTCdCHI_K=-dHUdCHI(I)
++!
++	  dTBdCHI_J=dHUdCHI(J)
++	  dTBdCHI_I=dHLdCHI(I)+dHUdCHI(J)
++	  dTBdCHI= -PSI(I)/CHI(I)+RSQ_DTAUONQ(I)*ES_COH_VEC(I)/CHI(I)
++	  dTBdCHI_K=dHLdCHI(I)
++!
++	  dUdCHI=-PSIPREV(I)/CHI(I)
++!
++	  dXM_EPS_J=( EPS_A(J)*JNU(J)-EPS_PREV_A(J)*JNUM1(J) +
++	1             EPS_B(J)*JNU(I)-EPS_PREV_B(J)*JNUM1(I) )*EPS_FAC(J)
++	  dXM_EPS_K=( EPS_PREV_A(I)*JNUM1(I)-EPS_A(I)*JNU(I) +
++	1             EPS_PREV_B(I)*JNUM1(I+1)-EPS_B(I)*JNU(I+1) )*EPS_FAC(I)
++	  dXM_EPS_I=dXM_EPS_J+dXM_EPS_K
++!
++! NB  :  VB(I)=-HS(J) and VC(I)=HS(I)
++!
++	  VK(I,J,1)=VK(I,J,1)
++	1             - (dTAdCHI_J*JNU(J)+dTBdCHI_J*JNU(I))
++	1             - dHSDCHI(J)*RSQ_HNUM1(J)
++	1             + dXM_EPS_J
++!
++	  VK(I,K,1)=VK(I,K,1)
++	1             - (dTCdCHI_K*JNU(K)+dTBdCHI_K*JNU(I))
++	1             + dHSDCHI(I)*RSQ_HNUM1(I)
++	1             + dXM_EPS_K
++!
++	  T1=T1*(DTAU(J)+DTAU(I))/CHI(I)
++	  VK(I,I,1)=VK(I,I,1)
++	1             - (dTAdCHI_I*JNU(J)+dTCdCHI_I*JNU(K)+dTBdCHI_I*JNU(I))
++	1             + (dUdCHI*JNUM1(I)-dTBdCHI*JNU(I))
++	1             + (dHSDCHI(I)*RSQ_HNUM1(I)-dHSDCHI(J)*RSQ_HNUM1(J))
++	1             - T1*SOURCE(I)
++	1             + dXM_EPS_I
++!
++	  VK(I,I,2)=T1
++	END DO
++!
++! Now do the boundary conditions.
++!
++	IF(OUT_BC_TYPE .LE. 1)THEN
++	  T1=  ( MIDF(1)*Q(1)*JNU(1)*R(1)*R(1)
++	1        - MIDF(2)*Q(2)*JNU(2)*R(2)*R(2) )/DTAU(1)/DTAU(1)
++	  DO L=1,ND
++	    VK(1,L,1)=VK(1,L,1)+T1*dTAUdCHI(1,L)
++	  END DO
++	  VK(1,1,1)=VK(1,1,1) +
++	1          ( PSI(1)*JNU(1)- PSIPREV(1)*JNUM1(1) )/CHI(1)
++	ELSE
++!
++! First do the variation with respect to CHI arising from the 0.5*dR*(CHI(1)+CHI(2)) term.
++!
++	  T1=0.25_LDP*(R(2)-R(1))
++	  T2=T1*(CHI(2)+CHI(1))
++	  T3=( HS(1)*RSQ_HNUM1(1) + (HU(1)*JNU(2)-(HL(1)+HBC*R(1)*R(1))*JNU(1)) +
++	1       EPS_PREV_A(1)*JNUM1(1)-EPS_A(1)*JNU(1) +
++	1       EPS_PREV_B(1)*JNUM1(2)-EPS_B(1)*JNU(2) )*T1/T2/T2
++	  VK(1,1,1)=VK(1,1,1) + T3
++	  VK(1,2,1)=VK(1,2,1) + T3
++!
++! We now do the variation arising from DTAU(1) (which contains a q factor)
++!
++	  T3= -(dHUdTAU(1)*JNU(2)-dHLdTAU(1)*JNU(1))/T2
++	  VK(1,1,1)=VK(1,1,1) + T3*dTAUdCHI(1,1)
++	  VK(1,2,1)=VK(1,2,1) + T3*dTAUdCHI(1,2)
++	  VK(1,3,1)=VK(1,3,1) + T3*dTAUdCHI(1,3)
++!
++! Now do the variation arising directly from terms containing 1/CHI(1).
++!
++	  T3= R(1)*R(1)*(SOURCE(1)+ES_COH_VEC(1)*JNU(1))/CHI(1) +
++	1           (PSIPREV(1)*JNUM1(1)-PSI(1)*JNU(1))/CHI(1)
++	  VK(1,1,1)=VK(1,1,1) + T3
++!
++! Now do terms containing 1/(CHI(1)+CHI(2))
++!
++	  T3=(dHLdCHI(1)*JNU(1)- dHUdCHI(1)*JNU(2)-dHSdCHI(1)*RSQ_HNUM1(1))/T2
++	1       + ( EPS_A(1)*JNU(1)-EPS_PREV_A(1)*JNUM1(1)+
++	1         EPS_B(1)*JNU(2)-EPS_PREV_B(1)*JNUM1(2) )*EPS_FAC(1)/T2
++	  VK(1,1,1)=VK(1,1,1) + T3
++	  VK(1,2,1)=VK(1,2,1) + T3
++!
++! Now for the variation with ETA.
++!
++	  VK(1,1,2)=-R(1)*R(1)/CHI(1)
++!
++	END IF
++!
++	IF(DIF)THEN
++	  T1= ( R(ND)*R(ND)*MIDF(ND)*JNU(ND) -
++	1          R(ND-1)*R(ND-1)*MIDF(ND-1)*Q(ND-1)*JNU(ND-1) )
++	1           / DTAU(ND-1)/DTAU(ND-1)
++	  DO L=1,ND
++	    VK(ND,L,1)=VK(ND,L,1)+T1*dTAUdCHI(ND-1,L)
++	  END DO
++	  VK(ND,ND,1)=VK(ND,ND,1)-
++	1               DBB*R(ND)*R(ND)/3.0_LDP/CHI(ND)/CHI(ND)
++	ELSE
++	  T1= ( R(ND)*R(ND)*MIDF(ND)*JNU(ND) -
++	1           R(ND-1)*R(ND-1)*MIDF(ND-1)*Q(ND-1)*JNU(ND-1) )
++	1           / DTAU(ND-1)/DTAU(ND-1)
++	  DO L=1,ND
++	    VK(ND,L,1)=VK(ND,L,1)+T1*dTAUdCHI(ND-1,L)
++	  END DO
++	END IF
++!
++! 
++!
++! Now we compute the varaition of the equation which updates the
++! flux variation. We don't correct for the line profile, since
++! we would the require two matrices. Note that HU(I), HL(I) and
++! HS(I) depend directly on CHI(I) and CHI(I+1).
++!
++	DO I=1,ND-1
++	  T1=dHUdTAU(I)*JNU(I+1)-dHLdTAU(I)*JNU(I)
++	  DO L=1,ND
++	    RHS_dHdCHI(I,L)=RHS_dHdCHI(I,L)+T1*dTAUdCHI(I,L)
++	  END DO
++	  T1=dHUdCHI(I)*JNU(I+1) - dHLdCHI(I)*JNU(I)
++	1                       + dHSdCHI(I)*RSQ_HNUM1(I) +
++	1     EPS_FAC(I)*( EPS_PREV_A(I)*JNUM1(I)-EPS_A(I)*JNU(I) +
++	1                  EPS_PREV_B(I)*JNUM1(I+1)-EPS_B(I)*JNU(I+1) )
++	  RHS_dHdCHI(I,I)=RHS_dHdCHI(I,I) + T1
++	  RHS_dHdCHI(I,I+1)=RHS_dHdCHI(I,I+1) + T1
++	END DO
++!
++	RETURN
++	END
 diff --git a/subs/regrid_t_ed_v3.f b/subs/regrid_t_ed_v3.f
 --- a/subs/regrid_t_ed_v3.f
 +++ b/subs/regrid_t_ed_v3.f
@@ -1228,3 +2681,179 @@ diff --git a/subs/regrid_t_ed_v3.f b/subs/regrid_t_ed_v3.f
  	END DO
  !
  ! Free up memory.
+diff --git a/subs/up_tx_tvx_v2.f b/subs/up_tx_tvx_v2.f
+--- a/subs/up_tx_tvx_v2.f
++++ b/subs/up_tx_tvx_v2.f
+@@ -185,3 +185,172 @@
+ !
+ 	RETURN
+ 	END
++
++! Refined-grid rectangular counterpart; original V2 ABI unchanged.
++	SUBROUTINE UP_TX_TVX_GRID_V1(TX,TVX,KI,TA,TB,TC,PSIPREV_MOD,
++	1                 VB,VC,HU,HL,HS,RHS_dHdCHI,
++	1                 EPS_A,EPS_B,EPS_PREV_A,EPS_PREV_B,
++	1                 OLD_TX,ND,NC,NM_TX,NM_KI,
++	1                 DTAU_BND,OUT_BC_TYPE,
++	1                 INIT,DO_THIS_TX_MATRIX)
++	USE SET_KIND_MODULE
++	IMPLICIT NONE
++C
++C Altered 28-May-1996 : Calls to DP_ZERO removed.
++C                       (, at end of subroutine specification deleted).
++C
++C Created 10-Mar-1995.   Based on UPTX_J_EDD_V3
++C                        EPS_A,EP_B etc passed in call.
++C                        Argument odering altered.
++C                        TX and TVX modified in the same routine, since
++C                          TVX may depend on TX at the previus frequency.
++C
++	INTEGER ND,NC,NM_TX,NM_KI
++	REAL(KIND=LDP) TX(ND,NC,NM_TX)
++	REAL(KIND=LDP) TVX(ND-1,NC,NM_TX)
++	REAL(KIND=LDP) KI(ND,NC,NM_KI)
++	REAL(KIND=LDP) TA(ND),TB(ND),TC(ND)
++	REAL(KIND=LDP) PSIPREV_MOD(ND),VB(ND),VC(ND)
++	REAL(KIND=LDP) HU(ND),HL(ND),HS(ND)
++	REAL(KIND=LDP) RHS_dHdCHI(ND-1,NC)
++C
++C NB: _A denotes that EPS(I) multiples RJ(I)
++C     _B denotes that EPS(I) multiples RJ(I+1)
++C
++	REAL(KIND=LDP) EPS_A(ND),EPS_B(ND)
++	REAL(KIND=LDP) EPS_PREV_A(ND),EPS_PREV_B(ND)
++	REAL(KIND=LDP) DTAU_BND
++	LOGICAL INIT,DO_THIS_TX_MATRIX(NM_TX)
++	INTEGER OUT_BC_TYPE
++C
++C Work Array.
++C
++	REAL(KIND=LDP) OLD_TX(ND,NC)
++C
++	INTEGER ERROR_LU
++	EXTERNAL ERROR_LU
++C
++C Local varables.
++C
++	INTEGER I,J,K
++	LOGICAL USE_EPS
++C
++C Determine whether we are using the G eddington factor to describe N
++C (in terms of H) or whether N is also being described interms of J.
++C
++C If only G is being used, a faster section of code is excuted.
++C Need to check both EPS_A and EPS_PREV_A because only 1 frequency may be using
++C RSQN_ON_RSQJ. NO need to check _B, since differ by constant (factor) only.
++C
++	USE_EPS=OUT_BC_TYPE.GT.1			!G Eddington factor only
++	DO I=1,ND
++	  IF(EPS_A(I) .NE. 0.0_LDP .OR. EPS_PREV_A(I) .NE. 0.0_LDP)USE_EPS=.TRUE.
++	END DO
++C
++	IF(NM_TX .LT. 2 .OR. NM_KI .LT. 2)THEN
++	  I=ERROR_LU()
++	  WRITE(I,*)'Invalid NM in UP_TX_TVX'
++	  WRITE(I,*)'NM_TX=',NM_TX
++	  WRITE(I,*)'NM_KI=',NM_KI
++	  STOP
++	END IF
++C
++C INIT will be true for the very first frequency. We initialize all storage
++C locations, even those not in use.
++C
++	IF(INIT)THEN
++	  TX(:,:,:)=0.0_LDP       !ND,ND,NM_TX
++	  TVX(:,:,:)=0.0_LDP      !(ND-1),ND*NM_TX
++	  OLD_TX(:,:)=0.0_LDP     !ND,ND
++	END IF
++C
++C Now modify the matrices, operating on each matrix (labeled by K) separately.
++C We use OLD_TX to store TX( , ,K) at the previous frequency. Only necessary
++C when N is being (at least partially) specified in terms of J.
++C
++!$OMP PARALLEL DO SCHEDULE(DYNAMIC) PRIVATE(I,J,OLD_TX)
++	DO K=1,NM_TX
++	  IF(DO_THIS_TX_MATRIX(K))THEN
++	    IF(INIT)OLD_TX=0.0_LDP
++	    IF(USE_EPS .AND. .NOT. INIT)THEN
++	      DO J=1,NC
++	        DO I=1,ND
++	          OLD_TX(I,J)=TX(I,J,K)
++	        END DO
++	      END DO
++	      IF(OUT_BC_TYPE .LE. 1)THEN
++	        DO J=1,NC
++	          TX(1,J,K)=PSIPREV_MOD(1)*OLD_TX(1,J) + VC(1)*TVX(1,J,K)
++	        END DO
++	      ELSE
++	        DO J=1,NC
++	          TX(1,J,K)=-PSIPREV_MOD(1)*OLD_TX(1,J) - HS(1)*TVX(1,J,K)/DTAU_BND -
++	1             (EPS_PREV_A(1)*OLD_TX(1,J)+EPS_PREV_B(1)*OLD_TX(2,J))/DTAU_BND
++	        END DO
++	      END IF
++!
++	      DO J=1,NC
++	        DO I=2,ND-1
++ 	          TX(I,J,K)=PSIPREV_MOD(I)*OLD_TX(I,J)
++	1                 + VB(I)*TVX(I-1,J,K) + VC(I)*TVX(I,J,K)
++	1                 + ( EPS_PREV_B(I)*OLD_TX(I+1,J)
++	1                       - EPS_PREV_A(I-1)*OLD_TX(I-1,J) )
++	        END DO
++ 	        TX(ND,J,K)= PSIPREV_MOD(ND)*OLD_TX(ND,J) +
++	1                       VB(ND)*TVX(ND-1,J,K)
++	      END DO
++	    ELSE IF(.NOT. INIT)THEN
++	      DO J=1,NC
++	        TX(1,J,K)=PSIPREV_MOD(1)*TX(1,J,K) + VC(1)*TVX(1,J,K)
++	        DO I=2,ND-1
++ 	          TX(I,J,K)=PSIPREV_MOD(I)*TX(I,J,K)
++	1                 + VB(I)*TVX(I-1,J,K) + VC(I)*TVX(I,J,K)
++	        END DO
++ 	        TX(ND,J,K)= PSIPREV_MOD(ND)*TX(ND,J,K) + VB(ND)*TVX(ND-1,J,K)
++	      END DO
++	    END IF
++C
++	    IF(K .EQ. 1 .OR. K .EQ. 2)THEN
++	      DO J=1,NC
++	        DO I=1,ND
++	          TX(I,J,K)=TX(I,J,K)+KI(I,J,K)
++	        END DO
++	      END DO
++	    END IF
++C
++C Solve the simultaneous equations.
++C
++	    CALL SIMPTH(TA,TB,TC,TX(1,1,K),ND,NC)
++C
++	    IF(USE_EPS)THEN
++	      DO J=1,NC
++	        DO I=1,ND-1
++	           TVX(I,J,K)= HU(I)*TX(I+1,J,K) - HL(I)*TX(I,J,K)
++	1               + HS(I)*TVX(I,J,K) +
++	1               (EPS_PREV_A(I)*OLD_TX(I,J)-EPS_A(I)*TX(I,J,K)) +
++	1               (EPS_PREV_B(I)*OLD_TX(I+1,J)-EPS_B(I)*TX(I+1,J,K))
++	        END DO
++	      END DO
++	    ELSE
++	      DO J=1,NC
++	        DO I=1,ND-1
++	           TVX(I,J,K)= HU(I)*TX(I+1,J,K) - HL(I)*TX(I,J,K)
++	1               + HS(I)*TVX(I,J,K)
++	        END DO
++	      END DO
++	    END IF
++C
++	    IF(K .EQ. 1)THEN
++	      DO J=1,NC
++	        DO I=1,ND-1
++	          TVX(I,J,K)=TVX(I,J,K)+RHS_dHdCHI(I,J)
++	        END DO
++	      END DO
++	    END IF
++C
++	  END IF	!DO_THIS_MATRIX
++	END DO		!K
++!$OMP END PARALLEL DO
++!
++	RETURN
++	END

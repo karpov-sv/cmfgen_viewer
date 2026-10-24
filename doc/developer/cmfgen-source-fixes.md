@@ -2,10 +2,10 @@
 
 Updated **24 October 2026**. Source checkout: `~/CMFGEN2023/cur_cmf/`, based on
 CMFGEN website release **version 18jun25**. This is the current implementation
-record for the original ten fixes and eight additions from the Bstar3502
+record for the original ten fixes and nine additions from the Bstar3502
 investigation. Earlier investigation documents retain their historical status.
 
-**Status:** all eighteen fixes below are installed. The atmosphere executable
+**Status:** all nineteen fixes below are installed. The atmosphere executable
 `exe/cmfgen_dev.exe` and the spectrum executables `exe/cmf_flux.exe` and
 `exe/obs_frame.exe` were rebuilt serially on 24 October. Existing compiler,
 platform, aliases and FORMAT adaptations are preserved. No user model controls
@@ -14,7 +14,7 @@ or checkpoints were changed by this installation.
 The exact build hashes, source hashes and rollback directory are in
 `~/CMFGEN2023/cur_cmf/cmfgen-local-build.json` and the tracked
 [patch manifest](patches/cmfgen-current.json). The new atmosphere executable SHA-256
-is `c1be1f22fc5bae65fca03657360be29750603e0e8363e6d119141d2c15f3cfc1`.
+is `ff678bc4bc57908e31096d7eeb26d101e645249eb540b3b4624091a3d024c467`.
 The installed source contains the tested scientific repairs, without matrix/ray
 recorders, transport-only STOP branches, or experimental Q-integration changes.
 
@@ -40,12 +40,13 @@ recorders, transport-only STOP branches, or experimental Q-integration changes.
 | 16 | A line whose two levels share a superlevel loses or double counts population/heating derivatives, depending on pointer layout; its temperature expression also cancels. | Explicit physical shared-superlevel treatment for both pointer layouts and stable heating/temperature expressions, including the model's cooling reset. Supersedes the intermediate strong-line candidate. | `new_main/subs/update_ba_for_line.f` |
 | 17 | BA reader swaps the producer's FIXED_T/COMPUTE_BA flags, can alter FIXED_T on failure, accepts truncated tails, and the initial caller ignores a fresh-compute request. | Read the writer's flag order, commit FIXED_T only after a complete read, handle EOF, and forward `COMPUTE_BARDIN` at initial read. | `new_main/subs/read_ba_data_v3.f`, `new_main/cmfgen_sub.f` |
 | 18 | Ng temperature-direction guard checks appended `Sigma+1` instead of physical T. | Pass the physical temperature index to a private V4 helper; initialize the guard ratio. Preserve the separate V1 ABI, geometry and existing Ng validity checks. | `new_main/subs/do_ng_accel_band_v4.f` |
+| 19 | Inserted moment points leave angular factors on a different grid from the old Jacobian; coarse remapping alone is not a derivative of the refined solve. | Carry rectangular responses and frequency history on the actual moment grid, differentiate native interpolation/quadrature/boundaries, then project to model locations. Include coherent-scattering interpolation, clumping, line-slot reuse and build dependencies. Preserve the unrefined path. | `plane/mom_j_cmf_v11.f`, `var_mom_j_cmf_v12.f`, `get_moms_non_rel.f`, `mod_var_mom_j_cmf.f`; `subs/edd_j_var_v6.f`, `up_tx_tvx_v2.f`; `new_main/mod_subs/do_var_cont.f`, `var_rad_mod.f`, `init_line_opac_var_v2.f`; Makefiles |
 
 The complete current checkout diff is
 [cmfgen-current.patch](patches/cmfgen-current.patch), with the release baseline,
 capture time, patch SHA-256, installed executable hashes and before/after file
 SHA-256 values in [cmfgen-current.json](patches/cmfgen-current.json). It captures
-**25 files**, including the new population-initialization module which ordinary
+**35 files**, including the new population-initialization module which ordinary
 `git diff` would omit while untracked in the external checkout.
 
 The full diff also preserves local macOS and Ubuntu compiler/linker settings
@@ -56,7 +57,7 @@ as they stand; the Ubuntu configuration was not covered by the validation below.
 Generated modules, binaries, logs, save files, and scratch patches are excluded.
 
 Patch application was checked against the baseline contents in a fresh temporary
-directory. All 25 resulting files matched the captured checkout byte for
+directory. All 35 resulting files matched the captured checkout byte for
 byte by SHA-256. Do not apply the patch again to the already patched checkout.
 
 ## Using population-based initialization
@@ -210,11 +211,16 @@ recovery branch; formal final model convergence is a separate task. See
 [rule conditions and limits](../main-computation.md#automatic-convergence-and-recovery-rules)
 and the [source investigation](cmfgen-line-jacobian-cancellation.md).
 
-**Known scope limitation:** inserted moment grids still have an independently
-reproduced `VAR_MOM_J` angular-prefix mapping issue. No validated correction for
-that routine is included here. Auto ray refinement keeps `VFRAC_MOM=20000` and
-declines an already inserted moment grid. The alternative log-radius `QFROMF`
-integration and diagnostic-only instrumentation remain excluded.
+**Inserted moment grids are repaired** in the nonrelativistic spherical
+variation path. The refined Jacobian uses the actual moment grid and retains
+fine-grid frequency history before projecting back to atmosphere locations.
+Bounds-checked single-threaded and optimized five-thread tests preserve forward
+transport and the no-insertion path bit for bit, and verify kernel and production
+wrapper derivatives by finite differences. See the
+[implementation, validation and remaining scope limits](cmfgen-inserted-moment-grid.md).
+Auto ray refinement accepts an already inserted grid only with an authenticated
+`moment-grid-jacobian-v1` executable; it does not change `VFRAC_MOM`. Experimental
+log-radius `QFROMF` integration and diagnostic-only instrumentation remain excluded.
 
 ## Reproduce and rebuild
 
@@ -242,6 +248,8 @@ python doc/developer/cmfgen-review-tests/run_review.py ~/CMFGEN2023/cur_cmf/
 python doc/developer/cmfgen-review-tests/check_line_jacobian_branches.py --shared-check physical
 python doc/developer/cmfgen-review-tests/check_ba_restart_flags.py
 python doc/developer/cmfgen-review-tests/check_ng_temperature_guard.py
+python doc/developer/cmfgen-review-tests/check_moment_grid_jacobian.py
+python doc/developer/cmfgen-review-tests/check_moment_grid_jacobian.py --optimization O2 --threads 5
 python doc/developer/cmfgen-review-tests/run_review.py ~/CMFGEN2023/cur_cmf/ \
   --optimization O2 --threads 5 --atomic-data ~/CMFGEN2023/atomic/
 ```
@@ -258,6 +266,7 @@ For production use, rebuild serially in the external checkout:
 
 ```sh
 cd ~/CMFGEN2023/cur_cmf/
+make -C plane INSTALL_DIR="$PWD/"
 make -C new_main INSTALL_DIR="$PWD/"
 make -C obs INSTALL_DIR="$PWD/"
 python ~/sciwork/cmfgen_viewer/doc/developer/cmfgen-review-tests/record_local_build.py --relink "$PWD"
@@ -265,7 +274,7 @@ python ~/sciwork/cmfgen_viewer/doc/developer/cmfgen-review-tests/record_local_bu
 
 The helper performs the three final links after both recursive builds have
 finished updating shared archives; it then checks source hashes and executable
-ordering before recording capabilities. Rebuild other affected executables if used. The 24 October installation preserved source/executable backups in the build record's `build_evidence` directory under `installed-before/`. Keep pre-fix executables and binary checkpoints separate
+ordering before recording capabilities. Rebuild other affected executables if used. The latest installation preserved source, library, module and executable backups in the build record's `build_evidence` directory under `installed-before/`. Keep pre-fix executables and binary checkpoints separate
 for comparisons. Do not run a parallel make: the archives and module directories
 are shared by recursive targets. No source fixes from this work were committed
 to the external Git repository.
