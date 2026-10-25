@@ -234,11 +234,15 @@ def _structure(args):
     if args.review_file:
         with args.review_file.open('x') as stream:
             json.dump(plan, stream, indent=2)
-    return {'command': 'structure', 'ready': True, 'model': str(model),
+    report = {'command': 'structure', 'ready': True, 'model': str(model),
             'status': 'review_required', 'summary': plan['summary'], 'diffs': plan['diffs'],
             'operation': plan['operation_label'],
             'warnings': plan['warnings'], 'retire': plan['retire'],
-            'review_file': str(args.review_file) if args.review_file else None}, 0
+            'review_file': str(args.review_file) if args.review_file else None}
+    if args.execute:
+        saved = _execute(apply_structure_plan, model, plan)
+        report.update(status=saved['status'], result=saved)
+    return report, 0
 
 
 def _text(report):
@@ -347,8 +351,10 @@ def build_parser():
     structure.add_argument('--radii', help='Comma/space separated radii in 10^10 cm, largest first')
     structure.add_argument('--candidate', type=Path, help='Review an externally prepared RVSIG_COL instead of native generation')
     structure.add_argument('--review-file', type=Path, help='Save the candidate review to a new JSON file')
-    structure.add_argument('--apply', type=Path, help='Apply a previously saved, unchanged review JSON file')
-    structure.add_argument('--plan', action='store_true', help='Generate a candidate without modifying the model (default)')
+    structure_mode = structure.add_mutually_exclusive_group()
+    structure_mode.add_argument('--apply', type=Path, help='Apply a previously saved, unchanged review JSON file')
+    structure_mode.add_argument('--plan', action='store_true', help='Generate a candidate without modifying the model (default)')
+    structure_mode.add_argument('--execute', action='store_true', help='Generate, validate, and immediately apply the structure update')
     for command in (copy, cleanup, out2in, edit):
         command.add_argument('--plan', action='store_true', help='Show the planned operation without modifying files')
     for command in (show, get, copy, cleanup, out2in, edit, structure):

@@ -384,3 +384,103 @@ def test_structure_form_retains_selected_grid_operation(model):
     assert b'value="new_nd" selected' in response.data
     assert b'name="new_depths" value="135"' in response.data
     assert b'data-structure-form' in response.data
+
+
+def test_cli_execute_generates_native_update_and_archives_checkpoint(model, tmp_path, capsys):
+    import sys
+    native = native_root(tmp_path)
+    exe = native/'exe/rev_rvsig.exe'
+    exe.write_text(f'#!{sys.executable}\n' + '''
+from pathlib import Path
+import sys
+answers=sys.stdin.read().splitlines()
+assert answers[:3]==['RVSIG_COL_OLD','F','MDOT']
+assert not Path('VADAT').exists()
+Path('RVSIG_COL_NEW').write_text(Path('RVSIG_COL_OLD').read_text())
+print('native structure generation completed')
+''')
+    edit(model)
+    (model/'SCRTEMP').write_bytes(b'old checkpoint')
+    original = (model/'RVSIG_COL').read_bytes()
+    assert main(['structure',str(model),'--execute','--cmfgen-root',str(native),
+                 '--connection-velocity','50','--json']) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report['status'] == 'succeeded'
+    archive = Path(report['result']['archive_path'])
+    assert (archive/'SCRTEMP').read_bytes() == b'old checkpoint'
+    assert (archive/'RVSIG_COL').read_bytes() == original
+    assert not (model/'SCRTEMP').exists()
+    assert not inspect_structure_update(model)['required']
+    plan = json.loads((archive/'operation.json').read_text())
+    assert plan['native_runs'][0]['mode'] == 'MDOT'
+    assert 'native structure generation completed' in plan['native_runs'][0]['log']
+
+
+def test_cli_execute_grid_operation_updates_coupled_dimensions(model, tmp_path, capsys):
+    import sys
+    root = native_root(tmp_path)
+    output = '5 !Number of depth points\n\n4 40 0 1\n3.5 35 0 2\n3 30 0 3\n2 20 0 4\n1 10 0 5\n'
+    (root/'exe/rev_rvsig.exe').write_text(f'#!{sys.executable}\n' +
+        'from pathlib import Path\nimport sys\na=sys.stdin.read().splitlines()\n'
+        'assert a[:4]==["RVSIG_COL_OLD","F","NEW_ND","5"]\n'
+        f'Path("RVSIG_COL_NEW").write_text({output!r})\n')
+    assert main(['structure',str(model),'--execute','--operation','new_nd',
+                 '--new-depths','5','--cmfgen-root',str(root),'--json']) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report['status'] == 'succeeded'
+    assert len(parse_grid((model/'RVSIG_COL').read_text())) == 5
+    spec = (model/'MODEL_SPEC').read_text()
+    assert '5 [ND]' in spec and '6 [NP]' in spec
+    assert (Path(report['result']['archive_path'])/'MODEL_SPEC').is_file()
+
+
+def test_cli_execute_candidate_can_also_save_review(model, tmp_path, capsys):
+    edit(model)
+    candidate, review = tmp_path/'candidate', tmp_path/'review.json'
+    candidate.write_text(GRID)
+    assert main(['structure',str(model),'--execute','--candidate',str(candidate),
+                 '--review-file',str(review),'--json']) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report['status'] == 'succeeded'
+    assert report['review_file'] == str(review)
+    assert json.loads(review.read_text()) == json.loads(
+        (Path(report['result']['archive_path'])/'operation.json').read_text())
+
+
+@pytest.mark.parametrize('conflict', [['--plan'], ['--apply','unused.json']])
+def test_cli_execute_rejects_conflicting_modes_before_mutation(model, conflict):
+    original = {p.name:p.read_bytes() for p in model.iterdir()}
+    with pytest.raises(SystemExit) as exc:
+        main(['structure',str(model),'--execute',*conflict])
+    assert exc.value.code == 2
+    assert original == {p.name:p.read_bytes() for p in model.iterdir()}
+
+
+def test_cli_execute_still_rejects_changes_after_generation(model, tmp_path, monkeypatch, capsys):
+    from cmfgen_viewer import model_cli
+    edit(model)
+    backups_before = set((model/'.cmfgen-viewer-backups').iterdir())
+    candidate = tmp_path/'candidate';candidate.write_text(GRID)
+    (model/'SCRTEMP').write_bytes(b'checkpoint')
+    original = (model/'RVSIG_COL').read_bytes()
+    build = model_cli.build_structure_plan
+    def changed(*args, **kwargs):
+        plan = build(*args, **kwargs)
+        with (model/'VADAT').open('a') as stream: stream.write('! concurrent edit\n')
+        return plan
+    monkeypatch.setattr(model_cli,'build_structure_plan',changed)
+    assert main(['structure',str(model),'--execute','--candidate',str(candidate),'--json']) == 1
+    report = json.loads(capsys.readouterr().out)
+    assert 'changed after review' in report['error']
+    assert (model/'RVSIG_COL').read_bytes() == original
+    assert (model/'SCRTEMP').read_bytes() == b'checkpoint'
+    assert (model/'VADAT').read_text().endswith('! concurrent edit\n')
+    assert set((model/'.cmfgen-viewer-backups').iterdir()) == backups_before
+
+
+def test_cli_execute_invalid_candidate_leaves_model_unchanged(model, tmp_path, capsys):
+    candidate = tmp_path/'candidate';candidate.write_text(GRID.replace('2 20','2 NaN'))
+    original = {p.name:p.read_bytes() for p in model.iterdir()}
+    assert main(['structure',str(model),'--execute','--candidate',str(candidate),'--json']) == 2
+    assert json.loads(capsys.readouterr().out)['status'] == 'blocked'
+    assert original == {p.name:p.read_bytes() for p in model.iterdir()}

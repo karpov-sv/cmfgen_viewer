@@ -459,6 +459,25 @@ python3 cmfgen_model.py structure /path/to/model \
 python3 cmfgen_model.py structure /path/to/model --apply /tmp/structure-review.json
 ```
 
+To generate, validate, and apply the revision in one command, use `--execute`:
+
+```sh
+python3 cmfgen_model.py structure /path/to/model --execute \
+  --velocity-type 2 --connection-velocity 10
+```
+
+This resolves pending parameter edits using the saved pre-edit baseline. It
+uses the same native generation, candidate validation, idle-model and unchanged-
+input checks, coupled-control updates, backups, and checkpoint/cache retirement
+as the separate review/apply workflow. Unsupported or ambiguous changes still
+stop. It does not launch an atmosphere calculation or prepare population inputs.
+Without `--execute`, generation remains read-only by default.
+
+`--execute` also works with `--candidate` and the grid-operation options below.
+An optional `--review-file` saves the generated plan before installation; the
+applied plan is always recorded in the structure backup's `operation.json`.
+`--execute`, `--plan`, and `--apply` are mutually exclusive.
+
 Native generation uses the shared `cmfgen_root` configuration or
 `--cmfgen-root`. `--review-file` creates a new file and refuses to overwrite an
 existing review. Generating a candidate never changes the model. Review files
