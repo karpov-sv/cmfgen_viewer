@@ -153,3 +153,8 @@ comparing every resulting file byte for byte. The installed build record is
 modules, executables and the previous build record are in
 `related-moment-fixes-v1/installed-before/`. Final builds use a separate executable
 output directory and atomic final links so an existing model run is not modified.
+
+The subsequent [ordinary limiting-branch repair](cmfgen-moment-limits.md)
+extends the ordinary and rectangular moment Jacobians to active negative-J
+replacement and H caps. Its separate regression suites cover these branches;
+this document retains the earlier validation scope.

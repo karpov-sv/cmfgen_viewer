@@ -1,0 +1,17 @@
+{
+  "checkpoint": 86,
+  "frequency_1e15Hz": 5.940069672129668,
+  "physical_depth": 33,
+  "original_probe_record": 130,
+  "retained_record": 1,
+  "schema": "little-endian Fortran stream; header <i11d2i6s6s, then21 vectors of ND binary64",
+  "nd": 125,
+  "coefficient_sha256": "59b735d368e0b4a8e838e202a4c36a6f857bc27ab584c5daa5e7c1325beeb8d0",
+  "frozen_native_executable_sha256": "d3686a4aa40a09251c8facd9555e9d5d3ba74c62610234b083e31ce8448b1a37",
+  "probe_executable_sha256": "23b420a245a061781cf3f194e6e5bde1e2ad6c014f66e140152a6d4572ef810b",
+  "native_sources_sha256": {
+    "/home/karpov/CMFGEN2023/cur_cmf.25/plane/mom_j_cmf_v11.f": "812a24533bff2f9408357fd24abea5d4d728f6e6363cbf130a4ab100edd43449",
+    "/home/karpov/CMFGEN2023/cur_cmf.25/plane/var_mom_j_cmf_v12.f": "d791a48af95b20f34125b90fb18190bfc6522cafb90975c5006829a567991e18",
+    "/home/karpov/CMFGEN2023/cur_cmf.25/subs/up_tx_tvx_v2.f": "b7de17be80057e5afb713b345d89e485daa74b948b925ad66428f3b69f83b48a"
+  }
+}

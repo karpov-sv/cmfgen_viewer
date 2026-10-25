@@ -1,23 +1,33 @@
 # CMFGEN local source fixes — consolidated record
 
-Updated **25 October 2026**. Source checkout: `~/CMFGEN2023/cur_cmf/`, based on
-CMFGEN website release **version 18jun25**. This is the current implementation
-record for the original ten fixes, nine additions from the Bstar3502
-investigation, and five groups of related moment-path repairs. Earlier investigation documents retain their historical status.
+Updated **25 October 2026**. The consolidated patch contains **all 25 fix
+groups** below, based on CMFGEN website release **version 18jun25**. Earlier
+repairs were captured from `~/CMFGEN2023/cur_cmf/`; the latest ordinary moment
+limiting repair was captured from `~/CMFGEN2023/cur_cmf.25/`.
 
-**Status:** all twenty-four fix groups below are installed. The atmosphere executable
-`exe/cmfgen_dev.exe` and the spectrum executables `exe/cmf_flux.exe` and
-`exe/obs_frame.exe` were rebuilt serially on 25 October. Existing compiler,
-platform, aliases and FORMAT adaptations are preserved. Final links use atomic
-file replacement so an existing run can finish on its original executable. No user model controls
-or checkpoints were changed by this installation.
+**Status:** [cmfgen-current.patch](patches/cmfgen-current.patch) now includes the
+negative-J and H-limiting derivatives from [fix 25](cmfgen-moment-limits.md).
+A clean release needs only this consolidated patch. The separate limiter patch
+is retained as an incremental upgrade for an existing fixes 1–24 checkout;
+it must not be applied again after the current consolidated patch.
 
-The exact build hashes, source hashes and rollback directory are in
-`~/CMFGEN2023/cur_cmf/cmfgen-local-build.json` and the tracked
-[patch manifest](patches/cmfgen-current.json). The new atmosphere executable SHA-256
-is `06e2929692b331b6260dc996a0a36e513732035d7cad1bc37a088f7b8c69f738`.
-The installed source contains the tested scientific repairs, without matrix/ray
-recorders, transport-only STOP branches, or experimental Q-integration changes.
+The Linux atmosphere and spectrum executables were rebuilt serially and linked
+atomically after installing fix 25. The atmosphere executable SHA-256 is
+`eae34c599335a719ec4dbc7a71ced761c2f3f34676444adfa19b22a5baf6db42`.
+The installed limiter build record is
+`~/CMFGEN2023/cur_cmf.25/cmfgen-moment-limits-build.json`; its rollback snapshot
+is `.cmfgen-backups/20261025-moment-limits/` in that checkout. The
+[patch manifest](patches/cmfgen-current.json) records the consolidated file
+hashes, latest Linux validation/build evidence, and the earlier macOS build
+as historical evidence. The Linux build record certifies the tested moment
+repairs, not a byte-identical installation of every file in the full snapshot.
+
+**Local build settings are preserved.** This refresh changes neither the live
+`Makefile_definitions` nor its existing hunks in the patch. The application
+commands below exclude that file so local compiler options, paths and libraries
+remain intact. The manifest records both preservation checks. No native model
+inputs, checkpoints or executables were changed by this patch-summary refresh.
+Diagnostic recorders and experimental Q-integration changes are excluded.
 
 ## Fix inventory
 
@@ -47,9 +57,10 @@ recorders, transport-only STOP branches, or experimental Q-integration changes.
 | 22 | REL variation consumes a coarse grid after inserted transport and overwrites a solve coefficient during H checks; hollow-boundary terms use inconsistent partial intensity. | Retain rectangular final-grid responses/history, correct interpolation and Γr²H projection, separate scratch and solve total-J boundary equations. Support initialized grid resizing. | `plane/mom_jrel_v9.f`, `mod_var_jrel_v2.f`, `var_jrel_v5.f`; `new_main/mod_subs/do_var_cont.f`; Makefiles |
 | 23 | `INC_GRID` variation omits the second refinement, uses wrong history and clears rectangular line storage as square. | Compose both interpolation maps, retain final-grid history, project flux consistently even at missing model midpoints, clear exact slot extents. Guard the legacy direct entry and correct its previous-factor typo. | `plane/mom_j_cmf_v11.f`, `var_mom_jext_cmf_v3.f`; `new_main/mod_subs/do_var_cont.f`, `init_line_opac_var_v2.f` |
 | 24 | Homologous/time-dependent variation rebuilds coarse transport and exposes temporal/boundary/cache inconsistencies. | Use final-grid rectangular responses and exact quadrature; match total-J hollow/HALF_MOM and zero-flux/HONJM derivatives. Retain first-frequency/hollow temporal terms, correct HONJM r², preserve homology on inserted points and resize/invalidate old-time caches on initialized grid changes. | `plane/mom_j_ddt_v6.f`, `var_mom_j_ddt_v6.f`, `edd_j_hub_var_v3.f`, `get_jh_at_prev_time_step.f`; `new_main/mod_subs/do_var_cont.f`; Makefiles |
+| 25 | Ordinary negative-J replacement and H caps are omitted from correction derivatives and frequency history. | Differentiate both limits on native moment rows, retain raw J for matrix/scattering forcing, correct direct H opacity partials, and propagate repaired J/H histories and diffusion responses. | `plane/var_mom_j_cmf_v12.f`, `new_main/mod_subs/do_var_cont.f`, its Makefile; [details](cmfgen-moment-limits.md) |
 
 
-The complete current checkout diff is
+The complete diff for fix groups 1–25 is
 [cmfgen-current.patch](patches/cmfgen-current.patch), with the release baseline,
 capture time, patch SHA-256, installed executable hashes and before/after file
 SHA-256 values in [cmfgen-current.json](patches/cmfgen-current.json). It captures
@@ -59,13 +70,18 @@ SHA-256 values in [cmfgen-current.json](patches/cmfgen-current.json). It capture
 The full diff also preserves local macOS and Ubuntu compiler/linker settings
 in `Makefile_definitions`, local directory aliases in `com/aliases_for_cmfgen.sh`,
 and FORMAT separator corrections in `new_main/cmfgen_sub.f`,
-`obs/cmf_flux_sub_v5.f`, and `opac/par_opac_sub.f`. These adaptations are captured
-as they stand; the Ubuntu configuration was not covered by the validation below.
+`obs/cmf_flux_sub_v5.f`, and `opac/par_opac_sub.f`. These adaptations retain their existing patch hunks; the older validation
+below describes the original platform. The
+Linux fix-25 build and native tests are documented in the
+[limiter repair record](cmfgen-moment-limits.md).
 Generated modules, binaries, logs, save files, and scratch patches are excluded.
 
-Patch application was checked against the baseline contents in a fresh temporary
-directory. All 35 resulting files matched the captured checkout byte for
-byte by SHA-256. Do not apply the patch again to the already patched checkout.
+Patch application and reversal were checked against the recovered release
+contents in a fresh temporary directory. All **45 files** matched their expected
+SHA-256 hashes, including the three files updated for fix 25. A separate
+application excluding `Makefile_definitions` reproduced the other 44 files and
+kept the current local build file byte for byte. Do not apply the patch again
+to an already patched checkout.
 
 ## Using population-based initialization
 
@@ -241,13 +257,15 @@ present in the release files. From that source directory, run
 (adjust the viewer repository path if needed):
 
 ```sh
-git apply --check ~/sciwork/cmfgen_viewer/doc/developer/patches/cmfgen-current.patch
-git apply ~/sciwork/cmfgen_viewer/doc/developer/patches/cmfgen-current.patch
+git apply --check --exclude=Makefile_definitions ~/cmfgen_viewer/doc/developer/patches/cmfgen-current.patch
+git apply --exclude=Makefile_definitions ~/cmfgen_viewer/doc/developer/patches/cmfgen-current.patch
 ```
 
-The patch includes the new initialization module. The build settings and
-directory aliases reflect the captured local environment; review them before
-building on another machine. When refreshing this snapshot, include newly added
+The patch includes the new initialization module and fix 25; no second patch
+is required. `Makefile_definitions` is excluded above to preserve the receiving
+checkout's local build configuration. Its original patch hunks remain available
+for reference. Directory aliases also reflect the captured local environment;
+review them before building on another machine. When refreshing this snapshot, include newly added
 source files as well as tracked changes, and refresh the manifest hashes together
 with the patch.
 
@@ -262,6 +280,10 @@ python doc/developer/cmfgen-review-tests/check_moment_grid_jacobian.py
 python doc/developer/cmfgen-review-tests/check_moment_grid_jacobian.py --optimization O2 --threads 5
 python doc/developer/cmfgen-review-tests/check_moment_families.py
 python doc/developer/cmfgen-review-tests/check_moment_families.py --optimization O2 --threads 5
+python3 doc/developer/cmfgen-review-tests/check_moment_limits.py --cmfgen-root ~/CMFGEN2023/cur_cmf.25/
+python3 doc/developer/cmfgen-review-tests/check_moment_limits.py --cmfgen-root ~/CMFGEN2023/cur_cmf.25/ --optimization O2 --threads 5
+python3 doc/developer/cmfgen-review-tests/check_moment_limit_grids.py --cmfgen-root ~/CMFGEN2023/cur_cmf.25/
+python3 doc/developer/cmfgen-review-tests/check_moment_limit_grids.py --cmfgen-root ~/CMFGEN2023/cur_cmf.25/ --optimization O2 --threads 5
 python doc/developer/cmfgen-review-tests/run_review.py ~/CMFGEN2023/cur_cmf/ \
   --optimization O2 --threads 5 --atomic-data ~/CMFGEN2023/atomic/
 ```
@@ -277,12 +299,12 @@ only in fresh temporary model directories.
 For production use, rebuild serially in the external checkout:
 
 ```sh
-cd ~/CMFGEN2023/cur_cmf/
+cd ~/CMFGEN2023/cur_cmf.25/
 build_exe_dir=$(mktemp -d)
 make -C plane INSTALL_DIR="$PWD/" EXE_DIR="$build_exe_dir/"
 make -C new_main INSTALL_DIR="$PWD/" EXE_DIR="$build_exe_dir/"
 make -C obs INSTALL_DIR="$PWD/" EXE_DIR="$build_exe_dir/"
-python ~/sciwork/cmfgen_viewer/doc/developer/cmfgen-review-tests/record_local_build.py --relink "$PWD"
+python3 ~/cmfgen_viewer/doc/developer/cmfgen-review-tests/record_local_build.py --relink "$PWD"
 ```
 
 The helper links fresh executable files and atomically replaces their paths,

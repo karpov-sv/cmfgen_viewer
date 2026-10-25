@@ -1,0 +1,120 @@
+! Replay recorded frozen angular factors through actual ordinary MOM and VAR.
+! GET_MOMS_NON_REL is a no-op: factors are supplied from the retained native
+! record, not recomputed formal rays. Only TUNE is otherwise stubbed.
+program moment_limit_replay
+use set_kind_module
+use mod_ray_mom_store
+use mod_mom_j_v11, only: forward_prev_j=>rsqjnu_prev,forward_prev_h=>rsqhnu_prev, &
+ forward_j=>rsqjnu,forward_h=>rsqhnu
+use mod_var_mom_j_cmf, only: jnum1,rsq_hnum1,raw_j=>xm,jvar=>jnu,hvar=>rsq_hnu
+implicit none
+integer::n,u,o,i,k,kind,depth,atfreq,outbc,nnegative,nposcap,nnegcap,cohflag,history_sign
+real(ldp)::nu,dl,dbb,ic,stab,delta,base_dbb,bound,ratio,perturb_value,hb0,nb0,ib0
+real(ldp),allocatable::r(:),v(:),sig(:),eta(:),chi(:),es(:),eta0(:),chi0(:),es0(:),theta(:),vdop(:), &
+ pj(:),ph(:),a(:),b(:),c(:),source(:),dq(:),jraw_record(:),jused_record(:),j(:),h(:), &
+ tx(:,:,:),tvx(:,:,:),dt(:),dg(:),ht(:),hg(:),ki(:,:,:),wm(:,:),rhs(:,:)
+logical::coherent,selected(3),field_only
+character(6)::method,ntype
+character(16)::hcheck,mode
+character(256)::arg,record_file
+call get_command_argument(1,record_file)
+call get_command_argument(2,arg);read(arg,*)kind
+call get_command_argument(3,arg);read(arg,*)depth
+call get_command_argument(4,arg);read(arg,*)atfreq
+call get_command_argument(5,arg);read(arg,*)delta
+call get_command_argument(6,hcheck)
+call get_command_argument(7,mode);field_only=trim(mode)=='field'
+call get_command_argument(8,arg);read(arg,*)cohflag
+history_sign=1
+call get_command_argument(9,arg);if(len_trim(arg)>0)read(arg,*)history_sign
+open(newunit=u,file=trim(record_file),access='stream',form='unformatted',status='old')
+read(u)n
+allocate(r(n),v(n),sig(n),eta(n),chi(n),es(n),eta0(n),chi0(n),es0(n),theta(n),vdop(n), &
+ pj(n),ph(n),a(n),b(n),c(n),source(n),dq(n),jraw_record(n),jused_record(n),j(n),h(n), &
+ tx(n,n,3),tvx(n-1,n,3),dt(n),dg(n),ht(n),hg(n),ki(n,n,2),wm(n,n),rhs(n-1,n))
+allocate(k_on_j(n),nmid_on_j(n),nmid_on_hmid(n),k_on_j_prev(n),nmid_on_j_prev(n),nmid_on_hmid_prev(n), &
+ k_on_j_save(n),nmid_on_j_save(n),nmid_on_hmid_save(n))
+read(u)nu,dl,dbb,ic,stab,hbc,nbc,in_hbc,hbc_prev,nbc_prev,in_hbc_prev,coherent,outbc,method,ntype
+read(u)r,v,sig,eta0,chi0,es0,k_on_j,nmid_on_j,nmid_on_hmid,k_on_j_prev,nmid_on_j_prev, &
+ nmid_on_hmid_prev,pj,ph,a,b,c,source,dq,jraw_record,jused_record
+close(u)
+if(history_sign<0)then
+ ph=-ph;nmid_on_j_prev=-nmid_on_j_prev;hbc_prev=-hbc_prev;nbc_prev=-nbc_prev
+endif
+coherent=cohflag==1;vdop=17.5_ldp;selected=.true.;base_dbb=dbb
+hb0=hbc_prev;nb0=nbc_prev;ib0=in_hbc_prev
+! Dummy initialization allocates the actual forward grid. The recorded previous
+! field is restored afterwards; the first replay step is not an INIT solve.
+call mom_j_cmf_v11(eta0,chi0,es0,v,sig,r,j,h,vdop,20000._ldp,nu,dl, &
+ 'DIFFUSION',dbb,ic,stab,ntype,trim(hcheck),method,coherent,outbc,.true.,.false.,2,n+2,n)
+forward_prev_j=pj;forward_prev_h=ph
+hbc_prev=hb0;nbc_prev=nb0;in_hbc_prev=ib0
+call mod_var_mom_alloc(n)
+jnum1=pj/(r*r);rsq_hnum1=ph
+tx=0;tvx=0;dt=0;dg=0;ht=0;hg=0
+open(newunit=o,file='output.bin',access='stream',form='unformatted',status='replace')
+do k=1,3
+ eta=eta0;chi=chi0;es=es0;dbb=base_dbb
+ if(k==atfreq)then
+  if(kind==1)chi(depth)=chi(depth)*(1+delta)
+  if(kind==2)eta(depth)=eta(depth)*(1+delta)
+  if(kind==5)then
+   chi(depth)=chi(depth)+es(depth)*delta
+   es(depth)=es(depth)*(1+delta)
+  endif
+ endif
+ if(kind==3)dbb=base_dbb*(1+delta)
+ if(kind==4)dbb=base_dbb*(1+delta/2)
+ if(.not.coherent)eta=eta+es*jused_record/(r*r)
+ theta=0;if(coherent)theta=es/chi
+ call mom_j_cmf_v11(eta,chi,es,v,sig,r,j,h,vdop,20000._ldp,nu,dl, &
+ 'DIFFUSION',dbb,ic,stab,ntype,trim(hcheck),method,coherent,outbc,.false.,k>1,2,n+2,n)
+ nnegative=0;nposcap=0;nnegcap=0
+ do i=1,n-1
+  if(trim(hcheck)=='AV_VAL')then
+   bound=(forward_j(i)+forward_j(i+1))/2
+  else
+   bound=max(forward_j(i),forward_j(i+1))
+  endif
+  if(trim(hcheck)/='NONE'.and.bound>0)then
+   ratio=forward_h(i)/bound
+   if(abs(ratio-.99999_ldp)<1.e-12_ldp)nposcap=nposcap+1
+   if(abs(ratio+.99999_ldp)<1.e-12_ldp)nnegcap=nnegcap+1
+  endif
+ enddo
+ if(.not.field_only)then
+  tx(:,:,1:2)=0;tvx(:,:,1:2)=0
+  call var_mom_j_cmf_v12(eta,chi,es,theta,v,sig,r,tx,tvx,dt,dg,ht,hg,ki,wm,rhs, &
+  .false.,dl,'DIFFUSION',2._ldp,dbb,base_dbb,ic,stab,nu,trim(hcheck),outbc,selected,method,n,3,2)
+  nnegative=count(raw_j<0)
+  if(k==1.and.atfreq==1)then
+   if(kind==1.or.kind==2)then
+    tx(:,:,3)=tx(:,:,kind);tvx(:,:,3)=tvx(:,:,kind)
+   else if(kind==5)then
+    do i=1,n
+     perturb_value=raw_j(i)
+     if(.not.coherent)perturb_value=jused_record(i)/r(i)**2
+     tx(:,i,3)=tx(:,i,1)+tx(:,i,2)*perturb_value
+     tvx(:,i,3)=tvx(:,i,1)+tvx(:,i,2)*perturb_value
+    enddo
+   endif
+  endif
+ endif
+ write(o)n,k,nnegative,nposcap,nnegcap
+ write(o)j,h(1:n-1)
+ if(.not.field_only)write(o)jvar,hvar(1:n-1),tx,tvx,dt,dg,ht(1:n-1),hg(1:n-1),raw_j
+ nu=nu*exp(-dl)
+enddo
+close(o)
+end program
+subroutine get_moms_non_rel(r,v,nu,ntype,n)
+use set_kind_module
+implicit none
+integer n
+real(ldp) r(n),v(n),nu
+character(*) ntype
+end subroutine
+subroutine tune(i,name)
+integer i
+character(*) name
+end subroutine

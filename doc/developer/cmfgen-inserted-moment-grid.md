@@ -147,3 +147,8 @@ and separately extended transport. The [25 October follow-up](cmfgen-related-mom
 repairs those paths and supersedes fix 19's preservation of the old unrefined
 Jacobian. Nonrelativistic forward transport remains unchanged; the newer build
 capability is `moment-grid-family-v1`.
+
+The subsequent [ordinary limiting-branch repair](cmfgen-moment-limits.md)
+extends the ordinary and rectangular moment Jacobians to active negative-J
+replacement and H caps. Its separate regression suites cover these branches;
+this document retains the earlier validation scope.

@@ -1,0 +1,287 @@
+{
+  "schema_version": 1,
+  "captured_at_utc": "2026-10-25T04:04:15.187390+00:00",
+  "source_checkout": "~/CMFGEN2023/cur_cmf.25/",
+  "base_patch": "cmfgen-current.patch",
+  "patch_file": "cmfgen-moment-limits.patch",
+  "patch_sha256": "70bb5bbac53dd95b41ea6ed91051be9a162d3f5f4435aa5905f6da7a3089a288",
+  "files": [
+    {
+      "path": "new_main/mod_subs/Makefile",
+      "before_sha256": "440f7664d39544d0b17de43f24e8731eff835e63baf1a89c8d498218fd0b5140",
+      "after_sha256": "afc5f6d590af284c86dc36809c3495b3bbc8c87f81b83f69593a8153233599ea"
+    },
+    {
+      "path": "new_main/mod_subs/do_var_cont.f",
+      "before_sha256": "bbd5d643414027047de17b1e290d9cf09ffcebcdd4b247f43b02b0232eda3feb",
+      "after_sha256": "8f8ad58fbd30847fe8a452d13baaf49051114f86daae7fd78d69e17924b721ea"
+    },
+    {
+      "path": "plane/var_mom_j_cmf_v12.f",
+      "before_sha256": "d791a48af95b20f34125b90fb18190bfc6522cafb90975c5006829a567991e18",
+      "after_sha256": "62c9f8c86608b4bef3d0b90969f4129cfe35a516693e88a9cbffd8d10548740d"
+    }
+  ],
+  "validated_forward_reverse_roundtrip": true,
+  "scope": "Fix25: ordinary nonrelativistic J repair and H-cap Jacobians, including inserted/extended moment grids, coherent scattering and frequency/diffusion histories. Forward transport unchanged. Other families regression-tested, not given new limit rules.",
+  "validation": {
+    "validated-limits-o0": {
+      "passed": true,
+      "maximum_field_error": 2.420323624855109e-14,
+      "maximum_column_error": 9.369820084998002e-06,
+      "native_calls": 3480,
+      "assembly": {
+        "passed": true,
+        "maximum_column_error": 1.518716444825119e-06,
+        "native_calls": 360,
+        "scope": "Actual DO_VAR_CONT coherent-scattering/current-continuum assembly block; ordinary grid, native recorded clipping cases. Other wrapper operations tested separately."
+      },
+      "report_path": "/home/karpov/cmfgen_viewer/tmp/cmfgen-moment-limits-fix/validated-limits-o0/report.json",
+      "report_sha256": "a126c3577037f6c61d0bccfbd8df9de6c19a5c47d0b7d9d2bccb22b2139c43f0"
+    },
+    "validated-limits-o2": {
+      "passed": true,
+      "maximum_field_error": 2.420323624855109e-14,
+      "maximum_column_error": 9.369820084998002e-06,
+      "native_calls": 3480,
+      "assembly": {
+        "passed": true,
+        "maximum_column_error": 1.518716444825119e-06,
+        "native_calls": 360,
+        "scope": "Actual DO_VAR_CONT coherent-scattering/current-continuum assembly block; ordinary grid, native recorded clipping cases. Other wrapper operations tested separately."
+      },
+      "report_path": "/home/karpov/cmfgen_viewer/tmp/cmfgen-moment-limits-fix/validated-limits-o2/report.json",
+      "report_sha256": "a126c3577037f6c61d0bccfbd8df9de6c19a5c47d0b7d9d2bccb22b2139c43f0"
+    },
+    "grid-limits-o0-v5": {
+      "kernel": {
+        "passed": true,
+        "maximum_field_error": 7.978871091680492e-14,
+        "maximum_column_error": 1.1095933391199541e-05,
+        "native_calls": 1680
+      },
+      "workflow": {
+        "passed": true,
+        "maximum_column_error": 1.3285700874919202e-07,
+        "maximum_field_error": 7.978871091680492e-14,
+        "native_calls": 510
+      },
+      "report_path": "/home/karpov/cmfgen_viewer/tmp/cmfgen-moment-limits-fix/grid-limits-o0-v5/report.json",
+      "report_sha256": "0d606c15809d8a5799b900c47020e4c2fdf1ff9bd818ae086da29a85f111a01a"
+    },
+    "grid-limits-o2": {
+      "kernel": {
+        "passed": true,
+        "maximum_field_error": 7.978871091680492e-14,
+        "maximum_column_error": 1.1095933391199541e-05,
+        "native_calls": 1680
+      },
+      "workflow": {
+        "passed": true,
+        "maximum_column_error": 1.3285700874919202e-07,
+        "maximum_field_error": 7.978871091680492e-14,
+        "native_calls": 510
+      },
+      "report_path": "/home/karpov/cmfgen_viewer/tmp/cmfgen-moment-limits-fix/grid-limits-o2/report.json",
+      "report_sha256": "0d606c15809d8a5799b900c47020e4c2fdf1ff9bd818ae086da29a85f111a01a"
+    },
+    "regression-o0": {
+      "passed": true,
+      "forward_transport_bitwise_cases": 64,
+      "no_insertion_forward_bitwise_cases": 64,
+      "maximum_refined_variation_field_relative_error": 5.2438155663646244e-14,
+      "maximum_finite_difference_column_relative_error": 6.637185701323585e-06,
+      "native_invocations": 903,
+      "scope": "Frozen formal-ray moments; actual native refined transport and interpolation. Includes current opacity/emissivity/scattering, prior-frequency history, diffusion boundary derivatives, both midpoint storage modes and outer boundary types. No scientific model convergence claim.",
+      "workflow": {
+        "passed": true,
+        "maximum_finite_difference_column_relative_error": 1.6198184552217635e-07,
+        "native_invocations": 680,
+        "scope": "Actual DO_VAR_CONT prefix; three-frequency continuum, scattering, line-level and super-level temperature responses with nonuniform clumping. Atomic-rate assembly excluded."
+      },
+      "report_path": "/home/karpov/cmfgen_viewer/tmp/cmfgen-moment-limits-fix/regression-o0/report.json",
+      "report_sha256": "c7696b0b6253e8c57566d6ace7da56ee25772baf605546e5980cdfc84acde0e4"
+    },
+    "regression-o2": {
+      "passed": true,
+      "forward_transport_bitwise_cases": 64,
+      "no_insertion_forward_bitwise_cases": 64,
+      "maximum_refined_variation_field_relative_error": 5.2438155663646244e-14,
+      "maximum_finite_difference_column_relative_error": 6.637185701323585e-06,
+      "native_invocations": 903,
+      "scope": "Frozen formal-ray moments; actual native refined transport and interpolation. Includes current opacity/emissivity/scattering, prior-frequency history, diffusion boundary derivatives, both midpoint storage modes and outer boundary types. No scientific model convergence claim.",
+      "workflow": {
+        "passed": true,
+        "maximum_finite_difference_column_relative_error": 1.6198184552217635e-07,
+        "native_invocations": 680,
+        "scope": "Actual DO_VAR_CONT prefix; three-frequency continuum, scattering, line-level and super-level temperature responses with nonuniform clumping. Atomic-rate assembly excluded."
+      },
+      "report_path": "/home/karpov/cmfgen_viewer/tmp/cmfgen-moment-limits-fix/regression-o2/report.json",
+      "report_sha256": "c7696b0b6253e8c57566d6ace7da56ee25772baf605546e5980cdfc84acde0e4"
+    },
+    "families-o2": {
+      "passed": true,
+      "threads": 5,
+      "native_invocations": 5564,
+      "maximum_column_relative_error": 2.9857239251211604e-05,
+      "maximum_field_relative_error": 2.4391863190265273e-14,
+      "scope": "Validate related native moment repairs in an isolated build directory.\n\nReal forward/variation solvers, interpolation, history, and DO_VAR_CONT through\nprojection are executed. Formal-ray fields are frozen. Kernel time tests prescribe\nold radiation; the separate cache test executes the real binary old-time reader\nwith only metadata discovery stubbed. No atmosphere-convergence claim is made.\n",
+      "optimization": "O2",
+      "report_path": "/home/karpov/cmfgen_viewer/tmp/cmfgen-moment-limits-fix/families-o2/report.json",
+      "report_sha256": "fb4f574e1e98bcaaf65ea3dcca966511e8ac9941d8940c7dec4381f383ff07b5"
+    },
+    "installed-check": {
+      "passed": true,
+      "maximum_field_error": 2.420323624855109e-14,
+      "maximum_column_error": 9.369820084998002e-06,
+      "native_calls": 3480,
+      "scope": "Linked installed libsubs.a/libmod.a directly; no private kernel objects.",
+      "report_path": "/home/karpov/cmfgen_viewer/tmp/cmfgen-moment-limits-fix/installed-check/report.json",
+      "report_sha256": "341eeebf7a7196c9349b15eeaf8a303887f023ee35a5e242ae31477b2cf22bed"
+    }
+  },
+  "installation": {
+    "started_at_utc": "2026-10-25T04:02:52.783415+00:00",
+    "root": "/home/karpov/CMFGEN2023/cur_cmf.25",
+    "backup": "/home/karpov/cmfgen_viewer/tmp/cmfgen-moment-limits-fix/installed-before",
+    "before": {
+      "new_main/mod_subs/Makefile": "440f7664d39544d0b17de43f24e8731eff835e63baf1a89c8d498218fd0b5140",
+      "new_main/mod_subs/do_var_cont.f": "bbd5d643414027047de17b1e290d9cf09ffcebcdd4b247f43b02b0232eda3feb",
+      "plane/var_mom_j_cmf_v12.f": "d791a48af95b20f34125b90fb18190bfc6522cafb90975c5006829a567991e18"
+    },
+    "commands": [
+      [
+        "make",
+        "-C",
+        "/home/karpov/CMFGEN2023/cur_cmf.25/plane",
+        "INSTALL_DIR=/home/karpov/CMFGEN2023/cur_cmf.25/",
+        "EXE_DIR=/home/karpov/cmfgen_viewer/tmp/cmfgen-moment-limits-fix/linked/"
+      ],
+      [
+        "make",
+        "-C",
+        "/home/karpov/CMFGEN2023/cur_cmf.25/new_main/mod_subs",
+        "INSTALL_DIR=/home/karpov/CMFGEN2023/cur_cmf.25/",
+        "EXE_DIR=/home/karpov/cmfgen_viewer/tmp/cmfgen-moment-limits-fix/linked/"
+      ],
+      [
+        "make",
+        "-C",
+        "/home/karpov/CMFGEN2023/cur_cmf.25/new_main",
+        "INSTALL_DIR=/home/karpov/CMFGEN2023/cur_cmf.25/",
+        "EXE_DIR=/home/karpov/cmfgen_viewer/tmp/cmfgen-moment-limits-fix/linked/"
+      ],
+      [
+        "make",
+        "-C",
+        "/home/karpov/CMFGEN2023/cur_cmf.25/obs",
+        "INSTALL_DIR=/home/karpov/CMFGEN2023/cur_cmf.25/",
+        "EXE_DIR=/home/karpov/cmfgen_viewer/tmp/cmfgen-moment-limits-fix/linked/"
+      ]
+    ],
+    "final_link_commands": [
+      {
+        "cwd": "/home/karpov/CMFGEN2023/cur_cmf.25/new_main",
+        "command": [
+          "gfortran",
+          "-fopenmp",
+          "-O",
+          "-finit-local-zero",
+          "cmfgen.o",
+          "cmfgen_sub.o",
+          "-L/home/karpov/CMFGEN2023/cur_cmf.25/lib/",
+          "-lsubs",
+          "-lpgplt",
+          "-lmod",
+          "-llapack",
+          "-lblas",
+          "-L/usr/lib",
+          "-o",
+          "/home/karpov/CMFGEN2023/cur_cmf.25/exe/.cmfgen-link-c8eazn7s/cmfgen_dev.exe"
+        ],
+        "installed_as": "/home/karpov/CMFGEN2023/cur_cmf.25/exe/cmfgen_dev.exe",
+        "installation": "atomic replacement"
+      },
+      {
+        "cwd": "/home/karpov/CMFGEN2023/cur_cmf.25/obs",
+        "command": [
+          "gfortran",
+          "-fopenmp",
+          "-O",
+          "-finit-local-zero",
+          "cmf_flux_v5.o",
+          "cmf_flux_sub_v5.o",
+          "mod_cmf_obs.o",
+          "mod_freq_obs.o",
+          "cmf_flux_cntrl_var_mod.o",
+          "rd_cmf_flux_controls.o",
+          "check_cmf_flux_param_consis.o",
+          "rd_model_file.o",
+          "revise_obs_p.o",
+          "ins_line_v5.o",
+          "obs_frame_sub_v9.o",
+          "ins_line_obs_v4.o",
+          "rd_cont_j_obs.o",
+          "set_forbid_zero.o",
+          "form_ew.o",
+          "comp_ew_abs_ew.o",
+          "griem_stark_mod.o",
+          "-L/home/karpov/CMFGEN2023/cur_cmf.25/lib/",
+          "-lsubs",
+          "-lpgplt",
+          "-ldisp",
+          "-lmod",
+          "-L/usr/lib",
+          "-o",
+          "/home/karpov/CMFGEN2023/cur_cmf.25/exe/.cmfgen-link-rtalfw2h/cmf_flux.exe"
+        ],
+        "installed_as": "/home/karpov/CMFGEN2023/cur_cmf.25/exe/cmf_flux.exe",
+        "installation": "atomic replacement"
+      },
+      {
+        "cwd": "/home/karpov/CMFGEN2023/cur_cmf.25/obs",
+        "command": [
+          "gfortran",
+          "-fopenmp",
+          "-O",
+          "-finit-local-zero",
+          "obs_frame_v2.o",
+          "obs_frame_sub_v9.o",
+          "-L/home/karpov/CMFGEN2023/cur_cmf.25/lib/",
+          "-ldisp",
+          "-lsubs",
+          "-L/usr/lib",
+          "-o",
+          "/home/karpov/CMFGEN2023/cur_cmf.25/exe/.cmfgen-link-celqeo7u/obs_frame.exe"
+        ],
+        "installed_as": "/home/karpov/CMFGEN2023/cur_cmf.25/exe/obs_frame.exe",
+        "installation": "atomic replacement"
+      }
+    ],
+    "sources": {
+      "new_main/mod_subs/Makefile": "afc5f6d590af284c86dc36809c3495b3bbc8c87f81b83f69593a8153233599ea",
+      "new_main/mod_subs/do_var_cont.f": "8f8ad58fbd30847fe8a452d13baaf49051114f86daae7fd78d69e17924b721ea",
+      "plane/var_mom_j_cmf_v12.f": "62c9f8c86608b4bef3d0b90969f4129cfe35a516693e88a9cbffd8d10548740d"
+    },
+    "executables": {
+      "cmfgen_dev.exe": {
+        "sha256": "eae34c599335a719ec4dbc7a71ced761c2f3f34676444adfa19b22a5baf6db42",
+        "size": 3508960
+      },
+      "cmf_flux.exe": {
+        "sha256": "99ff509c9de313d4e408ddfcdc13a7a90768dd636659bc53f4c546e78c31fe74",
+        "size": 1478832
+      },
+      "obs_frame.exe": {
+        "sha256": "bf120cf662751a1c6bddeb7db53ec075ebf959ef9e341a2dc3105eca8fd27fb2",
+        "size": 167296
+      }
+    },
+    "finished_at_utc": "2026-10-25T04:03:26.505828+00:00"
+  },
+  "rollback_directory": "/home/karpov/CMFGEN2023/cur_cmf.25/.cmfgen-backups/20261025-moment-limits",
+  "installed_build_record": "~/CMFGEN2023/cur_cmf.25/cmfgen-moment-limits-build.json",
+  "base_patch_sha256": "8e662f9fcbdcfc0f67154bd9a7a5c88bfc74d78306c0eed5d9cfec9c3e685799",
+  "included_in_consolidated_patch_sha256": "066d9d01134ec4b17e5ba9fb75cbf7b9fe14fb4d4f38d7c8097d9f3d6c490faa",
+  "usage": "Historical incremental upgrade from fixes1-24. Already included in the current consolidated patch; do not apply twice."
+}

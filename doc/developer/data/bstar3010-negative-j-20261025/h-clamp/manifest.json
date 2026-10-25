@@ -1,0 +1,13 @@
+{
+  "original_case": "probe-fast-coarse",
+  "original_record": 126,
+  "retained_record": 1,
+  "frequency_1e15_hz": 5.940764704048998,
+  "sha256": "61364d19bb789d3542a51b4815b519885dcc8ca09b4bea3aa885683306bb394c",
+  "scope": "Current-eta partial; frozen current opacity, angular factors and native frequency history. All intensities positive, H capped on five intervals.",
+  "native_sources_sha256": {
+    "/home/karpov/CMFGEN2023/cur_cmf.25/plane/mom_j_cmf_v11.f": "812a24533bff2f9408357fd24abea5d4d728f6e6363cbf130a4ab100edd43449",
+    "/home/karpov/CMFGEN2023/cur_cmf.25/plane/var_mom_j_cmf_v12.f": "d791a48af95b20f34125b90fb18190bfc6522cafb90975c5006829a567991e18",
+    "/home/karpov/CMFGEN2023/cur_cmf.25/subs/up_tx_tvx_v2.f": "b7de17be80057e5afb713b345d89e485daa74b948b925ad66428f3b69f83b48a"
+  }
+}

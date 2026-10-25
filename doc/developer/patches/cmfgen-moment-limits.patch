@@ -1,0 +1,383 @@
+diff --git a/new_main/mod_subs/Makefile b/new_main/mod_subs/Makefile
+--- a/new_main/mod_subs/Makefile
++++ b/new_main/mod_subs/Makefile
+@@ -122,7 +122,7 @@
+ 
+ $(LIB)(do_var_cont.o) : do_var_cont.f $(LIB)(opac_mod.o) $(LIB_MOD)(control_variable_mod.o)\
+              $(LIB_MOD)(line_mod.o) $(LIB_MOD)(var_rad_mod.o) $(LIB_MOD)(radiation_mod.o) $(LIB_MOD)(mod_cmfgen.o)\
+-             $(LIB_MOD)(ang_qw_mod.o) $(LIB)(mom_j_cmf_v11.o) $(LIB)(mom_jrel_v9.o) $(LIB)(mom_j_ddt_v6.o)
++             $(LIB_MOD)(ang_qw_mod.o) $(LIB)(mom_j_cmf_v11.o) $(LIB)(mom_jrel_v9.o) $(LIB)(mom_j_ddt_v6.o) $(LIB)(mod_var_mom_j_cmf.o)
+ 	$(F90) -c $(OPTION) do_var_cont.f
+ 	ar $(AR_OPTION) $(LIB) do_var_cont.o
+                                                                                                                       
+diff --git a/new_main/mod_subs/do_var_cont.f b/new_main/mod_subs/do_var_cont.f
+--- a/new_main/mod_subs/do_var_cont.f
++++ b/new_main/mod_subs/do_var_cont.f
+@@ -36,6 +36,7 @@
+ 	USE RADIATION_MOD
+ 	USE VAR_RAD_MOD
+ 	USE CONTROL_VARIABLE_MOD
++	USE MOD_VAR_MOM_J_CMF, ONLY: MOM_RAW_J=>XM
+ 	USE MOD_MOM_J_V11, ONLY: MOM_ND=>ND,GRID_TX,GRID_TVX,GRID_DT,GRID_DG,GRID_HT,GRID_HG,
+ 	1      GRID_KI,GRID_RHS,GRID_WM,GRID_ESC,GRID_ESC_H,GRID_ETA,GRID_THETA,GRID_PCHI,GRID_PETA,GRID_PESC,
+ 	1      MOM_R=>R,MOM_V=>V,MOM_SIGMA=>SIGMA,MOM_CHI=>CHI,MOM_ESEC=>ESEC,
+@@ -90,7 +91,7 @@
+ !
+ 	REAL(KIND=LDP) T1
+ 	REAL(KIND=LDP), POINTER :: TXW(:,:,:),TVXW(:,:,:)
+-	LOGICAL GRID_ACTIVE
++	LOGICAL GRID_ACTIVE,ORDINARY_MOM_VAR
+ 	INTEGER MAP_J(ND),MAP_H(ND-1),MAP_H2(ND-1)
+ 	REAL(KIND=LDP) H_WEIGHT(ND-1),H_WEIGHT2(ND-1)
+ 	INTEGER NROW,ERROR_LU
+@@ -388,6 +389,7 @@
+ 	      END IF
+ 	   END IF
+ !
++	   ORDINARY_MOM_VAR=.FALSE.
+ 	   CALL TUNE(1,'VAR_MOM_J')
+ 	   IF(PLANE_PARALLEL_NO_V .AND. .NOT.ACCURATE)THEN
+ 	     CALL VAR_MOM_PP_V1(R,TA,CHI_CLUMP,CHI_SCAT_CLUMP,FEDD,
+@@ -451,6 +453,7 @@
+ 	1        FL,H_CHK_OPTION,OUT_BC_TYPE,DO_THIS_TX_MATRIX,METHOD,NROW,ND,NM,2,
+ 	1        GRID_PCHI,GRID_PETA,GRID_PESC,R_PNT,GRID_ESC,GRID_ESC_H)
+ 	    ELSE
++	    ORDINARY_MOM_VAR=.TRUE.
+ 	    CALL VAR_MOM_J_CMF_V12(TA,CHI_CLUMP,CHI_SCAT_CLUMP,
+ 	1           ES_COH_VEC,V,SIGMA,R,
+ 	1           TXW,TVXW,dJ_DIF_d_T,dJ_DIF_d_dTdR,
+@@ -516,6 +519,10 @@
+ !
+ 	    IF(COHERENT_ES)THEN
+ 	      TB(1:ND)=RJ(1:ND)
++! Ordinary coherent-scattering opacity changes the raw solve's diagonal.
++! Its equivalent emissivity forcing uses RAW J, before abs(J)/10 repair.
++              IF(ORDINARY_MOM_VAR)TB(1:ND)=MOM_RAW_J(1:ND)
++
+ 	    ELSE
+ 	      TB(1:ND)=RJ_ES(1:ND)
+ 	    END IF
+diff --git a/plane/var_mom_j_cmf_v12.f b/plane/var_mom_j_cmf_v12.f
+--- a/plane/var_mom_j_cmf_v12.f
++++ b/plane/var_mom_j_cmf_v12.f
+@@ -117,6 +117,11 @@
+ 	REAL(KIND=LDP) AV_SIGMA
+ 	REAL(KIND=LDP) LOCAL_DBB
+ 	LOGICAL DIF_OR_ZF
++! Keep the raw solution for -dA/dchi*J; repaired values feed H and history.
++        REAL(KIND=LDP) J_USED(ND),J_FACTOR(ND),H_DJL(ND-1),H_DJR(ND-1)
++        LOGICAL H_LIMITED(ND-1),LIMIT_ACTIVE
++        INTEGER LIM_J,LIM_K
++
+ !
+ ! 
+ !
+@@ -303,35 +308,11 @@
+ 	  JNU(I)=XM(I)
+ 	END DO
+ !
+-	DO I=1,ND-1
+-	  RSQ_HNU(I)=HU(I)*XM(I+1)-HL(I)*XM(I)+HS(I)*RSQ_HNUM1(I) +
+-	1              (EPS_PREV_A(I)*JNUM1(I)-EPS_A(I)*XM(I)) +
+-	1              (EPS_PREV_B(I)*JNUM1(I+1)-EPS_B(I)*XM(I+1))
+-	END DO
+-!
+-! Make sure H satisfies the basic requirement that it is less than J.
+-!
+-	IF(H_CHK_OPTION .EQ. 'AV_VAL')THEN
+-	  DO I=1,ND-1
+-	    T1=(R(I)*R(I)*XM(I)+R(I+1)*R(I+1)*XM(I+1))/2.0_LDP
+-	    IF(RSQ_HNU(I) .GT. T1)THEN
+-	      RSQ_HNU(I)=0.99999_LDP*T1
+-	    ELSE IF(RSQ_HNU(I) .LT. -T1)THEN
+-	      RSQ_HNU(I)=-0.99999_LDP*T1
+-	    END IF
+-	  END DO
+-	ELSE IF(H_CHK_OPTION .EQ. 'MAX_VAL')THEN
+-	  DO I=1,ND-1
+-	    T1=MAX(R(I)*R(I)*XM(I),R(I+1)*R(I+1)*XM(I+1))
+-	    IF(RSQ_HNU(I) .GT. T1)THEN
+-	      RSQ_HNU(I)=0.99999_LDP*T1
+-	    ELSE IF(RSQ_HNU(I) .LT. -T1)THEN
+-	      RSQ_HNU(I)=-0.99999_LDP*T1
+-	    END IF
+-	  END DO
+-	END IF
+-!
+-! 
++! Match the forward abs(J)/10 repair BEFORE constructing/capping H.
++        CALL MOM_JH_LIMIT_STATE(JNU,J_USED,J_FACTOR,RSQ_HNU,
++     1       H_LIMITED,H_DJL,H_DJR,R,HU,HL,HS,EPS_A,EPS_B,
++     1       EPS_PREV_A,EPS_PREV_B,JNUM1,RSQ_HNUM1,H_CHK_OPTION,ND)
++        LIMIT_ACTIVE=ANY(J_FACTOR.NE.1.0_LDP).OR.ANY(H_LIMITED)
+ !
+ ! The J and H components of the radiation field have been found. We can thus
+ ! begin the variation computation.
+@@ -356,6 +337,12 @@
+ 	1      *(JNU(ND)-R(ND)*R(ND)*(JPLUS_IB+JMIN_IB))
+ 	  KI(ND,:,1)=KI(ND,:,1)+T1*WORKMAT(ND-1,:)
+ 	END IF
++! Only the H coefficient partial uses repaired J. The matrix partial above
++! must retain raw J. WORKMAT still contains the exact dTAU/dCHI here.
++        IF(ANY(J_FACTOR.NE.1.0_LDP))THEN
++          CALL MOM_JH_CHI_CORRECTION(RHS_dHdCHI,J_USED-JNU,
++     1        WORKMAT,CHI,DTAU,HU,HL,W,EPS_A,EPS_B,ND)
++        END IF
+ 
+ 
+ !
+@@ -374,6 +361,16 @@
+ 	1                       DTAU_BND,OUT_BC_TYPE,
+ 	1                       INIT,DO_THIS_TX_MATRIX)
+ 	CALL TUNE(2,'UP_TX')
++        IF(LIMIT_ACTIVE)THEN
++          DO LIM_K=1,NM
++            IF(.NOT.DO_THIS_TX_MATRIX(LIM_K))CYCLE
++            DO LIM_J=1,ND
++              CALL MOM_JH_LIMIT_COLUMN(TX(:,LIM_J,LIM_K),TVX(:,LIM_J,LIM_K),
++     1          J_FACTOR,H_LIMITED,H_DJL,H_DJR,HU,HL,EPS_A,EPS_B,ND)
++            END DO
++          END DO
++        END IF
++
+ !
+ ! 
+ !
+@@ -425,6 +422,12 @@
+ 	1     (EPS_PREV_B(I)*TX_OLD_d_dTdR(I+1)-EPS_B(I)*TX_DIF_d_dTdR(I+1))
+ 	  END DO
+ !
++        IF(LIMIT_ACTIVE)THEN
++          CALL MOM_JH_LIMIT_COLUMN(TX_DIF_d_T,TVX_DIF_d_T,
++     1      J_FACTOR,H_LIMITED,H_DJL,H_DJR,HU,HL,EPS_A,EPS_B,ND)
++          CALL MOM_JH_LIMIT_COLUMN(TX_DIF_d_dTdR,TVX_DIF_d_dTdR,
++     1      J_FACTOR,H_LIMITED,H_DJL,H_DJR,HU,HL,EPS_A,EPS_B,ND)
++        END IF
+ 	END IF	    	    !DIF END
+ !
+ ! 
+@@ -432,7 +435,8 @@
+ ! Save JNU and RSQ_HNU for next frequency integration.
+ !
+ 	DO I=1,ND
+-	  JNUM1(I)=JNU(I)
++	  JNU(I)=J_USED(I)
++	  JNUM1(I)=J_USED(I)
+ 	  RSQ_HNUM1(I)=RSQ_HNU(I)
+ 	END DO
+ !
+@@ -535,6 +539,11 @@
+ 	REAL(KIND=LDP) LOCAL_DBB
+ 	LOGICAL COHERENT_RESPONSE
+ 	LOGICAL DIF_OR_ZF
++! Keep the raw solution for -dA/dchi*J; repaired values feed H and history.
++        REAL(KIND=LDP) J_USED(ND),J_FACTOR(ND),H_DJL(ND-1),H_DJR(ND-1)
++        LOGICAL H_LIMITED(ND-1),LIMIT_ACTIVE
++        INTEGER LIM_J,LIM_K
++
+ !
+ ! 
+ !
+@@ -721,35 +730,11 @@
+ 	  JNU(I)=XM(I)
+ 	END DO
+ !
+-	DO I=1,ND-1
+-	  RSQ_HNU(I)=HU(I)*XM(I+1)-HL(I)*XM(I)+HS(I)*RSQ_HNUM1(I) +
+-	1              (EPS_PREV_A(I)*JNUM1(I)-EPS_A(I)*XM(I)) +
+-	1              (EPS_PREV_B(I)*JNUM1(I+1)-EPS_B(I)*XM(I+1))
+-	END DO
+-!
+-! Make sure H satisfies the basic requirement that it is less than J.
+-!
+-	IF(H_CHK_OPTION .EQ. 'AV_VAL')THEN
+-	  DO I=1,ND-1
+-	    T1=(R(I)*R(I)*XM(I)+R(I+1)*R(I+1)*XM(I+1))/2.0_LDP
+-	    IF(RSQ_HNU(I) .GT. T1)THEN
+-	      RSQ_HNU(I)=0.99999_LDP*T1
+-	    ELSE IF(RSQ_HNU(I) .LT. -T1)THEN
+-	      RSQ_HNU(I)=-0.99999_LDP*T1
+-	    END IF
+-	  END DO
+-	ELSE IF(H_CHK_OPTION .EQ. 'MAX_VAL')THEN
+-	  DO I=1,ND-1
+-	    T1=MAX(R(I)*R(I)*XM(I),R(I+1)*R(I+1)*XM(I+1))
+-	    IF(RSQ_HNU(I) .GT. T1)THEN
+-	      RSQ_HNU(I)=0.99999_LDP*T1
+-	    ELSE IF(RSQ_HNU(I) .LT. -T1)THEN
+-	      RSQ_HNU(I)=-0.99999_LDP*T1
+-	    END IF
+-	  END DO
+-	END IF
+-!
+-! 
++! Match the forward abs(J)/10 repair BEFORE constructing/capping H.
++        CALL MOM_JH_LIMIT_STATE(JNU,J_USED,J_FACTOR,RSQ_HNU,
++     1       H_LIMITED,H_DJL,H_DJR,R,HU,HL,HS,EPS_A,EPS_B,
++     1       EPS_PREV_A,EPS_PREV_B,JNUM1,RSQ_HNUM1,H_CHK_OPTION,ND)
++        LIMIT_ACTIVE=ANY(J_FACTOR.NE.1.0_LDP).OR.ANY(H_LIMITED)
+ !
+ ! The J and H components of the radiation field have been found. We can thus
+ ! begin the variation computation.
+@@ -775,6 +760,13 @@
+ 	  KI(ND,:,1)=KI(ND,:,1)+T1*WORKMAT(ND-1,:)
+ 	END IF
+ 
++! Only the H coefficient partial uses repaired J. The matrix partial above
++! must retain raw J. WORKMAT still contains the exact dTAU/dCHI here.
++        IF(ANY(J_FACTOR.NE.1.0_LDP))THEN
++          CALL MOM_JH_CHI_CORRECTION(RHS_dHdCHI,J_USED-JNU,
++     1        WORKMAT,CHI,DTAU,HU,HL,W,EPS_A,EPS_B,ND)
++        END IF
++
+ ! Chain fine-grid opacity/emissivity partials to MODEL variables using the
+ ! derivative of the same Steffen log-radius/log-value interpolation.
+ 	COHERENT_RESPONSE=ANY(THETA.NE.0.0_LDP)
+@@ -802,6 +794,12 @@
+ 	1                     -(HL(IR)+EPS_A(IR))*ESC_RESPONSE(IR,JM)
+ 	  END DO
+ 	END DO
++        IF(LIMIT_ACTIVE)THEN
++          DO LIM_J=1,NC
++            CALL MOM_JH_LIMIT_COLUMN(ESC_RESPONSE(:,LIM_J),ESC_H(:,LIM_J),
++     1        J_FACTOR,H_LIMITED,H_DJL,H_DJR,HU,HL,EPS_A,EPS_B,ND)
++          END DO
++        END IF
+ 
+ 
+ !
+@@ -820,6 +818,16 @@
+ 	1                       DTAU_BND,OUT_BC_TYPE,
+ 	1                       INIT,DO_THIS_TX_MATRIX)
+ 	CALL TUNE(2,'UP_TX')
++        IF(LIMIT_ACTIVE)THEN
++          DO LIM_K=1,NM
++            IF(.NOT.DO_THIS_TX_MATRIX(LIM_K))CYCLE
++            DO LIM_J=1,NC
++              CALL MOM_JH_LIMIT_COLUMN(TX(:,LIM_J,LIM_K),TVX(:,LIM_J,LIM_K),
++     1          J_FACTOR,H_LIMITED,H_DJL,H_DJR,HU,HL,EPS_A,EPS_B,ND)
++            END DO
++          END DO
++        END IF
++
+ !
+ ! 
+ !
+@@ -872,6 +880,12 @@
+ 	1     (EPS_PREV_B(I)*TX_OLD_d_dTdR(I+1)-EPS_B(I)*TX_DIF_d_dTdR(I+1))
+ 	  END DO
+ !
++        IF(LIMIT_ACTIVE)THEN
++          CALL MOM_JH_LIMIT_COLUMN(TX_DIF_d_T,TVX_DIF_d_T,
++     1      J_FACTOR,H_LIMITED,H_DJL,H_DJR,HU,HL,EPS_A,EPS_B,ND)
++          CALL MOM_JH_LIMIT_COLUMN(TX_DIF_d_dTdR,TVX_DIF_d_dTdR,
++     1      J_FACTOR,H_LIMITED,H_DJL,H_DJR,HU,HL,EPS_A,EPS_B,ND)
++        END IF
+ 	END IF	    	    !DIF END
+ !
+ ! 
+@@ -879,9 +893,103 @@
+ ! Save JNU and RSQ_HNU for next frequency integration.
+ !
+ 	DO I=1,ND
+-	  JNUM1(I)=JNU(I)
++	  JNU(I)=J_USED(I)
++	  JNUM1(I)=J_USED(I)
+ 	  RSQ_HNUM1(I)=RSQ_HNU(I)
+ 	END DO
+ !
+ 	RETURN
+ 	END
++
++! Reconstruct the same piecewise radiation map as ordinary MOM_J_CMF_V11.
++! J is intensity; H is r**2 times flux. H_DJL/H_DJR differentiate the active
++! signed bound with respect to the repaired intensities at its two nodes.
++        SUBROUTINE MOM_JH_LIMIT_STATE(J_RAW,J_USED,J_FACTOR,H_USED,
++     1       H_LIMITED,H_DJL,H_DJR,R,HU,HL,HS,EPS_A,EPS_B,
++     1       EPS_PREV_A,EPS_PREV_B,J_PREV,H_PREV,H_CHK_OPTION,ND)
++        USE SET_KIND_MODULE
++        IMPLICIT NONE
++        INTEGER ND,I
++        REAL(KIND=LDP) J_RAW(ND),J_USED(ND),J_FACTOR(ND),H_USED(ND)
++        REAL(KIND=LDP) R(ND),HU(ND),HL(ND),HS(ND),EPS_A(ND),EPS_B(ND)
++        REAL(KIND=LDP) EPS_PREV_A(ND),EPS_PREV_B(ND),J_PREV(ND),H_PREV(ND)
++        REAL(KIND=LDP) H_DJL(ND-1),H_DJR(ND-1),BOUND,FAC
++        LOGICAL H_LIMITED(ND-1)
++        CHARACTER(LEN=*) H_CHK_OPTION
++        J_USED=J_RAW; J_FACTOR=1.0_LDP
++        WHERE(J_RAW.LT.0.0_LDP)
++          J_USED=ABS(J_RAW)/10.0_LDP
++          J_FACTOR=-0.1_LDP
++        END WHERE
++        H_LIMITED=.FALSE.; H_DJL=0.0_LDP; H_DJR=0.0_LDP
++        DO I=1,ND-1
++          H_USED(I)=HU(I)*J_USED(I+1)-HL(I)*J_USED(I)+HS(I)*H_PREV(I)+
++     1      (EPS_PREV_A(I)*J_PREV(I)-EPS_A(I)*J_USED(I))+
++     1      (EPS_PREV_B(I)*J_PREV(I+1)-EPS_B(I)*J_USED(I+1))
++          IF(H_CHK_OPTION.EQ.'AV_VAL')THEN
++            BOUND=(R(I)*R(I)*J_USED(I)+R(I+1)*R(I+1)*J_USED(I+1))/2.0_LDP
++          ELSE IF(H_CHK_OPTION.EQ.'MAX_VAL')THEN
++            BOUND=MAX(R(I)*R(I)*J_USED(I),R(I+1)*R(I+1)*J_USED(I+1))
++          ELSE
++            CYCLE
++          END IF
++          IF(ABS(H_USED(I)).LE.BOUND)CYCLE
++          FAC=SIGN(0.99999_LDP,H_USED(I))
++          H_USED(I)=FAC*BOUND
++          H_LIMITED(I)=.TRUE.
++          IF(H_CHK_OPTION.EQ.'AV_VAL')THEN
++            H_DJL(I)=FAC*R(I)*R(I)/2.0_LDP
++            H_DJR(I)=FAC*R(I+1)*R(I+1)/2.0_LDP
++          ELSE IF(R(I)*R(I)*J_USED(I).GE.R(I+1)*R(I+1)*J_USED(I+1))THEN
++            H_DJL(I)=FAC*R(I)*R(I)
++          ELSE
++            H_DJR(I)=FAC*R(I+1)*R(I+1)
++          END IF
++        END DO
++        END
++
++! The coefficient derivative of H is linear in current J. Add its change
++! when J is repaired; previous J/H terms cancel. Do not alter the raw-J
++! matrix-equation partials in KI. dTAUdCHI follows the native quadrature.
++        SUBROUTINE MOM_JH_CHI_CORRECTION(RHS,DELTA_J,dTAUdCHI,
++     1       CHI,DTAU,HU,HL,W,EPS_A,EPS_B,ND)
++        USE SET_KIND_MODULE
++        IMPLICIT NONE
++        INTEGER ND,I,L
++        REAL(KIND=LDP) RHS(ND-1,ND),DELTA_J(ND),dTAUdCHI(ND,ND)
++        REAL(KIND=LDP) CHI(ND),DTAU(ND),HU(ND),HL(ND),W(ND)
++        REAL(KIND=LDP) EPS_A(ND),EPS_B(ND),T1,T2
++        DO I=1,ND-1
++          T1=(-HU(I)*DELTA_J(I+1)+HL(I)*DELTA_J(I))/DTAU(I)
++          DO L=1,ND
++            RHS(I,L)=RHS(I,L)+T1*dTAUdCHI(I,L)
++          END DO
++          T2=(1.0_LDP+W(I))*(CHI(I)+CHI(I+1))
++          T1=((HU(I)*DELTA_J(I+1)-HL(I)*DELTA_J(I))*W(I)+
++     1         EPS_A(I)*DELTA_J(I)+EPS_B(I)*DELTA_J(I+1))/T2
++          RHS(I,I)=RHS(I,I)+T1
++          RHS(I,I+1)=RHS(I,I+1)+T1
++        END DO
++        END
++
++! Chain one raw response column through the J repair, H reconstruction,
++! and signed H cap. The incoming H column already includes repaired-J
++! coefficient partials and the correctly limited previous-frequency history.
++        SUBROUTINE MOM_JH_LIMIT_COLUMN(DJ,DH,J_FACTOR,H_LIMITED,
++     1       H_DJL,H_DJR,HU,HL,EPS_A,EPS_B,ND)
++        USE SET_KIND_MODULE
++        IMPLICIT NONE
++        INTEGER ND,I
++        REAL(KIND=LDP) DJ(ND),DH(ND-1),J_FACTOR(ND)
++        REAL(KIND=LDP) H_DJL(ND-1),H_DJR(ND-1)
++        REAL(KIND=LDP) HU(ND),HL(ND),EPS_A(ND),EPS_B(ND)
++        LOGICAL H_LIMITED(ND-1)
++        DO I=1,ND-1
++          DH(I)=DH(I)+(HU(I)-EPS_B(I))*(J_FACTOR(I+1)-1.0_LDP)*DJ(I+1)
++     1               -(HL(I)+EPS_A(I))*(J_FACTOR(I)-1.0_LDP)*DJ(I)
++        END DO
++        DJ=J_FACTOR*DJ
++        DO I=1,ND-1
++          IF(H_LIMITED(I))DH(I)=H_DJL(I)*DJ(I)+H_DJR(I)*DJ(I+1)
++        END DO
++        END
