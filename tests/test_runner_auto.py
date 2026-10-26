@@ -100,7 +100,7 @@ def test_auto_verifies_fresh_matrices_and_keeps_quality_separate(auto_workspace)
     assert len(result['attempts'])==2
     assert result['numerical_convergence']=='verified with fresh Jacobians'
     assert result['scientific_acceptance']=='requires separate quality review'
-    assert [a['kind'] for a in result['actions']]==['fresh_jacobian']
+    assert [a['kind'] for a in result['actions']]==['fresh_jacobian', 'restore_ba_reuse']
     assert result['attempts'][-1]['evidence']['fresh_verified']
     assert (model/'IN_ITS').read_text()=='5 [NUM_ITS]\n'
     assert (Path(result['journal'])/'result.json').is_file()
@@ -110,6 +110,15 @@ def test_auto_verifies_fresh_matrices_and_keeps_quality_separate(auto_workspace)
     assert [event['solver_maximum_changes'] for event in assessments]==[[0.005]*3, [0.005]*3]
     saved_events=[json.loads(row) for row in (Path(result['journal'])/'events.jsonl').read_text().splitlines()]
     assert [event['solver_maximum_changes'] for event in saved_events if event['event']=='auto_assessment']==[[0.005]*3, [0.005]*3]
+
+    assert result['ba_reuse_restoration']['changes'] == {'VADAT': {'N_FIX_BA':'2', 'FIX_BA':'10'}}
+    controls = (model/'VADAT').read_text()
+    assert '2 [N_FIX_BA]' in controls and '10 [FIX_BA]' in controls
+    assert 'T [COMP_BA]' in controls
+    assert (Path(result['recovery_directory'])/'VADAT').read_text() == controls
+    verification_controls = Path(result['ba_reuse_restoration']['directory'])/'VADAT'
+    assert '0 [N_FIX_BA]' in verification_controls.read_text()
+    assert saved_events[-2]['event'] == 'auto_action'
 
 
 def test_auto_still_requires_independent_phase_when_initial_batch_is_fresh(auto_workspace):
@@ -124,11 +133,16 @@ def test_auto_still_requires_independent_phase_when_initial_batch_is_fresh(auto_
     assert [a['kind'] for a in result['actions']] == ['fresh_jacobian']
 
 
+    assert 'ba_reuse_restoration' not in result
+    assert '0 [N_FIX_BA]' in (model/'VADAT').read_text()
+    assert '0.0 [FIX_BA]' in (model/'VADAT').read_text()
+
+
 def test_cycle_selects_local_relaxation_then_independent_verification(auto_workspace):
     model,plan=auto_workspace
     result=run_plan(plan('oscillate'))
     assert result['status']=='succeeded',result
-    assert [a['kind'] for a in result['actions']]==['relaxation','fresh_jacobian']
+    assert [a['kind'] for a in result['actions']]==['relaxation','fresh_jacobian','restore_ba_reuse']
     assert '0.25' in (model/'ADJUST_CORRECTIONS').read_text()
     assert result['attempts'][0]['evidence']['candidate'] is False
 
@@ -383,7 +397,7 @@ def test_decreasing_corrections_continue_without_unnecessary_damping(auto_worksp
     result=run_plan(plan('decay'))
     assert result['status']=='succeeded',result
     assert len(result['attempts'])==5
-    assert [a['kind'] for a in result['actions']]==['fresh_jacobian']
+    assert [a['kind'] for a in result['actions']]==['fresh_jacobian', 'restore_ba_reuse']
 
 
 @pytest.mark.parametrize('scenario,budget,expected', [('good',None,0),('rebound',2,1)])
@@ -413,3 +427,54 @@ def test_interrupted_recovery_copy_preserves_committed_snapshot(tmp_path,monkeyp
     assert (journal/'recovery.json').read_bytes()==metadata
     assert (original/'SCRTEMP').read_bytes()==b'known state'
     assert list(journal.glob('recovery-*'))==[original]
+
+
+@pytest.mark.parametrize('setting', ['2', '0'])
+def test_verification_failure_does_not_restore_reuse(auto_workspace, setting):
+    model,plan=auto_workspace
+    text=(model/'VADAT').read_text().replace('2 [N_FIX_BA]', setting+' [N_FIX_BA]')
+    (model/'VADAT').write_text(text)
+    result=run_plan(plan('rebound',max_attempts=2))
+    assert result['status']=='limit_reached'
+    assert 'ba_reuse_restoration' not in result
+    assert '0 [N_FIX_BA]' in (model/'VADAT').read_text()
+    assert '0.0 [FIX_BA]' in (model/'VADAT').read_text()
+
+
+def test_edit_after_verification_preserved_before_reuse_restoration(auto_workspace):
+    model,plan=auto_workspace
+    def edit(event):
+        if event['event']=='auto_decision' and event['decision']['kind']=='converged':
+            text=(model/'VADAT').read_text().replace('0 [N_FIX_BA]', '7 [N_FIX_BA]')
+            (model/'VADAT').write_text(text)
+    result=run_plan(plan(),edit)
+    assert result['status']=='needs_review'
+    assert 'ba_reuse_restoration' not in result
+    assert '7 [N_FIX_BA]' in (model/'VADAT').read_text()
+
+
+def test_restores_original_reuse_tokens_but_keeps_initial_matrix_fresh(auto_workspace):
+    from cmfgen_viewer.auto_diagnostics import control_value
+    model,plan=auto_workspace
+    text=(model/'VADAT').read_text().replace('10 [FIX_BA]', '1.0D+1 [FIX_BA] ! original threshold')
+    (model/'VADAT').write_text(text.replace('T [COMP_BA]', 'F [COMP_BA]')+'42 [USER_SETTING]\n')
+    result=run_plan(plan())
+    assert result['status']=='succeeded',result
+    assert result['attempts'][-1]['evidence']['fresh_verified']
+    assert control_value(model,'VADAT','N_FIX_BA')=='2'
+    assert control_value(model,'VADAT','FIX_BA')=='1.0D+1'
+    assert control_value(model,'VADAT','COMP_BA')=='T'
+    assert '! original threshold' in (model/'VADAT').read_text()
+    assert '42 [USER_SETTING]' in (model/'VADAT').read_text()
+
+
+def test_cancellation_during_verification_keeps_fresh_matrix_policy(auto_workspace):
+    model,plan=auto_workspace
+    def cancel(event):
+        if event['event']=='auto_assessment' and event['attempt']==2:
+            raise KeyboardInterrupt()
+    result=run_plan(plan(),cancel)
+    assert result['status']=='cancelled'
+    assert 'ba_reuse_restoration' not in result
+    assert '0 [N_FIX_BA]' in (model/'VADAT').read_text()
+    assert '0.0 [FIX_BA]' in (model/'VADAT').read_text()

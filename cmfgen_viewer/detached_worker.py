@@ -51,6 +51,8 @@ def main(directory, descriptor):
                 state.update(auto_attempt=event['attempt'], auto_phase=event['phase'], progress={})
             if event["event"] == "auto_action":
                 state['auto_action'] = event['action']['reason']
+            if event["event"] == "auto_performance_trial":
+                state['auto_action'] = f"Performance trial {event['outcome']}: {event['reason']}"
             if event["event"] == "auto_decision":
                 state['auto_reason'] = event['decision']['reason']
             if event["event"] == "progress":

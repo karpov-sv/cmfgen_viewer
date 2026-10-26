@@ -74,7 +74,7 @@ The following table lists every registered rule and the two fallback decisions. 
 | Nonfinite radiation cache — `nonfinite_radiation_cache` | Before the first attempt, `COMP_F=F` requests reuse of a supported 2017 EDDFACTOR cache whose radiation records contain NaN/Infinity. Unknown layouts and generic crashes do not qualify. | Preserve the cache and metadata as `.bak` files in the action journal, record the invalid location and checksum, and set `COMP_F=T` to regenerate radiation. `USE_FIXED_J=T` requires review. Normal checkpoint and independent convergence verification still apply. | One preparation action; no failed-attempt allowance consumed. |
 | Refined formal rays — `ray_refinement` | A continuation fails the native luminosity safeguard, a refreshed complete normalized luminosity profile contains negative values, `DO_HYDRO=F`, formal rays are coarse (`VFRAC_FG>0.1`), and the moment grid is original (`VFRAC_MOM=20000`) or the executable has an authenticated `moment-grid-jacobian-v1` repair. Relativistic, time-dependent or `INC_GRID` transport additionally requires `moment-grid-family-v1`, including on an original moment grid. | Try `VFRAC_FG=0.1`, fresh BA and radiation caches. Require two guarded fresh-BA solves (native Lambda steps permitted), positive luminosities within `[0.5,2]` and inner τRoss≥30. Keep moment/depth grids and all safeguards unchanged; roll back the trial on failure. | One provisional procedure. |
 | Explicit large-change safeguard — `population_guard` | Exact zero-exit native post-save `MAX_CHNG` stop after one fresh-BA solve of a continuation. Its counter must match the saved checkpoint; independent before/after audits require positive finite populations, charge/element conservation and unchanged geometry. The repaired executable must be authenticated. | Preserve the failed run's status. Retain its checkpoint only provisionally for the fixed-T Lambda/full-continuation procedure below; restore the pre-failure state if any step fails. Never use a generic crash or failed fresh initialization. | One provisional procedure. |
-| Verified numerical convergence — `verified_convergence` | In the independent verification phase, the final 2 steps are full, temperature-varying solves with fresh BA on both. Native solver metric and both absolute raw correction extrema are finite and strictly below `EPS_TERM`; relevant `CORRECTION_SUM` counts agree. No intervening hydro revision invalidates those steps. | Finish successfully and report scientific-quality measurements separately. | Evaluated after each successful verification batch. |
+| Verified numerical convergence — `verified_convergence` | In the independent verification phase, the final 2 steps are full, temperature-varying solves with fresh BA on both. Native solver metric and both absolute raw correction extrema are finite and strictly below `EPS_TERM`; relevant `CORRECTION_SUM` counts agree. No intervening hydro revision invalidates those steps. | Restore the starting `N_FIX_BA`/`FIX_BA` policy for future runs, retain `COMP_BA=T`, finish successfully, and report scientific-quality measurements separately. | Evaluated after each successful verification batch. |
 | Candidate verification — `verify_candidate` | The final 2 full, temperature-varying solves meet the raw/native correction tolerance and count checks, but independent verification is still required. | Set `COMP_BA=T`, `N_FIX_BA=0`, `FIX_BA=0.0`, retire `BAMAT`/`BAMATPNT`, and request up to 3 verification iterations. A rebound returns to further diagnosis/iteration. | Shared work budgets; never accepts a candidate without verification. |
 | Superlevel temperature derivatives — `superlevel_temperature` | A measured localized persistent temperature cycle, without a hydro revision, while `INCL_dSLdT` is disabled. | Enable `INCL_dSLdT=T` and fresh BA before attempting local damping. Retain the correction thresholds and physical model. | One application. |
 | Extreme populations — `population_bootstrap` | Fresh-BA solves have finite extreme population increases (two successive increases≥1e7%, or one≥1e12%). A fixed-structure continuation with `SCALE_OPT=MAJOR` must have an independently auditable positive, charge-conserving checkpoint and an authenticated line/BA-repaired executable. Native automatic Lambda steps also qualify. | Three fixed-T Lambda solves with temporary `MAX_LAM=1e12`, fresh BA and Ng disabled; require declining uncapped extrema, unchanged T/geometry and conserved elements/charge. Restore normal controls, then require two full variable-T/fresh-BA solves with the same physical checks. No floors or LTE reseeding. | One provisional procedure. |
@@ -119,7 +119,7 @@ Native automatic lambda release in `IN_ITS` is also preserved: a completed lambd
 
 Native hydro revisions reset correction-trend history because they can change the radial grid and structure. The mixed hydro batch is excluded; stall and temperature-profile comparisons restart with subsequent complete batches. Local oscillation damping is not selected from temperature vectors spanning a hydro revision. Per-attempt evidence remains in the journal, and the reset does not replenish work budgets or relax convergence acceptance.
 
-The model is reserved between native attempts. A rolling full recovery snapshot keeps checkpoint files and coupled controls together; multi-step remedies also retain a temporary step snapshot. Failure or cancellation rolls back provisional changes. Temporary POP/LTE/Lambda/guard/iteration overrides are restored, while accepted numerical tuning such as local damping and fresh-matrix controls remains installed for later continuation. External control or executable changes stop further automatic mutation and are preserved; if they prevent safe rollback, the report identifies that recovery needs review.
+The model is reserved between native attempts. A rolling full recovery snapshot keeps checkpoint files and coupled controls together; multi-step remedies also retain a temporary step snapshot. Failure or cancellation rolls back provisional changes. Temporary POP/LTE/Lambda/guard/iteration overrides are restored, while accepted numerical tuning such as local damping remains installed for later continuation. After independent fresh-Jacobian verification succeeds, the controller restores the `N_FIX_BA` and `FIX_BA` values saved at the start of the automatic run, retaining `COMP_BA=T` for a fresh initial matrix on future runs. Restoration is journaled and included in the recovery controls; the verified checkpoint and its evidence are unchanged. Failed, cancelled, budget-limited, or unverified runs keep their fresh-matrix recovery policy. Starting with reuse already disabled leaves it disabled; no faster defaults are guessed. External control or executable changes stop further automatic mutation and are preserved; if they prevent safe rollback, the report identifies that recovery needs review.
 
 The parent `.cmfgen-runs/<timestamp>-auto-<id>/` journal contains the versioned rule manifest, decisions, action backups, and links to native-run logs. Unhandled/review/budget stops also write `issue.json` and `issue.md`, collecting the failure and policy evidence for investigating and adding the next tested rule. New rules are registered in `auto_policies.py`; updates invalidate older previews. Source/executable edits, arbitrary grid/atomic-data changes, and speculative retries are outside the current remedy set.
 
@@ -215,3 +215,70 @@ separate verification phase. Missing, stale, edited,
 or inconsistent evidence cannot establish convergence. Physical-quality warnings
 remain visible even when the native iteration has converged. The automatic
 controller retains its stricter two-step raw-correction acceptance rule.
+
+
+The parameter editor displays a “Fresh BA on every full iteration” notice and
+highlights the reuse controls when `COMP_BA=T` and `N_FIX_BA=0`. The advanced
+controls open automatically in this case. The notice updates with quick edits;
+it is also shown in the VADAT text editor. This is a performance explanation,
+not a convergence warning. A stable continuation can test `N_FIX_BA=1` with
+`FIX_BA=0`; final automatic verification always uses fresh matrices.
+
+The editor also shows contextual review hints for explicit `DO_LAM_AUTO=F`,
+`DO_LAM_IT=T`, `FIX_T=T`, `DO_NG=F`, `MAX_LAM>1e4`, and scoped
+`ADJUST_CORRECTIONS [RELAX]` values between 0 and 1. The relevant quick fields
+have badges and colored borders; hints update as values are edited and also
+appear in each file's text editor. The optional correction file has a quick
+`RELAX` field that preserves its depth range and other controls.
+
+These are review hints, not evidence that a setting came from recovery or is
+wrong for the model. `DO_LAM_AUTO` controls the native handoff from requested
+Lambda iterations to full iterations; disabling it is not itself a performance
+penalty during healthy full solves. Large Lambda limits may be bootstrap choices,
+fixed temperature may be intentional, and Ng suppression or damping may still be
+needed for stability. No setting is reset automatically by these hints. Proven
+ray refinement and superlevel-temperature Jacobian improvements remain unchanged.
+
+### Guarded performance trials during automatic iteration
+
+Automatic mode can provisionally reduce numerical overhead after **three consecutive
+comparable full, variable-temperature batches** show healthy progress. Every raw/native
+correction metric must be finite and at most 1%; final batch metrics must decrease
+strictly, with at least 20% improvement across the window. All correction-threshold
+counts must be non-increasing. Complete temperature-request vectors must exclude
+persistent cycling; hydro revisions and Ng steps invalidate this comparison window.
+The running executable must authenticate the line/BA repairs. Fresh complete
+luminosity/optical-depth profiles and a recognized, positive, charge-conserving
+checkpoint are required. Missing evidence skips performance tuning while ordinary
+iteration and recovery remain available.
+
+| Trial | Conditions and provisional change | Required demonstration |
+|---|---|---|
+| `ba_reuse_trial` | `COMP_BA=T`, `STORE_BA=T`, `N_FIX_BA=0`. Try `N_FIX_BA=1`, `FIX_BA=0`. At most once per automatic invocation. This can include a run that started with zero reuse. | Exactly two full solves, the first with fresh BA and the second with reused BA; improving corrections and unchanged-or-better counts/physical checks. |
+| `relaxation_release` | Damping was introduced by this automatic invocation and the current matrix policy is fresh. Double `RELAX`, capped at the starting value (or 1 when no correction file existed). Keep the depth range and other controls. At most three trials, with another healthy comparison window before each increase. | Exactly two full solves with fresh BA, improving corrections, no temperature cycling, and unchanged-or-better counts/physical checks. |
+
+Each trial reserves two iterations plus room for a subsequent verification batch
+(at least five remaining iterations and two remaining attempts before selection).
+The trial's final correction metric must improve, neither trial step may rebound
+above the baseline, no threshold count may increase, and normalized luminosities
+must remain inside `[0.5,2]` without widening the baseline range by more than 0.01.
+Inner Rosseland depth must remain at least 30. Geometry, element densities and
+charge conservation are checked using the recognized checkpoint metadata.
+
+Changes and checkpoints remain provisional until all checks pass. A completed
+trial with valid evidence that fails these checks restores the conservative
+checkpoint and coupled controls, retires incompatible BA/radiation caches, and
+continues ordinary iteration. Rejected BA reuse is not retried; rejection of a
+damping release disables further damping-release trials for this invocation.
+Unknown native failures still stop for review after rollback. Cancellation,
+timeout or an incomplete trial also restores the conservative baseline. Trial
+outcomes and rollback reasons appear in the journal, CLI and workflow report.
+
+These trials do not promise a universal speedup: the BA trial must demonstrate
+an actual skipped rebuild, and damping release must demonstrate continued progress.
+They never relax convergence tolerances, safeguards, radiation refinement or
+superlevel Jacobian terms. They do not automatically enable Ng, change Lambda
+handoff, reset `MAX_LAM`, or remove user-selected damping. Native/temporary recovery
+handling of those controls is unchanged. Final acceptance always requires a
+separate fresh-Jacobian verification batch, after which the starting BA-reuse
+settings are restored as described above.

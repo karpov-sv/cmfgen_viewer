@@ -55,6 +55,10 @@ v=pack([1e7,1e10,1e10,1., 1e7,2e10,2e10,2.])
     exe.write_text(code)
     authenticate(model)
     assert run_plan(plan())['status']=='succeeded'
+    # These remedies specifically require an already fresh-matrix baseline;
+    # successful automatic verification now restores its caller's reuse policy.
+    text=(model/'VADAT').read_text().replace('2 [N_FIX_BA]', '0 [N_FIX_BA]')
+    (model/'VADAT').write_text(text.replace('10 [FIX_BA]', '0.0 [FIX_BA]'))
     return model,plan
 
 
@@ -112,9 +116,12 @@ def test_temperature_coupling_precedes_local_damping(auto_workspace):
         "large=mode=='never' or (mode=='oscillate' and get('VADAT','INCL_dSLdT','F')!='T')"))
     result=run_plan(plan('oscillate'))
     assert result['status']=='succeeded',result
-    assert [a['policy_id'] for a in result['actions']]==['superlevel_temperature','verify_candidate']
+    assert [a['policy_id'] for a in result['actions']]==['superlevel_temperature','verify_candidate','verified_convergence']
     assert not (model/'ADJUST_CORRECTIONS').exists()
     assert control_value(model,'VADAT','INCL_dSLdT')=='T'
+
+    assert control_value(model, 'VADAT', 'N_FIX_BA') == '2'
+    assert control_value(model, 'VADAT', 'FIX_BA') == '10'
 
 
 def test_ng_cadence_extends_contiguous_batch_and_honors_budget(auto_workspace):

@@ -213,7 +213,7 @@ def _assess_outputs(model, solution_offset, requested, hydro_revisions, started)
             'quality': quality}
 
 
-def oscillating_region(evidence, history):
+def oscillating_region(evidence, history, *, localized_only=True):
     """Locate a persistent cycle, excluding already shrinking modes."""
     nd = evidence['counts']['nd']
     vectors = evidence['raw_temperature_steps'][-5:]
@@ -230,7 +230,7 @@ def oscillating_region(evidence, history):
             if (flips >= 2 and min(abs(v) for v in values[-3:]) > max(evidence['epsilon_percent'], 0.05)
                     and abs(values[-1]) >= 0.6 * abs(values[0])):
                 affected.append(depth+1)
-    if affected and max(affected)-min(affected)+1 <= max(1, nd//3):
+    if affected and (not localized_only or max(affected)-min(affected)+1 <= max(1, nd//3)):
         return [min(affected), max(affected)]
     return None
 

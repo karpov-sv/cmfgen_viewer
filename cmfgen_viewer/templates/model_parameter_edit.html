@@ -27,6 +27,8 @@
     {% endif %}
 
     {% if file %}
+      {% include '_solver_notices.html' %}
+      {% if file_relpath == 'VADAT' %}{% include '_ba_reuse_notice.html' %}{% endif %}
       {% if file.affects_solution %}
         <div class="alert alert-warning py-2 small">
           Saving this file marks the computed solution as potentially stale and removes its summary-cache entry.

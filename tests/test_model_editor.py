@@ -498,3 +498,77 @@ def test_luminosity_scaling_unchecked_allows_independent_radius_mass_and_gravity
                                              expected_digest=card["digest"], values=values)
     assert review["values"] == values
     assert not review["keep_temperature_logg"]
+
+
+@pytest.mark.parametrize('compute,reuse,threshold,disabled', [
+    ('T','0','0.0',True), ('T','0','10',True), ('T','1','0',False),
+    ('F','0','0',False), ('T','invalid','0',False),
+])
+def test_editor_explains_disabled_ba_reuse(tmp_path, compute, reuse, threshold, disabled):
+    from cmfgen_viewer.app import create_app
+    model, original, _, _ = _solver_editor(tmp_path)
+    (model/'VADAT').write_text(original.replace('T [COMP_BA]',compute+' [COMP_BA]')
+        .replace('2 [N_FIX_BA]',reuse+' [N_FIX_BA]').replace('0.1 [FIX_BA]',threshold+' [FIX_BA]'))
+    card = load_quick_model_parameter_cards(str(tmp_path), model_relpath='model_a')[0]
+    assert card['ba_reuse_disabled'] is disabled
+    advanced=next(g for g in card['groups'] if g['name']=='Advanced solver controls')
+    assert advanced['collapsed']
+    assert advanced['open'] is disabled
+    app=create_app(basepath=str(tmp_path),read_write_enabled=True,secret_key='test')
+    client=app.test_client()
+    for url in ['/model-actions/edit/model_a','/model-actions/edit/model_a?file=VADAT']:
+        response=client.get(url)
+        assert response.status_code==200
+        import re
+        html=response.data.decode()
+        notice=re.search(r'<div[^>]*data-ba-reuse-notice[^>]*>',html)
+        assert notice is not None
+        assert ('hidden' in notice[0]) is not disabled
+        assert 'Fresh BA on every full iteration' in html
+        assert 'restores the starting reuse settings' in html
+
+
+def test_solver_review_notices_and_badges_in_both_editors(tmp_path):
+    from cmfgen_viewer.app import create_app
+    _write_model(tmp_path/'model_a')
+    model=tmp_path/'model_a'
+    (model/'VADAT').write_text('1D12 [MAX_LAM]\nT [FIX_T]\nF [DO_NG]\n')
+    (model/'IN_ITS').write_text('5 [NUM_ITS]\nF [DO_LAM_AUTO]\nT [DO_LAM_IT]\n')
+    (model/'ADJUST_CORRECTIONS').write_text('2 [L_ST]\n4 [L_END]\n0.25 [RELAX]\n')
+    before={p.name:p.read_bytes() for p in model.iterdir() if p.is_file()}
+    cards=load_quick_model_parameter_cards(str(tmp_path),model_relpath='model_a')
+    assert len(cards)==3
+    for card in cards:
+        assert any(n['active'] for n in card['solver_notices'])
+        assert all(f['solver_notice']['active'] for f in card['fields']
+                   if f['key'] in {'MAX_LAM','FIX_T','DO_NG','DO_LAM_AUTO','DO_LAM_IT','RELAX'})
+    app=create_app(basepath=str(tmp_path),read_write_enabled=True,secret_key='test')
+    client=app.test_client()
+    html=client.get('/model-actions/edit/model_a').data.decode()
+    assert 'Automatic Lambda handoff disabled' in html
+    assert 'data-solver-badge="manual_lambda"' in html
+    assert 'Unusually permissive Lambda correction limit' in html
+    assert 'border-warning' in html and 'border-info' in html
+    for filename,notice in [('VADAT','large_lambda_limit'),('IN_ITS','manual_lambda'),
+                            ('ADJUST_CORRECTIONS','reduced_relaxation')]:
+        response=client.get('/model-actions/edit/model_a?file='+filename)
+        assert response.status_code==200
+        assert f'data-solver-notice="{notice}"' in response.data.decode()
+    assert before=={p.name:p.read_bytes() for p in model.iterdir() if p.is_file()}
+
+
+def test_quick_relaxation_edit_preserves_scope_and_other_controls(tmp_path):
+    _write_model(tmp_path/'model_a')
+    model=tmp_path/'model_a'
+    contents='2 [L_ST] ! outer\r\n4 [L_END]\r\n0.25 [RELAX] ! damping\r\n0.02 [T_LIM]\r\n'
+    (model/'ADJUST_CORRECTIONS').write_bytes(contents.encode())
+    card=next(c for c in load_quick_model_parameter_cards(str(tmp_path),model_relpath='model_a')
+              if c['file_relpath']=='ADJUST_CORRECTIONS')
+    args=dict(model_relpath='model_a',file_relpath='ADJUST_CORRECTIONS',
+              expected_digest=card['digest'],values={'RELAX':'0.5'})
+    review=review_quick_model_parameter_edit(str(tmp_path),**args)
+    assert review['contents']==contents.replace('0.25','0.5')
+    save_quick_model_parameter_edit(str(tmp_path),reviewed_digest=review['proposed_digest'],**args)
+    assert (model/'ADJUST_CORRECTIONS').read_bytes()==contents.replace('0.25','0.5').encode()
+    assert not next(c for c in load_quick_model_parameter_cards(str(tmp_path),model_relpath='model_a')
+                    if c['file_relpath']=='ADJUST_CORRECTIONS')['ba_reuse_disabled']

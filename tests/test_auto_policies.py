@@ -37,7 +37,7 @@ def test_new_registered_fix_runs_without_controller_changes(auto_workspace,monke
     register(monkeypatch,repair_if_unknown)
     result=run_plan(plan('unknown'))
     assert result['status']=='succeeded',result
-    assert [a['policy_id'] for a in result['actions']]==['test_remedy','verify_candidate']
+    assert [a['policy_id'] for a in result['actions']]==['test_remedy','verify_candidate','verified_convergence']
     assert result['attempts'][0]['decision']['policy_id']=='test_remedy'
     assert not (Path(result['journal'])/'issue.json').exists()
 
@@ -121,7 +121,7 @@ if mode=='hydro_cache_once' and done==1 and not (p/'injected-cache-error').exist
     exe.write_text(exe.read_text().replace('low=0.4',fault+'\nlow=0.4'))
     result=run_plan(plan('hydro_cache_once'))
     assert result['status']=='succeeded',result
-    assert [a['policy_id'] for a in result['actions']]==['hydro_bootstrap','radiation_cache','verify_candidate']
+    assert [a['policy_id'] for a in result['actions']]==['hydro_bootstrap','radiation_cache','verify_candidate','verified_convergence']
     trace=[json.loads(row) for row in (model/'guard-trace.jsonl').read_text().splitlines()]
     assert sum(row['guard']=='F' for row in trace)==1
     assert result['attempts'][2]['restored_state']=='recovery_step'

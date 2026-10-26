@@ -1,0 +1,8 @@
+<div class="alert alert-warning py-2 small" data-ba-reuse-notice aria-live="polite" {% if not ba_reuse_disabled %}hidden{% endif %}>
+  <strong>Fresh BA on every full iteration.</strong>
+  With <code>COMP_BA=T</code> and <code>N_FIX_BA=0</code>, CMFGEN rebuilds the BA/Jacobian matrix each time.
+  This helps recovery and verification but can slow main computations.
+  Stable continuations can try <code>N_FIX_BA=1</code> with <code>FIX_BA=0</code>.
+  Auto mode can test limited reuse after sustained healthy progress, with rollback if the trial fails.
+  Automatic mode restores the starting reuse settings after successful verification.
+</div>

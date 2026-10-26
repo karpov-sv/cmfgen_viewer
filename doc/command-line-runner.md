@@ -213,9 +213,9 @@ limit (a factor greater than 1), and `MAX_dT`, the temperature correction limit
 unless explicitly filled, retaining the native 20% default. `SCALE_OPT=NONE`
 always uses a fixed 20% temperature limit.
 
-The collapsed **Advanced solver controls** group exposes `COMP_BA`, `N_FIX_BA`,
-`FIX_BA`, `SCALE_OPT`, and `MAX_LAM`. Fresh Jacobians on every iteration require
-`COMP_BA=T`, `N_FIX_BA=0`, and `FIX_BA=0`: the reuse count and freeze threshold
+The **Advanced solver controls** group exposes `COMP_BA`, `N_FIX_BA`,
+`FIX_BA`, `SCALE_OPT`, and `MAX_LAM`. With `COMP_BA=T` and `N_FIX_BA=0`, the solver computes a fresh Jacobian on
+every full iteration, even with a positive `FIX_BA`. The reuse count and freeze threshold
 both affect matrix computation. `FIX_BA` is in percent; `MAX_LAM` is a factor
 greater than 1 for Lambda population updates. `SCALE_OPT` selects MAJOR, LOCAL,
 GLOBAL, or NONE correction scaling. These settings control damping and matrix
@@ -587,3 +587,23 @@ Recalculate sigma**. Absence of a warning does not establish derivative accuracy
 in coarse or low-precision regions. The checks cannot infer the intended MDOT
 or BETA from R/V/sigma alone, and historical header comments are not treated as
 proof of physical consistency.
+
+
+After independent fresh-Jacobian verification succeeds, automatic mode restores
+`N_FIX_BA` and `FIX_BA` from the start of that automatic run, and retains
+`COMP_BA=T` so a later invocation computes its initial matrix afresh. Other
+accepted recovery settings are retained. The restoration is recorded in the
+action journal and rolling recovery controls; it does not change the verified
+checkpoint. Runs stopped before successful verification keep the fresh-matrix
+policy. Starting with zero reuse still leaves zero reuse; automatic mode does
+not choose faster defaults. The parameter editor explains and highlights this
+configuration, opening the advanced controls when reuse is disabled.
+
+Automatic main runs also include bounded performance trials after three healthy,
+improving full-solve batches. They can test one reused BA iteration or gradually
+release damping introduced by the current automatic run. Trial state stays
+provisional; adverse corrections, counts, temperature behavior or physical checks
+restore the conservative checkpoint and controls. Missing scientific evidence
+skips these optimizations, and unknown native failures still stop for review.
+Final acceptance continues to require independent fresh-Jacobian verification.
+See [conditions, budgets and rollback](/documentation/main-computation#guarded-performance-trials-during-automatic-iteration).

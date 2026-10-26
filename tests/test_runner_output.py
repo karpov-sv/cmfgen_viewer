@@ -694,3 +694,14 @@ def test_promotion_preview_reports_lte_cleanup_candidates(plan):
     TerminalOutput(stream).plan(plan)
     assert "Will clean 1 LTE temporary file(s) (10 B)" in stream.getvalue()
     assert "lte/HIOUT" in stream.getvalue()
+
+
+def test_performance_trial_outcome_is_visible():
+    import io
+    from cmfgen_viewer.runner_output import TerminalOutput
+    stream=io.StringIO()
+    output=TerminalOutput(stream=stream)
+    output.event({'event':'auto_performance_trial','outcome':'rejected',
+                  'reason':'Corrections rebounded; conservative checkpoint restored'})
+    assert 'Performance trial rejected' in stream.getvalue()
+    assert 'conservative checkpoint restored' in stream.getvalue()

@@ -71,6 +71,13 @@ EDITABLE_MODEL_FILES: dict[str, dict[str, object]] = {
         "required": False,
         "affects_solution": True,
     },
+    "ADJUST_CORRECTIONS": {
+        "label": "ADJUST_CORRECTIONS",
+        "group": "Optional controls",
+        "description": "Scoped correction relaxation retained after numerical recovery.",
+        "required": False,
+        "affects_solution": True,
+    },
     "IT_SPECIFIER": {
         "label": "IT_SPECIFIER",
         "group": "Optional controls",

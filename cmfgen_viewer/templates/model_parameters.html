@@ -4,14 +4,17 @@
 {% macro quick_parameter_fields(fields) %}
   <div class="model-quick-parameter-grid">
     {% for field in fields %}
+      {% set solver_notice = field.solver_notice %}
       <div class="model-quick-parameter-field">
         <div class="d-flex align-items-baseline gap-1 mb-1">
           <label class="form-label small fw-semibold mb-0" for="{{ field.input_id }}">{{ field.label }}</label>
           {{ parameter_help(field.input_id, field.label, field.notice) }}
+          {% if field.key in ['N_FIX_BA', 'FIX_BA'] %}<span class="badge text-bg-warning" data-ba-reuse-badge {% if not field.ba_reuse_disabled %}hidden{% endif %}>Fresh BA</span>{% endif %}
+          {% if solver_notice %}<span class="badge text-bg-{{ solver_notice.tone }}" data-solver-badge="{{ solver_notice.id }}" {% if not solver_notice.active %}hidden{% endif %}>{{ solver_notice.badge }}</span>{% endif %}
         </div>
         <div class="input-group input-group-sm">
           {% if field.kind == "boolean" %}
-            <select class="form-select font-monospace" id="{{ field.input_id }}" name="{{ field.field_name }}">
+            <select class="form-select font-monospace{% if solver_notice and solver_notice.active %} border-{{ solver_notice.tone }}{% endif %}" id="{{ field.input_id }}" name="{{ field.field_name }}">
               {% if field.optional %}<option value="" {% if not field.value %}selected{% endif %}>Unset (leave unchanged)</option>{% endif %}
               <option value="T" {% if field.value|upper == "T" %}selected{% endif %}>T — enabled</option>
               <option value="F" {% if field.value|upper == "F" %}selected{% endif %}>F — disabled</option>
@@ -23,7 +26,8 @@
             </select>
           {% else %}
             <input
-              class="form-control font-monospace"
+              class="form-control font-monospace{% if field.ba_reuse_disabled %} border-warning{% endif %}{% if solver_notice and solver_notice.active %} border-{{ solver_notice.tone }}{% endif %}"
+              data-ba-reuse-key="{{ field.key }}"
               id="{{ field.input_id }}"
               name="{{ field.field_name }}"
               value="{{ field.value }}"
@@ -105,7 +109,9 @@
                   <input type="hidden" name="action" value="quick_preview">
                   <input type="hidden" name="quick_file_relpath" value="{{ card.file_relpath }}">
                   <input type="hidden" name="expected_digest" value="{{ card.digest }}">
+                  {% with solver_notices=card.solver_notices %}{% include '_solver_notices.html' %}{% endwith %}
                   {% if card.file_relpath == 'VADAT' %}
+                    {% with ba_reuse_disabled=card.ba_reuse_disabled %}{% include '_ba_reuse_notice.html' %}{% endwith %}
                     <div class="mb-3">
                       <div class="form-check">
                         <input class="form-check-input" type="checkbox" id="keep-temperature-logg" name="keep_temperature_logg" value="1"
@@ -126,7 +132,7 @@
                   {% endif %}
                   {% for group in card.groups %}
                     {% if group.collapsed %}
-                      <details class="model-quick-parameter-group model-quick-parameter-details mb-4">
+                      <details class="model-quick-parameter-group model-quick-parameter-details mb-4" {% if group.open %}open{% endif %}>
                         <summary class="model-quick-parameter-group-title mb-2">{{ group.name }} ({{ group.fields|length }})</summary>
                         {{ quick_parameter_fields(group.fields) }}
                       </details>

@@ -58,7 +58,7 @@ def configure_auto(plan, *, cmfgen_root, atomic_root,
                                           if str(model/n) not in reviewed)]
     result['kind'] = 'auto'
     registry = policies.manifest()
-    result['auto'] = {'version': 3, 'batch_iterations': batch,
+    result['auto'] = {'version': 5, 'batch_iterations': batch,
                       'max_attempts': max_attempts, 'max_iterations': max_iterations,
                       'policies': registry,
                       'cmfgen_root': str(Path(cmfgen_root).resolve()),
@@ -68,7 +68,7 @@ def configure_auto(plan, *, cmfgen_root, atomic_root,
                                    'manual physical parameter changes', 'LTE reseeding of continuation checkpoints',
                                    'unrestricted safeguard bypass'],
                       'acceptance': 'Two final full, variable-T iterations with fresh BA, native metric and absolute raw corrections below EPS_TERM; scientific quality is reported separately.',
-                      'retention': 'Original controls, per-action evidence and one rolling full restart snapshot. Changed solver controls remain installed; large regenerated caches may be discarded.'}
+                      'retention': 'Original controls, per-action evidence and one rolling full restart snapshot. Starting N_FIX_BA/FIX_BA are restored after verified convergence; other solver remedies remain installed. Large regenerated caches may be discarded.'}
     return result
 
 
@@ -219,7 +219,8 @@ def _issue_report(journal, plan, result, native_result):
               'recovery_directory': result['recovery_directory'],
               'preparation': result.get('preparation'),
               'attempts': [{k: a[k] for k in ('attempt', 'phase', 'status', 'journal',
-                            'decision', 'policy_evaluations', 'validation_error') if k in a}
+                            'decision', 'policy_evaluations', 'validation_error', 'optimization_rejected',
+                            'performance_trial', 'checkpoint_restored') if k in a}
                            for a in result['attempts']],
               'last_native_result': {'status': (native_result or {}).get('status'),
                   'error': (native_result or {}).get('error'),
@@ -265,6 +266,9 @@ def run_auto_plan(plan, emit=None):
                 _safe(model/name)
                 if (model/name).exists():
                     copy_readable(model/name, originals/name)
+            original_controls = {
+                p.name: {key: rows[0]['value'] for key, rows in control_occurrences(p.read_text()).items()
+                         if len(rows) == 1} for p in originals.iterdir()}
             paths = {Path(r['path']) for r in plan['inputs'] if Path(r['path']).name not in DYNAMIC_NAMES}
             paths.update(model/n for n in (*NATIVE_CONTROLS, 'ADJUST_CORRECTIONS'))
             expected = {path: _signature(path) for path in paths}
@@ -297,6 +301,9 @@ def run_auto_plan(plan, emit=None):
                 record = _action(model, journal, result['actions'], decision.action, decision.reason,
                                  decision.changes, decision.caches, policy_id=decision.policy_id,
                                  evidence=decision.evidence, preserve_caches=decision.preserve_caches)
+                if decision.reversible_trial:
+                    record['reversible_trial'] = True
+                    _json(Path(record['directory'])/'action.json', record)
                 if not decision.steps and pending is None:
                     recovery = _capture(model, journal, recovery)
                 for path in expected:
@@ -308,6 +315,12 @@ def run_auto_plan(plan, emit=None):
             _restore(model, source or recovery, report_directory=journal)
             for name in (*NATIVE_CONTROLS, 'ADJUST_CORRECTIONS'):
                 expected[model/name] = _signature(model/name)
+
+        def finish_trial(decision, outcome, reason=''):
+            record = next(a for a in reversed(result['actions'])
+                          if a.get('policy_id') == decision.policy_id and a.get('reversible_trial'))
+            record.update(trial_outcome=outcome, trial_reason=reason)
+            _json(Path(record['directory'])/'action.json', record)
 
         history = []
         initializing = True
@@ -425,7 +438,9 @@ def run_auto_plan(plan, emit=None):
 
                     def context(when, outcome=native_result):
                         return policies.Context(model, when, native, outcome, before, evidence,
-                                                history, phase if pending else base_phase, result['actions'], text)
+                            history, phase if pending else base_phase, result['actions'], text,
+                            original_controls, options['max_iterations']-result['iterations_used'],
+                            options['max_attempts']-attempt)
 
                     if failure is None:
                         try:
@@ -434,8 +449,28 @@ def run_auto_plan(plan, emit=None):
                                 raise RunnerError('Native continuation was not confirmed')
                             evidence = assess(model, native_result, before, solution_offset, batch,
                                               hydro_revisions=revisions(text))
+                            if evidence['iterations'] > batch:
+                                result['iterations_used'] += evidence['iterations']-batch
+                                entry['charged_iterations'] = evidence['iterations']
+                                restore()
+                                result.update(status='limit_reached', reason='Native execution exceeded its requested iteration budget')
+                                break
                             if step:
                                 entry.update(step.validate(context('success')) or {})
+                        except policies.TrialRejected as exc:
+                            if not pending or not pending.reversible_trial:
+                                raise
+                            restore()
+                            finish_trial(pending, 'rejected', str(exc))
+                            entry.update(evidence=evidence, optimization_rejected=str(exc), checkpoint_restored=True,
+                                decision=policies.Decision('continue', 'Performance trial rejected; conservative checkpoint restored',
+                                                          policy_id=pending.policy_id).summary())
+                            pending = None
+                            base_phase = 'iterate'
+                            history = []
+                            _json(journal/'result.json', result)
+                            event('auto_performance_trial', outcome='rejected', attempt=attempt, reason=str(exc))
+                            continue
                         except (OSError, ValueError) as exc:
                             failure = {**native_result, 'status': 'invalid_evidence', 'error': str(exc)}
                             entry['validation_error'] = str(exc)
@@ -466,10 +501,6 @@ def run_auto_plan(plan, emit=None):
                         entry['evidence'] = evidence
                         result['iterations_used'] += evidence['iterations'] - batch
                         entry['charged_iterations'] = evidence['iterations']
-                        if evidence['iterations'] > batch:
-                            restore()
-                            result.update(status='limit_reached', reason='Native execution exceeded its requested iteration budget')
-                            break
                         # A multi-step remedy remains provisional until ALL
                         # validators pass. One baseline covers the entire recipe.
                         if not pending or step_index == len(pending.steps)-1:
@@ -480,6 +511,10 @@ def run_auto_plan(plan, emit=None):
                         step_index += 1
                         if step_index == len(pending.steps):
                             entry['recovery_verified'] = pending.policy_id
+                            if pending.reversible_trial:
+                                finish_trial(pending, 'accepted')
+                                event('auto_performance_trial', outcome='accepted', attempt=attempt,
+                                      reason='Guarded performance adjustment passed')
                             pending = None
                             base_phase = 'iterate'
                             history = []  # Do not mix correction trends across a recovery.
@@ -503,6 +538,29 @@ def run_auto_plan(plan, emit=None):
                 if decision.kind == 'converged':
                     if base_phase != 'verify' or not evidence.get('fresh_verified'):
                         raise RunnerError('Policy requested convergence without independent fresh-Jacobian evidence')
+                    with model_mutation_guard(model, RunnerError):
+                        check_inputs()
+                        original_rows = control_occurrences((originals/'VADAT').read_text())
+                        current_rows = control_occurrences((model/'VADAT').read_text())
+                        reuse = {}
+                        for key in ('N_FIX_BA', 'FIX_BA'):
+                            before = original_rows.get(key, [])
+                            current = current_rows.get(key, [])
+                            if len(before) > 1 or len(current) > 1:
+                                raise RunnerError(f'Ambiguous [{key}]; BA reuse restoration refused')
+                            value = before[0]['value'] if before else None
+                            if value != (current[0]['value'] if current else None):
+                                reuse[key] = value
+                        if reuse:
+                            record = _action(model, journal, result['actions'], 'restore_ba_reuse',
+                                'Fresh-Jacobian verification passed; restored starting BA-reuse settings for future runs',
+                                {'VADAT': reuse}, policy_id='verified_convergence')
+                            # Only future solver controls changed. Keep the verified
+                            # checkpoint and its matching recovery controls together.
+                            copy_readable(model/'VADAT', recovery/'VADAT')
+                            expected[model/'VADAT'] = _signature(model/'VADAT')
+                            result['ba_reuse_restoration'] = record
+                            event('auto_action', action=record)
                     result.update(status='succeeded', numerical_convergence='verified with fresh Jacobians',
                                   scientific_acceptance='requires separate quality review', quality=evidence['quality'],
                                   final_checkpoint=evidence['checkpoint'])
@@ -559,6 +617,8 @@ def run_auto_plan(plan, emit=None):
                         check_inputs()
                         restore()
                     result['provisional_recovery_rolled_back'] = pending.policy_id
+                    if pending.reversible_trial:
+                        finish_trial(pending, 'aborted', result.get('reason', result['status']))
                 except (OSError, ValueError) as exc:
                     result['recovery_error'] = str(exc)
             result['finished_at'] = datetime.now(timezone.utc).isoformat()

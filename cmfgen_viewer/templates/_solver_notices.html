@@ -1,0 +1,12 @@
+{% if solver_notices %}
+<div data-solver-notices>
+  {% for notice in solver_notices %}
+  <div class="alert alert-{{ notice.tone }} py-2 small" data-solver-notice="{{ notice.id }}"
+       data-solver-rule="{{ notice.conditions|tojson|forceescape }}" data-solver-key="{{ notice.key }}"
+       data-solver-tone="{{ notice.tone }}" aria-live="polite" {% if not notice.active %}hidden{% endif %}>
+    <strong>{{ notice.title }}</strong> · <code>{{ notice.key }}</code>
+    <div>{{ notice.detail }}</div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}

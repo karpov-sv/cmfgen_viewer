@@ -16,8 +16,9 @@ from .model_editor import (
 )
 from .parsers.common import parse_float_token
 from .model_initialization import lte_initialization_controls
+from .solver_notices import solver_settings_notices
 
-QUICK_PARAMETER_FILES = ("VADAT", "IN_ITS")
+QUICK_PARAMETER_FILES = ("VADAT", "IN_ITS", "ADJUST_CORRECTIONS")
 
 QUICK_PARAMETER_DEFINITIONS: dict[str, dict[str, dict[str, object]]] = {
     "VADAT": {
@@ -98,8 +99,8 @@ QUICK_PARAMETER_DEFINITIONS: dict[str, dict[str, dict[str, object]]] = {
             "group": "Advanced solver controls",
             "kind": "boolean",
             "unit": "",
-            "notice": "Enable matrix computation. Fresh Jacobians on every iteration require "
-                      "COMP_BA=T, N_FIX_BA=0 and FIX_BA=0.",
+            "notice": "Enable matrix computation. COMP_BA=T with N_FIX_BA=0 rebuilds the Jacobian "
+                      "on every full iteration. Automatic verification also sets FIX_BA=0.",
         },
         "N_FIX_BA": {
             "label": "Jacobian reuse iterations",
@@ -114,8 +115,9 @@ QUICK_PARAMETER_DEFINITIONS: dict[str, dict[str, dict[str, object]]] = {
             "group": "Advanced solver controls",
             "kind": "float",
             "unit": "%",
-            "notice": "Stop computing the Jacobian when the native solver metric falls below "
-                      "this threshold. Zero disables this threshold-based freeze.",
+            "notice": "Threshold for extending Jacobian reuse near convergence. Zero disables "
+                      "threshold-based freezing while permitting periodic reuse with N_FIX_BA>0. "
+                      "With COMP_BA=T, this threshold alone does not enable reuse when N_FIX_BA=0.",
         },
         "SCALE_OPT": {
             "label": "Correction scaling method",
@@ -134,6 +136,20 @@ QUICK_PARAMETER_DEFINITIONS: dict[str, dict[str, dict[str, object]]] = {
             "unit": "factor",
             "notice": "Must exceed 1. Population correction limit for Lambda iterations, "
                       "separate from MAX_LIN for full iterations.",
+        },
+        "FIX_T": {
+            "label": "Fixed temperature",
+            "group": "Advanced solver controls",
+            "kind": "boolean", "unit": "",
+            "notice": "Keep temperature fixed unless native automatic temperature release is enabled. "
+                      "Full convergence verification requires variable temperature.",
+        },
+        "DO_NG": {
+            "label": "Ng acceleration",
+            "group": "Advanced solver controls",
+            "kind": "boolean", "unit": "",
+            "notice": "Enable native Ng acceleration, subject to its scheduling and validity checks. "
+                      "Disabling it can be intentional during unstable recovery.",
         },
         "DC_METH": {
             "label": "Initial population method",
@@ -190,6 +206,15 @@ QUICK_PARAMETER_DEFINITIONS: dict[str, dict[str, dict[str, object]]] = {
             "unit": "",
         },
     },
+    "ADJUST_CORRECTIONS": {
+        "RELAX": {
+            "label": "Correction relaxation", "group": "Correction relaxation",
+            "kind": "float", "unit": "factor",
+            "notice": "Scales corrections within this file's depth range. Values below 1 damp "
+                      "updates and may still be needed to prevent oscillations. Review the depth "
+                      "range in the text editor and test changes on a copy.",
+        },
+    },
     "IN_ITS": {
         "NUM_ITS": {
             "label": "Number of iterations",
@@ -208,6 +233,8 @@ QUICK_PARAMETER_DEFINITIONS: dict[str, dict[str, dict[str, object]]] = {
             "group": "Iteration controls",
             "kind": "boolean",
             "unit": "",
+            "notice": "Allow native handoff from requested Lambda iterations to full iterations "
+                      "when its switching criteria are met. F retains manual control of this handoff.",
         },
         "DO_T_AUTO": {
             "label": "Automatic temperature iterations",
@@ -225,6 +252,7 @@ QUICK_PARAMETER_DEFINITIONS: dict[str, dict[str, dict[str, object]]] = {
 }
 
 QUICK_PARAMETER_GROUP_ORDER = (
+    "Correction relaxation",
     "Stellar and wind",
     "Clumping",
     "Composition",
@@ -337,6 +365,8 @@ def _validate_quick_parameter_value(field: dict[str, object], raw_value: object)
             raise ModelEditorError(f"[{key}] must be a finite number.")
         if key in {"T_EXC", "EPS_TERM"} and parsed <= 0:
             raise ModelEditorError(f"[{key}] must be positive")
+        if key == 'RELAX' and parsed <= 0:
+            raise ModelEditorError('[RELAX] must be positive.')
         if key in {"MAX_LIN", "MAX_LAM"} and parsed <= 1:
             raise ModelEditorError(f"[{key}] must exceed 1.")
         if key == "MAX_DT" and not 0 < parsed <= 0.2:
@@ -384,9 +414,24 @@ def _luminosity_scaling_state(contents: str) -> dict[str, object]:
     return {"available": True, "baseline": baseline, "warnings": warnings}
 
 
+def ba_reuse_disabled(contents: str) -> bool:
+    """Recognize explicit controls that rebuild BA on every full iteration."""
+    rows = _keyword_occurrences(contents)
+    if any(len(rows.get(key, [])) != 1 for key in ('COMP_BA', 'N_FIX_BA')):
+        return False
+    if rows['COMP_BA'][0]['value'].upper() != 'T':
+        return False
+    try:
+        return parse_float_token(rows['N_FIX_BA'][0]['value']) == 0
+    except (ValueError, TypeError):
+        return False
+
+
 def _quick_card_from_record(record: dict[str, object]) -> dict[str, object]:
     file_relpath = str(record["file_relpath"])
     occurrences = _keyword_occurrences(str(record["contents"]))
+    fresh_ba = file_relpath == 'VADAT' and ba_reuse_disabled(str(record['contents']))
+    notices = solver_settings_notices(str(record['contents']), file_relpath)
     fields: list[dict[str, object]] = []
     issues: list[str] = []
     for key, definition in _quick_parameter_definitions(file_relpath, occurrences):
@@ -407,6 +452,8 @@ def _quick_card_from_record(record: dict[str, object]) -> dict[str, object]:
             "optional": optional and not matches,
             "field_name": f"quick_value:{key}",
             "input_id": f"quick-{file_relpath.lower().replace('/', '-')}-{safe_key}",
+            "ba_reuse_disabled": fresh_ba and key in {'N_FIX_BA', 'FIX_BA'},
+            "solver_notice": next((n for n in notices if n['key'] == key), None),
         }
         try:
             _validate_quick_parameter_value(field, occurrence["value"])
@@ -430,15 +477,19 @@ def _quick_card_from_record(record: dict[str, object]) -> dict[str, object]:
                     "fields": group_fields,
                     "collapsed": group_name in {"Additional abundances", "Initialization",
                                                 "Advanced solver controls"},
+                    "open": group_name == 'Advanced solver controls' and (fresh_ba or any(
+                        f['solver_notice'] and f['solver_notice']['active'] for f in group_fields)),
                 }
             )
     return {
         "file_relpath": file_relpath,
-        "label": "Model setup" if file_relpath == "VADAT" else "Run controls",
+        "label": ("Model setup" if file_relpath == "VADAT" else
+                  "Correction relaxation" if file_relpath == 'ADJUST_CORRECTIONS' else "Run controls"),
         "description": (
             "Stellar, wind, clumping, composition, initialization, and solver controls."
             if file_relpath == "VADAT"
-            else "Iteration count and automatic iteration switches."
+            else "Scoped correction damping; depth limits and other controls are preserved."
+            if file_relpath == 'ADJUST_CORRECTIONS' else "Iteration count and automatic iteration switches."
         ),
         "keep_temperature_logg": False,
         "luminosity_scaling": scaling,
@@ -446,6 +497,8 @@ def _quick_card_from_record(record: dict[str, object]) -> dict[str, object]:
         "fields": fields,
         "groups": groups,
         "issues": issues,
+        "ba_reuse_disabled": fresh_ba,
+        "solver_notices": notices,
     }
 
 

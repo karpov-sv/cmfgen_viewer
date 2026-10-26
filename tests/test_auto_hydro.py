@@ -90,7 +90,7 @@ def test_opt_in_bridges_one_iteration_then_runs_with_guard_restored(hydro_worksp
     model,plan,_original=hydro_workspace
     result=run_plan(plan('hydro'))
     assert result['status']=='succeeded',result
-    assert [a['kind'] for a in result['actions']]==['hydro_bootstrap','fresh_jacobian']
+    assert [a['kind'] for a in result['actions']]==['hydro_bootstrap','fresh_jacobian','restore_ba_reuse']
     assert [a['phase'] for a in result['attempts']]==['iterate','hydro_bridge','hydro_guarded','verify']
     bridge=result['attempts'][1]
     assert bridge['requested_iterations']==1

@@ -20,6 +20,7 @@ from .model_editor import (
 from .model_history import control_versions, load_archived_control
 from .model_activity import model_workspace_root
 from .model_quick_editor import (
+    ba_reuse_disabled,
     load_quick_model_parameter_cards,
     review_quick_model_parameter_edit,
     save_quick_model_parameter_edit,
@@ -27,6 +28,7 @@ from .model_quick_editor import (
 from .summary_cache import delete_model_summary_entries
 from .view_common import _notification_url, _viewer_config, bp
 from .structure_update import inspect_structure_update
+from .solver_notices import solver_settings_notices
 
 
 def _saved_notice(source_path: str, backup_relpath: str, *, filename: str = "") -> Markup:
@@ -321,6 +323,8 @@ def model_parameters(source_path: str):
         file_relpath=file_relpath,
         file=file_record,
         contents=contents,
+        ba_reuse_disabled=file_relpath == 'VADAT' and ba_reuse_disabled(contents),
+        solver_notices=solver_settings_notices(contents, file_relpath),
         expected_digest=expected_digest,
         checkpoints=checkpoints,
         checkpoint_history_source=checkpoint_history_source,

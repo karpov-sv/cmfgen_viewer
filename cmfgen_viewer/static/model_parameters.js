@@ -26,6 +26,57 @@
   });
   document.querySelectorAll("[data-quick-parameter-form]").forEach(function (form) {
     const field = (key) => form.elements.namedItem("quick_value:" + key);
+    const solverNotices = form.querySelector("[data-solver-notices]");
+    if (solverNotices && solverNotices.querySelectorAll) {
+      solverNotices.querySelectorAll("[data-solver-notice]").forEach(function (notice) {
+        const conditions = JSON.parse(notice.dataset.solverRule);
+        function updateNotice() {
+          const active = conditions.every(function (condition) {
+            const control = field(condition.key);
+            if (!control || !control.value.trim()) return false;
+            const value = control.value.trim().toUpperCase();
+            if (condition.op === "eq") return value === condition.value;
+            const number = Number(value.replace(/D/g, "e"));
+            if (!Number.isFinite(number)) return false;
+            if (condition.op === "gt") return number > condition.value;
+            return condition.op === "lt" && number < condition.value;
+          });
+          notice.hidden = !active;
+          const control = field(notice.dataset.solverKey);
+          if (control) control.classList.toggle("border-" + notice.dataset.solverTone, active);
+          form.querySelectorAll("[data-solver-badge]").forEach(function (badge) {
+            if (badge.dataset.solverBadge === notice.dataset.solverNotice) badge.hidden = !active;
+          });
+        }
+        conditions.forEach(function (condition) {
+          const control = field(condition.key);
+          if (!control) return;
+          control.addEventListener("input", updateNotice);
+          control.addEventListener("change", updateNotice);
+        });
+        updateNotice();
+      });
+    }
+    const computeBA = field("COMP_BA"), reuseBA = field("N_FIX_BA");
+    const baNotice = form.querySelector("[data-ba-reuse-notice]");
+    if (computeBA && reuseBA && baNotice) {
+      function updateBAReuse() {
+        const value = reuseBA.value.trim();
+        const disabled = computeBA.value.trim().toUpperCase() === "T" && value !== "" &&
+          Number(value.replace(/[dD]/g, "e")) === 0;
+        baNotice.hidden = !disabled;
+        ["N_FIX_BA", "FIX_BA"].forEach(function (key) {
+          const control = field(key);
+          if (control) control.classList.toggle("border-warning", disabled);
+        });
+        form.querySelectorAll("[data-ba-reuse-badge]").forEach(function (badge) {badge.hidden = !disabled;});
+      }
+      [computeBA, reuseBA].forEach(function (control) {
+        control.addEventListener("input", updateBAReuse);
+        control.addEventListener("change", updateBAReuse);
+      });
+      updateBAReuse();
+    }
     const method = field("DC_METH");
     if (method) {
       method.addEventListener("change", function () {

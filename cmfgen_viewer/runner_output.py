@@ -251,7 +251,7 @@ class TerminalOutput:
         if plan.get('kind') == 'auto':
             options = plan['auto']
             self.line('INFO', f"Automatic main: batches of {options['batch_iterations']}; at most {options['max_attempts']} attempts / {options['max_iterations']} iterations")
-            self.line('INFO', 'Recovery: original controls and one rolling full checkpoint; solver adjustments remain installed')
+            self.line('INFO', 'Recovery: original controls and one rolling full checkpoint; performance trials can roll back; starting BA reuse returns after verification')
             self.line('INFO', 'Acceptance: two full steps below tolerance with fresh Jacobians; physical quality reported separately')
             self.details('INFO', ['Supported actions: ' + ', '.join(options['actions'])])
             self.line('INFO', 'All registered recovery policies enabled; remedies are selected from measured evidence')
@@ -387,6 +387,8 @@ class TerminalOutput:
                 self.line('INFO', f"Automatic adjustment: {item['action']['kind']} — {item['action']['reason']}")
             elif kind == 'auto_history_reset':
                 self.line('INFO', item['reason'])
+            elif kind == 'auto_performance_trial':
+                self.line('INFO', f"Performance trial {item['outcome']}: {item['reason']}")
             elif kind == 'auto_assessment':
                 solver = ''
                 if 'solver_maximum_changes' in item:

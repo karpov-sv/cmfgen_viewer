@@ -44,6 +44,7 @@ class Decision:
     batch_iterations: int | None = None
     retain_failed_checkpoint: bool = False
     preserve_caches: bool = False
+    reversible_trial: bool = False
 
     def summary(self):
         return {'policy_id': self.policy_id, 'kind': self.kind, 'reason': self.reason,
@@ -52,6 +53,7 @@ class Decision:
                 'batch_iterations': self.batch_iterations,
                 'retain_failed_checkpoint': self.retain_failed_checkpoint,
                 'preserve_caches': self.preserve_caches,
+                'reversible_trial': self.reversible_trial,
                 'steps': [{'name': s.name, 'iterations': s.iterations,
                            'native_options': s.native_options} for s in self.steps]}
 
@@ -68,6 +70,9 @@ class Context:
     phase: str
     actions: list
     log: str
+    original_controls: dict = field(default_factory=dict)
+    remaining_iterations: int = 0
+    remaining_attempts: int = 0
 
 
 @dataclass(frozen=True)
@@ -82,6 +87,10 @@ class Policy:
 
 class Declined(Exception):
     """Recognized problem, but this remedy's prerequisites are not established."""
+
+
+class TrialRejected(RunnerError):
+    """Valid trial evidence disproves a performance adjustment; restore and continue."""
 
 
 def _invalid_state(ctx):
@@ -381,6 +390,7 @@ def _fixed(ctx):
 # diagnosis branches. Version changes make saved previews require review again.
 from .auto_recovery import (temperature_coupling, population_bootstrap, population_guard,
                             ray_refinement, ng_cadence)
+from .auto_performance import ba_reuse_trial, relaxation_release
 
 POLICIES = (
     Policy('nonfinite_radiation_cache', 1, 'prepare', 'Preserve nonfinite EDDFACTOR and recompute radiation before execution', _nonfinite_cache, 1),
@@ -391,12 +401,14 @@ POLICIES = (
     Policy('radiation_cache', 1, 'failure', 'Explicit EDDFACTOR mismatch recovery', _cache, 1),
     Policy('population_guard', 1, 'failure', 'Physically audited provisional checkpoint after explicit MAX_CHNG stop', population_guard, 1),
     Policy('ray_refinement', 2, 'failure', 'Negative-luminosity coarse-ray recovery with guarded verification', ray_refinement, 1),
-    Policy('verified_convergence', 1, 'success', 'Independent fresh-Jacobian convergence acceptance', _verified),
+    Policy('verified_convergence', 2, 'success', 'Independent fresh-Jacobian convergence acceptance and restoration of starting BA reuse', _verified),
     Policy('verify_candidate', 2, 'success', 'Fresh-Jacobian verification of a numerical candidate', _candidate),
     Policy('superlevel_temperature', 1, 'success', 'Superlevel temperature coupling before oscillation damping', temperature_coupling, 1),
     Policy('population_bootstrap', 1, 'success', 'Bounded fixed-T Lambda population recovery and full verification', population_bootstrap, 1),
     Policy('ng_cadence', 1, 'success', 'Contiguous batches permitting the first native Ng acceleration', ng_cadence, 1),
     Policy('local_relaxation', 2, 'success', 'Measured localized temperature oscillation damping', _oscillation, 2),
+    Policy('relaxation_release', 1, 'success', 'Gradually release automatic damping through guarded trials', relaxation_release, 3),
+    Policy('ba_reuse_trial', 1, 'success', 'Guarded one-iteration BA reuse after sustained healthy progress', ba_reuse_trial, 1),
     Policy('stalled_corrections', 2, 'success', 'Fresh-matrix test for a stalled correction sequence', _stall, 1),
     Policy('fixed_temperature', 1, 'success', 'Detect absence of temperature-varying full steps', _fixed),
 )
@@ -433,6 +445,8 @@ def choose(ctx):
                                             decision.batch_iterations is not None or decision.retain_failed_checkpoint)) or
                 decision.next_phase not in {'iterate', 'verify'} or
                 (decision.steps and decision.kind != 'action') or
+                (decision.reversible_trial and (policy.id not in {'ba_reuse_trial', 'relaxation_release'} or
+                                               len(decision.steps) != 1 or decision.kind != 'action')) or
                 (decision.retain_failed_checkpoint and (not decision.steps or policy.id != 'population_guard')) or
                 (decision.batch_iterations is not None and
                  (decision.kind != 'action' or type(decision.batch_iterations) is not int or
