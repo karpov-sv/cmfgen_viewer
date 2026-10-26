@@ -170,3 +170,49 @@ def test_guard_rejects_inode_removed_by_full_cleanup_before_lock_acquisition(tmp
     with pytest.raises(ValueError, match='Model lock changed'):
         with activity.model_mutation_guard(tmp_path):
             pytest.fail('A detached lock inode must not authorize writes')
+
+
+def test_read_guard_does_not_create_lock_and_detects_writer_arrival(tmp_path, monkeypatch):
+    monkeypatch.setattr(activity,'inspect_model_activity',lambda _: {'safe_to_modify':True})
+    with activity.model_read_guard(tmp_path):
+        assert not (tmp_path/activity.LOCK_NAME).exists()
+    with pytest.raises(ValueError,match='lock appeared'):
+        with activity.model_read_guard(tmp_path):
+            (tmp_path/activity.LOCK_NAME).touch()
+
+
+def test_read_guard_shares_existing_readonly_lock_and_blocks_writers(tmp_path, monkeypatch):
+    import fcntl
+    monkeypatch.setattr(activity,'inspect_model_activity',lambda _: {'safe_to_modify':True})
+    path=tmp_path/activity.LOCK_NAME
+    path.write_text('unchanged')
+    writer=os.open(path,os.O_RDWR)
+    path.chmod(0o444)
+    try:
+        with activity.model_read_guard(tmp_path):
+            other=os.open(path,os.O_RDONLY)
+            try:
+                fcntl.flock(other,fcntl.LOCK_SH|fcntl.LOCK_NB)
+            finally:
+                os.close(other)
+            with pytest.raises(BlockingIOError):
+                fcntl.flock(writer,fcntl.LOCK_EX|fcntl.LOCK_NB)
+    finally:
+        os.close(writer)
+    assert path.read_text() == 'unchanged'
+    assert path.stat().st_mode & 0o777 == 0o444
+
+
+def test_read_guard_refuses_existing_writer_and_unsafe_lock(tmp_path, monkeypatch):
+    import fcntl
+    monkeypatch.setattr(activity,'inspect_model_activity',lambda _: {'safe_to_modify':True})
+    path=tmp_path/activity.LOCK_NAME;path.touch()
+    with path.open('r+') as writer:
+        fcntl.flock(writer,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        with pytest.raises(ValueError,match='Another viewer process'):
+            with activity.model_read_guard(tmp_path):
+                pytest.fail('Writer must prevent copying')
+    path.unlink();os.mkfifo(path)
+    with pytest.raises(ValueError,match='unshared regular'):
+        with activity.model_read_guard(tmp_path):
+            pytest.fail('FIFO must be rejected without blocking')

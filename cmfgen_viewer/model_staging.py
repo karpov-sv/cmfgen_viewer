@@ -11,7 +11,7 @@ from threading import Lock
 
 from .workflow_permissions import copy_readable, make_readable, mkdir_readable, readable_mode
 from .browser import is_model_directory, resolve_path
-from .model_activity import model_mutation_guard
+from .model_activity import model_mutation_guard, model_read_guard
 from .model_templates import resolve_model_template
 
 
@@ -309,6 +309,16 @@ def plan_model_from_solution(
     }
 
 
+def _copy_source_snapshot(plan):
+    result = {}
+    for entry in plan['entries']:
+        path = Path(entry['source_path'])
+        info = path.stat()
+        result[str(path)] = (str(path.resolve()), info.st_dev, info.st_ino, info.st_size,
+                             info.st_mtime_ns, info.st_ctime_ns)
+    return result
+
+
 def create_model_from_solution(
     basepath: str,
     *,
@@ -316,39 +326,49 @@ def create_model_from_solution(
     destination_relpath: str,
     template_root: str | None = None,
 ) -> dict[str, object]:
-    with MODEL_WRITE_LOCK, model_mutation_guard(_model_source(basepath, source_relpath)[1], ModelStagingError):
-        plan = plan_model_from_solution(
-            basepath,
-            source_relpath=source_relpath,
-            destination_relpath=destination_relpath,
-            template_root=template_root,
-        )
-        missing = plan.get("missing_required")
-        if isinstance(missing, list) and missing:
-            raise ModelStagingError(f"Source model is missing required files: {', '.join(map(str, missing))}.")
-
-        source = Path(str(plan["source_path"]))
-        destination = Path(str(plan["destination_path"]))
+    with MODEL_WRITE_LOCK:
         staging_path: Path | None = None
         try:
-            staging_path = Path(tempfile.mkdtemp(prefix=".cmfgen-create-", dir=str(destination.parent)))
-            staging_path.chmod(readable_mode(source.stat().st_mode, directory=True))
-            entries = plan.get("entries")
-            if not isinstance(entries, list):
-                raise ModelStagingError("Model copy plan is invalid.")
-            if bool(plan.get("observer_setup", False)):
-                observer_source = source / "obs"
-                observer_destination = staging_path / "obs"
-                mkdir_readable(observer_destination)
-                observer_destination.chmod(readable_mode(observer_source.stat().st_mode, directory=True) if observer_source.is_dir() else 0o755)
-            for entry in entries:
-                if not isinstance(entry, dict):
-                    raise ModelStagingError("Model copy plan contains an invalid entry.")
-                source_file = Path(str(entry["source_path"]))
-                destination_file = staging_path.joinpath(*Path(str(entry["destination_name"])).parts)
-                mkdir_readable(destination_file.parent, parents=True, exist_ok=True)
-                copy_readable(source_file, destination_file, follow_symlinks=True)
+            with model_read_guard(_model_source(basepath, source_relpath)[1], ModelStagingError):
+                plan = plan_model_from_solution(
+                    basepath,
+                    source_relpath=source_relpath,
+                    destination_relpath=destination_relpath,
+                    template_root=template_root,
+                )
+                missing = plan.get("missing_required")
+                if isinstance(missing, list) and missing:
+                    raise ModelStagingError(f"Source model is missing required files: {', '.join(map(str, missing))}.")
 
+                source = Path(str(plan["source_path"]))
+                destination = Path(str(plan["destination_path"]))
+                source_snapshot = _copy_source_snapshot(plan)
+                staging_path = Path(tempfile.mkdtemp(prefix=".cmfgen-create-", dir=str(destination.parent)))
+                staging_path.chmod(readable_mode(source.stat().st_mode, directory=True) | 0o700)
+                entries = plan.get("entries")
+                if not isinstance(entries, list):
+                    raise ModelStagingError("Model copy plan is invalid.")
+                if bool(plan.get("observer_setup", False)):
+                    observer_source = source / "obs"
+                    observer_destination = staging_path / "obs"
+                    mkdir_readable(observer_destination)
+                    mode = readable_mode(observer_source.stat().st_mode, directory=True) if observer_source.is_dir() else 0o755
+                    observer_destination.chmod(mode | 0o700)
+                for entry in entries:
+                    if not isinstance(entry, dict):
+                        raise ModelStagingError("Model copy plan contains an invalid entry.")
+                    source_file = Path(str(entry["source_path"]))
+                    destination_file = staging_path.joinpath(*Path(str(entry["destination_name"])).parts)
+                    mkdir_readable(destination_file.parent, parents=True, exist_ok=True)
+                    copy_readable(source_file, destination_file, follow_symlinks=True)
+                    destination_file.chmod(destination_file.stat().st_mode | 0o200)
+
+                current = plan_model_from_solution(basepath, source_relpath=source_relpath,
+                    destination_relpath=destination_relpath, template_root=template_root)
+                if current != plan or _copy_source_snapshot(plan) != source_snapshot:
+                    raise ModelStagingError('Source model changed while being copied; retry after it settles.')
+            # Finish source validation and release any shared source lock before
+            # publishing. No partially verified copy is visible at destination.
             if destination.exists() or destination.is_symlink():
                 raise ModelStagingError(
                     "Destination appeared while the model was being copied; nothing was overwritten."

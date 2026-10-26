@@ -18,6 +18,14 @@ Upload an observed spectrum or photometry through **Uploads** to compare it with
 
 Workspace changes require read-write mode, enabled with `--read-write`, viewer configuration `read_write = true`, or `read_write = true` in `.cmfgenrc`. `--read-only` overrides configured defaults. Model parameter and text editors retain recovery checkpoints. Copy a model when you want to explore different controls while preserving the original solution.
 
+**New Model from Current** and CLI model copying can read a source with read-only
+filesystem permissions. Only the destination parent needs write access. Copying
+does not create or write lock files in the source; it shares an existing readable
+writer lock when present and checks source activity and file consistency before
+publishing the copy. Active or uninspectable sources are rejected. The new model's
+directories and copied files are writable by their owner, including when the
+source was read-only. Source permissions remain unchanged.
+
 In **Edit parameters → Quick parameters**, enable **Keep effective temperature and log g fixed** to change luminosity while scaling the saved `RSTAR` by `sqrt(LSTAR / original LSTAR)` and `MASS` by the luminosity ratio. Radius, mass, and log g become read-only while selected; `TEFF` and `LOGG` are retained. Review the derived changes before saving. Every preview uses the original saved values, and saving creates the usual recovery checkpoint and marks the solution stale. The option requires unique, valid `LSTAR`, `RSTAR`, `MASS`, `TEFF`, and `LOGG` controls, with positive luminosity, radius, mass, and temperature. A review warning flags an existing mass/gravity discrepancy greater than 0.05 dex at the LTE/hydro reference radius; scaling preserves that discrepancy. This edits controls; it does not regenerate the LTE/hydro structure.
 
 

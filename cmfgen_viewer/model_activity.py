@@ -138,6 +138,54 @@ def model_run_reservation(model_dir: Path, error_type=ValueError):
 
 
 @contextmanager
+def model_read_guard(model_dir: Path, error_type=ValueError):
+    """Read an idle model without creating or changing source-side lock files.
+
+    Share an existing writer lock when present. If none exists, callers must
+    also verify their source-file snapshots before publishing a copy. A writer
+    creating a lock during the read invalidates it, even if that writer exits.
+    """
+    root = model_workspace_root(model_dir)
+    descriptor = None
+    path = root / LOCK_NAME
+    try:
+        activity = inspect_model_activity(root)
+        if not activity['safe_to_modify']:
+            raise error_type(activity['reason'])
+        if fcntl is None:
+            raise error_type('Cross-process model locking is unavailable on this platform.')
+        try:
+            descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK)
+        except FileNotFoundError:
+            pass  # An immutable source does not need a new lock inode.
+        if descriptor is not None:
+            info = os.fstat(descriptor)
+            if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+                raise error_type('Model lock must be an unshared regular file.')
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_SH | fcntl.LOCK_NB)
+            except BlockingIOError as exc:
+                raise error_type('Another viewer process is changing this model; retry after it finishes.') from exc
+            validate_lock_inode(descriptor, path)
+        activity = inspect_model_activity(root)
+        if not activity['safe_to_modify']:
+            raise error_type(activity['reason'])
+        yield
+        if descriptor is not None:
+            validate_lock_inode(descriptor, path)
+        elif path.exists() or path.is_symlink():
+            raise error_type('Source model lock appeared during copying; retry after the writer finishes.')
+        activity = inspect_model_activity(root)
+        if not activity['safe_to_modify']:
+            raise error_type(activity['reason'])
+    except OSError as exc:
+        raise error_type(f'Could not safely read the source model: {exc}') from exc
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+
+
+@contextmanager
 def model_mutation_guard(model_dir: Path, error_type=ValueError):
     """Lock cooperating writers and recheck external activity before mutation."""
     root = model_workspace_root(model_dir)

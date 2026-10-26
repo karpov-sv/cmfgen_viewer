@@ -626,3 +626,28 @@ def test_quick_editor_luminosity_scaling_survives_review_and_save(tmp_path):
     saved = client.post(url, data=data)
     assert saved.status_code == 302
     assert (source / "VADAT").read_text() == original.replace("1D5", "4D5").replace("70", "140").replace("10", "40")
+
+
+def test_create_from_readonly_solution_does_not_need_source_write_access(tmp_path):
+    source = tmp_path/'source'
+    _write_solution(source)
+    paths = [source,*source.iterdir()]
+    modes = {p:p.stat().st_mode & 0o777 for p in paths}
+    try:
+        for p in paths:
+            p.chmod(0o555 if p.is_dir() else 0o444)
+        client = _make_app(tmp_path,read_write=True).test_client()
+        response = client.post('/model-actions/create/source',
+                               data={'action':'create','destination_relpath':'writable-copy'})
+        assert response.status_code == 302
+        destination = tmp_path/'writable-copy'
+        assert (destination/'HeI_IN').read_bytes() == (source/'HeIOUT').read_bytes()
+        (destination/'VADAT').write_text('editable destination\n')
+        assert not (source/'.cmfgen-viewer-write.lock').exists()
+        assert not (source/'.cmfgen-runner-job.lock').exists()
+        assert {p:p.stat().st_mode & 0o777 for p in paths} == {
+            p:0o555 if p.is_dir() else 0o444 for p in paths}
+        assert set(source.iterdir()) == set(paths)-{source}
+    finally:
+        for p, mode in modes.items():
+            p.chmod(mode)

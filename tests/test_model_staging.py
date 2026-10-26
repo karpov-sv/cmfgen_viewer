@@ -411,3 +411,71 @@ def test_scriptless_model_copy_preserves_native_atomic_manifest(tmp_path):
     assert plan['ready'], plan['missing_required']
     create_model_from_solution(str(tmp_path), source_relpath='source', destination_relpath='copy')
     assert (tmp_path / 'copy/atomic_links.json').read_text() == manifest
+
+
+@pytest.mark.parametrize('existing_lock,existing_reservation', [(False,False),(True,False),(False,True),(True,True)])
+def test_copy_readonly_source_never_creates_or_writes_source_lock(tmp_path, existing_lock, existing_reservation):
+    import os
+    import stat
+    source = tmp_path/'source'
+    _write_solution(source)
+    if existing_lock:
+        (source/model_activity.LOCK_NAME).write_text('existing lock')
+    if existing_reservation:
+        (source/model_activity.RUN_LOCK_NAME).write_text('inactive reservation')
+    paths = [source, *source.rglob('*')]
+    original_modes = {p:stat.S_IMODE(p.stat().st_mode) for p in paths}
+    try:
+        for p in paths:
+            p.chmod((original_modes[p] & ~0o222) | (0o555 if p.is_dir() else 0o444))
+        before = {str(p.relative_to(source)):(p.read_bytes(),stat.S_IMODE(p.stat().st_mode))
+                  for p in paths if p.is_file()}
+        root_mode = stat.S_IMODE(source.stat().st_mode)
+        # Exercise actual permissions: even creating the source lock is denied.
+        if os.geteuid() != 0:
+            with pytest.raises(PermissionError):
+                (source/'forbidden-new-lock').write_text('no writes')
+        create_model_from_solution(str(tmp_path),source_relpath='source',destination_relpath='copy')
+        assert before == {str(p.relative_to(source)):(p.read_bytes(),stat.S_IMODE(p.stat().st_mode))
+                          for p in source.rglob('*') if p.is_file()}
+        assert stat.S_IMODE(source.stat().st_mode) == root_mode
+        assert (source/model_activity.LOCK_NAME).exists() == existing_lock
+        assert (source/model_activity.RUN_LOCK_NAME).exists() == existing_reservation
+        destination = tmp_path/'copy'
+        for p in [destination, *destination.rglob('*')]:
+            assert p.stat().st_mode & stat.S_IWUSR
+        (destination/'VADAT').write_text('editable clone\n')
+        (destination/'obs'/'new-file').write_text('writable observer workspace\n')
+        assert (source/'VADAT').read_text() != 'editable clone\n'
+    finally:
+        for p, mode in original_modes.items():
+            p.chmod(mode)
+
+
+@pytest.mark.parametrize('change', ['rewrite','new_output','lock_appeared'])
+def test_copy_refuses_source_changes_before_publishing(tmp_path, monkeypatch, change):
+    from cmfgen_viewer import model_staging
+    source = tmp_path/'source';_write_solution(source)
+    original = model_staging.copy_readable
+    triggered = False
+    def copying(src, dst, **kwargs):
+        nonlocal triggered
+        result = original(src,dst,**kwargs)
+        if not triggered:
+            triggered = True
+            if change == 'rewrite':
+                import os
+                path = source/'VADAT'
+                before = path.stat()
+                path.write_text(path.read_text().replace('LSTAR','MSTAR'))
+                os.utime(path,ns=(before.st_atime_ns,before.st_mtime_ns))
+            elif change == 'new_output':
+                (source/'CIVOUT').write_text('new ion population output\n')
+            else:
+                (source/model_activity.LOCK_NAME).write_text('concurrent writer')
+        return result
+    monkeypatch.setattr(model_staging,'copy_readable',copying)
+    with pytest.raises(ModelStagingError,match='changed|lock appeared'):
+        create_model_from_solution(str(tmp_path),source_relpath='source',destination_relpath='copy')
+    assert not (tmp_path/'copy').exists()
+    assert not list(tmp_path.glob('.cmfgen-create-*'))
