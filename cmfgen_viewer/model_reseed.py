@@ -11,7 +11,7 @@ from .model_activity import inspect_model_activity, model_mutation_guard
 from .model_staging import MODEL_WRITE_LOCK
 from .recovery_files import compact_recovery
 from .runner_restart import RESTART_FILES
-from .workflow_permissions import copy_readable, make_readable, mkdir_readable, open_readable
+from .workflow_permissions import copy_working_file, make_readable, mkdir_readable, open_readable
 
 
 def _signature(path, *, required=False):
@@ -83,7 +83,7 @@ def run_reseed_plan(plan):
         try:
             # Stage all copies before changing any live input or checkpoint.
             for entry in current['entries']:
-                copy_readable(model / entry['source'], staged / entry['destination'])
+                copy_working_file(model / entry['source'], staged / entry['destination'])
             for entry in current['entries']:
                 if _signature(model / entry['source'], required=True) != entry['source_signature']:
                     raise ValueError(f"Output changed while copying: {entry['source']}")

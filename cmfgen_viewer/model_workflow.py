@@ -12,7 +12,7 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .workflow_permissions import copy_readable, mkdir_readable, readable_mode
+from .workflow_permissions import copy_readable, copy_working_file, mkdir_readable, readable_mode
 from .lte_cleanup import (
     LteCleanupError,
     archive_lte_temporaries,
@@ -875,10 +875,10 @@ def inspect_lte_hydro_workflow(basepath: str, *, model_relpath: str, config: dic
     }
 
 
-def _copy_regular(source: Path, destination: Path) -> None:
+def _copy_regular(source: Path, destination: Path, *, writable=False) -> None:
     if not _regular_file(source):
         raise ModelWorkflowError(f"Required regular file is unavailable: {source}")
-    copy_readable(source, destination)
+    (copy_working_file if writable else copy_readable)(source, destination)
 
 
 def _initialize_hydro_parameters(staging: Path) -> dict[str, object]:
@@ -929,11 +929,11 @@ def prepare_lte_hydro_workspace(basepath: str, *, model_relpath: str, template_r
         created_rvsig_backup = False
         try:
             for name in ROOT_REQUIRED_INPUTS:
-                _copy_regular(model_dir / name, staging / name)
+                _copy_regular(model_dir / name, staging / name, writable=True)
             for item in templates:
                 if not item["exists"]:
                     raise ModelWorkflowError(f"Required workflow template is unavailable: {item['name']}")
-                _copy_regular(Path(item["path"]), staging / item["name"])
+                _copy_regular(Path(item["path"]), staging / item["name"], writable=True)
             hydro_initialization = _initialize_hydro_parameters(staging)
             if _regular_file(model_dir / "RVSIG_COL") and not (model_dir / "RVSIG_COL_OLD").exists():
                 _copy_regular(model_dir / "RVSIG_COL", model_dir / "RVSIG_COL_OLD")
@@ -956,7 +956,7 @@ def prepare_lte_hydro_workspace(basepath: str, *, model_relpath: str, template_r
     return prepared
 
 
-def _atomic_copy(source: Path, destination: Path) -> None:
+def _atomic_copy(source: Path, destination: Path, *, writable=False) -> None:
     temporary: Path | None = None
     try:
         descriptor, name = tempfile.mkstemp(prefix=".cmfgen-promote-", dir=str(destination.parent))
@@ -966,7 +966,7 @@ def _atomic_copy(source: Path, destination: Path) -> None:
             target_handle.flush()
             os.fsync(target_handle.fileno())
         source_mode = stat.S_IMODE(source.stat().st_mode)
-        temporary.chmod(readable_mode(source_mode))
+        temporary.chmod(readable_mode(source_mode) | (stat.S_IWUSR if writable else 0))
         os.replace(temporary, destination)
         temporary = None
     finally:
@@ -1112,7 +1112,7 @@ def promote_lte_hydro_results(
                 ns=(lte_vadat_info.st_atime_ns, lte_vadat_info.st_mtime_ns),
             )
             for name, source in sources.items():
-                _atomic_copy(source, model_dir / name)
+                _atomic_copy(source, model_dir / name, writable=True)
                 replaced_names.append(name)
             _atomic_write(root_vadat, synchronized_root_vadat, stat.S_IMODE(root_vadat_info.st_mode))
             replaced_names.append("VADAT")

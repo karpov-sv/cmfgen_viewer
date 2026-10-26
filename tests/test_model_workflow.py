@@ -811,3 +811,55 @@ def test_launcher_edits_do_not_stale_lte_result(tmp_path):
     state = inspect_lte_hydro_workflow(str(tmp_path), model_relpath='model_a')
     assert state['lte_output']['fresh']
     assert state['lte_composition_alignment']['ready']
+
+
+def test_prepare_creates_writable_inputs_from_readonly_templates(tmp_path):
+    model=_write_model(tmp_path);_write_templates(tmp_path)
+    templates=tmp_path/'templates/lte'
+    sources=[model/'VADAT',model/'MODEL_SPEC',*templates.iterdir()]
+    modes={p:p.stat().st_mode & 0o777 for p in [templates,*sources]}
+    try:
+        for p in sources: p.chmod(0o555 if p.suffix=='.sh' else 0o444)
+        templates.chmod(0o555)
+        prepared=prepare_lte_hydro_workspace(str(tmp_path),model_relpath='model_a')
+        assert prepared['prepared']
+        for name in ('VADAT','MODEL_SPEC','GRID_PARAMS','HYDRO_PARAMS','ltebat.sh'):
+            destination=model/'lte'/name
+            assert destination.stat().st_mode & 0o200
+            with destination.open('a') as stream: stream.write('\n! editable working input\n')
+        for p in sources:
+            assert p.stat().st_mode & 0o222 == 0
+        assert not (templates/'.cmfgen-viewer-write.lock').exists()
+    finally:
+        for p,mode in modes.items(): p.chmod(mode)
+
+
+def test_promotion_creates_writable_products_from_readonly_outputs(tmp_path):
+    model=_write_model(tmp_path);_write_templates(tmp_path)
+    prepare_lte_hydro_workspace(str(tmp_path),model_relpath='model_a')
+    _make_outputs_fresh(model)
+    sources=[model/'lte/ROSSELAND_LTE_TAB',model/'lte/RVSIG_COL_NEW']
+    for p in sources: p.chmod(0o444)
+    promote_lte_hydro_results(str(tmp_path),model_relpath='model_a')
+    for name in ('RVSIG_COL','RVSIG_COL_NEW','ROSSELAND_LTE_TAB'):
+        p=model/name
+        assert p.stat().st_mode & 0o200
+        with p.open('r+b') as stream:
+            first=stream.read(1);stream.seek(0);stream.write(first)
+    for p in sources:
+        assert p.stat().st_mode & 0o777 == 0o444
+
+
+def test_failed_promotion_preserves_readonly_original_modes_on_rollback(tmp_path,monkeypatch):
+    from cmfgen_viewer.model_editor import ModelEditorError
+    model=_write_model(tmp_path);_write_templates(tmp_path)
+    prepare_lte_hydro_workspace(str(tmp_path),model_relpath='model_a')
+    _make_outputs_fresh(model)
+    old=[model/'VADAT',model/'RVSIG_COL']
+    for p in old:p.chmod(0o444)
+    before={p:(p.read_bytes(),p.stat().st_mode & 0o777) for p in old}
+    def fail(*args,**kwargs):raise ModelEditorError('simulated marker failure')
+    monkeypatch.setattr(model_workflow,'mark_model_inputs_modified',fail)
+    with pytest.raises(ModelWorkflowError,match='simulated marker failure'):
+        promote_lte_hydro_results(str(tmp_path),model_relpath='model_a')
+    assert before == {p:(p.read_bytes(),p.stat().st_mode & 0o777) for p in old}

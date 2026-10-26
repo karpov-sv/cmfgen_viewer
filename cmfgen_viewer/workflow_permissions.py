@@ -43,6 +43,18 @@ def copy_readable(source, destination, *, follow_symlinks: bool = True):
     return copied
 
 
+def copy_working_file(source, destination):
+    """Create an owner-writable working copy; never chmod the source.
+
+    The destination must be a new private file, not an existing shared artifact.
+    Backups and exact rollback copies should use copy_readable instead.
+    """
+    copied = copy_readable(source, destination)
+    target = Path(copied)
+    target.chmod(stat.S_IMODE(target.stat().st_mode) | stat.S_IWUSR)
+    return copied
+
+
 def open_readable(path: Path, mode: str):
     stream = path.open(mode)
     try:

@@ -129,3 +129,20 @@ def test_conflicting_gamma_outputs_do_not_replace_inputs(solution, capsys):
     assert 'Multiple outputs' in result(capsys)['errors'][0]
     assert (solution / 'SCRTEMP').exists()
     assert not (solution / 'GAMMAS_IN').exists()
+
+
+def test_out2in_creates_writable_inputs_from_readonly_outputs(solution):
+    plan=build_reseed_plan(solution)
+    sources=[solution/entry['source'] for entry in plan['entries']]
+    for path in sources:path.chmod(0o444)
+    before={path:path.read_bytes() for path in sources}
+    plan=build_reseed_plan(solution)
+    result=run_reseed_plan(plan)
+    assert result['status']=='succeeded'
+    for entry in plan['entries']:
+        target=solution/entry['destination']
+        assert target.stat().st_mode & 0o200
+        with target.open('a') as stream:stream.write('\n')
+    for path in sources:
+        assert path.read_bytes()==before[path]
+        assert path.stat().st_mode & 0o777 == 0o444

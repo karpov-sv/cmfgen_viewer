@@ -26,6 +26,12 @@ publishing the copy. Active or uninspectable sources are rejected. The new model
 directories and copied files are writable by their owner, including when the
 source was read-only. Source permissions remain unchanged.
 
+LTE workspace preparation, `out2in`, and hydro-result promotion also create
+owner-writable working copies from read-only templates or outputs. This does not
+make the source writable or grant extra write access to backups and rollback
+copies. Operations that edit, move, clean, restore, or run an existing model
+still require its normal write access and model-lock checks.
+
 In **Edit parameters → Quick parameters**, enable **Keep effective temperature and log g fixed** to change luminosity while scaling the saved `RSTAR` by `sqrt(LSTAR / original LSTAR)` and `MASS` by the luminosity ratio. Radius, mass, and log g become read-only while selected; `TEFF` and `LOGG` are retained. Review the derived changes before saving. Every preview uses the original saved values, and saving creates the usual recovery checkpoint and marks the solution stale. The option requires unique, valid `LSTAR`, `RSTAR`, `MASS`, `TEFF`, and `LOGG` controls, with positive luminosity, radius, mass, and temperature. A review warning flags an existing mass/gravity discrepancy greater than 0.05 dex at the LTE/hydro reference radius; scaling preserves that discrepancy. This edits controls; it does not regenerate the LTE/hydro structure.
 
 

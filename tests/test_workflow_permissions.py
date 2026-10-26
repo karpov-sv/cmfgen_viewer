@@ -70,3 +70,17 @@ def test_open_already_readable_shared_file_does_not_require_fchmod(tmp_path, mon
         stream.write(' output')
     assert path.read_text() == 'existing output'
     assert path.stat().st_mode & 0o777 == mode
+
+
+@pytest.mark.parametrize('source_mode,destination_mode', [(0o444,0o644),(0o555,0o755)])
+def test_working_copies_are_writable_without_changing_readonly_sources(tmp_path, source_mode, destination_mode):
+    from cmfgen_viewer.workflow_permissions import copy_working_file
+    source=tmp_path/'source';source.write_text('contents');source.chmod(source_mode)
+    working=tmp_path/'working';backup=tmp_path/'backup'
+    copy_working_file(source,working)
+    copy_readable(source,backup)
+    assert working.stat().st_mode & 0o777 == destination_mode
+    assert backup.stat().st_mode & 0o777 == source_mode
+    assert source.stat().st_mode & 0o777 == source_mode
+    with working.open('a') as stream: stream.write(' editable')
+    assert source.read_text() == 'contents'
