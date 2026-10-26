@@ -203,6 +203,40 @@ print('validated native input protocol')
     assert inspect_structure_update(model)['required']
 
 
+def test_native_adapter_preserves_answers_across_buffered_input_readers(model, tmp_path):
+    import sys
+    native = native_root(tmp_path)
+    executable = native/'exe/rev_rvsig.exe'
+    # Reproduce GEN_IN buffering stdin before Giza reads the device with C stdio.
+    # With a pipe, the first reader consumes the graphics answers as read-ahead.
+    executable.write_text(f'#!{sys.executable}\n' + '''
+import ctypes
+from pathlib import Path
+import sys
+assert sys.stdin.isatty()
+answers = [sys.stdin.readline().rstrip('\\n') for _ in range(10)]
+assert answers[:3] == ['RVSIG_COL_OLD', 'F', 'MDOT']
+assert answers[-1] == 'RVSIG_COL_NEW'
+libc = ctypes.CDLL(None)
+libc.fgets.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p]
+libc.fgets.restype = ctypes.c_void_p
+buffer = ctypes.create_string_buffer(256)
+assert libc.fgets(buffer, len(buffer), ctypes.c_void_p.in_dll(libc, 'stdin'))
+assert buffer.value == b'/null\\n'
+assert sys.stdin.read().splitlines() == ['E', 'E']
+Path('RVSIG_COL_NEW').write_text(Path('RVSIG_COL_OLD').read_text())
+print('x' * 70000)
+print('mixed input readers completed')
+''')
+    edit(model)
+    original = {p.name: p.read_bytes() for p in model.iterdir() if p.is_file()}
+    plan = build_structure_plan(model, cmfgen_root=native, connection_velocity=50)
+    log = plan['native_runs'][0]['log']
+    assert log.endswith('mixed input readers completed\n')
+    assert len(log.encode()) == 65536
+    assert original == {p.name: p.read_bytes() for p in model.iterdir() if p.is_file()}
+
+
 def test_guided_update_rejects_incompatible_inputs(model, tmp_path):
     import sys
     native=tmp_path/'native'

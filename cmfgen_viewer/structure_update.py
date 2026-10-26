@@ -10,6 +10,7 @@ import re
 import stat
 import subprocess
 import tempfile
+import termios
 import uuid
 
 from .control_files import control_occurrences
@@ -224,16 +225,35 @@ def _native(executable, folder, rows, mode, answers, logs):
     # GRAMON requests a device on the first plot, then one E per plot.
     stdin = '\n'.join(['RVSIG_COL_OLD', 'F', mode, *map(str, answers),
                         'RVSIG_COL_NEW', '/null', 'E', 'E']) + '\n'
-    try:
-        result = subprocess.run([str(executable)], cwd=folder, input=stdin, text=True,
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=20,
-            env={**os.environ, 'PGPLOT_DEV': '/null', 'OMP_NUM_THREADS': '1'})
-    except subprocess.TimeoutExpired as exc:
-        raise ValueError(f'rev_rvsig {mode} timed out; no model files were changed.') from exc
-    logs.append({'mode': mode, 'answers': answers, 'returncode': result.returncode,
-                 'log': result.stdout[-65536:]})
-    if result.returncode != 0 or not (folder / 'RVSIG_COL_NEW').is_file():
-        raise ValueError(f'rev_rvsig {mode} failed; no structure has been installed. ' + result.stdout[-1500:])
+    # Fortran GEN_IN and Giza's C stdio both read stdin. A pipe lets either
+    # runtime buffer answers intended for the other. A canonical terminal
+    # delivers one line per read, keeping the graphics-device answer available.
+    master, slave = os.openpty()
+    with os.fdopen(master, 'wb') as terminal, os.fdopen(slave, 'rb') as native_input, \
+            tempfile.TemporaryFile() as output_log:
+        attributes = termios.tcgetattr(native_input)
+        attributes[3] &= ~termios.ECHO
+        termios.tcsetattr(native_input, termios.TCSANOW, attributes)
+        with subprocess.Popen([str(executable)], cwd=folder, stdin=native_input,
+                stdout=output_log, stderr=subprocess.STDOUT,
+                env={**os.environ, 'PGPLOT_DEV': '/null', 'OMP_NUM_THREADS': '1'}) as process:
+            # communicate handles partial writes and enforces the timeout. Keep
+            # the original master open so closing its writer cannot hang up the
+            # terminal before the child consumes its answers. VEOF ends input.
+            process.stdin = os.fdopen(os.dup(terminal.fileno()), 'wb')
+            try:
+                process.communicate(stdin.encode() + b'\x04', timeout=20)
+            except subprocess.TimeoutExpired as exc:
+                process.kill()
+                process.communicate()
+                raise ValueError(f'rev_rvsig {mode} timed out; no model files were changed.') from exc
+            output_log.seek(0, os.SEEK_END)
+            output_log.seek(max(0, output_log.tell() - 65536))
+            log = output_log.read().decode('utf-8', errors='replace')
+    logs.append({'mode': mode, 'answers': answers, 'returncode': process.returncode,
+                 'log': log})
+    if process.returncode != 0 or not (folder / 'RVSIG_COL_NEW').is_file():
+        raise ValueError(f'rev_rvsig {mode} failed; no structure has been installed. ' + log[-1500:])
     output = (folder / 'RVSIG_COL_NEW').read_text()
     (folder / 'RVSIG_COL_NEW').unlink()
     return parse_grid(output), output
