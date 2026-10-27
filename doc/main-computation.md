@@ -241,16 +241,20 @@ ray refinement and superlevel-temperature Jacobian improvements remain unchanged
 
 ### Guarded performance trials during automatic iteration
 
-Automatic mode can provisionally reduce numerical overhead after **three consecutive
-comparable full, variable-temperature batches** show healthy progress. Every raw/native
-correction metric must be finite and at most 1%; final batch metrics must decrease
-strictly, with at least 20% improvement across the window. All correction-threshold
-counts must be non-increasing. Complete temperature-request vectors must exclude
-persistent cycling; hydro revisions and Ng steps invalidate this comparison window.
+Automatic mode can provisionally reduce numerical overhead after comparable full,
+variable-temperature batches show healthy progress. **BA reuse needs two consecutive
+batches**, with no 1% correction ceiling. **Releasing damping retains the stricter
+three-batch window**, with every raw/native correction metric at most 1%. For both
+trials, metrics must be finite, final batch metrics must decrease strictly, and the
+last must improve by at least 20% relative to the first in the comparison window.
+All correction-threshold counts must be non-increasing. Complete temperature-request
+vectors must exclude persistent cycling; hydro revisions and Ng steps invalidate this comparison window.
 The running executable must authenticate the line/BA repairs. Fresh complete
 luminosity/optical-depth profiles and a recognized, positive, charge-conserving
 checkpoint are required. Missing evidence skips performance tuning while ordinary
-iteration and recovery remain available.
+iteration and recovery remain available. If this invocation introduced damping
+that can still be released, its fresh-BA release trials take precedence over BA
+reuse; rejected or exhausted damping-release trials do not block a reuse trial.
 
 | Trial | Conditions and provisional change | Required demonstration |
 |---|---|---|

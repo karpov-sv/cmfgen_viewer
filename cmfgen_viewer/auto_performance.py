@@ -28,14 +28,15 @@ def _thermal_complete(evidence):
         all(isinstance(x, (float, int)) and math.isfinite(x) for x in v) for v in rows)
 
 
-def _baseline(ctx):
+def _baseline(ctx, *, reuse=False):
     from .auto_recovery import repaired_runtime
-    if (ctx.phase != 'iterate' or ctx.evidence.get('candidate') or len(ctx.history) < 3 or
+    batches = 2 if reuse else 3
+    if (ctx.phase != 'iterate' or ctx.evidence.get('candidate') or len(ctx.history) < batches or
             ctx.remaining_iterations < 5 or ctx.remaining_attempts < 2):
         return None
     if not repaired_runtime(ctx.native_plan):
         return None
-    history = ctx.history[-3:]
+    history = ctx.history[-batches:]
     if any(e.get('hydro_revisions') or e.get('ng_accelerations') or len(e['records']) < 2 or
            e['full_iterations'] != e['iterations'] or not _thermal_complete(e) for e in history):
         return None
@@ -49,8 +50,9 @@ def _baseline(ctx):
     except ValueError:
         return None
     values = [m[-1] for m in metrics]
-    if not (all(max(m) <= 1 for m in metrics) and
-            values[0] > values[1] > values[2] > 0 and values[-1] <= .8*values[0]):
+    if not ((reuse or all(max(m) <= 1 for m in metrics)) and
+            all(a > b > 0 for a, b in zip(values, values[1:])) and
+            values[-1] <= .8*values[0]):
         return None
     try:
         from .checkpoint_physics import checkpoint_physics, compare_physics
@@ -105,7 +107,10 @@ def ba_reuse_trial(ctx):
             number(ctx.model, 'VADAT', 'N_FIX_BA', -1) != 0 or
             not enabled(ctx.model, 'COMP_BA') or not enabled(ctx.model, 'STORE_BA')):
         return None
-    baseline = _baseline(ctx)
+    # Finish eligible automatic damping release with fresh BA before testing reuse.
+    if _damping_release_settings(ctx) is not None:
+        return None
+    baseline = _baseline(ctx, reuse=True)
     if baseline is None:
         return None
     return Decision('action', 'Sustained healthy progress; provisionally reuse BA for one iteration',
@@ -114,8 +119,7 @@ def ba_reuse_trial(ctx):
         steps=(RecoveryStep('ba_reuse_check', 2, lambda c: _validate(c, baseline, reuse=True)),))
 
 
-def relaxation_release(ctx):
-    from .auto_policies import Decision, RecoveryStep
+def _damping_release_settings(ctx):
     trials = [a for a in ctx.actions if a.get('policy_id') == 'relaxation_release']
     if (len(trials) >= 3 or any(a.get('trial_outcome') == 'rejected' for a in trials) or
             not any(a.get('kind') == 'relaxation' for a in ctx.actions)):
@@ -129,6 +133,15 @@ def relaxation_release(ctx):
     # Release damping independently of matrix reuse, with fresh BA throughout.
     if number(ctx.model, 'VADAT', 'N_FIX_BA', -1) != 0 or number(ctx.model, 'VADAT', 'FIX_BA', -1) != 0:
         return None
+    return current, ceiling
+
+
+def relaxation_release(ctx):
+    from .auto_policies import Decision, RecoveryStep
+    settings = _damping_release_settings(ctx)
+    if settings is None:
+        return None
+    current, ceiling = settings
     baseline = _baseline(ctx)
     if baseline is None:
         return None

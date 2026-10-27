@@ -408,7 +408,7 @@ POLICIES = (
     Policy('ng_cadence', 1, 'success', 'Contiguous batches permitting the first native Ng acceleration', ng_cadence, 1),
     Policy('local_relaxation', 2, 'success', 'Measured localized temperature oscillation damping', _oscillation, 2),
     Policy('relaxation_release', 1, 'success', 'Gradually release automatic damping through guarded trials', relaxation_release, 3),
-    Policy('ba_reuse_trial', 1, 'success', 'Guarded one-iteration BA reuse after sustained healthy progress', ba_reuse_trial, 1),
+    Policy('ba_reuse_trial', 2, 'success', 'Guarded one-iteration BA reuse after sustained healthy progress', ba_reuse_trial, 1),
     Policy('stalled_corrections', 2, 'success', 'Fresh-matrix test for a stalled correction sequence', _stall, 1),
     Policy('fixed_temperature', 1, 'success', 'Detect absence of temperature-varying full steps', _fixed),
 )

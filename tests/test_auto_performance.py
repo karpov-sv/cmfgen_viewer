@@ -47,12 +47,19 @@ if mode.startswith('performance'):
     return model, plan
 
 
-def test_guarded_ba_reuse_is_provisional_then_verified(performance_workspace):
+@pytest.mark.parametrize('above_one_percent', [False, True])
+def test_guarded_ba_reuse_is_provisional_then_verified(performance_workspace, above_one_percent):
     model,plan=performance_workspace
+    if above_one_percent:
+        exe = model.parent/'cmf/exe/cmfgen_dev.exe'
+        exe.write_text(exe.read_text().replace('else .8/2**', 'else 8/2**'))
+        authenticate(model)
     result=run_plan(plan('performance'))
     assert result['status']=='succeeded',result
     trial=next(a for a in result['actions'] if a['kind']=='ba_reuse_trial')
     assert trial['trial_outcome']=='accepted'
+    if above_one_percent:
+        assert trial['evidence']['correction_metric'] > 1
     attempt=next(a for a in result['attempts'] if a['phase']=='ba_reuse_check')
     assert attempt['performance_trial']['matrix_schedule']==[True,False]
     assert result['attempts'][-1]['phase']=='verify'
@@ -99,7 +106,7 @@ def test_trial_cancellation_rolls_back(performance_workspace):
 
 def test_trial_leaves_room_for_verification(performance_workspace):
     model,plan=performance_workspace
-    result=run_plan(plan('performance',max_iterations=12))
+    result=run_plan(plan('performance',max_iterations=10))
     assert result['status']=='limit_reached'
     assert not any(a['kind']=='ba_reuse_trial' for a in result['actions'])
     assert control_value(model,'VADAT','N_FIX_BA')=='0'
@@ -177,3 +184,74 @@ def test_global_temperature_cycle_blocks_performance_tuning():
               'raw_temperature_steps':[[.1,.1,.1],[-.1,-.1,-.1],[.1,.1,.1]]}
     assert oscillating_region(evidence,[]) is None  # Existing damping remains localized.
     assert oscillating_region(evidence,[],localized_only=False)==[1,3]
+
+
+@pytest.fixture
+def performance_context(tmp_path, monkeypatch):
+    from cmfgen_viewer.auto_policies import Context
+    from cmfgen_viewer import auto_recovery, checkpoint_physics, auto_performance
+    monkeypatch.setattr(auto_recovery, 'repaired_runtime', lambda plan: True)
+    monkeypatch.setattr(checkpoint_physics, 'checkpoint_physics', lambda model: {})
+    monkeypatch.setattr(checkpoint_physics, 'compare_physics', lambda a, b: {})
+    monkeypatch.setattr(auto_performance, 'guard_measurements',
+                        lambda model, before: {'luminosity_min': 1, 'luminosity_max': 1})
+    (tmp_path/'VADAT').write_text('T [COMP_BA]\nT [STORE_BA]\n0 [N_FIX_BA]\n0 [FIX_BA]\n')
+    def batch(value):
+        return {'records': [dict(solver_maximum_change=v, maximum_increase_percent=v,
+                                maximum_decrease_percent=v) for v in [value*1.1, value]],
+                'epsilon_percent': .02, 'iterations': 2, 'full_iterations': 2, 'counts': {
+                    'nd': 2, 'nt': 4, 'totals': {'1.0%': 10}},
+                'raw_temperature_steps': [[.001, .001], [.0008, .0008]]}
+    history = [batch(4.13), batch(1.115)]
+    return Context(tmp_path, 'success', {}, {}, {}, history[-1], history,
+                   'iterate', [], '', remaining_iterations=20, remaining_attempts=5)
+
+
+def test_two_improving_batches_above_one_percent_allow_ba_trial(performance_context):
+    from cmfgen_viewer.auto_performance import ba_reuse_trial, _baseline
+    ctx = performance_context
+    decision = ba_reuse_trial(ctx)
+    assert decision and decision.reversible_trial
+    assert decision.changes['VADAT'] == {'N_FIX_BA': '1', 'FIX_BA': '0.0'}
+    assert decision.steps[0].iterations == 2
+    assert _baseline(ctx) is None  # Damping still needs three batches.
+    ctx.history.insert(0, ctx.history[0])
+    assert _baseline(ctx) is None  # Three batches above 1% still cannot release damping.
+
+
+@pytest.mark.parametrize('condition', ['one_batch', 'weak_decline', 'rebound', 'counts',
+    'hydro', 'ng', 'fixed_temperature', 'missing_temperature', 'nonfinite', 'cycling'])
+def test_earlier_ba_trial_keeps_progress_and_safety_guards(performance_context, condition):
+    from cmfgen_viewer.auto_performance import ba_reuse_trial
+    ctx = performance_context
+    last = ctx.history[-1]
+    if condition == 'one_batch': ctx.history.pop(0)
+    if condition in ('weak_decline', 'rebound'):
+        value = 4.0 if condition == 'weak_decline' else 5.0
+        for row in last['records']:
+            for key in ('solver_maximum_change', 'maximum_increase_percent', 'maximum_decrease_percent'):
+                row[key] = value
+    if condition == 'counts': last['counts']['totals']['1.0%'] = 11
+    if condition == 'hydro': last['hydro_revisions'] = [1]
+    if condition == 'ng': last['ng_accelerations'] = [1]
+    if condition == 'fixed_temperature': last['full_iterations'] = 0
+    if condition == 'missing_temperature': last['raw_temperature_steps'] = []
+    if condition == 'nonfinite': last['records'][0]['solver_maximum_change'] = float('inf')
+    if condition == 'cycling':
+        for batch in ctx.history: batch['raw_temperature_steps'] = [[1, 1], [-1, -1]]
+    assert ba_reuse_trial(ctx) is None
+
+
+def test_damping_release_keeps_three_batches_and_one_percent_ceiling(performance_context):
+    import copy
+    from cmfgen_viewer.auto_performance import _baseline
+    ctx = performance_context
+    ctx.history.insert(0, copy.deepcopy(ctx.history[0]))
+    for batch, value in zip(ctx.history, [.8, .6, .4]):
+        for row in batch['records']:
+            for key in ('solver_maximum_change', 'maximum_increase_percent', 'maximum_decrease_percent'):
+                row[key] = value
+    assert _baseline(ctx) is not None
+    ctx.history[0]['records'][0]['maximum_increase_percent'] = 1.01
+    assert _baseline(ctx) is None
+    assert _baseline(ctx, reuse=True) is not None
