@@ -282,3 +282,35 @@ handoff, reset `MAX_LAM`, or remove user-selected damping. Native/temporary reco
 handling of those controls is unchanged. Final acceptance always requires a
 separate fresh-Jacobian verification batch, after which the starting BA-reuse
 settings are restored as described above.
+
+### Earlier runs in the convergence plots
+
+Enable **Show earlier runs** below the two convergence charts to
+include retained corrections and luminosity differences from previous automatic batches and consecutive
+main runs. The choice is remembered per model in the browser; the default view
+remains the current run. Historical data is fetched only when enabled, and
+turning the checkbox off returns to the current-run view. The control is also
+available while a new OUTGEN run has no completed solves yet.
+
+The checkbox controls both panels. Luminosity differences retain their sign,
+including zero values; missing historical luminosity values are left out.
+Panels without current-run points stay hidden while history is off. The checkbox
+remains available; enabling it reveals panels with retained history.
+
+Earlier invocations are separate, lighter dotted traces. Hover details identify
+the run, status, automatic phase when recorded, and Lambda/temperature mode.
+Failed and rolled-back attempts remain visible with labels; curves are not
+joined across invocations. The horizontal axis remains the native global
+iteration counter, which can repeat or move backward after restarts. Runs may
+also have used different physical parameters or numerical controls.
+
+History uses earlier appended OUTGEN segments, retained native main-run logs,
+and automatic-run evidence when logs have been compacted. The current invocation
+and duplicate copies are excluded. Missing or overwritten unarchived history
+cannot be reconstructed. Reads are limited to 250 recent runner archive entries,
+64 MiB total (8 MiB per file), and 5,000 historical completed solves; the chart
+reports truncation. Archive symlinks are not followed.
+
+This overlay is for visual comparison. Current-run summary cards, quality checks,
+convergence acceptance, and automatic policy decisions retain their existing
+sources and rules.

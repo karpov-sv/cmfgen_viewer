@@ -112,10 +112,11 @@
               </div>
             {% endif %}
 
+          {% endif %}
             {% if state.convergence.plots %}
               <div class="row g-3 mb-3">
                 {% for plot in state.convergence.plots %}
-                  <div class="col-xl-6">
+                  <div class="col-xl-6" data-convergence-panel{% if not plot.data %} hidden{% endif %}>
                     <div class="plot-wrap border rounded h-100">
                       <div class="plot-title px-2 pt-2">{{ plot.title }}</div>
                       <div class="plotly-resizable">
@@ -126,9 +127,17 @@
                   </div>
                 {% endfor %}
               </div>
+              <div class="small mb-2">
+                <label class="form-check-label"><input type="checkbox" class="form-check-input me-1"
+                  data-correction-history-toggle data-history-preference="{{ source_path }}"
+                  data-history-url="{{ url_for('viewer.model_correction_history', source_path=source_path) }}">
+                  Show earlier runs</label>
+                <div class="text-muted" data-correction-history-status aria-live="polite"></div>
+              </div>
               <script id="model-convergence-plots" type="application/json">{{ state.convergence.plots | tojson }}</script>
             {% endif %}
 
+          {% if state.convergence.has_iterations %}
             {% if state.convergence.quality %}
               {% set quality = state.convergence.quality %}
               {% set reported_quality = namespace(codes=[]) %}

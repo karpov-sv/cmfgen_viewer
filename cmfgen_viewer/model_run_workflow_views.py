@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from flask import abort, render_template
+from flask import abort, render_template, jsonify
 
 from .browser import make_breadcrumb
 from .model_run_workflow import ModelRunWorkflowError, inspect_main_model_workflow
 from .view_common import _viewer_config, bp
+from .model_run_workflow import _resolve_model
+from .correction_history import correction_history
 
 
 def _breadcrumb(source_path: str) -> list[dict[str, str | None]]:
@@ -36,3 +38,17 @@ def model_main_computation(source_path: str):
         state=state,
         breadcrumb=_breadcrumb(source_path),
     )
+
+
+@bp.route('/model-actions/correction-history/<path:source_path>')
+def model_correction_history(source_path):
+    config = _viewer_config()
+    if not config.get('read_write_enabled', False):
+        abort(403)
+    try:
+        _, model = _resolve_model(str(config.get('basepath', '.')), source_path)
+    except ModelRunWorkflowError:
+        abort(404)
+    response = jsonify(correction_history(model))
+    response.headers['Cache-Control'] = 'no-store'
+    return response

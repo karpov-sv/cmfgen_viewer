@@ -397,80 +397,82 @@ def _convergence_plots(records: list[dict[str, object]]) -> list[dict[str, objec
                 "hovertemplate": "Lambda iteration %{x}<br>Solver change=%{y:.6g}<extra></extra>",
             }
         )
-    if correction_traces and any(len(trace.get("x", [])) >= 2 for trace in correction_traces):
-        plots.append(
-            {
-                "title": "Iteration correction history",
-                "data": correction_traces,
-                "layout": {
-                    "template": "plotly_white",
-                    "height": 370,
-                    "margin": {"l": 66, "r": 24, "t": 18, "b": 54},
-                    "xaxis": {"title": {"text": "Global iteration"}, "showgrid": True},
-                    "yaxis": {
-                        "title": {"text": "Reported change magnitude"},
-                        "type": "log",
-                        "showgrid": True,
-                    },
-                    "legend": {"orientation": "h", "y": -0.24},
-                    "hovermode": "closest",
+    # Keep history available while a new run has no completed solves.
+    plots.append(
+        {
+            "title": "Iteration correction history",
+            "correction_history": True,
+            "history_key": "data",
+            "data": correction_traces,
+            "layout": {
+                "template": "plotly_white",
+                "height": 370,
+                "margin": {"l": 66, "r": 24, "t": 18, "b": 54},
+                "xaxis": {"title": {"text": "Global iteration"}, "showgrid": True},
+                "yaxis": {
+                    "title": {"text": "Reported change magnitude"},
+                    "type": "log",
+                    "showgrid": True,
                 },
-                "config": {
-                    "responsive": True,
-                    "displaylogo": False,
-                    "modeBarButtonsToRemove": ["lasso2d", "select2d"],
-                },
-                "default_x_scale": "linear",
-                "default_y_scale": "log",
-            }
-        )
+                "legend": {"orientation": "h", "y": -0.24},
+                "hovermode": "closest",
+            },
+            "config": {
+                "responsive": True,
+                "displaylogo": False,
+                "modeBarButtonsToRemove": ["lasso2d", "select2d"],
+            },
+            "default_x_scale": "linear",
+            "default_y_scale": "log",
+        }
+    )
 
     luminosity_records = [
         record for record in records if "luminosity_difference_percent" in record
     ]
-    if len(luminosity_records) >= 2:
-        plots.append(
-            {
-                "title": "Luminosity difference history",
-                "data": [
-                    {
-                        "type": "scatter",
-                        "mode": "lines+markers",
-                        "name": "Luminosity difference",
-                        "x": [record["global_iteration"] for record in luminosity_records],
-                        "y": [record["luminosity_difference_percent"] for record in luminosity_records],
-                        "customdata": [record["run_iteration"] for record in luminosity_records],
-                        "line": {"color": "#c2255c", "width": 2},
-                        "marker": {"size": 6},
-                        "hovertemplate": (
-                            "Global iteration %{x}<br>Run iteration %{customdata}<br>"
-                            "Difference=%{y:+.6g}%<extra></extra>"
-                        ),
-                    }
-                ],
-                "layout": {
-                    "template": "plotly_white",
-                    "height": 370,
-                    "margin": {"l": 66, "r": 24, "t": 18, "b": 54},
-                    "xaxis": {"title": {"text": "Global iteration"}, "showgrid": True},
-                    "yaxis": {
-                        "title": {"text": "Generated − target (%)"},
-                        "showgrid": True,
-                        "zeroline": True,
-                        "zerolinecolor": "#495057",
-                    },
-                    "showlegend": False,
-                    "hovermode": "closest",
+    plots.append(
+        {
+            "title": "Luminosity difference history",
+            "history_key": "luminosity_data",
+            "data": [
+                {
+                    "type": "scatter",
+                    "mode": "lines+markers",
+                    "name": "Luminosity difference",
+                    "x": [record["global_iteration"] for record in luminosity_records],
+                    "y": [record["luminosity_difference_percent"] for record in luminosity_records],
+                    "customdata": [record["run_iteration"] for record in luminosity_records],
+                    "line": {"color": "#c2255c", "width": 2},
+                    "marker": {"size": 6},
+                    "hovertemplate": (
+                        "Global iteration %{x}<br>Run iteration %{customdata}<br>"
+                        "Difference=%{y:+.6g}%<extra></extra>"
+                    ),
+                }
+            ] if luminosity_records else [],
+            "layout": {
+                "template": "plotly_white",
+                "height": 370,
+                "margin": {"l": 66, "r": 24, "t": 18, "b": 54},
+                "xaxis": {"title": {"text": "Global iteration"}, "showgrid": True},
+                "yaxis": {
+                    "title": {"text": "Generated − target (%)"},
+                    "showgrid": True,
+                    "zeroline": True,
+                    "zerolinecolor": "#495057",
                 },
-                "config": {
-                    "responsive": True,
-                    "displaylogo": False,
-                    "modeBarButtonsToRemove": ["lasso2d", "select2d"],
-                },
-                "default_x_scale": "linear",
-                "default_y_scale": "linear",
-            }
-        )
+                "showlegend": False,
+                "hovermode": "closest",
+            },
+            "config": {
+                "responsive": True,
+                "displaylogo": False,
+                "modeBarButtonsToRemove": ["lasso2d", "select2d"],
+            },
+            "default_x_scale": "linear",
+            "default_y_scale": "linear",
+        }
+    )
     return plots
 
 
@@ -663,6 +665,7 @@ def inspect_model_convergence(
             "run_count_is_lower_bound": truncated,
             "warnings": [],
             "message": "OUTGEN is empty or has no readable run data.",
+            "plots": _convergence_plots([]),
             "diagnostic_links": ["OUTGEN"],
         }
     started_at, run_text = runs[-1]
