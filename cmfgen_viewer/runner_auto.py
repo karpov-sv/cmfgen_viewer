@@ -238,7 +238,7 @@ def _issue_report(journal, plan, result, native_result):
     result['issue_report'] = str(journal/'issue.json')
 
 
-def run_auto_plan(plan, emit=None):
+def run_auto_plan(plan, emit=None, *, stop_requested=None):
     from .runner import run_plan, _json, _tail
     if not plan['ready']:
         raise RunnerError('Automatic preflight failed: ' + '; '.join(plan['errors']))
@@ -347,6 +347,9 @@ def run_auto_plan(plan, emit=None):
             elif preparation.kind != 'continue':
                 raise RunnerError('Unsupported automatic preparation decision')
             for attempt in range(1, options['max_attempts']+1):
+                if stop_requested is not None and stop_requested():
+                    result.update(status='stopped', reason='Clean stop requested; no further automatic attempts')
+                    break
                 step = pending.steps[step_index] if pending else None
                 phase = step.name if step else base_phase
                 remaining = options['max_iterations']-result['iterations_used']
@@ -417,7 +420,7 @@ def run_auto_plan(plan, emit=None):
                         last_progress = item.get('current')
                         event('auto_observation', attempt=attempt, progress=item)
 
-                native_result = run_plan(native, forward, diagnose_main=False)
+                native_result = run_plan(native, forward, diagnose_main=False, stop_requested=stop_requested)
                 entry = {'attempt': attempt, 'phase': phase, 'requested_iterations': batch,
                          'charged_iterations': batch, 'status': native_result['status'],
                          'journal': native_result['journal']}
@@ -433,7 +436,13 @@ def run_auto_plan(plan, emit=None):
                         for name in adopted:
                             expected[model/name] = _signature(model/name)
                     check_inputs()
-                    failure = native_result if native_result['status'] != 'succeeded' else None
+                    clean_stop = native_result['status'] in {'succeeded', 'stopped'} and (
+                        native_result['status'] == 'stopped' or (stop_requested is not None and stop_requested()))
+                    if clean_stop and pending:
+                        entry['checkpoint_restored'] = True
+                        result.update(status='stopped', reason='Clean stop during provisional recovery; conservative checkpoint restored')
+                        break  # Finally rolls back the entire unfinished recipe.
+                    failure = native_result if native_result['status'] not in {'succeeded', 'stopped'} else None
                     evidence = {}
 
                     def context(when, outcome=native_result):
@@ -480,6 +489,11 @@ def run_auto_plan(plan, emit=None):
                             entry['checkpoint_restored'] = True
                             result.update(status=native_result['status'], reason='Native attempt interrupted; stable restart restored')
                             break
+                        if stop_requested is not None and stop_requested():
+                            restore()
+                            entry['checkpoint_restored'] = True
+                            result.update(status='needs_review', reason='Clean stop could not validate native output; stable restart restored')
+                            break
                         decision, trail = policies.choose(context('failure', failure))
                         if pending and decision.steps:
                             decision = policies.Decision('stop', 'Nested multi-step recovery is unsupported; '
@@ -507,6 +521,10 @@ def run_auto_plan(plan, emit=None):
                             recovery = _capture(model, journal, recovery)
                         initializing = False
                 if failure is None:
+                    if clean_stop:
+                        result.update(status='stopped', reason='Clean stop requested; completed checkpoint retained',
+                                      final_checkpoint=evidence['checkpoint'])
+                        break
                     if pending:
                         step_index += 1
                         if step_index == len(pending.steps):

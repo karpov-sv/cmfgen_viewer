@@ -8,7 +8,7 @@ from itsdangerous import BadSignature, URLSafeTimedSerializer
 from .browser import is_model_directory, make_breadcrumb, resolve_path
 from .model_activity import model_workspace_root
 from .model_navigation import model_navigation_context
-from .detached_jobs import cancel_job, fingerprint, launch_job, list_jobs, snapshot_job, job_directory, STAGE_LABELS, STATUS_LABELS, STATUS_CLASSES
+from .detached_jobs import stop_after_iteration_job, cancel_job, fingerprint, launch_job, list_jobs, snapshot_job, job_directory, STAGE_LABELS, STATUS_LABELS, STATUS_CLASSES
 from .runner import STAGE_CHOICES, NATIVE_STAGES, _build_requested_stage_plan, build_sequence_plan
 from .runner_config import resolve_runner_config
 from .runner_recipe import RunnerError
@@ -217,6 +217,24 @@ def runner_job_cancel(job_id):
         abort(409, str(exc))
     if request.args.get("format") == "json":
         return jsonify(stopping=True)
+    return redirect(url_for("viewer.runner_job", job_id=job_id))
+
+
+@bp.route("/runner-jobs/<job_id>/stop-after-iteration", methods=["POST"])
+def runner_job_stop_after_iteration(job_id):
+    config = require_write()
+    try:
+        signed = signer().loads(request.form.get("cancel_token", ""), max_age=86400)
+        if signed.get("cancel_job") != job_id:
+            abort(400)
+        stop_after_iteration_job(config["basepath"], job_id)
+        current_app.extensions["cmfgen_changes"].notify()
+    except (RunnerError, OSError, BadSignature) as exc:
+        if request.args.get("format") == "json":
+            return jsonify(error=str(exc)), 409
+        abort(409, str(exc))
+    if request.args.get("format") == "json":
+        return jsonify(finishing=True)
     return redirect(url_for("viewer.runner_job", job_id=job_id))
 
 

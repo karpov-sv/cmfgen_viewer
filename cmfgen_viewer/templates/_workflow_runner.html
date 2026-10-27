@@ -38,7 +38,7 @@
   </form>
   <div data-inline-error class="alert alert-danger py-2 mt-2 mb-0 d-none" role="alert"></div>
   <div data-inline-job class="mt-2 d-none" aria-live="polite">
-    <div class="d-flex flex-wrap align-items-center gap-2"><span data-inline-state class="badge bg-secondary"></span><span class="small" data-inline-stage></span><span class="small text-muted" data-inline-elapsed></span><a class="small" data-inline-details>Run details</a><a class="small d-none" data-inline-output target="_blank" rel="noopener">View output</a><button type="button" class="btn btn-sm btn-outline-danger d-none" data-inline-stop>Stop run</button></div>
+    <div class="d-flex flex-wrap align-items-center gap-2"><span data-inline-state class="badge bg-secondary"></span><span class="small" data-inline-stage></span><span class="small text-muted" data-inline-elapsed></span><a class="small" data-inline-details>Run details</a><a class="small d-none" data-inline-output target="_blank" rel="noopener">View output</a><button type="button" class="btn btn-sm btn-outline-secondary d-none" data-inline-finish title="Finish current iteration and any native final-output iteration, then stop. Queued spectra are skipped.">Stop after this iteration</button><button type="button" class="btn btn-sm btn-outline-danger d-none" data-inline-stop title="Interrupt immediately; automatic runs restore the last accepted batch.">Stop now</button></div>
     {% if not compact %}<p class="small mb-0 mt-1" data-inline-progress></p>{% endif %}
   </div>
   {% if terminal|trim %}<div class="border-top mt-2 pt-2">{{ terminal }}</div>{% endif %}

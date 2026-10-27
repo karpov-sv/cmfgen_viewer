@@ -13,8 +13,14 @@
       if (!response.ok) throw Error("Job unavailable");
       const job = await response.json();
       if (!job.active) { window.location.reload(); return; }
-      const cancelToken = document.querySelector('input[name="cancel_token"]');
-      if (cancelToken) cancelToken.value = job.cancel_token;
+      document.querySelectorAll('input[name="cancel_token"]').forEach(input => { input.value = job.cancel_token; });
+      const finishForm = document.querySelector('[data-runner-finish-form]');
+      if (finishForm) {
+        finishForm.classList.toggle('d-none', !job.can_stop_after_iteration && !job.stop_after_iteration_pending);
+        const button = finishForm.querySelector('[data-runner-finish]');
+        button.disabled = !job.can_stop_after_iteration;
+        button.textContent = job.stop_after_iteration_pending ? 'Finishing iteration…' : 'Stop after this iteration';
+      }
       const stopButton = document.querySelector("[data-runner-stop]");
       if (stopButton) stopButton.disabled = !job.can_cancel;
       const nativeOutput = panel.querySelector("[data-runner-native-output]");

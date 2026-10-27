@@ -47,6 +47,12 @@
     const stop = query(state, "stop");
     stop.classList.toggle("d-none", !job.active);
     stop.disabled = !job.can_cancel || state.busy;
+    const finish = query(state, "finish");
+    if (finish) {
+      finish.classList.toggle("d-none", !job.active || (!job.can_stop_after_iteration && !job.stop_after_iteration_pending));
+      finish.disabled = !job.can_stop_after_iteration || state.busy;
+      finish.textContent = job.stop_after_iteration_pending ? "Finishing iteration…" : "Stop after this iteration";
+    }
     if (job.active) {
       state.panel.closest("details.workflow-stage").open = true;
     }
@@ -119,6 +125,20 @@
         render(state, await json(data.status_url));
       } catch (failure) { error(state, failure.message); }
       finally { state.busy = false; updateButtons(); if (state.job?.active) refresh(); }
+    });
+    query(state, "finish")?.addEventListener("click", async () => {
+      state.busy = true;
+      query(state, "finish").disabled = true;
+      error(state);
+      updateButtons();
+      try {
+        const job = await json(`/runner-jobs/${state.job.job_id}?format=json`);
+        await json(`/runner-jobs/${job.job_id}/stop-after-iteration?format=json`, {
+          method: "POST", body: new URLSearchParams({cancel_token: job.cancel_token})
+        });
+        render(state, await json(`/runner-jobs/${job.job_id}?format=json`));
+      } catch (failure) { error(state, failure.message); }
+      finally { state.busy = false; updateButtons(); refresh(); }
     });
     query(state, "stop").addEventListener("click", async () => {
       state.busy = true;

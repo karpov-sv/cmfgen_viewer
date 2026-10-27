@@ -318,3 +318,24 @@ reports truncation. Archive symlinks are not followed.
 This overlay is for visual comparison. Current-run summary cards, quality checks,
 convergence acceptance, and automatic policy decisions retain their existing
 sources and rules.
+
+
+### Stopping a UI run cleanly
+
+For main computations launched by the updated UI runner, **Stop after this iteration**
+is available in the workflow card and run-details page. The owning worker temporarily
+reduces `IN_ITS/NUM_ITS` to 1. CMFGEN rereads this control between iterations and exits
+through its normal final-output path. This can require **one additional final-output
+iteration**; it is not an immediate interruption. The original iteration setting is
+restored afterward, including on failure or cancellation.
+
+The job shows **Finishing iteration** while waiting, then **Stopped cleanly** after
+validation. Ordinary automatic batches retain their validated completed checkpoint
+and do not start another attempt or queued spectra. A stop during a provisional
+multi-step remedy or performance trial restores the conservative checkpoint rather
+than accepting an unfinished repair. Native failures and invalid evidence still
+follow the existing recovery rules; requesting a stop does not validate bad output.
+
+**Stop now** retains immediate cancellation and its batch rollback behavior. CLI
+Ctrl-C is unchanged. Older workers started before this feature was installed must
+finish or be cancelled normally; their UI does not offer the new control.

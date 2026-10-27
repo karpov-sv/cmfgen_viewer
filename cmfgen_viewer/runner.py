@@ -384,15 +384,15 @@ def _sequence_stage_plan(
     return plan
 
 
-def run_plan(plan: dict, emit=None, *, diagnose_main=True) -> dict:
+def run_plan(plan: dict, emit=None, *, diagnose_main=True, stop_requested=None) -> dict:
     if plan.get("kind") == "auto":
         from .runner_auto import run_auto_plan
-        return run_auto_plan(plan, emit)
+        return run_auto_plan(plan, emit, stop_requested=stop_requested)
     if plan.get("kind") == "sequence":
         if plan.get('auto'):
             with model_run_reservation(Path(plan['model']), RunnerError):
-                return _run_sequence_plan(plan, emit)
-        return _run_sequence_plan(plan, emit)
+                return _run_sequence_plan(plan, emit, stop_requested=stop_requested)
+        return _run_sequence_plan(plan, emit, stop_requested=stop_requested)
     if plan["stage"] not in STAGE_CHOICES:
         raise RunnerError(f"Unsupported stage: {plan['stage']}")
     if plan["stage"] == "prepare-lte":
@@ -507,7 +507,7 @@ def run_plan(plan: dict, emit=None, *, diagnose_main=True) -> dict:
                 result["initialization"] = plan["initialization"]
                 event("initialization_selected", **plan["initialization"])
             control_name = "CMF_FLUX_PARAM" if stage == "flux" else "IN_ITS"
-            if stage == "flux" or any(step["overrides"] for step in plan["passes"]):
+            if stage == "flux" or (stage == "main" and stop_requested is not None) or any(step["overrides"] for step in plan["passes"]):
                 path = cwd / control_name
                 if path.is_symlink():
                     raise RunnerError(f"Refusing symlinked control: {path}")
@@ -656,12 +656,24 @@ def run_plan(plan: dict, emit=None, *, diagnose_main=True) -> dict:
                         last_report = 0
                         while process.poll() is None:
                             now = time.monotonic()
+                            if (stage == 'main' and stop_requested is not None and
+                                    not result.get('stop_after_iteration') and stop_requested()):
+                                # CMFGEN rereads NUM_ITS at iteration boundaries and runs
+                                # a final output iteration. Never use zero (startup test).
+                                controls[cwd / control_name].apply({'NUM_ITS': '1'})
+                                result['stop_after_iteration'] = True
+                                record['stop_after_iteration'] = True
+                                event('iteration_stop_requested', stage='main',
+                                      message='Finish current iteration and native final-output iteration, then stop')
                             if deadline is not None and now >= deadline:
                                 _stop(process)
                                 record["status"] = "timeout"
                                 break
                             if now - last_report >= 2:
                                 progress = _progress(stage, cwd)
+                                if result.get('stop_after_iteration'):
+                                    progress.pop('total', None)
+                                    progress['phase'] = 'finishing iterations'
                                 if deadline is not None:
                                     progress["remaining_seconds"] = round(deadline - now, 1)
                                 event("progress", stage=step["id"], **progress)
@@ -735,7 +747,7 @@ def run_plan(plan: dict, emit=None, *, diagnose_main=True) -> dict:
                         copy_recovery(path, pass_dir / name)
                 if record["status"] == "succeeded" and stage in {"main", "lte", "hydro"}:
                     final_progress = _progress(stage, cwd)
-                    if final_progress.get("total") is not None:
+                    if final_progress.get("total") is not None and not result.get("stop_after_iteration"):
                         event("progress", stage=step["id"], **final_progress)
                 event("stage_finished", stage=step["id"], status=record["status"], returncode=record["returncode"], problems=problems, diagnostic_findings=findings)
                 if record["status"] != "succeeded":
@@ -757,7 +769,7 @@ def run_plan(plan: dict, emit=None, *, diagnose_main=True) -> dict:
                         total=len(plan["passes"]),
                     )
             else:
-                result["status"] = "tested" if stage == "test" else "succeeded"
+                result["status"] = "tested" if stage == "test" else "stopped" if result.get("stop_after_iteration") else "succeeded"
         except KeyboardInterrupt:
             result["status"] = "cancelled"
         except Exception as exc:
@@ -963,7 +975,7 @@ def _run_cleanup_plan(plan: dict, emit=None) -> dict:
     return result
 
 
-def _run_sequence_plan(plan: dict, emit=None) -> dict:
+def _run_sequence_plan(plan: dict, emit=None, *, stop_requested=None) -> dict:
     """Run stages in order, rebuilding each preflight after its predecessor."""
     if not plan["ready"]:
         raise RunnerError("Preflight failed: " + "; ".join(plan["errors"]))
@@ -1021,6 +1033,9 @@ def _run_sequence_plan(plan: dict, emit=None) -> dict:
             total=len(stages),
         )
         for index, stage in enumerate(stages, 1):
+            if stop_requested is not None and stop_requested():
+                result['status'] = 'stopped'
+                break
             event(
                 "sequence_stage_preflight",
                 stage=stage,
@@ -1106,12 +1121,15 @@ def _run_sequence_plan(plan: dict, emit=None) -> dict:
             result["current_stage"] = stage
             _json(journal / "result.json", result)
             execution_started = time.monotonic()
-            stage_result = run_plan(stage_plan, emit)
+            stage_result = run_plan(stage_plan, emit, **({'stop_requested': stop_requested} if stop_requested is not None else {}))
             if stage in NATIVE_STAGES and remaining_timeout is not None:
                 remaining_timeout = max(
                     0.0,
                     remaining_timeout - (time.monotonic() - execution_started),
                 )
+            if (stage == 'main' and stage_result['status'] == 'succeeded' and
+                    stop_requested is not None and stop_requested()):
+                stage_result['status'] = 'stopped'
             stage_result["preflight_warnings"] = list(stage_plan.get("warnings", []))
             result["stage_results"].append(stage_result)
             result.pop("current_stage", None)

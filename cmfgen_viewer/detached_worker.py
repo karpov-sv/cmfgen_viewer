@@ -68,7 +68,8 @@ def main(directory, descriptor):
                 state["journal"] = event["journal"]
             write_json(directory / "state.json", state)
 
-        result = run_plan(read_json(directory / "plan.json"), emit)
+        result = run_plan(read_json(directory / "plan.json"), emit,
+                          stop_requested=lambda: (directory / "stop-after-iteration").exists())
         write_json(directory / "result.json", result)
         state.update(status=result["status"], journal=result.get("journal"))
     except KeyboardInterrupt:

@@ -99,7 +99,7 @@ def analyze_main_end(model, plan, result, before, solution_offset):
     evidence = {}
     history = []
     when = 'failure'
-    if result['status'] == 'succeeded':
+    if result['status'] in {'succeeded', 'stopped'}:
         try:
             requested = int(plan['passes'][0].get('overrides', {}).get('NUM_ITS', '0'))
             evidence = assess(model, result, before, solution_offset, requested,

@@ -20,8 +20,8 @@ from .model_activity import model_mutation_guard, RUN_LOCK_NAME, fcntl, validate
 from .runner_recipe import RunnerError
 
 JOB_DIR = ".cmfgen-runner-jobs"
-ACTIVE = {"starting", "running", "stopping", "unknown", "orphaned"}
-STATUS_LABELS = {"starting": "Starting", "running": "Running", "stopping": "Stopping",
+ACTIVE = {"starting", "running", "stopping", "unknown", "orphaned", "finishing"}
+STATUS_LABELS = {"finishing": "Finishing iteration", "stopped": "Stopped cleanly", "starting": "Starting", "running": "Running", "stopping": "Stopping",
     "unknown": "Monitoring unavailable", "orphaned": "Native process still active",
     "interrupted": "Interrupted", "tested": "Startup tested", "succeeded": "Succeeded",
     "cancelled": "Cancelled", "runner_error": "Runner failed", "failed": "Execution failed",
@@ -42,7 +42,7 @@ def timestamp_label(value):
 STATUS_CLASSES = {status: css for statuses, css in [
     (('succeeded', 'tested', 'running'), 'bg-success'),
     (('failed', 'runner_error', 'invalid_output', 'preflight_failed', 'timeout'), 'bg-danger'),
-    (('starting', 'stopping', 'unknown', 'orphaned', 'needs_review', 'limit_reached'), 'bg-warning text-dark'),
+    (('starting', 'stopping', 'finishing', 'stopped', 'unknown', 'orphaned', 'needs_review', 'limit_reached'), 'bg-warning text-dark'),
 ] for status in statuses}
 _CHILDREN = {}
 _CHILDREN_LOCK = threading.Lock()
@@ -118,7 +118,7 @@ def snapshot_job(base, job_id, *, include_result=True):
         try:
             process = _worker_process(directory, identity) if identity else None
             if process:
-                status = "stopping" if (directory / "cancel").exists() else status
+                status = "stopping" if (directory / "cancel").exists() else "finishing" if (directory / "stop-after-iteration").exists() else status
             elif time.time() - request["created_epoch"] < 15 and not identity:
                 status = "starting"
             else:
@@ -138,10 +138,16 @@ def snapshot_job(base, job_id, *, include_result=True):
     if automatic and state.get('auto_attempt'):
         phase = state.get('auto_phase', 'iterate').replace('_', ' ')
         progress_label = f"Attempt {state['auto_attempt']} · {phase} · {progress_label}"
+    if status == 'finishing':
+        progress_label = 'Clean stop requested; a final-output iteration may still be needed. ' + progress_label
     return {**request, **state, "automatic": automatic, "status": status, "active": status in ACTIVE,
             "status_label": STATUS_LABELS.get(status, status.replace("_", " ").capitalize()),
             "status_class": STATUS_CLASSES.get(status, "bg-secondary"),
             "progress_label": progress_label, "can_cancel": process is not None,
+            "stop_after_iteration_pending": (directory / "stop-after-iteration").exists(),
+            "can_stop_after_iteration": (process is not None and request.get('stop_after_iteration_supported', False)
+                and state.get('stage') == 'main' and not (directory/'cancel').exists()
+                and not (directory/'stop-after-iteration').exists()),
             "sequence_label": ("Automatic main computation → spectra" if request["stages"] == ["main", "flux"] else "Automatic main computation") if automatic else " → ".join(STAGE_LABELS.get(stage, stage) for stage in request["stages"]),
             "stage_label": STAGE_LABELS.get(state.get("stage"), state.get("stage", "Starting")),
             "created_label": timestamp_label(request["created_at"]),
@@ -203,6 +209,7 @@ def launch_job(base, model, options, build_plan, expected_fingerprint):
             mkdir_readable(directory)
             write_json(directory / "request.json", {"model": str(model), "model_relpath": model.relative_to(base).as_posix(),
                 "stages": options["stages"], "options": options,
+                "stop_after_iteration_supported": "main" in options["stages"],
                 "created_epoch": time.time(), "created_at": datetime.now(timezone.utc).isoformat()})
             write_json(directory / "plan.json", plan)
             with open_readable(directory / "worker.log", "xb") as output:
@@ -244,3 +251,15 @@ def cancel_job(base, job_id):
         return  # The worker observes this marker before launching anything.
     # psutil guards against PID reuse when signalling.
     process.send_signal(signal.SIGTERM)
+
+
+def stop_after_iteration_job(base, job_id):
+    """Ask the owning worker to finish main cleanly; never signal the solver."""
+    directory = job_directory(base, job_id)
+    job = snapshot_job(base, job_id)
+    if job['active'] and job['stop_after_iteration_pending']:
+        return
+    if not job['can_stop_after_iteration']:
+        raise RunnerError('Clean iteration stop is unavailable for this job or stage')
+    (directory / 'stop-after-iteration').touch()
+    make_readable(directory / 'stop-after-iteration')

@@ -18,6 +18,7 @@ LABELS = {
     "invalid_output": ("ERROR", "output validation failed"),
     "runner_error": ("ERROR", "runner failed"),
     "timeout": ("ERROR", "time limit exceeded"),
+    "stopped": ("INFO", "stopped cleanly"),
     "cancelled": ("WARN", "cancelled"),
     "needs_review": ("WARN", "automatic run needs review"),
     "limit_reached": ("WARN", "automatic run budget exhausted"),

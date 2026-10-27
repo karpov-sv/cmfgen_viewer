@@ -25,8 +25,13 @@
       {% if job.error %}<div class="alert alert-danger py-2">{{ job.error }}</div>{% endif %}
       <div class="d-flex flex-wrap gap-2">
         <a class="btn btn-sm btn-outline-secondary {{ 'd-none' if not job.native_log else '' }}" data-runner-native-output href="{{ url_for('viewer.runner_job_log', job_id=job.job_id, native=1) }}">Latest native output</a>
-        {% if job.active %}<form method="post" action="{{ url_for('viewer.runner_job_cancel', job_id=job.job_id) }}"><input type="hidden" name="cancel_token" value="{{ cancel_token }}"><button class="btn btn-sm btn-outline-danger" data-runner-stop {% if not job.can_cancel %}disabled title="Runner process ownership could not be verified"{% endif %}>Stop run</button></form>{% endif %}
+        {% if job.active %}<form method="post" action="{{ url_for('viewer.runner_job_stop_after_iteration', job_id=job.job_id) }}" data-runner-finish-form class="{{ 'd-none' if not job.can_stop_after_iteration and not job.stop_after_iteration_pending else '' }}">
+          <input type="hidden" name="cancel_token" value="{{ cancel_token }}">
+          <button class="btn btn-sm btn-outline-secondary" data-runner-finish {% if not job.can_stop_after_iteration %}disabled{% endif %} title="Finish the current iteration and any native final-output iteration; skip further automatic attempts and spectra.">{{ 'Finishing iteration…' if job.stop_after_iteration_pending else 'Stop after this iteration' }}</button>
+        </form>{% endif %}
+        {% if job.active %}<form method="post" action="{{ url_for('viewer.runner_job_cancel', job_id=job.job_id) }}"><input type="hidden" name="cancel_token" value="{{ cancel_token }}"><button class="btn btn-sm btn-outline-danger" data-runner-stop {% if not job.can_cancel %}disabled title="Runner process ownership could not be verified"{% endif %}>Stop now</button></form>{% endif %}
       </div>
+      <p class="small text-muted mt-2 mb-0">A clean iteration stop may require one additional final-output iteration. Stop now interrupts immediately; automatic runs restore the last accepted batch.</p>
     </div>
   </details>
 
