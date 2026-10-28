@@ -69,27 +69,36 @@ def _assignments(assignments):
     return values
 
 
-def plan_parameter_edit(model, filename, assignments, *, keep_teff_logg=False):
+def plan_parameter_edit(model, filename, assignments, *, keep_teff_logg=False, keep_luminosity_logg=False):
     card = _card(model, filename)
     requested = _assignments(assignments)
     values = {field['key']: field['value'] for field in card['fields']}
     unknown = set(requested) - set(values)
     if unknown:
         raise ModelEditorError('Parameters unavailable in this quick editor: ' + ', '.join(sorted(unknown)) + '. Use show to list editable keys.')
-    if keep_teff_logg:
-        if filename != 'VADAT' or 'LSTAR' not in requested:
-            raise ModelEditorError('--keep-teff-logg requires an explicit LSTAR change in VADAT.')
-        conflicts = set(requested) & {'RSTAR', 'MASS', 'LOGG'}
+    if keep_teff_logg and keep_luminosity_logg:
+        raise ModelEditorError('Choose only one stellar scaling constraint.')
+    for enabled, flag, driver, fixed in (
+        (keep_teff_logg, '--keep-teff-logg', 'LSTAR', 'TEFF'),
+        (keep_luminosity_logg, '--keep-luminosity-logg', 'TEFF', 'LSTAR'),
+    ):
+        if not enabled:
+            continue
+        if filename != 'VADAT' or driver not in requested:
+            raise ModelEditorError(f'{flag} requires an explicit {driver} change in VADAT.')
+        conflicts = set(requested) & {'RSTAR', 'MASS', 'LOGG', fixed}
         if conflicts:
-            raise ModelEditorError('--keep-teff-logg controls RSTAR/MASS and preserves LOGG; do not also set ' + ', '.join(sorted(conflicts)) + '.')
+            raise ModelEditorError(f'{flag} derives RSTAR/MASS and preserves {fixed}/LOGG; '
+                                   'do not also set ' + ', '.join(sorted(conflicts)) + '.')
     values.update(requested)
     review = review_quick_model_parameter_edit(str(model.parent), model_relpath=model.name,
         file_relpath=filename, expected_digest=card['digest'], values=values,
-        keep_temperature_logg=keep_teff_logg)
+        keep_temperature_logg=keep_teff_logg, keep_luminosity_logg=keep_luminosity_logg)
     return _activity({'command': 'set', 'model': str(model), 'file': filename,
         'requested': requested, 'values': values, 'expected_digest': card['digest'],
         'proposed_digest': review['proposed_digest'], 'changed': review['changed'],
-        'keep_teff_logg': keep_teff_logg, 'warnings': review['warnings'],
+        'keep_teff_logg': keep_teff_logg, 'keep_luminosity_logg': keep_luminosity_logg,
+        'warnings': review['warnings'],
         'diff_lines': review['diff_lines'], 'resulting_values': review['values']}, model)
 
 
@@ -166,7 +175,8 @@ def _out2in(args):
 
 def _set(args):
     model = _model(args.model)
-    plan = plan_parameter_edit(model, args.file, args.assignments, keep_teff_logg=args.keep_teff_logg)
+    plan = plan_parameter_edit(model, args.file, args.assignments, keep_teff_logg=args.keep_teff_logg,
+                               keep_luminosity_logg=args.keep_luminosity_logg)
     if args.plan or not plan['ready']:
         return plan, 0 if plan['ready'] else 2
     if not plan['changed']:
@@ -174,7 +184,7 @@ def _set(args):
     saved = _execute(save_quick_model_parameter_edit, str(model.parent), model_relpath=model.name,
         file_relpath=args.file, expected_digest=plan['expected_digest'],
         reviewed_digest=plan['proposed_digest'], values=plan['values'],
-        keep_temperature_logg=args.keep_teff_logg)
+        keep_temperature_logg=args.keep_teff_logg, keep_luminosity_logg=args.keep_luminosity_logg)
     return {**plan, 'status': 'succeeded', 'backup': str(model / saved['backup_relpath']),
             'modified_marker': saved['modified_marker'],
             'warnings': [*plan['warnings'], *[message for message in (saved.get('marker_error'), saved.get('timestamp_error')) if message]]}, 0
@@ -337,7 +347,9 @@ def build_parser():
     edit.add_argument('model', type=Path)
     edit.add_argument('assignments', nargs='+', metavar='KEY=VALUE')
     edit.add_argument('--file', choices=QUICK_PARAMETER_FILES, default='VADAT')
-    edit.add_argument('--keep-teff-logg', action='store_true', help='Scale RSTAR and MASS with LSTAR, preserving Teff and log g')
+    scaling = edit.add_mutually_exclusive_group()
+    scaling.add_argument('--keep-teff-logg', action='store_true', help='Scale RSTAR and MASS with LSTAR, preserving Teff and log g')
+    scaling.add_argument('--keep-luminosity-logg', action='store_true', help='Scale RSTAR and MASS with TEFF, preserving luminosity and log g')
     structure = commands.add_parser('structure', help='Review and apply a RVSIG_COL structure update')
     structure.add_argument('model', type=Path)
     structure.add_argument('--cmfgen-root', type=Path)

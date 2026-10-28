@@ -168,6 +168,7 @@ python3 cmfgen_model.py cleanup /path/to/model --full --plan
 
 # Review a luminosity change with radius and mass scaled to preserve Teff and log g
 python3 cmfgen_model.py set /path/to/model LSTAR=4e5 --keep-teff-logg --plan
+python3 cmfgen_model.py set /path/to/model TEFF=3.5 --keep-luminosity-logg --plan
 
 # Change the number of iterations requested per invocation
 python3 cmfgen_model.py set /path/to/model --file IN_ITS NUM_ITS=10

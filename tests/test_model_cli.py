@@ -266,3 +266,46 @@ def test_get_preserves_zero_boolean_and_vector_values(solution, capsys):
     for key, expected in [('ZERO', '0'), ('DO_CL', 'F'), ('VECTOR', '1, 2, 3')]:
         assert main(['get', str(solution), key]) == 0
         assert capsys.readouterr().out == expected + '\n'
+
+
+def test_set_coupled_temperature_preview_save_and_noop(tmp_path, capsys):
+    model,original,_,_=_scaling_model(tmp_path)
+    args=['set',str(model),'TEFF=6D0','--keep-luminosity-logg','--json']
+    assert main([*args,'--plan'])==0
+    preview=report(capsys)
+    assert preview['keep_luminosity_logg']
+    assert preview['resulting_values']['RSTAR']=='17.5'
+    assert preview['resulting_values']['MASS']=='0.625'
+    assert preview['resulting_values']['LSTAR']=='1.0D5'
+    assert preview['resulting_values']['LOGG']=='3.50D0'
+    assert (model/'VADAT').read_bytes()==original.encode()
+    assert not (model/'.cmfgen-viewer-write.lock').exists()
+    assert main(args)==0
+    saved=report(capsys)
+    expected=original.replace('3.0 [TEFF]','6D0 [TEFF]').replace('70.0','17.5').replace('10.0','0.625')
+    assert (model/'VADAT').read_bytes()==expected.encode()
+    assert Path(saved['backup']).read_bytes()==original.encode()
+    assert main(args)==0
+    assert report(capsys)['status']=='unchanged'
+
+
+@pytest.mark.parametrize('assignments,extra', [
+    (['MDOT=2e-6'],[]), (['TEFF=0'],[]), (['TEFF=NaN'],[]),
+    (['TEFF=1e-320'],[]), (['TEFF=6','LSTAR=2e5'],[]),
+    (['TEFF=6','LOGG=4'],[]), (['TEFF=6','RSTAR=20'],[]),
+    (['TEFF=6','MASS=2'],[]), (['NUM_ITS=5'],['--file','IN_ITS']),
+])
+def test_temperature_constraint_rejects_invalid_cli_assignments(tmp_path,capsys,assignments,extra):
+    model,original,_,_=_scaling_model(tmp_path)
+    assert main(['set',str(model),*assignments,*extra,'--keep-luminosity-logg','--json'])==2
+    assert report(capsys)['error']
+    assert (model/'VADAT').read_bytes()==original.encode()
+    assert not (model/'.cmfgen-viewer-backups').exists()
+
+
+def test_cli_scaling_switches_are_mutually_exclusive(tmp_path):
+    model,original,_,_=_scaling_model(tmp_path)
+    with pytest.raises(SystemExit) as error:
+        main(['set',str(model),'TEFF=6','--keep-luminosity-logg','--keep-teff-logg'])
+    assert error.value.code==2
+    assert (model/'VADAT').read_bytes()==original.encode()

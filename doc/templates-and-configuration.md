@@ -206,6 +206,7 @@ python3 cmfgen_model.py cleanup /path/to/model --plan
 python3 cmfgen_model.py cleanup /path/to/model --lte --plan
 python3 cmfgen_model.py cleanup /path/to/model --full --plan
 python3 cmfgen_model.py set /path/to/model LSTAR=4e5 --keep-teff-logg --plan
+python3 cmfgen_model.py set /path/to/model TEFF=3.5 --keep-luminosity-logg --plan
 python3 cmfgen_model.py set /path/to/model MDOT=2e-6 VINF=1800 --plan
 python3 cmfgen_model.py set /path/to/model --file IN_ITS NUM_ITS=10
 ```
@@ -241,6 +242,13 @@ Full cleanup creates no replacement archive or run journal. Its plan lists all t
 
 **Set** accepts one or more `KEY=VALUE` assignments in a single quick-editable file: `VADAT` by default, or `--file IN_ITS`. Use **show** to discover available keys. Values use the same validation, comment/newline preservation, concurrency checks, and checkpoint creation as the UI. Unsupported or duplicate keys are rejected. Ordinary numeric and Fortran `D` notation are accepted where supported by the control. The plan shows a unified diff; execution saves the same reviewed contents and reports its backup path. A no-op creates no backup.
 
-`--keep-teff-logg` requires an explicit positive `LSTAR` assignment in `VADAT`. For luminosity ratio `f = L_new / L_old`, it scales `RSTAR` by `sqrt(f)` and `MASS` by `f`, leaving `TEFF` and `LOGG` unchanged, exactly as the UI does. Luminosity is in solar units. Do not combine this mode with explicit `RSTAR`, `MASS`, or `LOGG` assignments. Existing mass/gravity inconsistencies are preserved and reported by the shared scaling checks.
+`--keep-teff-logg` requires an explicit positive `LSTAR` assignment in `VADAT`. For luminosity ratio `f = L_new / L_old`, it scales `RSTAR` by `sqrt(f)` and `MASS` by `f`, leaving `TEFF` and `LOGG` unchanged, exactly as the UI does. Luminosity is in solar units. Do not combine this mode with explicit `RSTAR`, `MASS`, `TEFF`, or `LOGG` assignments. Existing mass/gravity inconsistencies are preserved and reported by the shared scaling checks.
+
+`--keep-luminosity-logg` instead requires an explicit positive `TEFF` assignment
+in `VADAT`, in units of 10⁴ K (`3.5` means 35,000 K). For `q = T_old / T_new`,
+it scales `RSTAR` by `q²` and `MASS` by `q⁴`, preserving `LSTAR` and `LOGG`.
+Do not also assign `LSTAR`, `LOGG`, `RSTAR`, or `MASS`. The two scaling switches
+are mutually exclusive. Both use the saved model as their baseline and support
+`--plan`; omit `--plan` to save with the usual backup and structure-update tracking.
 
 Parameter editing marks the solution stale as appropriate. It does not regenerate the LTE/hydro structure, change existing population estimates or restart checkpoints, launch a calculation, or guarantee scientific suitability. Choose the subsequent preparation/fresh-start/continuation workflow explicitly, just as after editing in the UI.
