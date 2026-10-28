@@ -5,6 +5,7 @@ module owns guarded execution, provisional recovery steps and durable reports.
 """
 from datetime import datetime, timezone
 from pathlib import Path
+import os
 import shutil
 import time
 import uuid
@@ -272,6 +273,7 @@ def run_auto_plan(plan, emit=None, *, stop_requested=None):
             paths = {Path(r['path']) for r in plan['inputs'] if Path(r['path']).name not in DYNAMIC_NAMES}
             paths.update(model/n for n in (*NATIVE_CONTROLS, 'ADJUST_CORRECTIONS'))
             expected = {path: _signature(path) for path in paths}
+            owned_links = {}
             recovery = _capture(model, journal)
         result = {'run_id': run_id, 'stage': 'main', 'kind': 'auto', 'status': 'running',
                   'journal': str(journal), 'started_at': datetime.now(timezone.utc).isoformat(),
@@ -288,6 +290,9 @@ def run_auto_plan(plan, emit=None, *, stop_requested=None):
                 emit(item)
 
         def check_inputs():
+            for path, target in owned_links.items():
+                if not path.is_symlink() or os.readlink(path) != target:
+                    raise RunnerError(f'Input link changed during automatic execution: {path}; preserving the edit')
             if snapshot(Path(plan['executable'])) != plan['executable_snapshot']:
                 raise RunnerError('Executable changed during automatic execution; review before continuing')
             for path, signature in expected.items():
@@ -414,6 +419,18 @@ def run_auto_plan(plan, emit=None, *, stop_requested=None):
 
                 def forward(item):
                     nonlocal last_progress
+                    if item['event'] == 'runner_links_ready':
+                        # Adopt only the links this reviewed native plan has just
+                        # installed, before any solver code or caller callback runs.
+                        for link in native['links']:
+                            path = model/link['name']
+                            if path not in expected:
+                                continue
+                            if not path.is_symlink() or os.readlink(path) != link['target']:
+                                raise RunnerError(f'Reviewed runner link was not installed: {path}')
+                            owned_links[path] = link['target']
+                            expected[path] = _signature(path)
+                        check_inputs()  # Source-file edits are never adopted with links.
                     if emit:
                         emit({**item, 'auto_attempt': attempt, 'auto_phase': phase})
                     if item['event'] == 'progress' and item.get('current') != last_progress:

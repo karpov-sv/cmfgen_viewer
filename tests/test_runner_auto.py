@@ -478,3 +478,40 @@ def test_cancellation_during_verification_keeps_fresh_matrix_policy(auto_workspa
     assert 'ba_reuse_restoration' not in result
     assert '0 [N_FIX_BA]' in (model/'VADAT').read_text()
     assert '0.0 [FIX_BA]' in (model/'VADAT').read_text()
+
+
+@pytest.mark.parametrize('old_link', ['absent', 'broken', 'other_source'])
+def test_runner_owned_temperature_link_repair_is_not_an_external_edit(auto_workspace, old_link):
+    model, plan = auto_workspace
+    if old_link != 'absent':
+        target = model/'old-input'
+        if old_link == 'other_source': target.write_text('old temperature source')
+        (model/'T_IN').symlink_to(target)
+    result = run_plan(plan())
+    assert result['status'] == 'succeeded', result
+    assert (model/'T_IN').is_symlink()
+    assert (model/'T_IN').resolve() == model/'He2_IN'
+
+
+@pytest.mark.parametrize('edit', ['source', 'retarget_same_contents', 'remove_link'])
+def test_real_edits_after_runner_link_setup_still_stop_auto(auto_workspace, edit):
+    model, plan = auto_workspace
+    (model/'T_IN').symlink_to(model/'missing-old-source')
+    changed = False
+    def external_edit(event):
+        nonlocal changed
+        if event['event'] != 'runner_links_ready' or changed: return
+        changed = True
+        if edit == 'source':
+            (model/'He2_IN').write_text('external source edit')
+        else:
+            (model/'T_IN').unlink()
+            if edit == 'retarget_same_contents':
+                (model/'other-input').write_bytes((model/'He2_IN').read_bytes())
+                (model/'T_IN').symlink_to(model/'other-input')
+    result = run_plan(plan(), external_edit)
+    assert result['status'] == 'needs_review', result
+    assert 'changed during automatic execution' in result['reason']
+    if edit == 'source': assert (model/'He2_IN').read_text() == 'external source edit'
+    if edit == 'remove_link': assert not (model/'T_IN').exists()
+    if edit == 'retarget_same_contents': assert (model/'T_IN').resolve() == model/'other-input'

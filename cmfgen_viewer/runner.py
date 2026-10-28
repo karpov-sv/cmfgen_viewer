@@ -544,6 +544,7 @@ def run_plan(plan: dict, emit=None, *, diagnose_main=True, stop_requested=None) 
                         continue
                     destination.unlink()
                 destination.symlink_to(link["target"])
+            event('runner_links_ready', stage=stage)
             env = os.environ.copy()
             if plan.get("threads") is not None:
                 for key in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):

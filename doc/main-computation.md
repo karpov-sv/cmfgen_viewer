@@ -339,3 +339,12 @@ follow the existing recovery rules; requesting a stop does not validate bad outp
 **Stop now** retains immediate cancellation and its batch rollback behavior. CLI
 Ctrl-C is unchanged. Older workers started before this feature was installed must
 finish or be cancelled normally; their UI does not offer the new control.
+
+
+### Runner-owned input links
+
+The automatic runner recognizes links installed by its reviewed native recipe,
+including replacement of missing or stale `T_IN` links after copying a model
+between machines. Adoption happens immediately after runner link setup. Source
+contents remain protected, and subsequent removal or retargeting of an adopted
+link stops automatic execution, even if the new target has identical contents.
