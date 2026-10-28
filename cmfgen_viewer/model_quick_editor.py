@@ -28,6 +28,12 @@ QUICK_PARAMETER_DEFINITIONS: dict[str, dict[str, dict[str, object]]] = {
             "kind": "float",
             "unit": "L☉",
         },
+        "TEFF": {
+            "label": "Effective temperature",
+            "group": "Stellar and wind",
+            "kind": "float",
+            "unit": "10⁴ K",
+        },
         "RSTAR": {
             "label": "Stellar radius control",
             "group": "Stellar and wind",
@@ -363,7 +369,7 @@ def _validate_quick_parameter_value(field: dict[str, object], raw_value: object)
         parsed = parse_float_token(value)
         if parsed is None or not math.isfinite(parsed):
             raise ModelEditorError(f"[{key}] must be a finite number.")
-        if key in {"T_EXC", "EPS_TERM"} and parsed <= 0:
+        if key in {"T_EXC", "EPS_TERM", "TEFF"} and parsed <= 0:
             raise ModelEditorError(f"[{key}] must be positive")
         if key == 'RELAX' and parsed <= 0:
             raise ModelEditorError('[RELAX] must be positive.')
@@ -492,6 +498,7 @@ def _quick_card_from_record(record: dict[str, object]) -> dict[str, object]:
             if file_relpath == 'ADJUST_CORRECTIONS' else "Iteration count and automatic iteration switches."
         ),
         "keep_temperature_logg": False,
+        "keep_luminosity_logg": False,
         "luminosity_scaling": scaling,
         "digest": str(record["digest"]),
         "fields": fields,
@@ -531,6 +538,7 @@ def _prepare_quick_parameter_edit(
     expected_digest: str,
     values: dict[str, object],
     keep_temperature_logg: bool = False,
+    keep_luminosity_logg: bool = False,
 ) -> tuple[dict[str, object], str]:
     if file_relpath not in QUICK_PARAMETER_FILES:
         raise ModelEditorError("This control file is not available in the quick editor.")
@@ -553,31 +561,39 @@ def _prepare_quick_parameter_edit(
     if set(values) != expected_keys:
         raise ModelEditorError("The submitted quick-parameter set does not match the current file.")
 
-    if keep_temperature_logg:
+    if keep_temperature_logg and keep_luminosity_logg:
+        raise ModelEditorError("Choose only one stellar scaling constraint.")
+    if keep_temperature_logg or keep_luminosity_logg:
         scaling = card["luminosity_scaling"]
         if not scaling or not scaling["available"]:
             reason = str(scaling["reason"]) if scaling else "This option requires VADAT."
-            raise ModelEditorError("Cannot keep temperature and log g fixed. " + reason)
+            raise ModelEditorError("Cannot apply stellar scaling. " + reason)
         baseline = scaling["baseline"]
         fields_by_key = {str(field["key"]): field for field in fields}
-        luminosity = parse_float_token(_validate_quick_parameter_value(fields_by_key["LSTAR"], values["LSTAR"]))
-        if luminosity <= 0:
-            raise ModelEditorError("[LSTAR] must be positive when keeping temperature and log g fixed.")
-        logg = parse_float_token(_validate_quick_parameter_value(fields_by_key["LOGG"], values["LOGG"]))
-        if logg != baseline["LOGG"]:
-            raise ModelEditorError("[LOGG] must remain unchanged when keeping temperature and log g fixed.")
-        factor = luminosity / baseline["LSTAR"]
-        radius = baseline["RSTAR"] * math.sqrt(factor)
-        mass = baseline["MASS"] * factor
+        fixed = "TEFF" if keep_temperature_logg else "LSTAR"
+        driver = "LSTAR" if keep_temperature_logg else "TEFF"
+        for key in (fixed, "LOGG"):
+            value = parse_float_token(_validate_quick_parameter_value(fields_by_key[key], values[key]))
+            if value != baseline[key]:
+                raise ModelEditorError(f"[{key}] must remain unchanged with the selected scaling constraint.")
+            values[key] = fields_by_key[key]["value"]
+        target = parse_float_token(_validate_quick_parameter_value(fields_by_key[driver], values[driver]))
+        if target <= 0:
+            raise ModelEditorError(f"[{driver}] must be positive for stellar scaling.")
+        try:
+            factor = target / baseline[driver] if keep_temperature_logg else (baseline[driver] / target)**4
+            radius = baseline["RSTAR"] * math.sqrt(factor)
+            mass = baseline["MASS"] * factor
+        except (OverflowError, ZeroDivisionError):
+            raise ModelEditorError("Stellar scaling must yield a finite positive radius and mass.") from None
         if not all(math.isfinite(value) and value > 0 for value in (factor, radius, mass)):
-            raise ModelEditorError("Luminosity scaling must yield a finite positive radius and mass.")
-        values = {**values, "LOGG": fields_by_key["LOGG"]["value"]}
-        # Retain the original notation for a no-op luminosity change.
-        if luminosity == baseline["LSTAR"]:
+            raise ModelEditorError("Stellar scaling must yield a finite positive radius and mass.")
+        if target == baseline[driver]:
             values.update({key: fields_by_key[key]["value"] for key in ("RSTAR", "MASS")})
         else:
             values.update(RSTAR=f"{radius:.12g}", MASS=f"{mass:.12g}")
-        card["keep_temperature_logg"] = True
+        card["keep_temperature_logg"] = keep_temperature_logg
+        card["keep_luminosity_logg"] = keep_luminosity_logg
 
     lines = str(record["contents"]).splitlines(keepends=True)
     for field in fields:
@@ -629,6 +645,7 @@ def review_quick_model_parameter_edit(
     expected_digest: str,
     values: dict[str, object],
     keep_temperature_logg: bool = False,
+    keep_luminosity_logg: bool = False,
 ) -> dict[str, object]:
     card, contents = _prepare_quick_parameter_edit(
         basepath,
@@ -637,6 +654,7 @@ def review_quick_model_parameter_edit(
         expected_digest=expected_digest,
         values=values,
         keep_temperature_logg=keep_temperature_logg,
+        keep_luminosity_logg=keep_luminosity_logg,
     )
     review = review_model_parameter_edit(
         basepath,
@@ -645,13 +663,14 @@ def review_quick_model_parameter_edit(
         expected_digest=expected_digest,
         contents=contents,
     )
-    if keep_temperature_logg:
+    if keep_temperature_logg or keep_luminosity_logg:
         review["warnings"] = [*review["warnings"], *card["luminosity_scaling"]["warnings"]]
     return {
         **review,
         "card": card,
         "values": {field["key"]: field["value"] for field in card["fields"]},
         "keep_temperature_logg": keep_temperature_logg,
+        "keep_luminosity_logg": keep_luminosity_logg,
     }
 
 
@@ -664,6 +683,7 @@ def save_quick_model_parameter_edit(
     reviewed_digest: str,
     values: dict[str, object],
     keep_temperature_logg: bool = False,
+    keep_luminosity_logg: bool = False,
 ) -> dict[str, object]:
     review = review_quick_model_parameter_edit(
         basepath,
@@ -672,6 +692,7 @@ def save_quick_model_parameter_edit(
         expected_digest=expected_digest,
         values=values,
         keep_temperature_logg=keep_temperature_logg,
+        keep_luminosity_logg=keep_luminosity_logg,
     )
     if reviewed_digest != str(review["proposed_digest"]):
         raise ModelEditorError(

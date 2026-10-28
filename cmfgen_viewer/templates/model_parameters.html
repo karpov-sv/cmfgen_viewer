@@ -112,22 +112,34 @@
                   {% with solver_notices=card.solver_notices %}{% include '_solver_notices.html' %}{% endwith %}
                   {% if card.file_relpath == 'VADAT' %}
                     {% with ba_reuse_disabled=card.ba_reuse_disabled %}{% include '_ba_reuse_notice.html' %}{% endwith %}
-                    <div class="mb-3">
-                      <div class="form-check">
-                        <input class="form-check-input" type="checkbox" id="keep-temperature-logg" name="keep_temperature_logg" value="1"
-                          data-luminosity-scaling {% if card.keep_temperature_logg %}checked{% endif %}
-                          {% if not card.luminosity_scaling.available %}disabled{% endif %}
-                          {% if card.luminosity_scaling.available %}
-                            data-baseline-luminosity="{{ card.luminosity_scaling.baseline.LSTAR }}"
-                            data-baseline-radius="{{ card.luminosity_scaling.baseline.RSTAR }}"
-                            data-baseline-mass="{{ card.luminosity_scaling.baseline.MASS }}"
-                            data-baseline-logg="{{ card.luminosity_scaling.baseline.LOGG }}"
-                          {% endif %}>
-                        <label class="form-check-label small" for="keep-temperature-logg">Keep effective temperature and log g fixed</label>
+                    <div class="row g-3 mb-3">
+                      <div class="col-12 col-md-6">
+                        <div class="form-check">
+                          <input class="form-check-input" type="checkbox" id="keep-temperature-logg" name="keep_temperature_logg" value="1"
+                            data-luminosity-scaling {% if card.keep_temperature_logg %}checked{% endif %}
+                            {% if not card.luminosity_scaling.available %}disabled{% endif %}
+                            {% if card.luminosity_scaling.available %}
+                              data-baseline-temperature="{{ card.luminosity_scaling.baseline.TEFF }}"
+                              data-baseline-luminosity="{{ card.luminosity_scaling.baseline.LSTAR }}"
+                              data-baseline-radius="{{ card.luminosity_scaling.baseline.RSTAR }}"
+                              data-baseline-mass="{{ card.luminosity_scaling.baseline.MASS }}"
+                              data-baseline-logg="{{ card.luminosity_scaling.baseline.LOGG }}"
+                            {% endif %}>
+                          <label class="form-check-label small" for="keep-temperature-logg">Keep effective temperature and log g fixed</label>
+                        </div>
+                        <div class="form-text">{% if card.luminosity_scaling.available %}
+                          Changing luminosity scales the original radius by √(L / L₀) and mass by L / L₀. TEFF and LOGG stay unchanged.
+                          {% else %}{{ card.luminosity_scaling.reason }}{% endif %}</div>
                       </div>
-                      <div class="form-text">{% if card.luminosity_scaling.available %}
-                        Changing luminosity scales the original radius by √(L / L₀) and mass by L / L₀. TEFF and LOGG stay unchanged.
-                        {% else %}{{ card.luminosity_scaling.reason }}{% endif %}</div>
+                      <div class="col-12 col-md-6">
+                        <div class="form-check">
+                          <input class="form-check-input" type="checkbox" id="keep-luminosity-logg" name="keep_luminosity_logg" value="1"
+                            data-temperature-scaling {% if card.keep_luminosity_logg %}checked{% endif %}
+                            {% if not card.luminosity_scaling.available %}disabled{% endif %}>
+                          <label class="form-check-label small" for="keep-luminosity-logg">Keep luminosity and log g fixed</label>
+                        </div>
+                        <div class="form-text">Changing TEFF scales the original radius by (T₀ / T)² and mass by (T₀ / T)⁴. Choose one constraint at a time.</div>
+                      </div>
                     </div>
                   {% endif %}
                   {% for group in card.groups %}
@@ -156,6 +168,9 @@
                     {% if quick_review.keep_temperature_logg %}
                       <p class="small">Effective temperature and log g held fixed. Radius and mass are derived from the original saved model.</p>
                     {% endif %}
+                    {% if quick_review.keep_luminosity_logg %}
+                      <p class="small">Luminosity and log g held fixed. Radius and mass are derived from the original saved model.</p>
+                    {% endif %}
                     {% if quick_review.warnings %}
                       <div class="alert alert-warning py-2 small">
                         {% for warning in quick_review.warnings %}<div>{{ warning }}</div>{% endfor %}
@@ -168,6 +183,7 @@
                         <input type="hidden" name="quick_file_relpath" value="{{ card.file_relpath }}">
                         <input type="hidden" name="expected_digest" value="{{ card.digest }}">
                         {% if quick_review.keep_temperature_logg %}<input type="hidden" name="keep_temperature_logg" value="1">{% endif %}
+                        {% if quick_review.keep_luminosity_logg %}<input type="hidden" name="keep_luminosity_logg" value="1">{% endif %}
                         <input type="hidden" name="reviewed_digest" value="{{ quick_review.proposed_digest }}">
                         {% for field in card.fields %}
                           <input type="hidden" name="{{ field.field_name }}" value="{{ field.value }}">

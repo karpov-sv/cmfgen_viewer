@@ -188,7 +188,7 @@ def test_quick_model_parameters_preserve_control_file_structure(tmp_path: Path) 
     original = (
         "  1.0D+05   [LSTAR] ! luminosity\r\n"
         "2.0D-06     [MDOT] ! mass loss\r\n"
-        "3.0         [TEFF] ! intentionally not a quick parameter\r\n"
+        "3.0         [TEFF] ! effective temperature\r\n"
         "3.5         [LOGG] ! hydro rebuild required\r\n"
         "T           [DO_CL] ! clumping\r\n"
         "EXPO        [CL_LAW]\r\n"
@@ -202,7 +202,7 @@ def test_quick_model_parameters_preserve_control_file_structure(tmp_path: Path) 
     cards = load_quick_model_parameter_cards(str(tmp_path), model_relpath="model_a")
     vadat = next(card for card in cards if card["file_relpath"] == "VADAT")
     fields = {str(field["key"]): field for field in vadat["fields"]}
-    assert "TEFF" not in fields
+    assert fields["TEFF"]["value"] == "3.0"
     assert fields["LSTAR"]["value"] == "1.0D+05"
     assert "LTE/hydro" in str(fields["LOGG"]["notice"])
     assert fields["SIL/X"]["group"] == "Additional abundances"
@@ -461,6 +461,7 @@ def test_luminosity_scaling_rejects_gravity_edits_and_missing_controls(tmp_path)
     (model / "VADAT").write_text(original.replace("3.0 [TEFF]", "3.0 [OTHER]"))
     card = load_quick_model_parameter_cards(str(tmp_path), model_relpath="model_a")[0]
     assert not card["luminosity_scaling"]["available"]
+    values = {field["key"]: field["value"] for field in card["fields"]}
     with pytest.raises(ModelEditorError, match="TEFF"):
         review_quick_model_parameter_edit(str(tmp_path), model_relpath="model_a", file_relpath="VADAT",
                                          expected_digest=card["digest"], values=values, keep_temperature_logg=True)
@@ -572,3 +573,47 @@ def test_quick_relaxation_edit_preserves_scope_and_other_controls(tmp_path):
     assert (model/'ADJUST_CORRECTIONS').read_bytes()==contents.replace('0.25','0.5').encode()
     assert not next(c for c in load_quick_model_parameter_cards(str(tmp_path),model_relpath='model_a')
                     if c['file_relpath']=='ADJUST_CORRECTIONS')['ba_reuse_disabled']
+
+
+@pytest.mark.parametrize('temperature', ['1.5', '6D0'])
+def test_temperature_scaling_preserves_luminosity_gravity_and_review(tmp_path, temperature):
+    model,original,card,values=_scaling_model(tmp_path)
+    values.update(TEFF=temperature,RSTAR='999',MASS='999')
+    kwargs=dict(model_relpath='model_a',file_relpath='VADAT',expected_digest=card['digest'],
+                values=values,keep_luminosity_logg=True)
+    review=review_quick_model_parameter_edit(str(tmp_path),**kwargs)
+    derived={f['key']:f['value'] for f in review['card']['fields']}
+    t=float(temperature.replace('D','e'));rf=(3/t)**2
+    assert float(derived['RSTAR']) == pytest.approx(70*rf)
+    assert float(derived['MASS']) == pytest.approx(10*rf**2)
+    assert derived['LSTAR']=='1.0D5' and derived['LOGG']=='3.50D0'
+    assert review['keep_luminosity_logg']
+    assert (model/'VADAT').read_bytes()==original.encode()
+    kwargs['values']=derived
+    repeated=review_quick_model_parameter_edit(str(tmp_path),**kwargs)
+    assert repeated['proposed_digest']==review['proposed_digest']
+    save_quick_model_parameter_edit(str(tmp_path),reviewed_digest=review['proposed_digest'],**kwargs)
+    assert (model/'VADAT').read_bytes()==review['contents'].encode()
+
+
+@pytest.mark.parametrize('fault', ['both','luminosity','gravity','temperature_fixed','zero','negative','overflow','underflow'])
+def test_temperature_constraints_reject_conflicts_and_invalid_values(tmp_path,fault):
+    model,original,card,values=_scaling_model(tmp_path)
+    options={'keep_luminosity_logg':True}
+    if fault=='both':options['keep_temperature_logg']=True
+    elif fault=='luminosity':values['LSTAR']='2e5'
+    elif fault=='gravity':values['LOGG']='4'
+    elif fault=='temperature_fixed':
+        options={'keep_temperature_logg':True};values['TEFF']='4'
+    else:values['TEFF']={'zero':'0','negative':'-1','overflow':'1e-320','underflow':'1e308'}[fault]
+    with pytest.raises(ModelEditorError):
+        review_quick_model_parameter_edit(str(tmp_path),model_relpath='model_a',file_relpath='VADAT',
+            expected_digest=card['digest'],values=values,**options)
+    assert (model/'VADAT').read_bytes()==original.encode()
+
+
+def test_temperature_scaling_noop_preserves_saved_notation(tmp_path):
+    model,original,card,values=_scaling_model(tmp_path)
+    review=review_quick_model_parameter_edit(str(tmp_path),model_relpath='model_a',file_relpath='VADAT',
+        expected_digest=card['digest'],values=values,keep_luminosity_logg=True)
+    assert review['contents']==original

@@ -32,7 +32,15 @@ make the source writable or grant extra write access to backups and rollback
 copies. Operations that edit, move, clean, restore, or run an existing model
 still require its normal write access and model-lock checks.
 
-In **Edit parameters → Quick parameters**, enable **Keep effective temperature and log g fixed** to change luminosity while scaling the saved `RSTAR` by `sqrt(LSTAR / original LSTAR)` and `MASS` by the luminosity ratio. Radius, mass, and log g become read-only while selected; `TEFF` and `LOGG` are retained. Review the derived changes before saving. Every preview uses the original saved values, and saving creates the usual recovery checkpoint and marks the solution stale. The option requires unique, valid `LSTAR`, `RSTAR`, `MASS`, `TEFF`, and `LOGG` controls, with positive luminosity, radius, mass, and temperature. A review warning flags an existing mass/gravity discrepancy greater than 0.05 dex at the LTE/hydro reference radius; scaling preserves that discrepancy. This edits controls; it does not regenerate the LTE/hydro structure.
+In **Edit parameters → Quick parameters**, enable **Keep effective temperature and log g fixed** to change luminosity while scaling the saved `RSTAR` by `sqrt(LSTAR / original LSTAR)` and `MASS` by the luminosity ratio. Radius, mass, and log g become read-only while selected; `TEFF` and `LOGG` are retained. `TEFF` is exposed as **Effective temperature**, in units of 10⁴ K. Review the derived changes before saving. Every preview uses the original saved values, and saving creates the usual recovery checkpoint and marks the solution stale. The option requires unique, valid `LSTAR`, `RSTAR`, `MASS`, `TEFF`, and `LOGG` controls, with positive luminosity, radius, mass, and temperature. A review warning flags an existing mass/gravity discrepancy greater than 0.05 dex at the LTE/hydro reference radius; scaling preserves that discrepancy. This edits controls; it does not regenerate the LTE/hydro structure.
+
+Alternatively, enable **Keep luminosity and log g fixed** to edit TEFF while
+scaling radius by `(original TEFF / new TEFF)²` and mass by the fourth power of
+that ratio. Luminosity, log g, radius and mass become read-only in this mode.
+The two checkboxes are mutually exclusive. Both modes derive changes from the
+saved model, preserve any existing mass/gravity discrepancy, and require the
+normal review and save. Changing the radius can require a structure update
+before the next run; neither mode regenerates the structure automatically.
 
 
 For a new LTE/hydro structure, follow [LTE / Hydro](/documentation/lte-hydro): prepare the workspace, run LTE, run hydro, review the result, then promote it. Promotion updates the root structure and archives incompatible old solution files. Continue to [Main computation](/documentation/main-computation) after the handoff is ready.

@@ -88,43 +88,58 @@
       });
     }
     const checkbox = form.querySelector("[data-luminosity-scaling]");
-    if (!checkbox || checkbox.disabled) return;
-    const luminosity = field("LSTAR");
-    const radius = field("RSTAR");
-    const mass = field("MASS");
-    const gravity = field("LOGG");
-    if (!luminosity || !radius || !mass || !gravity) return;
-    const baselineLuminosity = Number(checkbox.dataset.baselineLuminosity);
-    const baselineRadius = Number(checkbox.dataset.baselineRadius);
-    const baselineMass = Number(checkbox.dataset.baselineMass);
+    const temperatureCheckbox = form.querySelector("[data-temperature-scaling]");
+    if (!checkbox || checkbox.disabled || !temperatureCheckbox) return;
+    const controls = Object.fromEntries(["LSTAR", "TEFF", "RSTAR", "MASS", "LOGG"].map(key => [key, field(key)]));
+    if (Object.values(controls).some(input => !input)) return;
+    const baseline = {
+      LSTAR: Number(checkbox.dataset.baselineLuminosity),
+      TEFF: Number(checkbox.dataset.baselineTemperature),
+      RSTAR: Number(checkbox.dataset.baselineRadius),
+      MASS: Number(checkbox.dataset.baselineMass),
+      LOGG: Number(checkbox.dataset.baselineLogg)
+    };
     let manualValues = null;
     function updateDerivedValues() {
-      if (!checkbox.checked) return;
-      const value = Number(luminosity.value.trim().replace(/[dD]/g, "e"));
-      const factor = value / baselineLuminosity;
-      const newRadius = baselineRadius * Math.sqrt(factor);
-      const newMass = baselineMass * factor;
-      const valid = Number.isFinite(factor) && factor > 0 &&
-        Number.isFinite(newRadius) && newRadius > 0 && Number.isFinite(newMass) && newMass > 0;
-      luminosity.setCustomValidity(valid ? "" : "Enter a luminosity that gives a finite positive radius and mass.");
+      if (!checkbox.checked && !temperatureCheckbox.checked) return;
+      const driver = checkbox.checked ? "LSTAR" : "TEFF";
+      if (manualValues) manualValues[driver] = controls[driver].value;
+      const value = Number(controls[driver].value.trim().replace(/[dD]/g, "e"));
+      const factor = checkbox.checked ? value / baseline.LSTAR : Math.pow(baseline.TEFF / value, 4);
+      const radius = baseline.RSTAR * Math.sqrt(factor);
+      const mass = baseline.MASS * factor;
+      const valid = value > 0 && Number.isFinite(value) && Number.isFinite(factor) && factor > 0 &&
+        Number.isFinite(radius) && radius > 0 && Number.isFinite(mass) && mass > 0;
+      controls[driver].setCustomValidity(valid ? "" : "Enter a value that gives a finite positive radius and mass.");
       if (valid) {
-        radius.value = Number(newRadius.toPrecision(12)).toString();
-        mass.value = Number(newMass.toPrecision(12)).toString();
+        controls.RSTAR.value = Number(radius.toPrecision(12)).toString();
+        controls.MASS.value = Number(mass.toPrecision(12)).toString();
       }
     }
-    function toggleScaling() {
-      if (checkbox.checked) {
-        manualValues = [radius.value, mass.value, gravity.value];
-        gravity.value = checkbox.dataset.baselineLogg;
-      } else {
-        if (manualValues) [radius.value, mass.value, gravity.value] = manualValues;
-        luminosity.setCustomValidity("");
+    function toggleScaling(changed) {
+      if (changed && changed.checked) {
+        if (!manualValues) manualValues = Object.fromEntries(Object.entries(controls).map(([key, input]) => [key, input.value]));
+        (changed === checkbox ? temperatureCheckbox : checkbox).checked = false;
       }
-      [radius, mass, gravity].forEach((input) => { input.readOnly = checkbox.checked; });
+      const active = checkbox.checked || temperatureCheckbox.checked;
+      if (active && !manualValues) manualValues = Object.fromEntries(Object.entries(controls).map(([key, input]) => [key, input.value]));
+      Object.values(controls).forEach(input => { input.readOnly = false; input.setCustomValidity(""); });
+      if (active) {
+        const fixed = checkbox.checked ? "TEFF" : "LSTAR";
+        const driver = checkbox.checked ? "LSTAR" : "TEFF";
+        controls[driver].value = manualValues[driver];
+        controls[fixed].value = baseline[fixed];
+        controls.LOGG.value = baseline.LOGG;
+        [fixed, "LOGG", "RSTAR", "MASS"].forEach(key => { controls[key].readOnly = true; });
+      } else if (manualValues) {
+        Object.entries(manualValues).forEach(([key, value]) => { controls[key].value = value; });
+        manualValues = null;
+      }
       updateDerivedValues();
     }
-    checkbox.addEventListener("change", toggleScaling);
-    luminosity.addEventListener("input", updateDerivedValues);
+    checkbox.addEventListener("change", () => toggleScaling(checkbox));
+    temperatureCheckbox.addEventListener("change", () => toggleScaling(temperatureCheckbox));
+    [controls.LSTAR, controls.TEFF].forEach(input => input.addEventListener("input", updateDerivedValues));
     toggleScaling();
   });
 })();

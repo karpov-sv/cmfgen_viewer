@@ -73,7 +73,7 @@ def test_set_iteration_controls_and_noop(tmp_path, capsys):
 
 
 @pytest.mark.parametrize('assignments,flag', [
-    (['LSTAR=4e5', 'lstar=5e5'], []), (['TEFF=3.5'], []), (['LSTAR=nan'], []),
+    (['LSTAR=4e5', 'lstar=5e5'], []), (['UNKNOWN=3.5'], []), (['LSTAR=nan'], []),
     (['LSTAR'], []), (['LSTAR='], []), (['MDOT=2e-6'], ['--keep-teff-logg']),
     (['LSTAR=4e5', 'MASS=20'], ['--keep-teff-logg']),
     (['LSTAR=0'], ['--keep-teff-logg']),

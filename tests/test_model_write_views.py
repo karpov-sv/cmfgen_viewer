@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import pytest
 import os
 from pathlib import Path
 
@@ -410,7 +411,7 @@ def test_quick_parameter_editor_reviews_and_saves_vadat_values(tmp_path: Path) -
     original = (
         "1.0D+05 [LSTAR] ! luminosity\n"
         "2.0D-06 [MDOT] ! mass loss\n"
-        "3.0 [TEFF] ! full-editor only\n"
+        "3.0 [TEFF] ! effective temperature\n"
         "3.5 [LOGG]\n"
         "T [DO_CL]\n"
         "0.1 [CL_PAR_1]\n"
@@ -439,12 +440,13 @@ def test_quick_parameter_editor_reviews_and_saves_vadat_values(tmp_path: Path) -
     assert b"Stellar and wind" in index.data
     assert b"Additional abundances (1)" in index.data
     assert b"Iteration controls" in index.data
-    assert b"TEFF" not in index.data
+    assert b'name="quick_value:TEFF"' in index.data
     assert b"Changing LOGG requires regenerating the LTE/hydro structure" in index.data
 
     values = {
         "quick_value:LSTAR": "2.5D+05",
         "quick_value:MDOT": "2.0D-06",
+        "quick_value:TEFF": "3.0",
         "quick_value:LOGG": "3.5",
         "quick_value:DO_CL": "F",
         "quick_value:CL_PAR_1": "0.1",
@@ -580,7 +582,8 @@ def test_model_parameter_checkpoint_loads_into_editor_then_restores_through_revi
     assert len(list((source / ".cmfgen-viewer-backups").glob("VADAT.*.bak"))) == 2
 
 
-def test_quick_editor_luminosity_scaling_survives_review_and_save(tmp_path):
+@pytest.mark.parametrize("mode", ["luminosity", "temperature"])
+def test_quick_editor_luminosity_scaling_survives_review_and_save(tmp_path, mode):
     from html.parser import HTMLParser
 
     class ReviewFormParser(HTMLParser):
@@ -609,23 +612,26 @@ def test_quick_editor_luminosity_scaling_survives_review_and_save(tmp_path):
     url = "/model-actions/edit/model_a"
     page = client.get(url)
     assert b'Keep effective temperature and log g fixed' in page.data
+    constraint = "keep_temperature_logg" if mode == "luminosity" else "keep_luminosity_logg"
     response = client.post(url, data={
         "action": "quick_preview", "quick_file_relpath": "VADAT",
         "expected_digest": hashlib.sha256(original.encode()).hexdigest(),
-        "keep_temperature_logg": "1", "quick_value:LSTAR": "4D5",
+        constraint: "1", "quick_value:LSTAR": "4D5" if mode == "luminosity" else "1D5",
+        "quick_value:TEFF": "3" if mode == "luminosity" else "6",
         "quick_value:RSTAR": "70", "quick_value:MASS": "10", "quick_value:LOGG": "3.5",
     })
     assert response.status_code == 200
-    assert b'Effective temperature and log g held fixed' in response.data
+    assert (b'Effective temperature and log g held fixed' if mode == 'luminosity' else b'Luminosity and log g held fixed') in response.data
     parser = ReviewFormParser()
     parser.feed(response.get_data(as_text=True))
     data = parser.save_values
-    assert data["keep_temperature_logg"] == "1"
-    assert data["quick_value:RSTAR"] == "140"
-    assert data["quick_value:MASS"] == "40"
+    assert data[constraint] == "1"
+    assert data["quick_value:RSTAR"] == ("140" if mode == "luminosity" else "17.5")
+    assert data["quick_value:MASS"] == ("40" if mode == "luminosity" else "0.625")
     saved = client.post(url, data=data)
     assert saved.status_code == 302
-    assert (source / "VADAT").read_text() == original.replace("1D5", "4D5").replace("70", "140").replace("10", "40")
+    expected = original.replace("1D5", "4D5").replace("70", "140").replace("10", "40") if mode == "luminosity" else original.replace("3 [TEFF]", "6 [TEFF]").replace("70", "17.5").replace("10", "0.625")
+    assert (source / "VADAT").read_text() == expected
 
 
 def test_create_from_readonly_solution_does_not_need_source_write_access(tmp_path):
