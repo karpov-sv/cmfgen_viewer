@@ -1,0 +1,11 @@
+<section class="card border-warning mb-3" id="inputs-review">
+  <div class="card-header"><strong>Restore inputs for a fresh run</strong></div>
+  <div class="card-body">
+    <p class="small">Restore the saved pre-run input set from <code>{{ inputs_review.archive_id }}</code>. Current binary checkpoints, populations, derived atmosphere/spectrum outputs, and old atomic links are retired. The solution is marked stale. No calculation starts.</p>
+    <div class="table-responsive history-review-scroll mb-2"><table class="table table-sm mb-0"><thead><tr><th>Restore input</th><th class="text-end">Size</th></tr></thead><tbody>{% for file in inputs_review.files %}<tr><td><code>{{ file.target }}</code></td><td class="text-end">{{ size(file.size) }}</td></tr>{% endfor %}</tbody></table></div>
+    <details class="mb-2"><summary class="small">Current files to retire</summary><ul class="small mb-0">{% for name, record in inputs_review.current.items() if record %}<li><code>{{ name }}</code></li>{% endfor %}</ul></details>
+    <p class="small">Current-state recovery: input files and diagnostic evidence; calculated state omitted.</p>
+    {% for warning in inputs_review.warnings %}<p class="small text-muted">{{ warning }}</p>{% endfor %}
+    <form method="post" action="{{ url_for('viewer.model_history', source_path=source_path, _anchor='history-detail') }}"><input type="hidden" name="older_than" value="{{ older_than }}">{% if selected %}<input type="hidden" name="archive" value="{{ selected.id }}">{% endif %}<input type="hidden" name="action" value="restore_inputs"><input type="hidden" name="review_token" value="{{ inputs_token }}"><button class="btn btn-sm btn-primary" {% if not activity.safe_to_modify %}disabled{% endif %}>Restore reviewed inputs</button> <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('viewer.model_history', source_path=source_path, archive=selected.id if selected else None, older_than=older_than) }}">Cancel</a></form>
+  </div>
+</section>

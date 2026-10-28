@@ -254,10 +254,23 @@ def load_archived_control(model, archive_id, archived_file, expected_target=None
     contents = _decode_text(path.read_bytes())
     current = model / row['target']
     current_contents = _decode_text(current.read_bytes())
-    diff = ''.join(difflib.unified_diff(current_contents.splitlines(True), contents.splitlines(True),
-                    fromfile='Current ' + row['target'], tofile='Archived ' + archived_file))
+    lines = list(difflib.unified_diff(current_contents.splitlines(), contents.splitlines(),
+                    fromfile='Current ' + row['target'], tofile='Archived ' + archived_file, lineterm=''))
+    diff_lines = []
+    for line in lines:
+        kind = ('header' if line.startswith(('+++', '---')) else
+                'range' if line.startswith('@@') else
+                'added' if line.startswith('+') else
+                'removed' if line.startswith('-') else 'context')
+        diff_lines.append({'text': line, 'kind': kind})
+    diff = '\n'.join(lines)
     return {'name': path.name, 'contents': contents, 'warnings': [], 'backup_relpath': archived_file,
-            'target': row['target'], 'diff': diff, 'archive_id': entry['id']}
+            'target': row['target'], 'diff': diff, 'diff_lines': diff_lines,
+            'line_endings_differ': (set(re.findall(r'\r\n|\r|\n', current_contents)) !=
+                                    set(re.findall(r'\r\n|\r|\n', contents)) or
+                                    current_contents.endswith(('\r', '\n')) != contents.endswith(('\r', '\n'))),
+            'added': sum(line['kind'] == 'added' for line in diff_lines),
+            'removed': sum(line['kind'] == 'removed' for line in diff_lines), 'archive_id': entry['id']}
 
 
 def control_versions(model, target):

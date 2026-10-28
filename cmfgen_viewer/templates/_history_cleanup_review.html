@@ -1,0 +1,10 @@
+<section class="card border-warning mb-3" id="cleanup-review">
+  <div class="card-header"><strong>Review {{ 'compaction' if review.action == 'compact' else 'archive deletion' }}</strong></div>
+  <div class="card-body">
+    <p>{{ review.entries|length }} archive(s) selected · approximately {{ size(review.reclaimable) }} removable.</p>
+    {% if review.action == 'compact' %}<p class="small">Keep fresh-run inputs and JSON history; shorten large diagnostic logs to beginning/end excerpts. Remove calculated state, binary checkpoints, and scratch files regardless of size.</p>{% else %}<p class="small">Permanently delete the selected archives, including their logs and recovery copies. This cannot be undone. Working model files are outside this operation.</p>{% endif %}
+    {% if review.action == 'compact' and not review.reclaimable %}<p class="small text-muted">No disposable artifacts need compaction in these archives.</p>{% endif %}
+    <ul class="small" style="max-height: 14rem; overflow: auto">{% for entry in review.entries %}<li><code>{{ entry.id }}</code> · {{ size(entry.reclaimable) }}</li>{% endfor %}</ul>
+    <form method="post" action="{{ url_for('viewer.model_history', source_path=source_path, _anchor='history-detail') }}"><input type="hidden" name="older_than" value="{{ older_than }}">{% if selected %}<input type="hidden" name="archive" value="{{ selected.id }}">{% endif %}<input type="hidden" name="action" value="apply"><input type="hidden" name="review_token" value="{{ review_token }}"><button class="btn btn-sm btn-danger" {% if not activity.safe_to_modify or (review.action == 'compact' and not review.reclaimable) %}disabled{% endif %}>Confirm {{ 'compaction' if review.action == 'compact' else 'deletion' }}</button> <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('viewer.model_history', source_path=source_path, archive=selected.id if selected else None, older_than=older_than) }}">Cancel</a></form>
+  </div>
+</section>

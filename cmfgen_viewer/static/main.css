@@ -984,3 +984,42 @@ a:focus {
 .runtime-monitor-help {
     max-width: 40rem;
 }
+
+/* History keeps archive navigation beside the current task. */
+.history-layout {
+    display: grid;
+    grid-template-columns: minmax(18rem, 0.9fr) minmax(0, 1.6fr);
+    align-items: start;
+    gap: 1rem;
+}
+.history-detail { min-width: 0; scroll-margin-top: 1rem; }
+.history-age { width: 5rem; }
+.history-select-cell { width: 2rem; }
+.history-archive-label { overflow-wrap: anywhere; }
+.history-archive-scroll { max-height: 50vh; overflow: auto; }
+.history-file-scroll { max-height: 52vh; overflow: auto; }
+.history-review-scroll { max-height: 28vh; overflow: auto; }
+.history-archive-scroll thead, .history-file-scroll thead {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--bs-body-bg);
+}
+.history-control-picker { min-width: 0; }
+.history-diff { max-height: 55vh; }
+.history-diff span { width: max-content; min-width: 100%; }
+.history-diff-wrap { white-space: pre-wrap; overflow-wrap: anywhere; }
+.history-diff-wrap span { width: auto; }
+.history-diff-changes .diff-context { display: none; }
+@media (max-width: 991.98px) {
+    .history-layout { grid-template-columns: minmax(0, 1fr); }
+    .history-archive-scroll { max-height: 30vh; }
+}
+@media (max-width: 575.98px) {
+    .history-file-scroll table, .history-file-scroll tbody { display: block; width: 100%; }
+    .history-file-scroll thead { display: none; }
+    .history-file-scroll tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; padding: 0.4rem; border-bottom: 1px solid var(--bs-border-color); }
+    .history-file-scroll tr[hidden] { display: none; }
+    .history-file-scroll td { border: 0; padding: 0.2rem; }
+    .history-file-scroll td:last-child { grid-column: 1 / -1; }
+}

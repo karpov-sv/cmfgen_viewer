@@ -218,3 +218,18 @@ def test_input_archiving_keeps_working_disk_headroom(workspace, monkeypatch):
     assert not manifest['complete'] and 'Insufficient space' in manifest['missing'][0]
     assert not list((archive / 'inputs').iterdir())
     assert (model / 'He2_IN').read_text() == 'helium'
+
+
+def test_input_preview_keeps_selected_archive_and_opens_only_restore_panel(bundle):
+    model,archive,_=bundle
+    client=create_app(basepath=str(model.parent),read_write_enabled=True,secret_key='recovery-context').test_client()
+    url='/model-actions/history/'+model.name
+    page=client.post(url,query_string={'archive':_id(model,archive),'file':_id(model,archive)+'/inputs/VADAT','older_than':2},
+        data={'action':'preview_inputs','archive':_id(model,archive)})
+    text=page.get_data(as_text=True)
+    assert page.status_code==200
+    assert 'id="archive-files"' in text and 'Restore reviewed inputs' in text
+    assert text.count('tab-pane show active')==1
+    assert 'tab-pane show active p-3" id="history-restore"' in text
+    assert 'name="older_than" value="2"' in text
+    assert 'id="control-comparison"' not in text

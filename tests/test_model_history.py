@@ -195,3 +195,56 @@ def test_compacted_archive_label_does_not_claim_full_recovery(model, journal):
     entries, _ = list_archives(model)
     assert entries[0]['policy'] == 'Compacted'
     assert json.loads((journal / 'plan.json').read_text())['keep_large_files'] is True
+
+
+def test_history_comparison_highlights_and_escapes_without_losing_navigation(model,journal):
+    (model/'VADAT').write_text('1 [LSTAR]\n! current <script>alert(1)</script>')
+    (journal/'inputs/VADAT').write_text('2 [LSTAR]\n! archived <script>alert(2)</script>')
+    archive=journal.relative_to(model).as_posix()
+    comparison=load_archived_control(model,archive,archive+'/inputs/VADAT')
+    assert comparison['added']==2 and comparison['removed']==2
+    assert [line['kind'] for line in comparison['diff_lines']][:3]==['header','header','range']
+    assert '-! current' in comparison['diff'] and '\n+2 [LSTAR]' in comparison['diff']
+    response=_app(model).test_client().get('/model-actions/history/'+model.name,
+        query_string={'archive':archive,'file':archive+'/inputs/VADAT','older_than':5})
+    text=response.get_data(as_text=True)
+    assert response.status_code==200
+    assert 'class="diff-added"' in text and 'class="diff-removed"' in text
+    assert '&lt;script&gt;' in text and '<script>alert(' not in text
+    assert 'older_than=5' in text
+    assert 'id="history-compare-tab"' in text and 'aria-selected="true"' in text
+    assert 'data-history-wrap' in text and 'data-history-changes' in text
+    assert 'data-history-file-filter' in text
+
+
+def test_history_diff_explains_line_ending_only_changes(model,journal):
+    (model/'VADAT').write_bytes(b'1 [LSTAR]\r\n')
+    (journal/'inputs/VADAT').write_bytes(b'1 [LSTAR]')
+    archive=journal.relative_to(model).as_posix()
+    comparison=load_archived_control(model,archive,archive+'/inputs/VADAT')
+    assert comparison['diff_lines']==[] and comparison['line_endings_differ']
+    page=_app(model).test_client().get('/model-actions/history/'+model.name,
+        query_string={'archive':archive,'file':archive+'/inputs/VADAT'})
+    assert b'Line endings or the final newline' in page.data
+    assert b'This version matches' not in page.data
+
+
+def test_history_cleanup_review_keeps_archive_and_filter_context(model,journal):
+    archive=journal.relative_to(model).as_posix()
+    page=_app(model).test_client().post('/model-actions/history/'+model.name,
+        data={'archive':archive,'archive_id':archive,'older_than':'5','cleanup_action':'delete'})
+    assert page.status_code==200
+    assert b'Confirm deletion' in page.data
+    assert b'id="archive-files"' in page.data
+    assert b'name="older_than" value="5"' in page.data
+    assert journal.exists()
+
+
+def test_readonly_history_retains_comparison_controls_without_write_actions(model,journal):
+    archive=journal.relative_to(model).as_posix()
+    page=_app(model,False).test_client().get('/model-actions/history/'+model.name,
+        query_string={'archive':archive,'file':archive+'/inputs/VADAT'})
+    assert page.status_code==200
+    assert b'data-history-wrap' in page.data and b'data-history-file-filter' in page.data
+    assert b'Load into editor for review' not in page.data
+    assert b'data-history-select-all' not in page.data

@@ -26,7 +26,7 @@ def model_history(source_path):
     error, review, token = '', None, None
     inputs_review, inputs_token, inputs_problem = None, None, ''
     try:
-        days = int(request.args.get('older_than', '0'))
+        days = int(request.args.get('older_than', request.form.get('older_than', '0')))
         if days < 0:
             raise ValueError
     except ValueError:
@@ -68,11 +68,13 @@ def model_history(source_path):
             error = str(exc) if not isinstance(exc, BadSignature) else 'Review expired or is invalid; preview again.'
     archives, warnings = list_archives(model)
     selected, files, comparison = None, [], None
-    archive_id = request.args.get('archive', '')
+    archive_id = request.args.get('archive', request.form.get('archive', ''))
+    if inputs_review:
+        archive_id = inputs_review['archive_id']
     try:
         if archive_id:
             selected, files = archive_files(model, archive_id)
-            if request.args.get('file'):
+            if request.args.get('file') and inputs_review is None:
                 comparison = load_archived_control(model, archive_id, request.args['file'])
     except (ModelEditorError, OSError) as exc:
         error = str(exc)
@@ -86,6 +88,7 @@ def model_history(source_path):
         archives=[entry for entry in archives if entry['age_days'] >= days], older_than=days,
         total_size=sum(entry['size'] for entry in archives), total_count=len(archives),
         error=error, warnings=warnings, selected=selected, files=files, comparison=comparison,
+        controls=[file for file in files if file.get('target')],
         review=review, review_token=token, writable=writable, activity=activity,
         inputs_review=inputs_review, inputs_token=inputs_token, inputs_problem=inputs_problem,
         breadcrumb=make_breadcrumb(source_path) + [{'name': 'History and recovery', 'path': None}])

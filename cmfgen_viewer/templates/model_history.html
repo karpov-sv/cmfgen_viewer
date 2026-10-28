@@ -8,97 +8,131 @@
   <h1 class="h4 mb-0">History and recovery</h1>
   <div class="small"><span class="text-muted me-3">{{ total_count }} archives · {{ size(total_size) }}</span><a href="{{ url_for('viewer.documentation', slug='getting-started', _anchor='history-and-recovery') }}">Recovery guide</a></div>
 </div>
-<p class="small text-muted">Browse saved controls and run evidence, compare historical controls with current files, or review archive cleanup. Archives are kept indefinitely. New recovery archives retain fresh-run inputs and run evidence, omitting binary checkpoints, calculated products, and scratch files. They are not full model snapshots.</p>
-{% if error %}<div class="alert alert-danger py-2">{{ error }}</div>{% endif %}
+<details class="small text-muted mb-3"><summary>What is saved and what can be restored?</summary>
+  <p class="mt-2 mb-0">Compare saved controls with current files, restore eligible fresh-run inputs, or review archive cleanup. Archives are kept indefinitely. New recovery archives retain fresh-run inputs and run evidence, omitting binary checkpoints, calculated products, and scratch files. They are not full model snapshots.</p>
+</details>
+{% if error %}<div class="alert alert-danger py-2" role="alert">{{ error }}</div>{% endif %}
 {% for warning in warnings %}<div class="alert alert-warning py-2">{{ warning }}</div>{% endfor %}
 {% if not activity.safe_to_modify %}<div class="alert alert-info py-2 small">{{ activity.reason }} Archive browsing remains available; cleanup and saving restored controls require an idle model.</div>{% endif %}
-{% if comparison %}
-<section class="card mb-3" id="control-comparison">
-  <div class="card-header"><strong>Compare {{ comparison.target }}</strong></div>
-  <div class="card-body">
-    <p class="small text-break">Archived source: <code>{{ comparison.backup_relpath }}</code></p>
-    {% if comparison.diff %}<pre class="model-parameter-diff border rounded p-2 small" style="max-height: 26rem; overflow: auto">{{ comparison.diff }}</pre>{% else %}<p class="small">This version matches the current file.</p>{% endif %}
-    {% if writable %}<a class="btn btn-sm btn-primary" href="{{ url_for('viewer.model_parameters', source_path=source_path ~ '/lte' if comparison.target.startswith('lte/') else source_path, file=comparison.target[4:] if comparison.target.startswith('lte/') else comparison.target, history_model=source_path, archive=selected.id, archived_file=comparison.backup_relpath) }}">Load into editor for review</a>{% endif %}
-    <span class="small text-muted ms-2">Loading changes nothing. Saving creates a new backup of the current control.</span>
-  </div>
-</section>
-{% endif %}
-{% if selected %}
-<section class="card mb-3" id="archive-files">
-  <div class="card-header d-flex flex-wrap justify-content-between gap-2"><strong>{{ selected.kind }} · {{ selected.name }}</strong><a class="small" href="{{ url_for('viewer.view', path=source_path ~ '/' ~ selected.id) }}">Open in file browser</a></div>
-  <div class="card-body py-2">
-    <div class="small text-muted mb-2">{{ selected.created_label }} · {{ selected.status }} · {{ selected.policy }} retention · {{ size(selected.size) }}</div>
-    <div class="table-responsive" style="max-height: 26rem"><table class="table table-sm align-middle mb-0">
-      <thead><tr><th>Archived file</th><th class="text-end">Size</th><th>Actions</th></tr></thead>
-      <tbody>{% for file in files %}<tr>
-        <td class="font-monospace small text-break">{{ file.path if file.path != '.' else selected.name }}{% if file.kind == 'link' %} <span class="text-muted">(symbolic link; not followed)</span>{% endif %}</td>
-        <td class="text-end text-nowrap small">{{ size(file.size) }}</td>
-        <td class="text-nowrap small">{% if file.kind == 'file' %}
-          <a class="me-2" href="{{ url_for('viewer.view', path=source_path ~ '/' ~ file.archive_path) }}">View</a>
-          <a class="me-2" href="{{ url_for('viewer.download_file', path=source_path ~ '/' ~ file.archive_path) }}">Download</a>
-          {% if file.target %}<a href="{{ url_for('viewer.model_history', source_path=source_path, archive=selected.id, file=file.archive_path, _anchor='control-comparison') }}">Compare {{ file.target }}</a>{% endif %}
-        {% endif %}</td>
-      </tr>{% else %}<tr><td colspan="3" class="text-muted small">No retained files.</td></tr>{% endfor %}</tbody>
-    </table></div>
-    {% if selected.stage in ['main', 'test'] %}
-      <div class="border-top mt-3 pt-2">
-        <strong class="small">Restore inputs for a fresh run</strong>
-        {% if inputs_problem %}<p class="small text-muted mb-0">{{ inputs_problem }}</p>
-        {% elif writable %}<form method="post" class="mt-2">
-          <input type="hidden" name="action" value="preview_inputs"><input type="hidden" name="archive" value="{{ selected.id }}">
-          <button class="btn btn-sm btn-outline-primary" {% if not activity.safe_to_modify %}disabled{% endif %}>Preview input restoration</button>
-        </form>{% endif %}
+<div class="history-layout">
+  <section class="card history-archives" aria-labelledby="history-archives-heading">
+    <div class="card-header"><h2 class="h6 mb-0" id="history-archives-heading">Saved archives</h2></div>
+    <div class="card-body p-2 border-bottom">
+      <form method="get" class="d-flex flex-wrap align-items-center gap-2">
+        {% if selected %}<input type="hidden" name="archive" value="{{ selected.id }}">{% endif %}
+        {% if comparison %}<input type="hidden" name="file" value="{{ comparison.backup_relpath }}">{% endif %}
+        <label class="small" for="history-age">At least</label>
+        <input class="form-control form-control-sm history-age" id="history-age" name="older_than" type="number" min="0" value="{{ older_than }}">
+        <span class="small">days old</span><button class="btn btn-sm btn-outline-secondary">Filter</button>
+      </form>
+    </div>
+    <form method="post" action="{{ url_for('viewer.model_history', source_path=source_path, _anchor='history-detail') }}">
+      <input type="hidden" name="older_than" value="{{ older_than }}">
+      {% if selected %}<input type="hidden" name="archive" value="{{ selected.id }}">{% endif %}
+      <div class="history-archive-scroll" data-history-archives>
+        <table class="table table-sm table-hover align-middle mb-0">
+          <thead><tr>
+            {% if writable %}<th class="history-select-cell"><input class="form-check-input" type="checkbox" data-history-select-all aria-label="Select all visible archives" {% if not activity.safe_to_modify %}disabled{% endif %}></th>{% endif %}
+            <th scope="col">Saved archive</th><th scope="col" class="text-end">Size</th>
+          </tr></thead>
+          <tbody>{% for entry in archives %}<tr {% if selected and selected.id == entry.id %}class="table-active" aria-current="true"{% endif %}>
+            {% if writable %}<td class="history-select-cell"><input class="form-check-input" type="checkbox" name="archive_id" value="{{ entry.id }}" aria-label="Select {{ entry.id }}" {% if not activity.safe_to_modify %}disabled{% endif %}></td>{% endif %}
+            <td class="small history-archive-label">
+              <a data-history-archive-link title="{{ entry.id }}" {% if selected and selected.id == entry.id %}aria-current="true"{% endif %} href="{{ url_for('viewer.model_history', source_path=source_path, archive=entry.id, older_than=older_than, _anchor='history-detail') }}">{{ entry.kind }}{% if entry.stage %} · {{ entry.stage }}{% endif %}{% if entry.kind == 'Editor checkpoint' %} · {{ entry.name.split('.')[0] }}{% endif %}{% if entry.id.startswith('lte/') %} · lte{% elif entry.id.startswith('obs/') %} · obs{% endif %}</a>
+              <div>{{ entry.created_label }}</div><div class="text-muted">{{ entry.status }} · {{ entry.policy }}</div>
+              {% if entry.fresh_inputs %}<div class="text-muted">Fresh-run input bundle saved</div>{% endif %}
+            </td>
+            <td class="text-end text-nowrap small">{{ size(entry.size) }}<div class="text-muted">{{ entry.count }} files</div></td>
+          </tr>{% else %}<tr><td colspan="{{ 3 if writable else 2 }}" class="small text-muted p-3">No archives match this filter.</td></tr>{% endfor %}</tbody>
+        </table>
       </div>
-    {% endif %}
-  </div>
-</section>
-{% endif %}
-{% if inputs_review %}
-<section class="card border-warning mb-3" id="inputs-review">
-  <div class="card-header"><strong>Restore inputs for a fresh run</strong></div>
-  <div class="card-body">
-    <p class="small">Restore the saved pre-run input set from <code>{{ inputs_review.archive_id }}</code>. Current binary checkpoints, populations, derived atmosphere/spectrum outputs, and old atomic links are retired. The solution is marked stale. No calculation starts.</p>
-    <div class="table-responsive mb-2" style="max-height: 18rem"><table class="table table-sm mb-0"><thead><tr><th>Restore input</th><th class="text-end">Size</th></tr></thead><tbody>{% for file in inputs_review.files %}<tr><td><code>{{ file.target }}</code></td><td class="text-end">{{ size(file.size) }}</td></tr>{% endfor %}</tbody></table></div>
-    <details class="mb-2"><summary class="small">Current files to retire</summary><ul class="small mb-0">{% for name, record in inputs_review.current.items() if record %}<li><code>{{ name }}</code></li>{% endfor %}</ul></details>
-    <p class="small">Current-state recovery: input files and diagnostic evidence; calculated state omitted.</p>
-    {% for warning in inputs_review.warnings %}<p class="small text-muted">{{ warning }}</p>{% endfor %}
-    <form method="post"><input type="hidden" name="action" value="restore_inputs"><input type="hidden" name="review_token" value="{{ inputs_token }}"><button class="btn btn-primary" {% if not activity.safe_to_modify %}disabled{% endif %}>Restore reviewed inputs</button> <a class="btn btn-outline-secondary" href="{{ url_for('viewer.model_history', source_path=source_path) }}">Cancel</a></form>
-  </div>
-</section>
-{% endif %}
-{% if review %}
-<section class="card border-warning mb-3" id="cleanup-review">
-  <div class="card-header"><strong>Review {{ 'compaction' if review.action == 'compact' else 'archive deletion' }}</strong></div>
-  <div class="card-body">
-    <p>{{ review.entries|length }} archive(s) selected · approximately {{ size(review.reclaimable) }} removable.</p>
-    {% if review.action == 'compact' %}<p class="small">Keep fresh-run inputs and JSON history; shorten large diagnostic logs to beginning/end excerpts. Remove calculated state, binary checkpoints, and scratch files regardless of size.</p>{% else %}<p class="small">Permanently delete the selected archives, including their logs and recovery copies. This cannot be undone. Working model files are outside this operation.</p>{% endif %}
-    {% if review.action == 'compact' and not review.reclaimable %}<p class="small text-muted">No disposable artifacts need compaction in these archives.</p>{% endif %}
-    <ul class="small" style="max-height: 14rem; overflow: auto">{% for entry in review.entries %}<li><code>{{ entry.id }}</code> · {{ size(entry.reclaimable) }}</li>{% endfor %}</ul>
-    <form method="post"><input type="hidden" name="action" value="apply"><input type="hidden" name="review_token" value="{{ review_token }}"><button class="btn btn-sm btn-danger" {% if not activity.safe_to_modify or (review.action == 'compact' and not review.reclaimable) %}disabled{% endif %}>Confirm {{ 'compaction' if review.action == 'compact' else 'deletion' }}</button> <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('viewer.model_history', source_path=source_path) }}">Cancel</a></form>
-  </div>
-</section>
-{% endif %}
-<section class="card mb-3">
-  <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
-    <strong>Saved archives</strong>
-    <form method="get" class="d-flex align-items-center gap-2"><label class="small text-nowrap" for="history-age">At least</label><input class="form-control form-control-sm" style="width: 5rem" id="history-age" name="older_than" type="number" min="0" value="{{ older_than }}"><span class="small text-nowrap">days old</span><button class="btn btn-sm btn-outline-secondary">Filter</button></form>
-  </div>
-  <div class="card-body">
-    <form method="post">
-      {% if writable and archives %}<div class="d-flex flex-wrap align-items-center gap-2 mb-3"><label class="small" for="cleanup-action">For selected archives</label><select class="form-select form-select-sm" style="width: auto" name="cleanup_action" id="cleanup-action"><option value="compact">Keep inputs and history; remove calculated state</option><option value="delete">Delete complete archives</option></select><button class="btn btn-sm btn-outline-danger" {% if not activity.safe_to_modify %}disabled{% endif %}>Preview cleanup</button><span class="small text-muted" data-history-selection>0 selected</span></div>{% endif %}
-      <div class="table-responsive"><table class="table table-sm align-middle">
-        <thead><tr>{% if writable %}<th><input class="form-check-input" type="checkbox" data-history-select-all aria-label="Select all visible archives" {% if not activity.safe_to_modify %}disabled{% endif %}></th>{% endif %}<th>Saved</th><th>Archive</th><th>Recorded status / retention</th><th class="text-end">Size</th></tr></thead>
-        <tbody>{% for entry in archives %}<tr>
-          {% if writable %}<td><input class="form-check-input" type="checkbox" name="archive_id" value="{{ entry.id }}" aria-label="Select {{ entry.id }}" {% if not activity.safe_to_modify %}disabled{% endif %}></td>{% endif %}
-          <td class="small text-nowrap">{{ entry.created_label }}</td>
-          <td class="small"><a href="{{ url_for('viewer.model_history', source_path=source_path, archive=entry.id, _anchor='archive-files') }}">{{ entry.kind }}{% if entry.stage %} · {{ entry.stage }}{% endif %}</a><div class="font-monospace text-muted text-break">{{ entry.id }}</div></td>
-          <td class="small">{{ entry.status }}<div class="text-muted">{{ entry.policy }}</div>{% if entry.fresh_inputs %}<div class="text-muted">Fresh-run input bundle saved</div>{% endif %}</td>
-          <td class="text-end text-nowrap small">{{ size(entry.size) }}<div class="text-muted">{{ entry.count }} files</div></td>
-        </tr>{% else %}<tr><td colspan="5" class="small text-muted">No archives match this filter.</td></tr>{% endfor %}</tbody>
-      </table></div>
-
+      {% if writable and archives %}
+      <div class="border-top p-2">
+        <div class="d-flex justify-content-between align-items-center mb-2"><label class="small" for="cleanup-action">For selected archives</label><span class="small text-muted" data-history-selection>0 selected</span></div>
+        <select class="form-select form-select-sm mb-2" name="cleanup_action" id="cleanup-action"><option value="compact">Compact: keep inputs and history</option><option value="delete">Delete complete archives</option></select>
+        <button class="btn btn-sm btn-outline-danger" {% if not activity.safe_to_modify %}disabled{% endif %}>Preview cleanup</button>
+      </div>
+      {% endif %}
     </form>
+  </section>
+  <div class="history-detail" id="history-detail">
+    {% if review %}{% include '_history_cleanup_review.html' %}{% endif %}
+    {% if selected %}
+    <section class="card" id="archive-files">
+      <div class="card-header">
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2"><h2 class="h6 mb-0">{{ selected.kind }}{% if selected.stage %} · {{ selected.stage }}{% endif %}</h2><a class="small" href="{{ url_for('viewer.view', path=source_path ~ '/' ~ selected.id) }}">Open in file browser</a></div>
+        <div class="small text-muted mt-1">{{ selected.created_label }} · {{ selected.status }} · {{ size(selected.size) }}</div>
+      </div>
+      <div class="card-body pb-0">
+        <details class="small mb-3"><summary>Archive location and retention</summary><div class="mt-1 text-break"><code>{{ selected.id }}</code><div class="text-muted">{{ selected.policy }} retention · {{ selected.count }} files</div></div></details>
+        <nav aria-label="Archive details"><div class="nav nav-tabs" role="tablist">
+          <button class="nav-link {% if not comparison and not inputs_review %}active{% endif %}" id="history-files-tab" data-bs-toggle="tab" data-bs-target="#history-files" type="button" role="tab" aria-controls="history-files" aria-selected="{{ 'true' if not comparison and not inputs_review else 'false' }}">Files <span class="small">({{ files|length }})</span></button>
+          <button class="nav-link {% if comparison %}active{% endif %}" id="history-compare-tab" data-bs-toggle="tab" data-bs-target="#history-compare" type="button" role="tab" aria-controls="history-compare" aria-selected="{{ 'true' if comparison else 'false' }}">Compare controls</button>
+          {% if selected.stage in ['main', 'test'] or inputs_review %}<button class="nav-link {% if inputs_review %}active{% endif %}" id="history-restore-tab" data-bs-toggle="tab" data-bs-target="#history-restore" type="button" role="tab" aria-controls="history-restore" aria-selected="{{ 'true' if inputs_review else 'false' }}">Restore inputs</button>{% endif %}
+        </div></nav>
+      </div>
+      <div class="tab-content">
+        <div class="tab-pane {% if not comparison and not inputs_review %}show active{% endif %}" id="history-files" role="tabpanel" aria-labelledby="history-files-tab" tabindex="0">
+          <div class="p-3 pb-2"><label class="visually-hidden" for="history-file-filter">Filter archived files</label><input type="search" id="history-file-filter" class="form-control form-control-sm" placeholder="Filter archived files" data-history-file-filter></div>
+          <div class="history-file-scroll table-responsive">
+            <table class="table table-sm align-middle mb-0"><thead><tr><th scope="col">Archived file</th><th scope="col" class="text-end">Size</th><th scope="col">Actions</th></tr></thead>
+              <tbody>{% for file in files %}<tr data-history-file-row {% if comparison and comparison.backup_relpath == file.archive_path %}class="table-active"{% endif %}>
+                <td class="font-monospace small text-break">{{ file.path if file.path != '.' else selected.name }}{% if file.kind == 'link' %} <span class="text-muted">(symbolic link; not followed)</span>{% endif %}</td>
+                <td class="text-end text-nowrap small">{{ size(file.size) }}</td>
+                <td class="small">{% if file.kind == 'file' %}<div class="d-flex flex-wrap gap-2">
+                  <a href="{{ url_for('viewer.view', path=source_path ~ '/' ~ file.archive_path) }}">View</a>
+                  <a href="{{ url_for('viewer.download_file', path=source_path ~ '/' ~ file.archive_path) }}">Download</a>
+                  {% if file.target %}<a href="{{ url_for('viewer.model_history', source_path=source_path, archive=selected.id, file=file.archive_path, older_than=older_than, _anchor='history-detail') }}">Compare {{ file.target }}</a>{% endif %}
+                </div>{% endif %}</td>
+              </tr>{% else %}<tr><td colspan="3" class="text-muted small p-3">No retained files.</td></tr>{% endfor %}
+              <tr data-history-file-empty hidden><td colspan="3" class="small text-muted p-3">No files match this filter.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="tab-pane {% if comparison %}show active{% endif %} p-3" id="history-compare" role="tabpanel" aria-labelledby="history-compare-tab" tabindex="0">
+          {% if controls %}
+          <form method="get" action="{{ url_for('viewer.model_history', source_path=source_path, _anchor='history-detail') }}" class="d-flex flex-wrap gap-2 align-items-end mb-3">
+            <input type="hidden" name="archive" value="{{ selected.id }}"><input type="hidden" name="older_than" value="{{ older_than }}">
+            <div class="flex-grow-1 history-control-picker"><label class="form-label small mb-1" for="history-control">Saved control</label><select class="form-select form-select-sm" name="file" id="history-control">
+              {% for file in controls %}<option value="{{ file.archive_path }}" {% if comparison and comparison.backup_relpath == file.archive_path %}selected{% endif %}>{{ file.path if file.path != '.' else selected.name }} → {{ file.target }}</option>{% endfor %}
+            </select></div><button class="btn btn-sm btn-outline-primary">Compare</button>
+          </form>
+          {% endif %}
+          {% if comparison %}
+          <section id="control-comparison" aria-label="Control comparison">
+            <div class="d-flex flex-wrap justify-content-between gap-2 small mb-2"><strong>{{ comparison.target }}</strong><span><span class="text-danger">−{{ comparison.removed }} current</span> · <span class="text-success">+{{ comparison.added }} archived</span></span></div>
+            <p class="small text-muted text-break mb-2">Current working file → <code>{{ comparison.backup_relpath }}</code></p>
+            {% if comparison.line_endings_differ %}<p class="small text-muted">Line endings or the final newline differ.</p>{% endif %}
+            {% if comparison.diff %}
+            <div class="d-flex flex-wrap gap-3 small mb-2">
+              <label><input type="checkbox" class="form-check-input me-1" data-history-wrap checked>Wrap lines</label>
+              <label><input type="checkbox" class="form-check-input me-1" data-history-changes>Changes only</label>
+            </div>
+            <pre class="model-parameter-diff history-diff history-diff-wrap border rounded p-2 small" tabindex="0" aria-label="Current to archived control diff" data-history-diff>{% for line in comparison.diff_lines %}<span class="diff-{{ line.kind }}">{{ line.text }}</span>{% endfor %}</pre>
+            {% elif not comparison.line_endings_differ %}<p class="small">This version matches the current file.</p>{% endif %}
+            {% if writable %}<a class="btn btn-sm btn-primary" href="{{ url_for('viewer.model_parameters', source_path=source_path ~ '/lte' if comparison.target.startswith('lte/') else source_path, file=comparison.target[4:] if comparison.target.startswith('lte/') else comparison.target, history_model=source_path, archive=selected.id, archived_file=comparison.backup_relpath) }}">Load into editor for review</a>{% endif %}
+            <p class="small text-muted mt-2 mb-0">Loading changes nothing. Saving creates a new backup of the current control.</p>
+          </section>
+          {% else %}<p class="small text-muted mb-0">{% if controls %}Choose a saved control to compare with the current file.{% else %}This archive contains no recognized control files to compare.{% endif %}</p>{% endif %}
+        </div>
+        {% if selected.stage in ['main', 'test'] or inputs_review %}
+        <div class="tab-pane {% if inputs_review %}show active{% endif %} p-3" id="history-restore" role="tabpanel" aria-labelledby="history-restore-tab" tabindex="0">
+          {% if inputs_review %}{% include '_history_inputs_review.html' %}
+          {% else %}
+            <h3 class="h6">Restore inputs for a fresh run</h3>
+            {% if inputs_problem %}<p class="small text-muted mb-0">{{ inputs_problem }}</p>
+            {% elif writable %}
+              <p class="small">Review the saved input set before replacing current inputs and retiring calculated state. No calculation starts.</p>
+              <form method="post" action="{{ url_for('viewer.model_history', source_path=source_path, _anchor='history-detail') }}"><input type="hidden" name="action" value="preview_inputs"><input type="hidden" name="archive" value="{{ selected.id }}"><input type="hidden" name="older_than" value="{{ older_than }}"><button class="btn btn-sm btn-outline-primary" {% if not activity.safe_to_modify %}disabled{% endif %}>Preview input restoration</button></form>
+            {% else %}<p class="small text-muted mb-0">Enable read-write mode to review input restoration.</p>{% endif %}
+          {% endif %}
+        </div>
+        {% endif %}
+      </div>
+    </section>
+    {% elif not review %}<section class="card"><div class="card-body text-muted small">Select a saved archive to browse files, compare controls, or review recovery options.</div></section>{% endif %}
   </div>
-</section>
+</div>
 <script src="{{ url_for('static', filename='model_history.js') }}"></script>
 {% endblock %}
