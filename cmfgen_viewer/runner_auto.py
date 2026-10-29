@@ -14,7 +14,7 @@ import uuid
 from .auto_diagnostics import assess, number
 from .auto_hydro import NATIVE_CONTROLS, capture_controls, enabled, native_updates, revisions
 from . import auto_policies as policies
-from .control_files import control_occurrences
+from .control_files import NATIVE_VADAT_KEY_SPELLINGS, control_occurrences
 from .model_activity import model_mutation_guard, model_run_reservation
 from .native_diagnostics import latest_main_log
 from .recovery_files import retire_recovery
@@ -181,7 +181,11 @@ def _action(model, journal, actions, kind, reason, changes=None, caches=(), *, p
             raise RunnerError(f'Ambiguous controls in {name}; automatic changes refused')
         if path.exists():
             copy_readable(path, folder/name)
-        rendered[name] = _patch(text, values).encode()
+        # Policy keys are normalized for lookup, but native RD_STORE is
+        # case-sensitive. Repair an earlier uppercase spelling as well as
+        # writing the correct spelling when this optional row is absent.
+        spellings = NATIVE_VADAT_KEY_SPELLINGS if name == 'VADAT' else None
+        rendered[name] = _patch(text, values, key_spellings=spellings).encode()
     for name in caches:
         if name not in {'BAMAT', 'BAMATPNT', 'EDDFACTOR', 'EDDFACTOR_INFO'}:
             raise RunnerError('Unsupported automatic cache retirement')
@@ -504,6 +508,9 @@ def run_auto_plan(plan, emit=None, *, stop_requested=None):
                                 raise RunnerError('Native continuation was not confirmed')
                             evidence = assess(model, native_result, before, solution_offset, batch,
                                               hydro_revisions=revisions(text))
+                            if (adopted.get('VADAT') or {}).get('xray_normalization'):
+                                evidence.update(candidate=False, fresh_verified=False, population_cycle=None, source_changed=True)
+                                history = []  # Raw requests across different X-ray sources are not a trend.
                             if evidence['iterations'] > batch:
                                 result['iterations_used'] += evidence['iterations']-batch
                                 entry['charged_iterations'] = evidence['iterations']
@@ -610,6 +617,10 @@ def run_auto_plan(plan, emit=None, *, stop_requested=None):
                         history = []  # Mixed pre/post-hydro vectors are not a trend baseline.
                         event('auto_history_reset', attempt=attempt, hydro_revisions=evidence['hydro_revisions'],
                               reason='Native hydrostatic revision; correction trends restart with subsequent batches')
+                    elif evidence.get('source_changed'):
+                        history = []
+                        event('auto_history_reset', attempt=attempt, source_changed=True,
+                              reason='Native X-ray source change; correction trends restart with subsequent batches')
                     else:
                         history.append(evidence)
                     _json(journal/'result.json', result)

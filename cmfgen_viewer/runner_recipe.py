@@ -226,6 +226,10 @@ def build_run_plan(model: Path, *, stage: str, cmfgen_root: Path, atomic_root: P
         except (OSError, ValueError, UnicodeError) as exc:
             errors.append(f"Invalid flux input RVTJ: {exc}. Regenerate a finite atmosphere before spectral synthesis.")
     if stage in {"main", "test"}:
+        control = model / "IN_ITS"
+        rows = control_occurrences(control.read_text()).get("FINAL_OUTPUT_ONLY", []) if control.is_file() else []
+        if any(r["value"].upper().strip(".") in {"T", "TRUE"} for r in rows):
+            errors.append("FINAL_OUTPUT_ONLY is an output-only native mode; set it to F before running main/test iterations")
         adjustment = model / "ADJUST_CORRECTIONS"
         if adjustment.is_symlink() or (adjustment.exists() and
                 (not adjustment.is_file() or adjustment.stat().st_nlink != 1)):

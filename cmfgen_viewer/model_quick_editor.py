@@ -6,6 +6,7 @@ import math
 import re
 
 from .control_files import control_occurrences as _keyword_occurrences
+from .control_files import NATIVE_VADAT_KEY_SPELLINGS
 from .model_editor import (
     ConcurrentModelEditError,
     ModelEditorError,
@@ -598,18 +599,21 @@ def _prepare_quick_parameter_edit(
     lines = str(record["contents"]).splitlines(keepends=True)
     for field in fields:
         key = str(field["key"])
+        native_key = NATIVE_VADAT_KEY_SPELLINGS.get(key, key) if file_relpath == "VADAT" else key
         value = _validate_quick_parameter_value(field, values[key])
         if field.get("missing"):
             field["value"] = value
             if value:
                 if lines and not lines[-1].endswith("\n"):
                     lines[-1] += "\n"
-                lines.append(f"{value:<13} [{key}]\n")
+                lines.append(f"{value:<13} [{native_key}]\n")
             continue
         line_index = int(field["line_index"])
         value_start = int(field["value_start"])
         value_end = int(field["value_end"])
         line = lines[line_index]
+        if native_key != key:
+            line = line[:field["key_start"]] + native_key + line[field["key_end"]:]
         lines[line_index] = f"{line[:value_start]}{value}{line[value_end:]}"
         field["value"] = value
     contents = "".join(lines)

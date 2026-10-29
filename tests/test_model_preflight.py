@@ -59,6 +59,21 @@ def test_valid_model_passes_preflight(tmp_path: Path) -> None:
     assert report["counts"] == {"error": 0, "warning": 0, "info": 0}
 
 
+@pytest.mark.parametrize('key,warn', [('INCL_DSLDT', True), ('incl_dsldt', True), ('INCL_dSLdT', False),
+                                    ('MAX_DT', True), ('MAX_dT', False)])
+def test_superlevel_temperature_key_requires_native_case(tmp_path, key, warn):
+    model = _write_valid_model(tmp_path)
+    with (model/'VADAT').open('a') as stream:
+        stream.write(f'T [{key}]\n')
+    report = inspect_model_preflight(model)
+    assert report['blocking'] is False
+    issues = [i for i in report['issues'] if i['code'] == 'native-control-key-case']
+    assert bool(issues) is warn
+    if warn:
+        assert issues[0]['file'] == 'VADAT'
+        assert ('[MAX_dT]' if key == 'MAX_DT' else '[INCL_dSLdT]') in issues[0]['message']
+
+
 @pytest.mark.parametrize("table,valid", [
     pytest.param(None, False, id="missing"),
     pytest.param("", False, id="empty"),

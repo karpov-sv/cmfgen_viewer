@@ -4,9 +4,17 @@ import pytest
 
 from cmfgen_viewer.control_files import control_occurrences
 from cmfgen_viewer.runner import _write_control, run_plan
-from cmfgen_viewer.runner_controls import TemporaryControl
+from cmfgen_viewer.runner_controls import TemporaryControl, _patch
 from cmfgen_viewer.runner_recipe import RunnerError
 from test_runner import workspace, SUCCESS
+
+
+def test_persistent_native_spelling_repair_preserves_other_text():
+    text = '! [INCL_DSLDT] comment\r\n  F   [INCL_DSLDT] ! keep [OTHER]\r\n1 [OTHER]\r\n'
+    result = _patch(text, {'INCL_DSLDT': 'T'}, key_spellings={'INCL_DSLDT': 'INCL_dSLdT'})
+    assert result == text.replace('F   [INCL_DSLDT]', 'T   [INCL_dSLdT]')
+    # Ordinary temporary value patches still preserve original key spelling.
+    assert _patch(text, {'INCL_DSLDT': 'T'}) == text.replace('F   [INCL_DSLDT]', 'T   [INCL_DSLDT]')
 
 
 def test_patches_preserve_unrelated_edits_between_passes_and_restore(tmp_path):

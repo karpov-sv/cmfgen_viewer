@@ -162,3 +162,42 @@ if done and stop=='T':
     assert result['provisional_recovery_rolled_back'] == 'hydro_bootstrap'
     assert (model/'IN_ITS').read_text() == original
     assert (Path(result['recovery_directory'])/'IN_ITS').read_text() == original
+
+
+@pytest.mark.parametrize('factor', [.5, 2.0])
+def test_native_xray_adjustment_requires_matching_factors_and_enabled_controls(tmp_path,factor):
+    path=tmp_path/'VADAT'
+    original='T [INC_XRAYS]\nT [SCL_XLUM]\nF [XSLOW]\n1 [FIL_FAC_1]\n2 [FIL_FAC_2]\n'
+    path.write_text(original);before=capture_controls(tmp_path)
+    text=('Current great iteration count is 1\nBA matrix computed\n'
+          'Maximm changes as returned by SOLVEBA_V13 is 0.01\n'
+          f'XRAY_NORMALIZATION_FACTOR: {factor}\n')
+    path.write_text(original.replace('1 [FIL_FAC_1]',f'{factor} [FIL_FAC_1]').replace('2 [FIL_FAC_2]',f'{2*factor} [FIL_FAC_2]'))
+    adopted=native_updates(tmp_path,text,before)
+    assert adopted['VADAT']['xray_normalization']['requires_stable_source_verification']
+    with pytest.raises(RunnerError,match='normalization evidence'):
+        native_updates(tmp_path,text.replace('XRAY_NORMALIZATION_FACTOR:','unrecognized:'),before)
+    path.write_text(path.read_text().replace(f'{2*factor} [FIL_FAC_2]','77 [FIL_FAC_2]'))
+    with pytest.raises(RunnerError,match='logged native multiplier'):
+        native_updates(tmp_path,text,before)
+
+
+@pytest.mark.parametrize('changed_attempt',[1,2])
+def test_xray_source_change_cannot_complete_fresh_verification(auto_workspace,changed_attempt):
+    model,plan=auto_workspace
+    (model/'VADAT').write_text((model/'VADAT').read_text()+'T [INC_XRAYS]\nT [SCL_XLUM]\nF [XSLOW]\n1 [FIL_FAC_1]\n2 [FIL_FAC_2]\n')
+    exe=model.parent/'cmf/exe/cmfgen_dev.exe'
+    exe.write_text(exe.read_text()+f'''
+if attempt=={changed_attempt}:
+ text=(p/'VADAT').read_text().replace('1 [FIL_FAC_1]','0.5 [FIL_FAC_1]').replace('2 [FIL_FAC_2]','1.0 [FIL_FAC_2]')
+ (p/'VADAT').write_text(text)
+ with (p/'OUTGEN').open('a') as f:f.write('XRAY_NORMALIZATION_FACTOR: 0.5\\n')
+''')
+    result=run_plan(plan())
+    assert result['status']=='succeeded',result
+    changed=result['attempts'][changed_attempt-1]
+    assert changed['evidence']['source_changed']
+    assert not changed['evidence']['candidate'] and not changed['evidence']['fresh_verified']
+    assert result['attempts'][-1]['attempt']>changed_attempt
+    assert result['attempts'][-1]['phase']=='verify'
+    assert result['attempts'][-1]['evidence']['fresh_verified']

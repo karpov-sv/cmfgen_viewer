@@ -39,7 +39,8 @@ def repaired_runtime(plan, *, required=('line-jacobian-v1', 'ba-restart-v1')):
 
 def temperature_coupling(ctx):
     from .auto_policies import Decision
-    if (ctx.evidence.get('hydro_revisions') or enabled(ctx.model, 'INCL_DSLDT') or
+    value = control_value(ctx.model, 'VADAT', 'INCL_dSLdT', 'F', exact_key=True)
+    if (ctx.evidence.get('hydro_revisions') or value.upper().strip('.') in {'T', 'TRUE'} or
             not oscillating_region(ctx.evidence, ctx.history)):
         return None
     return Decision('action', 'Persistent temperature cycle with superlevel temperature derivatives disabled; '

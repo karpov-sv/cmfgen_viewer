@@ -367,11 +367,25 @@ def test_solver_editor_reviews_saves_and_preserves_optional_limit(tmp_path, temp
     if temperature_limit:
         assert "0.05 [MAX_dT] ! preserve mixed-case key\r\n" in review["contents"]
     else:
-        assert review["contents"].count("[MAX_DT]") == 1
+        assert review["contents"].count("[MAX_dT]") == 1
+    assert "[MAX_DT]" not in review["contents"]
     saved = save_quick_model_parameter_edit(
         str(tmp_path), reviewed_digest=review["proposed_digest"], **args)
     assert (model / "VADAT").read_bytes() == review["contents"].encode()
     assert (model / saved["backup_relpath"]).read_bytes() == original.encode()
+
+
+def test_solver_editor_repairs_ignored_uppercase_temperature_limit(tmp_path):
+    model, original, card, args = _solver_editor(tmp_path, temperature_limit=True)
+    path = model / 'VADAT'
+    path.write_bytes(original.replace('[MAX_dT]', '[MAX_DT]').encode())
+    card = next(c for c in load_quick_model_parameter_cards(
+        str(tmp_path), model_relpath='model_a') if c['file_relpath'] == 'VADAT')
+    args['expected_digest'] = card['digest']
+    args['values']['MAX_DT'] = '0.05'
+    review = review_quick_model_parameter_edit(str(tmp_path), **args)
+    assert '0.05 [MAX_dT] ! preserve mixed-case key\r\n' in review['contents']
+    assert '[MAX_DT]' not in review['contents']
 
 
 @pytest.mark.parametrize("key,value", [

@@ -108,9 +108,10 @@ def test_conservation_loss_and_temperature_changes_are_rejected(population_works
         compare_physics(a,{**a,'temperature':[2,3]},fixed_temperature=True)
 
 
-def test_temperature_coupling_precedes_local_damping(auto_workspace):
+@pytest.mark.parametrize('initial', ['F [INCL_dSLdT]', 'T [INCL_DSLDT]', ''])
+def test_temperature_coupling_precedes_local_damping(auto_workspace, initial):
     model,plan=auto_workspace
-    (model/'VADAT').write_text((model/'VADAT').read_text().replace('T [INCL_dSLdT]','F [INCL_dSLdT]'))
+    (model/'VADAT').write_text((model/'VADAT').read_text().replace('T [INCL_dSLdT]',initial))
     exe=model.parent/'cmf/exe/cmfgen_dev.exe'
     exe.write_text(exe.read_text().replace("large=mode=='never' or (mode=='oscillate' and not relaxed)",
         "large=mode=='never' or (mode=='oscillate' and get('VADAT','INCL_dSLdT','F')!='T')"))
@@ -119,6 +120,9 @@ def test_temperature_coupling_precedes_local_damping(auto_workspace):
     assert [a['policy_id'] for a in result['actions']]==['superlevel_temperature','verify_candidate','verified_convergence']
     assert not (model/'ADJUST_CORRECTIONS').exists()
     assert control_value(model,'VADAT','INCL_dSLdT')=='T'
+    # The child uses a case-sensitive key lookup, matching native RD_STORE.
+    assert '[INCL_dSLdT]' in (model/'VADAT').read_text()
+    assert '[INCL_DSLDT]' not in (model/'VADAT').read_text()
 
     assert control_value(model, 'VADAT', 'N_FIX_BA') == '2'
     assert control_value(model, 'VADAT', 'FIX_BA') == '10'

@@ -11,6 +11,8 @@ def test_control_tokens_preserve_source_spans_and_normalize_keys():
     assert len(control_occurrences(contents)["LSTAR"]) == 2
     lines = contents.splitlines(keepends=True)
     row = rows[0]
+    assert row.source_key == "lstar"
+    assert lines[row.line_index][row.key_start:row.key_end] == "lstar"
     line = lines[row.line_index]
     lines[row.line_index] = line[: row.value_start] + "2.0D+5" + line[row.value_end :]
     assert "".join(lines) == contents.replace("1.0D+5", "2.0D+5")

@@ -11,7 +11,7 @@ def _value(rows, key):
     return matches[0]['value'] if len(matches) == 1 else None
 
 
-def _patch(text, values):
+def _patch(text, values, *, key_spellings=None):
     rows = control_occurrences(text)
     lines = text.splitlines(keepends=True)
     for key, value in values.items():
@@ -20,6 +20,11 @@ def _patch(text, values):
             row = matches[0]
             i = row['line_index']
             if value is not None:
+                spelling = (key_spellings or {}).get(key)
+                if spelling is not None:
+                    # Replace the later key span first: original value offsets
+                    # remain valid even when the native spelling has a new length.
+                    lines[i] = lines[i][:row['key_start']] + spelling + lines[i][row['key_end']:]
                 lines[i] = lines[i][:row['value_start']] + value + lines[i][row['value_end']:]
             else:
                 # A comment added to a temporary, newly inserted row is still an edit.
@@ -29,7 +34,8 @@ def _patch(text, values):
             if lines and not lines[-1].endswith(('\n', '\r')):
                 lines[-1] += '\n'
             ending = '\r\n' if '\r\n' in text else '\n'
-            lines.append(f'{value:<13} [{key}]{ending}')
+            spelling = (key_spellings or {}).get(key, key)
+            lines.append(f'{value:<13} [{spelling}]{ending}')
     return ''.join(lines)
 
 

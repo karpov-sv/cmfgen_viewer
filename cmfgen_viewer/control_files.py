@@ -10,11 +10,16 @@ import re
 from dataclasses import asdict, dataclass
 
 KEYWORD_ROW_RE = re.compile(r"^\s*(.*?)\s+\[([A-Za-z0-9_./+=-]+)\](?:\s*!\s*(.*))?\s*$")
+# Lookup identifiers remain normalized; these native keys require mixed case.
+NATIVE_VADAT_KEY_SPELLINGS = {"INCL_DSLDT": "INCL_dSLdT", "MAX_DT": "MAX_dT"}
 
 
 @dataclass(frozen=True)
 class ControlRow:
     key: str
+    source_key: str
+    key_start: int
+    key_end: int
     line_index: int
     value_start: int
     value_end: int
@@ -34,6 +39,9 @@ def tokenize_control(contents: str) -> list[ControlRow]:
         rows.append(
             ControlRow(
                 key=key.upper(),
+                source_key=key,
+                key_start=match.start(2),
+                key_end=match.end(2),
                 line_index=index,
                 value_start=match.start(1),
                 value_end=match.end(1),

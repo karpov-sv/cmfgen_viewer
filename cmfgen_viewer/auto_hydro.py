@@ -148,9 +148,34 @@ def native_updates(model, text, before, *, fresh_start=False):
                 raise RunnerError(f'Invalid native hydro [{key}]')
     elif changed - ({'VADAT', 'IN_ITS', 'HYDRO_DEFAULTS'} if reset else {'VADAT', 'IN_ITS'}):
         raise RunnerError('Structure controls changed without completed native hydro evidence')
+    xray_keys = {'FIL_FAC_1', 'FIL_FAC_2'}
+    xray_update = None
+    if vd_keys & xray_keys:
+        factors = [parse_float_token(v) for v in re.findall(
+            r'^\s*XRAY_NORMALIZATION_FACTOR:\s*(\S+)\s*$', text, re.M)]
+        if (not factors or any(v is None or not math.isfinite(v) or not .1 <= v <= 10 for v in factors) or
+                not enabled(model, 'INC_XRAYS') or not enabled(model, 'SCL_XLUM') or enabled(model, 'XSLOW') or
+                not any(not r.get('lambda_iteration') and
+                        math.isfinite(r.get('solver_maximum_change', math.inf)) and
+                        r.get('solver_maximum_change', math.inf) < 100 for r in records)):
+            raise RunnerError('X-ray filling factors changed without verified native normalization evidence')
+        factor = math.prod(factors)
+        if not math.isfinite(factor):
+            raise RunnerError('Nonfinite native X-ray normalization product')
+        for key in xray_keys:
+            a, b = parse_float_token(old.get(key, '')), parse_float_token(new.get(key, ''))
+            if (a is None or b is None or not math.isfinite(a) or not math.isfinite(b) or min(a, b) < 0 or
+                    not math.isfinite(a*factor) or not math.isclose(b, a*factor, rel_tol=5e-8,
+                                                                 abs_tol=6e-9 if .01 < abs(a*factor) < 1e5 else 0)):
+                raise RunnerError('X-ray filling-factor changes do not match the logged native multiplier')
+        allowed.update(xray_keys)
+        xray_update = {'factors': factors, 'requires_stable_source_verification': True}
     if vd_keys - allowed:
         raise RunnerError('Unexpected VADAT edit during execution; preserving it for review')
-    return {name: {'before': before[name], 'after': after[name]} for name in changed}
+    result = {name: {'before': before[name], 'after': after[name]} for name in changed}
+    if xray_update:
+        result['VADAT']['xray_normalization'] = xray_update
+    return result
 
 
 def guard_measurements(model, before):

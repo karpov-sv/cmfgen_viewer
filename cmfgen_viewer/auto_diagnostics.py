@@ -3,6 +3,7 @@
 Decisions use raw corrections, never small applied steps alone. No binary
 checkpoint layout or atomic-model semantics are assumed here.
 """
+from array import array
 from collections import deque
 import math
 import re
@@ -18,7 +19,7 @@ from .runner_restart import inspect_restart
 from .runner_validation import validate_rvtj_core
 
 
-def control_value(model, filename, key, default=None):
+def control_value(model, filename, key, default=None, *, exact_key=False):
     path = model / filename
     if not path.exists():
         return default
@@ -27,6 +28,8 @@ def control_value(model, filename, key, default=None):
     rows = control_occurrences(path.read_text()).get(key.upper(), [])
     if len(rows) > 1:
         raise RunnerError(f"Ambiguous [{key}] in {filename}")
+    if exact_key and rows and rows[0]['source_key'] != key:
+        return default  # Native RD_STORE compares case-sensitive key strings.
     return rows[0]['value'] if rows else default
 
 
@@ -127,6 +130,75 @@ def raw_temperature_steps(path, offset, nt, nd):
     return list(result)
 
 
+
+def population_cycle(path, offset, nt, nd, epsilon):
+    """Measure repeated raw population sign reversals without storing large logs.
+
+    Require three complete solution arrays. A truncated tail, duplicate row,
+    nonfinite value or unsupported size cannot authorize a remedy. These
+    diagnostic thresholds never change the all-variable convergence criterion.
+    """
+    if not path.is_file() or nt < 3 or nd < 1 or nt * nd > 2_000_000:
+        return None
+    size = path.stat().st_size
+    start = max(offset if offset <= size else 0, size - 128 * 1024**2)
+    recent = deque(maxlen=3)
+    current = seen = None
+    count = 0
+    pattern = re.compile(rb'\s*(\d+)\(\s*(\d+)\)#\s*(.*)')
+    with path.open('rb') as stream:
+        if start:
+            stream.seek(start - 1)
+            if stream.read(1) != b'\n':
+                stream.readline()
+        for line in stream:
+            if line.strip() == b'STEQ SOLUTION ARRAY':
+                current = array('d', [0.0]) * (nt * nd)
+                seen = bytearray(nt * nd)
+                count = 0
+                continue
+            if current is None:
+                continue
+            match = pattern.fullmatch(line.rstrip(b'\r\n'))
+            if not match:
+                continue
+            variable, depth = int(match[1]), int(match[2])
+            values = [parse_float_token(t.decode('ascii', errors='replace')) for t in match[3].split()]
+            index = (variable - 1) * nd + depth - 1
+            if (not 1 <= variable <= nt or not 1 <= depth <= nd or not values or
+                    depth - 1 + len(values) > nd or any(seen[index:index+len(values)]) or
+                    any(v is None or not math.isfinite(v) for v in values)):
+                current = None
+                recent.clear()  # Never bridge an invalid solution section.
+                continue
+            current[index:index+len(values)] = array('d', [-100*v for v in values])
+            seen[index:index+len(values)] = bytes([1]) * len(values)
+            count += len(values)
+            if count == nt * nd:
+                recent.append(current)
+                current = None
+    if len(recent) != 3:
+        return None
+    # Incomplete final sections cannot establish the final solved state.
+    if current is not None:
+        return None
+    maxima = [max(abs(v) for v in row) for row in recent]
+    if max(maxima) > 1.0:
+        return None  # Only the small-correction tail has an established remedy.
+    affected = []
+    for i, (a, b, c) in enumerate(zip(*recent)):
+        if i >= (nt - 2) * nd:  # Ne and T have separate diagnostics.
+            break
+        if (a*b < 0 and b*c < 0 and abs(c) >= epsilon and
+                min(abs(a), abs(b)) >= .1*epsilon and abs(c) >= .8*abs(a)):
+            affected.append(i % nd + 1)
+    if not affected:
+        return None
+    return {'coordinates': len(affected), 'depth_start': min(affected),
+            'depth_end': max(affected), 'raw_maxima_percent': maxima,
+            'complete_solution_arrays': 3}
+
+
 def ng_accelerations(text):
     """Return solved counters followed by explicit successful native Ng steps.
 
@@ -209,6 +281,9 @@ def _assess_outputs(model, solution_offset, requested, hydro_revisions, started)
             'ng_accelerations': ng,
             'epsilon_percent': eps,
             'candidate': candidate, 'fresh_verified': candidate and all(r.get('ba_computed') for r in records[-2:]),
+            'population_cycle': (population_cycle(model/'STEQ_VALS', solution_offset, counts['nt'], counts['nd'], eps)
+                                 if solution_offset is not None and len(records) >= 3 and
+                                 all(r in full for r in records[-3:]) and not adjusted_counters else None),
             'counts': counts, 'raw_temperature_steps': thermal, 'temperatures': temperatures(model),
             'quality': quality}
 

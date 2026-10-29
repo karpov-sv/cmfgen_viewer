@@ -458,6 +458,7 @@ def pending_verification_check(ctx):
 from .auto_recovery import (temperature_coupling, population_bootstrap, population_guard,
                             ray_refinement, ng_cadence)
 from .auto_performance import ba_reuse_trial, relaxation_release
+from .auto_convergence_remedies import population_relaxation, stalled_transfer_refinement
 
 POLICIES = (
     Policy('nonfinite_radiation_cache', 1, 'prepare', 'Preserve nonfinite EDDFACTOR and recompute radiation before execution', _nonfinite_cache, 1),
@@ -469,14 +470,16 @@ POLICIES = (
     Policy('radiation_cache', 1, 'failure', 'Explicit EDDFACTOR mismatch recovery', _cache, 1),
     Policy('population_guard', 2, 'failure', 'Physically audited provisional checkpoint after explicit MAX_CHNG stop', population_guard, 1),
     Policy('ray_refinement', 3, 'failure', 'Negative-luminosity coarse-ray recovery with guarded verification', ray_refinement, 1),
-    Policy('verified_convergence', 2, 'success', 'Independent fresh-Jacobian convergence acceptance and restoration of starting BA reuse', _verified),
+    Policy('verified_convergence', 3, 'success', 'Independent fresh-Jacobian acceptance with a stable source and restoration of starting BA reuse', _verified),
     Policy('verify_candidate', 2, 'success', 'Fresh-Jacobian verification of a numerical candidate', _candidate),
-    Policy('superlevel_temperature', 1, 'success', 'Superlevel temperature coupling before oscillation damping', temperature_coupling, 1),
+    Policy('superlevel_temperature', 2, 'success', 'Superlevel temperature coupling before oscillation damping', temperature_coupling, 1),
     Policy('population_bootstrap', 4, 'success', 'Bounded fixed-T Lambda population recovery and full verification', population_bootstrap, 1),
     Policy('ng_cadence', 1, 'success', 'Contiguous batches permitting the first native Ng acceleration', ng_cadence, 1),
+    Policy('population_relaxation', 1, 'success', 'Guarded half-relaxation for measured small population cycles', population_relaxation, 1),
     Policy('local_relaxation', 2, 'success', 'Measured localized temperature oscillation damping', _oscillation, 2),
     Policy('relaxation_release', 1, 'success', 'Gradually release automatic damping through guarded trials', relaxation_release, 3),
     Policy('ba_reuse_trial', 2, 'success', 'Guarded one-iteration BA reuse after sustained healthy progress', ba_reuse_trial, 1),
+    Policy('stalled_transfer_refinement', 1, 'success', 'Guarded formal and moment refinement for a small fresh-matrix stall', stalled_transfer_refinement, 1),
     Policy('stalled_corrections', 2, 'success', 'Fresh-matrix test for a stalled correction sequence', _stall, 1),
     Policy('fixed_temperature', 1, 'success', 'Detect absence of temperature-varying full steps', _fixed),
 )

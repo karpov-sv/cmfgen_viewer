@@ -8,7 +8,7 @@ import os
 import re
 from pathlib import Path
 
-from .control_files import control_occurrences
+from .control_files import NATIVE_VADAT_KEY_SPELLINGS, control_occurrences
 from .model_editor import EDITABLE_MODEL_FILES
 from .parsers.common import parse_float_token
 from .runner_validation import validate_rosseland_table
@@ -17,7 +17,7 @@ SEVERITIES = ("error", "warning", "info")
 REQUIRED_FILES = ("VADAT", "MODEL_SPEC", "IN_ITS")
 BOOLEAN_CONTROLS = {
     "VADAT": ("DO_CL", "DO_HYDRO", "RD_IN_R_GRID", "LIN_INT", "POP_SCALE", "IT_ON_T"),
-    "IN_ITS": ("DO_LAM_IT", "DO_LAM_AUTO", "DO_T_AUTO", "DO_GT_AUTO"),
+    "IN_ITS": ("DO_LAM_IT", "DO_LAM_AUTO", "DO_T_AUTO", "DO_GT_AUTO", "FINAL_OUTPUT_ONLY"),
 }
 POSITIVE_VADAT_CONTROLS = ("RSTAR", "RMAX", "VINF", "LSTAR", "MASS", "TEFF")
 SPECTRUM_NUMERIC_CONTROLS = (
@@ -768,6 +768,15 @@ def inspect_model_preflight(model_dir: Path) -> dict[str, object]:
         _validate_booleans(in_its, file="IN_ITS", issues=issues)
 
     vadat = controls.get("VADAT", {})
+    for key, spelling in NATIVE_VADAT_KEY_SPELLINGS.items():
+        for row in vadat.get(key, []):
+            if row["source_key"] != spelling:
+                issues.append(_issue(
+                    "warning", "native-control-key-case",
+                    f"VADAT [{row['source_key']}] is ignored by the case-sensitive native reader. "
+                    f"Use [{spelling}] instead.",
+                    file="VADAT", line=int(row["line"]),
+                ))
     rmax = None
     vinf = None
     if "VADAT" in controls:

@@ -212,6 +212,9 @@ limit (a factor greater than 1), and `MAX_dT`, the temperature correction limit
 (a fraction in `(0, 0.2]`, so `0.05` means 5%). A missing `MAX_dT` stays unset
 unless explicitly filled, retaining the native 20% default. `SCALE_OPT=NONE`
 always uses a fixed 20% temperature limit.
+The native key is case-sensitive: the editor writes `MAX_dT` exactly. Older
+versions could append `MAX_DT`, which CMFGEN ignores. Preflight warns about
+that spelling, and saving the quick editor repairs it.
 
 The **Advanced solver controls** group exposes `COMP_BA`, `N_FIX_BA`,
 `FIX_BA`, `SCALE_OPT`, and `MAX_LAM`. With `COMP_BA=T` and `N_FIX_BA=0`, the solver computes a fresh Jacobian on
@@ -607,3 +610,10 @@ restore the conservative checkpoint and controls. Missing scientific evidence
 skips these optimizations, and unknown native failures still stop for review.
 Final acceptance continues to require independent fresh-Jacobian verification.
 See [conditions, budgets and rollback](/documentation/main-computation#guarded-performance-trials-during-automatic-iteration).
+
+Automatic mode also supports guarded half-relaxation of measured small population
+cycles and transfer refinement for a small fresh-matrix stall. These require an
+authenticated repaired executable and physical follow-up checks; unproductive
+trials restore the accepted checkpoint and inputs. They retain the requested
+`EPS_TERM` and all population coordinates. Native X-ray source changes require
+another stable-source invocation before verification can succeed.
