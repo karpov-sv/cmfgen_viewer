@@ -74,3 +74,10 @@ OpenMP-private history. Run both the default O0/one-thread configuration and
 `--optimization O2 --threads 5`. It writes source/fixture hashes, commands and
 finite-difference evidence into a fresh isolated directory. See
 [scope and forward changes](../cmfgen-related-moment-repairs.md).
+
+`check_convergence_repairs.py` tests the Bstar3010 interpolation, collision
+Jacobian and X-ray normalization repairs using production routines and extracted
+native control branches. It builds in a separate directory and needs compatible
+built modules/libraries. Run with `--optimization O0` and `O2`; optionally pass
+`--baseline-interpolation` to compare ordinary interpolation output byte-for-byte.
+See [repair scope and automatic remedies](../cmfgen-convergence-repairs.md).

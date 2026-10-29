@@ -1,33 +1,40 @@
 # CMFGEN local source fixes — consolidated record
 
-Updated **25 October 2026**. The consolidated patch contains **all 25 fix
-groups** below, based on CMFGEN website release **version 18jun25**. Earlier
-repairs were captured from `~/CMFGEN2023/cur_cmf/`; the latest ordinary moment
-limiting repair was captured from `~/CMFGEN2023/cur_cmf.25/`.
+Updated **29 October 2026**, after pulling viewer commit `f921985`. The
+consolidated patch contains numerical fix groups **1–28**, performance changes
+**29–30**, and the optional fixed-state output feature **31**, based on CMFGEN
+website release **version 18jun25**. Groups 26–31 come from the Bstar3010
+investigation; the three numerical repairs are distinct from the two optimizations
+and the output feature. See [validation and scope](cmfgen-convergence-repairs.md).
 
-**Status:** [cmfgen-current.patch](patches/cmfgen-current.patch) now includes the
-negative-J and H-limiting derivatives from [fix 25](cmfgen-moment-limits.md).
-A clean release needs only this consolidated patch. The separate limiter patch
-is retained as an incremental upgrade for an existing fixes 1–24 checkout;
-it must not be applied again after the current consolidated patch.
+**Status:** [cmfgen-current.patch](patches/cmfgen-current.patch) includes all the
+changes below. A clean release needs only this patch. The separate limiter patch
+upgrades fixes 1–24 to 1–25; the convergence-repair patch upgrades the previous
+1–25 snapshot, followed optionally by the fixed-state-output patch. Do not apply
+incremental patches on top of the current consolidated patch.
 
 The Linux atmosphere and spectrum executables were rebuilt serially and linked
-atomically after installing fix 25. The atmosphere executable SHA-256 is
-`eae34c599335a719ec4dbc7a71ced761c2f3f34676444adfa19b22a5baf6db42`.
-The installed limiter build record is
-`~/CMFGEN2023/cur_cmf.25/cmfgen-moment-limits-build.json`; its rollback snapshot
-is `.cmfgen-backups/20261025-moment-limits/` in that checkout. The
-[patch manifest](patches/cmfgen-current.json) records the consolidated file
-hashes, latest Linux validation/build evidence, and the earlier macOS build
-as historical evidence. The Linux build record certifies the tested moment
-repairs, not a byte-identical installation of every file in the full snapshot.
+atomically. The atmosphere executable SHA-256 is
+`26927c9e1c97f1a555189eb221f070050efac52866ba28482119da4027861c89`.
+Build records are `cmfgen-local-build.json` and
+`cmfgen-convergence-repairs-build.json` in `~/CMFGEN2023/cur_cmf.25/`.
+The rollback snapshot is `.cmfgen-backups/20261029-convergence-repairs-132609/`.
+The previously older local LTE initializer is now aligned with the already
+captured charge-consistency fix 12; all installed scientific source hashes match
+the consolidated manifest. Earlier Linux/macOS builds remain historical evidence.
 
-**Local build settings are preserved.** This refresh changes neither the live
-`Makefile_definitions` nor its existing hunks in the patch. The application
-commands below exclude that file so local compiler options, paths and libraries
-remain intact. The manifest records both preservation checks. No native model
-inputs, checkpoints or executables were changed by this patch-summary refresh.
-Diagnostic recorders and experimental Q-integration changes are excluded.
+**Local build settings are preserved.** Neither the live `Makefile_definitions`
+nor its existing patch section changed. Local directory aliases also remain
+unchanged. The application commands below exclude the Makefile to retain local
+compiler options, paths and libraries. User model folders and checkpoints were
+not modified by this integration; regression calculations use isolated copies.
+Diagnostic recorders, model-specific fitted histories and the optional EHB loop
+experiment are excluded from the installed solver.
+
+The complete opt-in fixed-state output check preserved checkpoint 111 and
+matched all 119,342 printed spectral points and the ordinary boundary/energy
+profiles; see the [execution version and validation limits](cmfgen-convergence-repairs.md#installation-and-validation).
+This output pass receives no solved-iteration or convergence credit.
 
 ## Fix inventory
 
@@ -59,12 +66,19 @@ Diagnostic recorders and experimental Q-integration changes are excluded.
 | 24 | Homologous/time-dependent variation rebuilds coarse transport and exposes temporal/boundary/cache inconsistencies. | Use final-grid rectangular responses and exact quadrature; match total-J hollow/HALF_MOM and zero-flux/HONJM derivatives. Retain first-frequency/hollow temporal terms, correct HONJM r², preserve homology on inserted points and resize/invalidate old-time caches on initialized grid changes. | `plane/mom_j_ddt_v6.f`, `var_mom_j_ddt_v6.f`, `edd_j_hub_var_v3.f`, `get_jh_at_prev_time_step.f`; `new_main/mod_subs/do_var_cont.f`; Makefiles |
 | 25 | Ordinary negative-J replacement and H caps are omitted from correction derivatives and frequency history. | Differentiate both limits on native moment rows, retain raw J for matrix/scattering forcing, correct direct H opacity partials, and propagate repaired J/H histories and diffusion responses. | `plane/var_mom_j_cmf_v12.f`, `new_main/mod_subs/do_var_cont.f`, its Makefile; [details](cmfgen-moment-limits.md) |
 
+| 26 | Monotone cubic evaluation cancels small positive radiation values to zero near nodes across extreme ranges. | Return exact stored nodes and reevaluate cancellation-prone intervals with the same cubic in stable Bezier form; preserve endpoint bounds and ordinary arithmetic. | `subs/mon_interp.f` |
+| 27 | Requested X-ray normalization only raises deficient emission; a changed source can reach the final-output pass without a new solve. | Apply bounded square-root scaling in both directions, retain intrinsic-emission/iteration eligibility, reject invalid luminosities, and require a fresh solved update after source changes. Log the multiplier for runner handoff. | `new_main/cmfgen_sub.f` |
+| 28 | Dissolution contributions overwrite the collision temperature Jacobian. | Accumulate each contribution while preserving forward rates. | `newsubs/subcol_multi_v6.f` |
+| 29 | Dense model-grid projection multiplies many exactly zero local-support weights. | Skip rows only when all three weights are exactly zero; retain nonzero summation order. Performance optimization for finite transport data. | `plane/var_mom_j_cmf_v12.f` |
+| 30 | Independent whole-slice remapping copies run serially. | Parallelize complete disjoint slices with OpenMP and a private inner index. Performance optimization. | `new_main/mod_subs/do_var_cont.f` |
+| 31 | Native flux-only output omits `MOD_SUM`/`RVTJ`; a zero-iteration writer gives zero mean opacities. Flux-only uses a different inner temperature gradient from an ordinary solve. | Add default-off `FINAL_OUTPUT_ONLY` in `IN_ITS` for coherent stationary continuation: use the existing ordinary luminosity boundary, bypass population updates and write standard complete outputs. Reject unsupported modes and label summaries as output-only. | `new_main/cmfgen_sub.f` |
 
-The complete diff for fix groups 1–25 is
+
+The complete diff for all groups is
 [cmfgen-current.patch](patches/cmfgen-current.patch), with the release baseline,
 capture time, patch SHA-256, installed executable hashes and before/after file
 SHA-256 values in [cmfgen-current.json](patches/cmfgen-current.json). It captures
-**45 files**, including the new population-initialization module which ordinary
+**47 files**, including the new population-initialization module which ordinary
 `git diff` would omit while untracked in the external checkout.
 
 The full diff also preserves local macOS and Ubuntu compiler/linker settings
@@ -77,7 +91,7 @@ Linux fix-25 build and native tests are documented in the
 Generated modules, binaries, logs, save files, and scratch patches are excluded.
 
 Patch application and reversal were checked against the recovered release
-contents in a fresh temporary directory. All **45 files** matched their expected
+contents in a fresh temporary directory. All **47 files** matched their expected
 SHA-256 hashes, including the three files updated for fix 25. A separate
 application excluding `Makefile_definitions` reproduced the other 44 files and
 kept the current local build file byte for byte. Do not apply the patch again
@@ -242,10 +256,9 @@ Nonrelativistic forward transport remains unchanged; optional DDT forward
 boundary/homology corrections are explicit in the
 [related moment repair report](cmfgen-related-moment-repairs.md).
 
-Automatic ray recovery requires an authenticated `moment-grid-jacobian-v1`
+The earlier failure-triggered automatic ray recovery requires an authenticated `moment-grid-jacobian-v1`
 executable for an ordinary inserted grid, and `moment-grid-family-v1` for REL,
-DDT or `INC_GRID`, even without insertion. It does not change `VFRAC_MOM` or
-enable optional solvers. Experimental log-radius `QFROMF` integration and
+DDT or `INC_GRID`, even without insertion. That rule retains `VFRAC_MOM`. The separate guarded small-stall remedy may now refine it with the complete repairs authenticated; neither rule enables optional solver families. Experimental log-radius `QFROMF` integration and
 diagnostic-only instrumentation remain excluded.
 
 ## Reproduce and rebuild
@@ -261,13 +274,20 @@ git apply --check --exclude=Makefile_definitions ~/cmfgen_viewer/doc/developer/p
 git apply --exclude=Makefile_definitions ~/cmfgen_viewer/doc/developer/patches/cmfgen-current.patch
 ```
 
-The patch includes the new initialization module and fix 25; no second patch
+The patch includes the initialization module and groups 1–31; no second patch
 is required. `Makefile_definitions` is excluded above to preserve the receiving
 checkout's local build configuration. Its original patch hunks remain available
 for reference. Directory aliases also reflect the captured local environment;
 review them before building on another machine. When refreshing this snapshot, include newly added
 source files as well as tracked changes, and refresh the manifest hashes together
 with the patch.
+
+Additional investigation regressions:
+
+```sh
+python3 doc/developer/cmfgen-review-tests/check_convergence_repairs.py ~/CMFGEN2023/cur_cmf.25/ --optimization O0
+python3 doc/developer/cmfgen-review-tests/check_convergence_repairs.py ~/CMFGEN2023/cur_cmf.25/ --optimization O2
+```
 
 Run the source-level regressions:
 

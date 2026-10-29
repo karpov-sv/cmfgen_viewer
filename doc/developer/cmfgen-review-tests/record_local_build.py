@@ -81,7 +81,9 @@ def record(root, manifest):
             'source_checkout':str(root), 'source_patch_sha256':manifest['patch_sha256'],
             'capabilities':['line-jacobian-v1','ba-restart-v1','lte-charge-v1',
                             'grey-intensity-guard-v1','ng-temperature-v1','moment-grid-jacobian-v1',
-                            'moment-grid-family-v1'],
+                            'moment-grid-family-v1','moment-limits-v1',
+                            'monotone-range-v1','collision-temperature-v1',
+                            'xray-normalization-v1','fixed-state-output-v1'],
             'sources':{f['path']:f['sha256'] for f in scientific}, 'executables':executables,
             'meaning':'Verified source snapshot and rebuild ordering; not a model-convergence certificate.'}
     target = root/'cmfgen-local-build.json'

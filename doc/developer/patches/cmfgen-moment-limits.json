@@ -282,6 +282,6 @@
   "rollback_directory": "/home/karpov/CMFGEN2023/cur_cmf.25/.cmfgen-backups/20261025-moment-limits",
   "installed_build_record": "~/CMFGEN2023/cur_cmf.25/cmfgen-moment-limits-build.json",
   "base_patch_sha256": "8e662f9fcbdcfc0f67154bd9a7a5c88bfc74d78306c0eed5d9cfec9c3e685799",
-  "included_in_consolidated_patch_sha256": "066d9d01134ec4b17e5ba9fb75cbf7b9fe14fb4d4f38d7c8097d9f3d6c490faa",
+  "included_in_consolidated_patch_sha256": "61f30ed5b2818d24b5152b898c035b92ccad91afaff02679d628a027162db25a",
   "usage": "Historical incremental upgrade from fixes1-24. Already included in the current consolidated patch; do not apply twice."
 }

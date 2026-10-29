@@ -1,0 +1,93 @@
+diff --git a/new_main/cmfgen_sub.f b/new_main/cmfgen_sub.f
+--- a/new_main/cmfgen_sub.f
++++ b/new_main/cmfgen_sub.f
+@@ -41,6 +41,7 @@
+ 	USE EDDFAC_REC_DEFS_MOD
+ 	IMPLICIT NONE
+         LOGICAL XRAY_SOURCE_CHANGED,XRAY_SCALE_CHANGED,XRAY_SCALE_VALID
++        LOGICAL FINAL_OUTPUT_ONLY
+ !
+ ! Altered 11-Aug-2024 : Fixed bug with Copper - species abbreviation incorrect (24-Jan-2025)
+ ! Altered 02-Aug-2024 : Minor cleaning. Changed minimum valuer for RLUMST & warning output.
+@@ -557,6 +558,9 @@
+ 	  CALL RD_OPTIONS_INTO_STORE(LUIN,LUSCR)
+ 	  CALL RD_STORE_INT(NUM_ITS_TO_DO,'NUM_ITS',L_TRUE,'Number of iterations to perform')
+ 	  CALL RD_STORE_LOG(RD_LAMBDA,'DO_LAM_IT',L_TRUE,'Do LAMBDA iterations ?')
++        FINAL_OUTPUT_ONLY=.FALSE.
++        CALL RD_STORE_LOG(FINAL_OUTPUT_ONLY,'FINAL_OUTPUT_ONLY',L_FALSE,
++     1      'Write complete output at a fixed ordinary coherent atmosphere?')
+ 	  DO_LAMBDA_AUTO=.TRUE.
+ 	  CALL RD_STORE_LOG(DO_LAMBDA_AUTO,'DO_LAM_AUTO',L_FALSE,
+ 	1                      'Start non-lambda iterations automatically?')
+@@ -589,6 +593,18 @@
+ ! point to the input data record (Note : Single Record)
+ !
+ 	CALL RD_CONTROL_VARIABLES(LUIN,LUSCR,LUER,NUM_BNDS)
++! Complete fixed-state output is deliberately opt-in and limited to the
++! ordinary stationary coherent problem validated by this mode. Reject
++! unsupported controls before any atmosphere initialization or update.
++        IF(FINAL_OUTPUT_ONLY)THEN
++          IF(.NOT. FLUX_CAL_ONLY .OR. .NOT. RD_COHERENT_ES .OR.
++     1       IMPURITY_CODE .OR. USE_FIXED_J .OR. RD_LAMBDA .OR.
++     1       SN_MODEL .OR. NUM_ITS_TO_DO .LE. 0 .OR. RDINSOL .OR.
++     1       USE_J_REL .OR. USE_DJDT_RTE .OR. ACCURATE .OR. ADD_XRAYS_SLOWLY)THEN
++            WRITE(LUER,*)'Unsupported controls for FINAL_OUTPUT_ONLY'
++            STOP 1
++          END IF
++        END IF
+ !
+ ! Get the Solar abundance scale that will be used when MOD_SUM is
+ ! created.
+@@ -1153,6 +1169,10 @@
+ ! Useful for assisting convergence when the model is experiencing
+ ! difficulty converging.
+ !
++        IF(FINAL_OUTPUT_ONLY .AND. NEWMOD)THEN
++          WRITE(LUER,*)'FINAL_OUTPUT_ONLY requires a saved continuation checkpoint'
++          STOP 1
++        END IF
+ 	IF(NUM_ITS_TO_DO .EQ. 0)THEN
+ 	  IF(RDINSOL)THEN
+ !
+@@ -1445,7 +1465,8 @@
+ 	CALL TUNE(IONE,'DTDR')
+ 	DTDR=0.0_LDP
+ 	SECTION='DTDR'
+-	IF(IMPURITY_CODE .OR. USE_FIXED_J .OR. FLUX_CAL_ONLY .OR. (RD_LAMBDA .AND. NEWMOD .AND. .NOT. SN_MODEL))THEN
++	IF(IMPURITY_CODE .OR. USE_FIXED_J .OR. (FLUX_CAL_ONLY .AND. .NOT. FINAL_OUTPUT_ONLY)
++     1   .OR. (RD_LAMBDA .AND. NEWMOD .AND. .NOT. SN_MODEL))THEN
+ 	  DTDR=(T(ND)-T(ND-1))/(R(ND-1)-R(ND))
+ 	  DIFFW(1:NT)=0.0_LDP
+ 	ELSE
+@@ -3941,6 +3962,10 @@
+ ! quickly by setting FLUX_CAL_ONLY=.FALSE. and putting N_ITS=0.
+ !
+ 	IF(FLUX_CAL_ONLY .AND. RD_COHERENT_ES)THEN
++          IF(FINAL_OUTPUT_ONLY)THEN
++            WRITE(LUER,*)'Complete fixed-state output; no population solve performed'
++            GOTO 9898
++          END IF
+ 	   WRITE(LUER,*)'Stopping CMFGEN as finished FLUX calculation.'
+ 	   WRITE(LUER,*)'For a FLUX calculation we do 1 iteration only'
+ 	   STOP
+@@ -4174,6 +4199,7 @@
+ ! Output brief summary of the model. This is to facilate the creation
+ ! of compact model logs.
+ !
++9898	CONTINUE
+ 	IF(LST_ITERATION)THEN
+ !
+ 	  CALL GEN_ASCI_OPEN(LUMOD,'MOD_SUM','UNKNOWN',' ',' ',IZERO,IOS)
+@@ -4361,8 +4387,12 @@
+ 	    WRITE(LUMOD,'(A)')' '
+ 	  END IF
+ !
++        IF(FINAL_OUTPUT_ONLY)THEN
++          WRITE(LUMOD,'(A)')'Fixed-state output only; no convergence solve performed.'
++        ELSE
+ 	  WRITE(LUMOD,'(A,1PE10.3)')
+ 	1            'Maximum correcion (%) on last iteration: ',MAXCH
++        END IF
+ 	  CLOSE(LUMOD)
+ !
+ 	END IF

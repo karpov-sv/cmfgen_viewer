@@ -1,0 +1,323 @@
+diff --git a/subs/mon_interp.f b/subs/mon_interp.f
+--- a/subs/mon_interp.f
++++ b/subs/mon_interp.f
+@@ -19,6 +19,7 @@
+ C
+ 	SUBROUTINE MON_INTERP(QZ,NQ,LIN_END,QZR,NX,VARRAY,NV,R,ND)
+ 	USE SET_KIND_MODULE
++      USE, INTRINSIC :: IEEE_ARITHMETIC
+ 	IMPLICIT NONE
+ C
+ C Altered 24-May-1996 : ERROR_LU installed
+@@ -29,6 +30,8 @@
+ 	REAL(KIND=LDP) QZ(NQ,LIN_END),QZR(NX)
+ 	REAL(KIND=LDP) VARRAY(NV,LIN_END),R(ND)
+ C
++	REAL(KIND=LDP) MON_INTERP_BEZIER
++	EXTERNAL MON_INTERP_BEZIER
+ 	REAL(KIND=LDP) ONE
+ 	PARAMETER (ONE=1.0_LDP)
+ 	INTEGER I,J,M
+@@ -57,6 +60,15 @@
+ C
+ 	DO M=1,NX
+ 500	  IF( SGN*QZR(M) .LE. SGN*R(I+1))THEN
++! Copy exact nodes before polynomial evaluation. Opposite large terms in
++! Horner form can cancel a much smaller, positive endpoint to zero.
++            IF(QZR(M) .EQ. R(I))THEN
++              QZ(M,1:LIN_END)=VARRAY(I,1:LIN_END)
++              CYCLE
++            ELSE IF(QZR(M) .EQ. R(I+1))THEN
++              QZ(M,1:LIN_END)=VARRAY(I+1,1:LIN_END)
++              CYCLE
++            END IF
+ 	    IF(I .EQ. 1)THEN
+ 	      HI=R(2)-R(1)
+               HIP1=R(3)-R(2)
+@@ -75,6 +87,23 @@
+ 	        C=DYI
+ 	        D=VARRAY(I,J)
+                 QZ(M,J)=((A*T1+B)*T1+C)*T1+D
++! The interpolant is monotone by construction. Enforce its interval
++! bounds against roundoff, including extreme positive dynamic ranges.
++! Nonfinite arithmetic remains visible to the caller's diagnostics.
++                IF(IEEE_IS_FINITE(QZ(M,J)))THEN
++! Reevaluate cancellation-prone results as a convex Bezier polynomial.
++! This preserves relative accuracy near a small positive endpoint; merely
++! clamping a cancelled zero would lose a real, representable interior value.
++                IF(ABS(QZ(M,J)) .LE. SQRT(EPSILON(ONE))*
++     1                MAX(ABS(VARRAY(I,J)),ABS(VARRAY(I+1,J))))THEN
++                  QZ(M,J)=MON_INTERP_BEZIER(VARRAY(I,J),VARRAY(I+1,J),
++     1                    DYI,DYIP1,R(I),R(I+1),QZR(M))
++                END IF
++                IF(IEEE_IS_FINITE(QZ(M,J)))THEN
++                QZ(M,J)=MAX(MIN(VARRAY(I,J),VARRAY(I+1,J)),
++     1                     MIN(MAX(VARRAY(I,J),VARRAY(I+1,J)),QZ(M,J)))
++                END IF
++                END IF
+ 	      END DO
+ 	    ELSE IF(I .EQ. ND-1)THEN
+ 	      HI=R(ND)-R(ND-1)
+@@ -94,6 +123,23 @@
+ 	        C=DYI
+ 	        D=VARRAY(I,J)
+                 QZ(M,J)=((A*T1+B)*T1+C)*T1+D
++! The interpolant is monotone by construction. Enforce its interval
++! bounds against roundoff, including extreme positive dynamic ranges.
++! Nonfinite arithmetic remains visible to the caller's diagnostics.
++                IF(IEEE_IS_FINITE(QZ(M,J)))THEN
++! Reevaluate cancellation-prone results as a convex Bezier polynomial.
++! This preserves relative accuracy near a small positive endpoint; merely
++! clamping a cancelled zero would lose a real, representable interior value.
++                IF(ABS(QZ(M,J)) .LE. SQRT(EPSILON(ONE))*
++     1                MAX(ABS(VARRAY(I,J)),ABS(VARRAY(I+1,J))))THEN
++                  QZ(M,J)=MON_INTERP_BEZIER(VARRAY(I,J),VARRAY(I+1,J),
++     1                    DYI,DYIP1,R(I),R(I+1),QZR(M))
++                END IF
++                IF(IEEE_IS_FINITE(QZ(M,J)))THEN
++                QZ(M,J)=MAX(MIN(VARRAY(I,J),VARRAY(I+1,J)),
++     1                     MIN(MAX(VARRAY(I,J),VARRAY(I+1,J)),QZ(M,J)))
++                END IF
++                END IF
+ 	      END DO
+ 	    ELSE
+ 	      HI=R(I+1)-R(I)
+@@ -115,6 +161,23 @@
+ 	        C=DYI
+ 	        D=VARRAY(I,J)
+                 QZ(M,J)=((A*T1+B)*T1+C)*T1+D
++! The interpolant is monotone by construction. Enforce its interval
++! bounds against roundoff, including extreme positive dynamic ranges.
++! Nonfinite arithmetic remains visible to the caller's diagnostics.
++                IF(IEEE_IS_FINITE(QZ(M,J)))THEN
++! Reevaluate cancellation-prone results as a convex Bezier polynomial.
++! This preserves relative accuracy near a small positive endpoint; merely
++! clamping a cancelled zero would lose a real, representable interior value.
++                IF(ABS(QZ(M,J)) .LE. SQRT(EPSILON(ONE))*
++     1                MAX(ABS(VARRAY(I,J)),ABS(VARRAY(I+1,J))))THEN
++                  QZ(M,J)=MON_INTERP_BEZIER(VARRAY(I,J),VARRAY(I+1,J),
++     1                    DYI,DYIP1,R(I),R(I+1),QZR(M))
++                END IF
++                IF(IEEE_IS_FINITE(QZ(M,J)))THEN
++                QZ(M,J)=MAX(MIN(VARRAY(I,J),VARRAY(I+1,J)),
++     1                     MIN(MAX(VARRAY(I,J),VARRAY(I+1,J)),QZ(M,J)))
++                END IF
++                END IF
+ 	      END DO
+ 	    END IF
+ 	  ELSE
+@@ -126,3 +189,30 @@
+ C
+ 	RETURN
+ 	END
++
++! Stable form of the same cubic. Steffen's limited derivatives keep these
++! Bezier control points in the endpoint interval. Positive data therefore
++! use positive sums, rather than cancelling large polynomial terms.
++      PURE FUNCTION MON_INTERP_BEZIER(Y0,Y1,D0,D1,X0,X1,X) RESULT(Y)
++      USE SET_KIND_MODULE
++      IMPLICIT NONE
++      REAL(KIND=LDP),INTENT(IN)::Y0,Y1,D0,D1,X0,X1,X
++      REAL(KIND=LDP) Y,H,U,V,C1,C2,A,B,C
++      H=X1-X0
++      C1=Y0+(H/3.0_LDP)*D0
++      C2=Y1-(H/3.0_LDP)*D1
++! Compute the small endpoint weight directly, avoiding loss in 1-t.
++      IF(ABS(X-X0) .LE. ABS(X1-X))THEN
++        V=(X-X0)/H
++        U=1.0_LDP-V
++      ELSE
++        U=(X1-X)/H
++        V=1.0_LDP-U
++      END IF
++      A=U*Y0+V*C1
++      B=U*C1+V*C2
++      C=U*C2+V*Y1
++      A=U*A+V*B
++      B=U*B+V*C
++      Y=U*A+V*B
++      END FUNCTION
+diff --git a/new_main/cmfgen_sub.f b/new_main/cmfgen_sub.f
+--- a/new_main/cmfgen_sub.f
++++ b/new_main/cmfgen_sub.f
+@@ -40,6 +40,7 @@
+ 	USE VAR_RAD_MOD
+ 	USE EDDFAC_REC_DEFS_MOD
+ 	IMPLICIT NONE
++        LOGICAL XRAY_SOURCE_CHANGED,XRAY_SCALE_CHANGED,XRAY_SCALE_VALID
+ !
+ ! Altered 11-Aug-2024 : Fixed bug with Copper - species abbreviation incorrect (24-Jan-2025)
+ ! Altered 02-Aug-2024 : Minor cleaning. Changed minimum valuer for RLUMST & warning output.
+@@ -1292,6 +1293,7 @@
+ 	NEXT_AV=0
+ !
+ 20000	CONTINUE
++        XRAY_SOURCE_CHANGED=.FALSE.
+ 	CALL TUNE(IONE,'GIT')
+ 	NUM_ITS_TO_DO=NUM_ITS_TO_DO-1
+ 	IF(NUM_ITS_TO_DO .EQ. 0)LST_ITERATION=.TRUE.
+@@ -4618,7 +4620,7 @@
+ 	  CLOSE(UNIT=LU_SE)
+ 	  CALL GEN_ASCI_OPEN(LU_SE,'STEQ_VALS','OLD','APPEND',' ',IZERO,IOS)
+ !
+-! Adjust X-ray filling factors upwards if within a factor of 100 of convergence.
++! Adjust X-ray filling factors gradually or to match a requested luminosity.
+ ! We adjust MAXCH to ensure that NUM_ITS_TO_DO is not set to 1.
+ !
+ 	  IF(XRAYS .AND. ADD_XRAYS_SLOWLY .AND. RD_LAMBDA .AND. MAXCH .LT. 100)THEN
+@@ -4646,18 +4648,24 @@
+ ! We do not do the scaling if there is intrinsic X-ray emssion from the star.
+ ! DESIRED_XRAY_LUM should be in units of LSTAR.
+ !
+-	    IF(OBS_XRAY_LUM_0P1 .LT. SUM(XRAY_LUM_0P1) .AND. SCALE_XRAY_LUM)THEN
+-	      IF( (LUM*DESIRED_XRAY_LUM/OBS_XRAY_LUM_0P1-1.0_LDP) .GT. ALLOWED_XRAY_FLUX_ERROR)THEN
+-	        T1=SQRT(LUM*DESIRED_XRAY_LUM/OBS_XRAY_LUM_0P1)
+-	        IF(T1 .GT. 10.0_LDP)T1=10.0_LDP
+-	        IF(T1 .LT. 0.1_LDP)T1=0.1_LDP
+-	        FILL_FAC_XRAYS_1=T1*FILL_FAC_XRAYS_1
+-	        FILL_FAC_XRAYS_2=T1*FILL_FAC_XRAYS_2
+-	        CALL UPDATE_KEYWORD(FILL_FAC_XRAYS_1,'[FIL_FAC_1]','VADAT',L_TRUE,L_FALSE,LUIN)
+-	        CALL UPDATE_KEYWORD(FILL_FAC_XRAYS_2,'[FIL_FAC_2]','VADAT',L_FALSE,L_TRUE,LUIN)
+-	        WRITE(6,*)'Adjusted filling factors to match desired X-ray luminosity'
+-	        WRITE(6,*)'Adjustment factor is',T1
+-	      END IF
++	    IF(SCALE_XRAY_LUM)THEN
++          CALL CMFGEN_XRAY_SCALE(OBS_XRAY_LUM_0P1,LUM*DESIRED_XRAY_LUM,
++     1          ALLOWED_XRAY_FLUX_ERROR,T1,XRAY_SCALE_CHANGED,XRAY_SCALE_VALID)
++          IF(.NOT. XRAY_SCALE_VALID)THEN
++            WRITE(LUER,*)'Invalid luminosity or tolerance in X-ray normalization'
++            STOP 1
++          END IF
++          IF(XRAY_SCALE_CHANGED .AND. OBS_XRAY_LUM_0P1 .LT. SUM(XRAY_LUM_0P1))THEN
++            FILL_FAC_XRAYS_1=T1*FILL_FAC_XRAYS_1
++            FILL_FAC_XRAYS_2=T1*FILL_FAC_XRAYS_2
++            CALL UPDATE_KEYWORD(FILL_FAC_XRAYS_1,'[FIL_FAC_1]','VADAT',L_TRUE,L_FALSE,LUIN)
++            CALL UPDATE_KEYWORD(FILL_FAC_XRAYS_2,'[FIL_FAC_2]','VADAT',L_FALSE,L_TRUE,LUIN)
++            WRITE(6,*)'Adjusted filling factors to match desired X-ray luminosity'
++            WRITE(6,*)'Adjustment factor is',T1
++            WRITE(LUER,'(A,ES24.16)')'XRAY_NORMALIZATION_FACTOR: ',T1
++            XRAY_SOURCE_CHANGED=.TRUE.
++            MAXCH=MAX(MAXCH,100.0_LDP)
++          END IF
+ 	    END IF
+ 	  END IF
+ 	  IF(INCL_ADVECTION .AND. ADVEC_RELAX_PARAM .LT. 1.0_LDP .AND. MAXCH .LT. 100)THEN
+@@ -4775,6 +4783,8 @@
+ 	         WRITE(LUER,*)'Error opening IN_ITS or MODEL_SCR in CMFGEN, IOS=',IOS
+ 	         WRITE(LUER,*)'Error occurs at the end of CMFGEN_SUB.'
+ 	         WRITE(LUER,*)'Error will be ignored.'
++                 CALL CMFGEN_XRAY_CONTINUE(XRAY_SOURCE_CHANGED,MAXCH,
++     1                COMPUTE_BA,COMPUTE_EDDFAC,NUM_ITS_TO_DO)
+ 	         GOTO 20000
+ 	      END IF
+ 	      CALL RD_OPTIONS_INTO_STORE(LUIN,LUSCR)
+@@ -4813,7 +4823,58 @@
+ !	  WRITE(6,*)'Inserted temporary fudge for FIXED_T'
+ !	  FIXED_T=.TRUE.
+ !	  IF(MAXCH .LT. 50.0D0 .AND. LAST_LAMBDA .NE. MAIN_COUNTER)FIXED_T=RD_FIX_T
++          CALL CMFGEN_XRAY_CONTINUE(XRAY_SOURCE_CHANGED,MAXCH,
++     1        COMPUTE_BA,COMPUTE_EDDFAC,NUM_ITS_TO_DO)
+ 	  GOTO 20000				!Begin another iteration
+ 	END IF
+ !
+ 	END
++
++! Return a bounded filling-factor multiplier. Emissivity scales as FILL**2.
++! Invalid luminosities never enter arithmetic or silently pass convergence.
++      SUBROUTINE CMFGEN_XRAY_SCALE(OBS,TARGET,TOL,FACTOR,CHANGED,VALID)
++      USE SET_KIND_MODULE
++      USE, INTRINSIC :: IEEE_ARITHMETIC
++      IMPLICIT NONE
++      REAL(KIND=LDP) OBS,TARGET,TOL,FACTOR,A,B,LIMIT
++      LOGICAL CHANGED,VALID
++      FACTOR=1.0_LDP
++      CHANGED=.FALSE.
++      VALID=.FALSE.
++      IF(.NOT. IEEE_IS_FINITE(OBS))RETURN
++      IF(.NOT. IEEE_IS_FINITE(TARGET))RETURN
++      IF(.NOT. IEEE_IS_FINITE(TOL))RETURN
++      IF(OBS .LT. 0.0_LDP .OR. TARGET .LE. 0.0_LDP .OR. TOL .LT. 0.0_LDP)RETURN
++      VALID=.TRUE.
++! Avoid overflow even for an unphysical very large tolerance.
++      IF(TOL .GT. 1.0_LDP)THEN
++        IF(TARGET .GT. HUGE(TARGET)/TOL)RETURN
++      END IF
++      LIMIT=TOL*TARGET
++      IF(ABS(OBS-TARGET) .LE. LIMIT)RETURN
++      A=SQRT(TARGET)
++      B=SQRT(OBS)
++      IF(B .LE. A/10.0_LDP)THEN
++        FACTOR=10.0_LDP
++      ELSE IF(A .LE. B/10.0_LDP)THEN
++        FACTOR=0.1_LDP
++      ELSE
++        FACTOR=A/B
++      END IF
++      CHANGED=.TRUE.
++      END
++!
++! A changed source requires a new solved update, even after cycle overrides
++! or an IN_ITS reread. A budget of one only writes a final formal spectrum.
++      SUBROUTINE CMFGEN_XRAY_CONTINUE(CHANGED,MAXCH,BA,EDD,NLEFT)
++      USE SET_KIND_MODULE
++      IMPLICIT NONE
++      LOGICAL CHANGED,BA,EDD
++      INTEGER NLEFT
++      REAL(KIND=LDP) MAXCH
++      IF(.NOT. CHANGED)RETURN
++      MAXCH=MAX(MAXCH,100.0_LDP)
++      BA=.TRUE.
++      EDD=.TRUE.
++      NLEFT=MAX(NLEFT,2)
++      END
+diff --git a/newsubs/subcol_multi_v6.f b/newsubs/subcol_multi_v6.f
+--- a/newsubs/subcol_multi_v6.f
++++ b/newsubs/subcol_multi_v6.f
+@@ -163,7 +163,7 @@
+ 	      CII=CIJ*HNST_F_ON_S(I,K)*(1.0_LDP-W_F(J,K)/W_F(I,K))
+ 	      COL_F(I,I)=COL_F(I,I)+CII
+ 	      IF(DO_dCOLdT)THEN
+-	        DCOL_F(I,I)=CII*( dln_OMEGA_dlnT(I,J) +
++	        DCOL_F(I,I)=DCOL_F(I,I)+CII*( dln_OMEGA_dlnT(I,J) +
+ 	1        X -2.0_LDP - HDKT*EDGE_F(I)/T(K)-dlnHNST_S_dlnT(L,K) )/T(K)
+ 	      END IF
+ !
+diff --git a/plane/var_mom_j_cmf_v12.f b/plane/var_mom_j_cmf_v12.f
+--- a/plane/var_mom_j_cmf_v12.f
++++ b/plane/var_mom_j_cmf_v12.f
+@@ -773,6 +773,10 @@
+ 	KI_MODEL=0.0_LDP; RHS_MODEL=0.0_LDP; ESC_RESPONSE=0.0_LDP
+ 	DO JF=1,ND
+ 	  DO JM=1,NC
++! Interpolation rows have local support. Preserve the nonzero summation
++! order while avoiding products whose three model-grid weights vanish.
++            IF(PCHI(JF,JM).EQ.0.0_LDP .AND. PETA(JF,JM).EQ.0.0_LDP
++     1           .AND. PESC(JF,JM).EQ.0.0_LDP)CYCLE
+ 	    DO IR=1,ND
+ 	      KI_MODEL(IR,JM,1)=KI_MODEL(IR,JM,1)+KI(IR,JF,1)*PCHI(JF,JM)
+ 	      KI_MODEL(IR,JM,2)=KI_MODEL(IR,JM,2)+KI(IR,JF,2)*PETA(JF,JM)
+diff --git a/new_main/mod_subs/do_var_cont.f b/new_main/mod_subs/do_var_cont.f
+--- a/new_main/mod_subs/do_var_cont.f
++++ b/new_main/mod_subs/do_var_cont.f
+@@ -636,17 +636,21 @@
+ 	    TXW(:,:,1:2)=0.0_LDP
+ 	    TVXW(:,:,1:2)=0.0_LDP
+ 	    IF(GRID_ACTIVE)THEN
++!$OMP PARALLEL DO PRIVATE(J)
+ 	      DO I=1,NM
+ 	        DO J=1,ND
+ 	          TX(:,J,I)=TXW(MAP_J,J,I)
+ 	          TVX(:,J,I)=TVXW(MAP_H,J,I)*H_WEIGHT+TVXW(MAP_H2,J,I)*H_WEIGHT2
+ 	        END DO
+ 	      END DO
++!$OMP END PARALLEL DO
+ 	      IF(ACCURATE)THEN
++!$OMP PARALLEL DO
+ 	        DO I=1,NM
+ 	          TX_EXT(:,:,I)=TXW(J_INDX(1:NDEXT),:,I)
+ 	          TVX_EXT(:,:,I)=TVXW(H_INDX(1:NDEXT-1),:,I)
+ 	        END DO
++!$OMP END PARALLEL DO
+ 	        dJ_DIF_d_T_EXT(1:NDEXT)=GRID_DT(J_INDX(1:NDEXT))
+ 	        dJ_DIF_d_dTdR_EXT(1:NDEXT)=GRID_DG(J_INDX(1:NDEXT))
+ 	      END IF

@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "baseline": "Consolidated numerical fixes 1\u201325; do not apply after the latest consolidated patch",
+  "files": [
+    {
+      "path": "subs/mon_interp.f",
+      "before_sha256": "1f0deea3c6cac365775f95a580f24c5c691a43c7e3ce94d9d11ae8f3ac9909f0",
+      "after_sha256": "9c6dda6a9b2fe0a8eca89bbc2bf712cb17e575bed787f727cac2fca76ce61e25"
+    },
+    {
+      "path": "new_main/cmfgen_sub.f",
+      "before_sha256": "c6b46473a9c45a3917e14d661c787f8d09d3c89ea037ef0169ebf8e5cdc45cc1",
+      "after_sha256": "59aeffd54f281fa828cbcc7e9920855c4d7b8fb2eeb6a16024ba6699e30eaf32"
+    },
+    {
+      "path": "newsubs/subcol_multi_v6.f",
+      "before_sha256": "d2e6855d3197f66691705ba0c4eae4312c945e4da71936eef6af1355a5ac0015",
+      "after_sha256": "c6709e314eb09911d6a4cad83e424c40d705ddefb1265adaaceeb9c624aa07bd"
+    },
+    {
+      "path": "plane/var_mom_j_cmf_v12.f",
+      "before_sha256": "62c9f8c86608b4bef3d0b90969f4129cfe35a516693e88a9cbffd8d10548740d",
+      "after_sha256": "ff54a209c4a0a6d3cf6a43824d07bb0b7500f9d2f99e4b21422ab89f3f2fb481"
+    },
+    {
+      "path": "new_main/mod_subs/do_var_cont.f",
+      "before_sha256": "8f8ad58fbd30847fe8a452d13baaf49051114f86daae7fd78d69e17924b721ea",
+      "after_sha256": "16607f1c6da1ca67c067bc300c21766b88c36e60d39267c5b883a5fdaa94919a"
+    }
+  ],
+  "patch_file": "cmfgen-convergence-repairs.patch",
+  "patch_sha256": "25c027f7974a07f57e2b150f2001ce389aa203ea9d0b387c5a731004002f49d6",
+  "numerical_repairs": [
+    26,
+    27,
+    28
+  ],
+  "performance_optimizations": [
+    29,
+    30
+  ],
+  "included_in_consolidated_patch_sha256": "61f30ed5b2818d24b5152b898c035b92ccad91afaff02679d628a027162db25a",
+  "validated_forward_reverse_roundtrip": true,
+  "optional_output_feature_patch": "cmfgen-fixed-state-output.patch",
+  "optional_output_feature_patch_sha256": "f9840eda6a552fdef59a229f00a5e8e19f5cbb9b82d9725f35c04b30c272b5de",
+  "optional_output_feature_forward_reverse_validated": true,
+  "Makefile_definitions_excluded": true
+}

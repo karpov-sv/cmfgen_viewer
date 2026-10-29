@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
-  "captured_at_utc": "2026-10-25T10:58:01.667805+00:00",
+  "captured_at_utc": "2026-10-29T13:25:46.084845+00:00",
   "source_checkout": "~/CMFGEN2023/cur_cmf/",
   "baseline_release": "18jun25",
   "baseline_description": "CMFGEN website release as of 18 Jun 2025; extracted release contents, including documentation changes absent from the archive's Git tree",
   "patch_file": "cmfgen-current.patch",
-  "patch_sha256": "066d9d01134ec4b17e5ba9fb75cbf7b9fe14fb4d4f38d7c8097d9f3d6c490faa",
+  "patch_sha256": "61f30ed5b2818d24b5152b898c035b92ccad91afaff02679d628a027162db25a",
   "files": [
     {
       "path": "Makefile_definitions",
@@ -22,7 +22,7 @@
     {
       "path": "new_main/cmfgen_sub.f",
       "status": "modified",
-      "sha256": "c6b46473a9c45a3917e14d661c787f8d09d3c89ea037ef0169ebf8e5cdc45cc1",
+      "sha256": "13e67a7e0735e632155f613bac8ce7b03775d44a4117173d53bf0be65f685aa9",
       "baseline_sha256": "092f8526661b1f9a5eaeb7a875f07f55623f427ad07c383f2659f2fb67143374"
     },
     {
@@ -40,7 +40,7 @@
     {
       "path": "new_main/mod_subs/do_var_cont.f",
       "status": "modified",
-      "sha256": "8f8ad58fbd30847fe8a452d13baaf49051114f86daae7fd78d69e17924b721ea",
+      "sha256": "16607f1c6da1ca67c067bc300c21766b88c36e60d39267c5b883a5fdaa94919a",
       "baseline_sha256": "553f5c44b8df9c527e39a39b7b2d75d7c422d604cf2ac8aae8c77f50d9a89f8f"
     },
     {
@@ -146,6 +146,12 @@
       "baseline_sha256": "acf70de299e68bd8aabf78e181e56965ba5d5d22a5ddc97aa218df38ad3c97d1"
     },
     {
+      "path": "newsubs/subcol_multi_v6.f",
+      "status": "modified",
+      "sha256": "c6709e314eb09911d6a4cad83e424c40d705ddefb1265adaaceeb9c624aa07bd",
+      "baseline_sha256": "d2e6855d3197f66691705ba0c4eae4312c945e4da71936eef6af1355a5ac0015"
+    },
+    {
       "path": "obs/cmf_flux_sub_v5.f",
       "status": "modified",
       "sha256": "4a1d33f3feabc864c8bbfead16aaecb8e31db78adeb1e498b6d541817f3d19ed",
@@ -226,7 +232,7 @@
     {
       "path": "plane/var_mom_j_cmf_v12.f",
       "status": "modified",
-      "sha256": "62c9f8c86608b4bef3d0b90969f4129cfe35a516693e88a9cbffd8d10548740d",
+      "sha256": "ff54a209c4a0a6d3cf6a43824d07bb0b7500f9d2f99e4b21422ab89f3f2fb481",
       "baseline_sha256": "c052f3efa4283a2fe44bed59e101f3fc86bc4d9d098557437fa2f386756f91a8"
     },
     {
@@ -260,6 +266,12 @@
       "baseline_sha256": "6e221567f95b0bfb2a574440e449d2a8c4145161d74f4cf993ddd1dc4acfb48e"
     },
     {
+      "path": "subs/mon_interp.f",
+      "status": "modified",
+      "sha256": "9c6dda6a9b2fe0a8eca89bbc2bf712cb17e575bed787f727cac2fca76ce61e25",
+      "baseline_sha256": "1f0deea3c6cac365775f95a580f24c5c691a43c7e3ce94d9d11ae8f3ac9909f0"
+    },
+    {
       "path": "subs/regrid_t_ed_v3.f",
       "status": "modified",
       "sha256": "b0a60352a8d846fa4638ba136dacfc157956bd2f9a33d7c78f8723780d2428a0",
@@ -285,7 +297,7 @@
     "AGENTS.md local workflow notes",
     "1.diff scratch patch"
   ],
-  "verification": "git apply --check, full forward/reverse application against all 45 recovered release images, and an excluded-Makefile application preserving the current local build file; SHA-256 checked throughout",
+  "verification": "Full release patch application and reversal with every file hash checked; local Makefile_definitions preserved when excluded.",
   "validated_patch_roundtrip": true,
   "moment_grid_validation": {
     "capabilities": [
@@ -295,161 +307,6 @@
     "report": "../cmfgen-related-moment-repairs.md",
     "scope": "Native frozen-ray kernels and production variation prefix; no new atmosphere convergence claim",
     "evidence_directory": "/Users/karpov/sciwork/cmfgen_viewer/models/test/.model_Bstar3502-diagnostics/related-moment-fixes-v1"
-  },
-  "installed_build": {
-    "schema_version": 1,
-    "recorded_at_utc": "2026-10-25T04:07:43.668909+00:00",
-    "source_checkout": "/home/karpov/CMFGEN2023/cur_cmf.25",
-    "source_patch": "/home/karpov/cmfgen_viewer/doc/developer/patches/cmfgen-moment-limits.patch",
-    "source_patch_sha256": "70bb5bbac53dd95b41ea6ed91051be9a162d3f5f4435aa5905f6da7a3089a288",
-    "capabilities": [
-      "moment-limiter-jacobian-v1",
-      "moment-grid-jacobian-v1",
-      "moment-grid-family-v1"
-    ],
-    "sources": {
-      "new_main/mod_subs/Makefile": "afc5f6d590af284c86dc36809c3495b3bbc8c87f81b83f69593a8153233599ea",
-      "new_main/mod_subs/do_var_cont.f": "8f8ad58fbd30847fe8a452d13baaf49051114f86daae7fd78d69e17924b721ea",
-      "plane/var_mom_j_cmf_v12.f": "62c9f8c86608b4bef3d0b90969f4129cfe35a516693e88a9cbffd8d10548740d"
-    },
-    "executables": {
-      "cmfgen_dev.exe": {
-        "sha256": "eae34c599335a719ec4dbc7a71ced761c2f3f34676444adfa19b22a5baf6db42",
-        "size": 3508960
-      },
-      "cmf_flux.exe": {
-        "sha256": "99ff509c9de313d4e408ddfcdc13a7a90768dd636659bc53f4c546e78c31fe74",
-        "size": 1478832
-      },
-      "obs_frame.exe": {
-        "sha256": "bf120cf662751a1c6bddeb7db53ec075ebf959ef9e341a2dc3105eca8fd27fb2",
-        "size": 167296
-      }
-    },
-    "rollback_directory": "/home/karpov/CMFGEN2023/cur_cmf.25/.cmfgen-backups/20261025-moment-limits",
-    "validation": {
-      "validated-limits-o0": {
-        "passed": true,
-        "maximum_field_error": 2.420323624855109e-14,
-        "maximum_column_error": 9.369820084998002e-06,
-        "native_calls": 3480,
-        "assembly": {
-          "passed": true,
-          "maximum_column_error": 1.518716444825119e-06,
-          "native_calls": 360,
-          "scope": "Actual DO_VAR_CONT coherent-scattering/current-continuum assembly block; ordinary grid, native recorded clipping cases. Other wrapper operations tested separately."
-        },
-        "report_path": "/home/karpov/cmfgen_viewer/tmp/cmfgen-moment-limits-fix/validated-limits-o0/report.json",
-        "report_sha256": "a126c3577037f6c61d0bccfbd8df9de6c19a5c47d0b7d9d2bccb22b2139c43f0"
-      },
-      "validated-limits-o2": {
-        "passed": true,
-        "maximum_field_error": 2.420323624855109e-14,
-        "maximum_column_error": 9.369820084998002e-06,
-        "native_calls": 3480,
-        "assembly": {
-          "passed": true,
-          "maximum_column_error": 1.518716444825119e-06,
-          "native_calls": 360,
-          "scope": "Actual DO_VAR_CONT coherent-scattering/current-continuum assembly block; ordinary grid, native recorded clipping cases. Other wrapper operations tested separately."
-        },
-        "report_path": "/home/karpov/cmfgen_viewer/tmp/cmfgen-moment-limits-fix/validated-limits-o2/report.json",
-        "report_sha256": "a126c3577037f6c61d0bccfbd8df9de6c19a5c47d0b7d9d2bccb22b2139c43f0"
-      },
-      "grid-limits-o0-v5": {
-        "kernel": {
-          "passed": true,
-          "maximum_field_error": 7.978871091680492e-14,
-          "maximum_column_error": 1.1095933391199541e-05,
-          "native_calls": 1680
-        },
-        "workflow": {
-          "passed": true,
-          "maximum_column_error": 1.3285700874919202e-07,
-          "maximum_field_error": 7.978871091680492e-14,
-          "native_calls": 510
-        },
-        "report_path": "/home/karpov/cmfgen_viewer/tmp/cmfgen-moment-limits-fix/grid-limits-o0-v5/report.json",
-        "report_sha256": "0d606c15809d8a5799b900c47020e4c2fdf1ff9bd818ae086da29a85f111a01a"
-      },
-      "grid-limits-o2": {
-        "kernel": {
-          "passed": true,
-          "maximum_field_error": 7.978871091680492e-14,
-          "maximum_column_error": 1.1095933391199541e-05,
-          "native_calls": 1680
-        },
-        "workflow": {
-          "passed": true,
-          "maximum_column_error": 1.3285700874919202e-07,
-          "maximum_field_error": 7.978871091680492e-14,
-          "native_calls": 510
-        },
-        "report_path": "/home/karpov/cmfgen_viewer/tmp/cmfgen-moment-limits-fix/grid-limits-o2/report.json",
-        "report_sha256": "0d606c15809d8a5799b900c47020e4c2fdf1ff9bd818ae086da29a85f111a01a"
-      },
-      "regression-o0": {
-        "passed": true,
-        "forward_transport_bitwise_cases": 64,
-        "no_insertion_forward_bitwise_cases": 64,
-        "maximum_refined_variation_field_relative_error": 5.2438155663646244e-14,
-        "maximum_finite_difference_column_relative_error": 6.637185701323585e-06,
-        "native_invocations": 903,
-        "scope": "Frozen formal-ray moments; actual native refined transport and interpolation. Includes current opacity/emissivity/scattering, prior-frequency history, diffusion boundary derivatives, both midpoint storage modes and outer boundary types. No scientific model convergence claim.",
-        "workflow": {
-          "passed": true,
-          "maximum_finite_difference_column_relative_error": 1.6198184552217635e-07,
-          "native_invocations": 680,
-          "scope": "Actual DO_VAR_CONT prefix; three-frequency continuum, scattering, line-level and super-level temperature responses with nonuniform clumping. Atomic-rate assembly excluded."
-        },
-        "report_path": "/home/karpov/cmfgen_viewer/tmp/cmfgen-moment-limits-fix/regression-o0/report.json",
-        "report_sha256": "c7696b0b6253e8c57566d6ace7da56ee25772baf605546e5980cdfc84acde0e4"
-      },
-      "regression-o2": {
-        "passed": true,
-        "forward_transport_bitwise_cases": 64,
-        "no_insertion_forward_bitwise_cases": 64,
-        "maximum_refined_variation_field_relative_error": 5.2438155663646244e-14,
-        "maximum_finite_difference_column_relative_error": 6.637185701323585e-06,
-        "native_invocations": 903,
-        "scope": "Frozen formal-ray moments; actual native refined transport and interpolation. Includes current opacity/emissivity/scattering, prior-frequency history, diffusion boundary derivatives, both midpoint storage modes and outer boundary types. No scientific model convergence claim.",
-        "workflow": {
-          "passed": true,
-          "maximum_finite_difference_column_relative_error": 1.6198184552217635e-07,
-          "native_invocations": 680,
-          "scope": "Actual DO_VAR_CONT prefix; three-frequency continuum, scattering, line-level and super-level temperature responses with nonuniform clumping. Atomic-rate assembly excluded."
-        },
-        "report_path": "/home/karpov/cmfgen_viewer/tmp/cmfgen-moment-limits-fix/regression-o2/report.json",
-        "report_sha256": "c7696b0b6253e8c57566d6ace7da56ee25772baf605546e5980cdfc84acde0e4"
-      },
-      "families-o2": {
-        "passed": true,
-        "threads": 5,
-        "native_invocations": 5564,
-        "maximum_column_relative_error": 2.9857239251211604e-05,
-        "maximum_field_relative_error": 2.4391863190265273e-14,
-        "scope": "Validate related native moment repairs in an isolated build directory.\n\nReal forward/variation solvers, interpolation, history, and DO_VAR_CONT through\nprojection are executed. Formal-ray fields are frozen. Kernel time tests prescribe\nold radiation; the separate cache test executes the real binary old-time reader\nwith only metadata discovery stubbed. No atmosphere-convergence claim is made.\n",
-        "optimization": "O2",
-        "report_path": "/home/karpov/cmfgen_viewer/tmp/cmfgen-moment-limits-fix/families-o2/report.json",
-        "report_sha256": "fb4f574e1e98bcaaf65ea3dcca966511e8ac9941d8940c7dec4381f383ff07b5"
-      },
-      "installed-check": {
-        "passed": true,
-        "maximum_field_error": 2.420323624855109e-14,
-        "maximum_column_error": 9.369820084998002e-06,
-        "native_calls": 3480,
-        "scope": "Linked installed libsubs.a/libmod.a directly; no private kernel objects.",
-        "report_path": "/home/karpov/cmfgen_viewer/tmp/cmfgen-moment-limits-fix/installed-check/report.json",
-        "report_sha256": "341eeebf7a7196c9349b15eeaf8a303887f023ee35a5e242ae31477b2cf22bed"
-      }
-    },
-    "meaning": "Native moment-operator validation and rebuild provenance; no full-atmosphere convergence certificate. This record does not certify unrelated initialization fixes.",
-    "covers_full_patch_snapshot": false,
-    "source_differences_from_snapshot": [
-      "Makefile_definitions",
-      "com/aliases_for_cmfgen.sh",
-      "new_main/mod_subs/init_population_estimates.f90"
-    ]
   },
   "followup_source_checkout": "~/CMFGEN2023/cur_cmf.25/",
   "fix_groups": [
@@ -477,14 +334,18 @@
     22,
     23,
     24,
-    25
+    25,
+    26,
+    27,
+    28
   ],
   "build_settings_preservation": {
     "patch_section_unchanged": true,
     "patch_section_sha256": "f60052842403f902d32543220080ee2db8aac3943e1e6e1062e2762344c482fb",
     "live_makefile_unchanged": true,
     "live_makefile_sha256": "b2b227abce6f115254f0dd53f0ddea58ac71730756965d5e9754464d266b8208",
-    "apply_preserving_local_settings": "git apply --exclude=Makefile_definitions cmfgen-current.patch"
+    "apply_preserving_local_settings": "git apply --exclude=Makefile_definitions cmfgen-current.patch",
+    "local_aliases_unchanged": true
   },
   "moment_limiter_validation": {
     "report": "../cmfgen-moment-limits.md",
@@ -757,6 +618,364 @@
           "installation": "atomic replacement"
         }
       ]
+    },
+    {
+      "schema_version": 1,
+      "recorded_at_utc": "2026-10-25T04:07:43.668909+00:00",
+      "source_checkout": "/home/karpov/CMFGEN2023/cur_cmf.25",
+      "source_patch": "/home/karpov/cmfgen_viewer/doc/developer/patches/cmfgen-moment-limits.patch",
+      "source_patch_sha256": "70bb5bbac53dd95b41ea6ed91051be9a162d3f5f4435aa5905f6da7a3089a288",
+      "capabilities": [
+        "moment-limiter-jacobian-v1",
+        "moment-grid-jacobian-v1",
+        "moment-grid-family-v1"
+      ],
+      "sources": {
+        "new_main/mod_subs/Makefile": "afc5f6d590af284c86dc36809c3495b3bbc8c87f81b83f69593a8153233599ea",
+        "new_main/mod_subs/do_var_cont.f": "8f8ad58fbd30847fe8a452d13baaf49051114f86daae7fd78d69e17924b721ea",
+        "plane/var_mom_j_cmf_v12.f": "62c9f8c86608b4bef3d0b90969f4129cfe35a516693e88a9cbffd8d10548740d"
+      },
+      "executables": {
+        "cmfgen_dev.exe": {
+          "sha256": "eae34c599335a719ec4dbc7a71ced761c2f3f34676444adfa19b22a5baf6db42",
+          "size": 3508960
+        },
+        "cmf_flux.exe": {
+          "sha256": "99ff509c9de313d4e408ddfcdc13a7a90768dd636659bc53f4c546e78c31fe74",
+          "size": 1478832
+        },
+        "obs_frame.exe": {
+          "sha256": "bf120cf662751a1c6bddeb7db53ec075ebf959ef9e341a2dc3105eca8fd27fb2",
+          "size": 167296
+        }
+      },
+      "rollback_directory": "/home/karpov/CMFGEN2023/cur_cmf.25/.cmfgen-backups/20261025-moment-limits",
+      "validation": {
+        "validated-limits-o0": {
+          "passed": true,
+          "maximum_field_error": 2.420323624855109e-14,
+          "maximum_column_error": 9.369820084998002e-06,
+          "native_calls": 3480,
+          "assembly": {
+            "passed": true,
+            "maximum_column_error": 1.518716444825119e-06,
+            "native_calls": 360,
+            "scope": "Actual DO_VAR_CONT coherent-scattering/current-continuum assembly block; ordinary grid, native recorded clipping cases. Other wrapper operations tested separately."
+          },
+          "report_path": "/home/karpov/cmfgen_viewer/tmp/cmfgen-moment-limits-fix/validated-limits-o0/report.json",
+          "report_sha256": "a126c3577037f6c61d0bccfbd8df9de6c19a5c47d0b7d9d2bccb22b2139c43f0"
+        },
+        "validated-limits-o2": {
+          "passed": true,
+          "maximum_field_error": 2.420323624855109e-14,
+          "maximum_column_error": 9.369820084998002e-06,
+          "native_calls": 3480,
+          "assembly": {
+            "passed": true,
+            "maximum_column_error": 1.518716444825119e-06,
+            "native_calls": 360,
+            "scope": "Actual DO_VAR_CONT coherent-scattering/current-continuum assembly block; ordinary grid, native recorded clipping cases. Other wrapper operations tested separately."
+          },
+          "report_path": "/home/karpov/cmfgen_viewer/tmp/cmfgen-moment-limits-fix/validated-limits-o2/report.json",
+          "report_sha256": "a126c3577037f6c61d0bccfbd8df9de6c19a5c47d0b7d9d2bccb22b2139c43f0"
+        },
+        "grid-limits-o0-v5": {
+          "kernel": {
+            "passed": true,
+            "maximum_field_error": 7.978871091680492e-14,
+            "maximum_column_error": 1.1095933391199541e-05,
+            "native_calls": 1680
+          },
+          "workflow": {
+            "passed": true,
+            "maximum_column_error": 1.3285700874919202e-07,
+            "maximum_field_error": 7.978871091680492e-14,
+            "native_calls": 510
+          },
+          "report_path": "/home/karpov/cmfgen_viewer/tmp/cmfgen-moment-limits-fix/grid-limits-o0-v5/report.json",
+          "report_sha256": "0d606c15809d8a5799b900c47020e4c2fdf1ff9bd818ae086da29a85f111a01a"
+        },
+        "grid-limits-o2": {
+          "kernel": {
+            "passed": true,
+            "maximum_field_error": 7.978871091680492e-14,
+            "maximum_column_error": 1.1095933391199541e-05,
+            "native_calls": 1680
+          },
+          "workflow": {
+            "passed": true,
+            "maximum_column_error": 1.3285700874919202e-07,
+            "maximum_field_error": 7.978871091680492e-14,
+            "native_calls": 510
+          },
+          "report_path": "/home/karpov/cmfgen_viewer/tmp/cmfgen-moment-limits-fix/grid-limits-o2/report.json",
+          "report_sha256": "0d606c15809d8a5799b900c47020e4c2fdf1ff9bd818ae086da29a85f111a01a"
+        },
+        "regression-o0": {
+          "passed": true,
+          "forward_transport_bitwise_cases": 64,
+          "no_insertion_forward_bitwise_cases": 64,
+          "maximum_refined_variation_field_relative_error": 5.2438155663646244e-14,
+          "maximum_finite_difference_column_relative_error": 6.637185701323585e-06,
+          "native_invocations": 903,
+          "scope": "Frozen formal-ray moments; actual native refined transport and interpolation. Includes current opacity/emissivity/scattering, prior-frequency history, diffusion boundary derivatives, both midpoint storage modes and outer boundary types. No scientific model convergence claim.",
+          "workflow": {
+            "passed": true,
+            "maximum_finite_difference_column_relative_error": 1.6198184552217635e-07,
+            "native_invocations": 680,
+            "scope": "Actual DO_VAR_CONT prefix; three-frequency continuum, scattering, line-level and super-level temperature responses with nonuniform clumping. Atomic-rate assembly excluded."
+          },
+          "report_path": "/home/karpov/cmfgen_viewer/tmp/cmfgen-moment-limits-fix/regression-o0/report.json",
+          "report_sha256": "c7696b0b6253e8c57566d6ace7da56ee25772baf605546e5980cdfc84acde0e4"
+        },
+        "regression-o2": {
+          "passed": true,
+          "forward_transport_bitwise_cases": 64,
+          "no_insertion_forward_bitwise_cases": 64,
+          "maximum_refined_variation_field_relative_error": 5.2438155663646244e-14,
+          "maximum_finite_difference_column_relative_error": 6.637185701323585e-06,
+          "native_invocations": 903,
+          "scope": "Frozen formal-ray moments; actual native refined transport and interpolation. Includes current opacity/emissivity/scattering, prior-frequency history, diffusion boundary derivatives, both midpoint storage modes and outer boundary types. No scientific model convergence claim.",
+          "workflow": {
+            "passed": true,
+            "maximum_finite_difference_column_relative_error": 1.6198184552217635e-07,
+            "native_invocations": 680,
+            "scope": "Actual DO_VAR_CONT prefix; three-frequency continuum, scattering, line-level and super-level temperature responses with nonuniform clumping. Atomic-rate assembly excluded."
+          },
+          "report_path": "/home/karpov/cmfgen_viewer/tmp/cmfgen-moment-limits-fix/regression-o2/report.json",
+          "report_sha256": "c7696b0b6253e8c57566d6ace7da56ee25772baf605546e5980cdfc84acde0e4"
+        },
+        "families-o2": {
+          "passed": true,
+          "threads": 5,
+          "native_invocations": 5564,
+          "maximum_column_relative_error": 2.9857239251211604e-05,
+          "maximum_field_relative_error": 2.4391863190265273e-14,
+          "scope": "Validate related native moment repairs in an isolated build directory.\n\nReal forward/variation solvers, interpolation, history, and DO_VAR_CONT through\nprojection are executed. Formal-ray fields are frozen. Kernel time tests prescribe\nold radiation; the separate cache test executes the real binary old-time reader\nwith only metadata discovery stubbed. No atmosphere-convergence claim is made.\n",
+          "optimization": "O2",
+          "report_path": "/home/karpov/cmfgen_viewer/tmp/cmfgen-moment-limits-fix/families-o2/report.json",
+          "report_sha256": "fb4f574e1e98bcaaf65ea3dcca966511e8ac9941d8940c7dec4381f383ff07b5"
+        },
+        "installed-check": {
+          "passed": true,
+          "maximum_field_error": 2.420323624855109e-14,
+          "maximum_column_error": 9.369820084998002e-06,
+          "native_calls": 3480,
+          "scope": "Linked installed libsubs.a/libmod.a directly; no private kernel objects.",
+          "report_path": "/home/karpov/cmfgen_viewer/tmp/cmfgen-moment-limits-fix/installed-check/report.json",
+          "report_sha256": "341eeebf7a7196c9349b15eeaf8a303887f023ee35a5e242ae31477b2cf22bed"
+        }
+      },
+      "meaning": "Native moment-operator validation and rebuild provenance; no full-atmosphere convergence certificate. This record does not certify unrelated initialization fixes.",
+      "covers_full_patch_snapshot": false,
+      "source_differences_from_snapshot": [
+        "Makefile_definitions",
+        "com/aliases_for_cmfgen.sh",
+        "new_main/mod_subs/init_population_estimates.f90"
+      ]
     }
-  ]
+  ],
+  "performance_groups": [
+    29,
+    30
+  ],
+  "investigation_validation": {
+    "incremental_patch": "cmfgen-convergence-repairs.patch",
+    "report": "../cmfgen-convergence-repairs.md",
+    "status": "Installed and serially rebuilt; native regression, controller and complete fixed-state output checks passed. Full output execution version is identified separately in build validation.",
+    "native_regression_reports": [
+      "/tmp/cmfgen-convergence-regression-final/report.json",
+      "/tmp/cmfgen-convergence-regression-o0/report.json",
+      "/tmp/cmfgen-integrated-moment-limits/report.json"
+    ],
+    "full_output_test": {
+      "passed": true,
+      "tested_executable_sha256": "d358911cccd907dcd708bc422f3cddfa0f456aaca87f5ff99d7bf4b674069c00",
+      "checkpoint_and_controls_unchanged": true,
+      "ordinary_luminosity_boundary_matches": true,
+      "DTDR": [
+        "0.10869354462847199"
+      ],
+      "native_elapsed_seconds": 1741.451539117843,
+      "solved_update_credit": 0,
+      "convergence_credit": false
+    }
+  },
+  "optional_features": {
+    "31": "FINAL_OUTPUT_ONLY in IN_ITS: complete fixed-state output with ordinary luminosity boundary; default false, stationary coherent continuation only; no solve or convergence credit."
+  },
+  "installed_build": {
+    "schema_version": 1,
+    "recorded_at_utc": "2026-10-29T13:49:14.100992+00:00",
+    "source_checkout": "/home/karpov/CMFGEN2023/cur_cmf.25",
+    "source_patch_sha256": "61f30ed5b2818d24b5152b898c035b92ccad91afaff02679d628a027162db25a",
+    "capabilities": [
+      "line-jacobian-v1",
+      "ba-restart-v1",
+      "lte-charge-v1",
+      "grey-intensity-guard-v1",
+      "ng-temperature-v1",
+      "moment-grid-jacobian-v1",
+      "moment-grid-family-v1",
+      "moment-limits-v1",
+      "monotone-range-v1",
+      "collision-temperature-v1",
+      "xray-normalization-v1",
+      "fixed-state-output-v1"
+    ],
+    "sources": {
+      "new_main/cmfgen_sub.f": "13e67a7e0735e632155f613bac8ce7b03775d44a4117173d53bf0be65f685aa9",
+      "new_main/mod_subs/comp_grey_v4.f": "154a9d5212c4c9ccddd084f2a01245f3e8f549d06c5928d39b8ad1e1577b80b2",
+      "new_main/mod_subs/do_var_cont.f": "16607f1c6da1ca67c067bc300c21766b88c36e60d39267c5b883a5fdaa94919a",
+      "new_main/mod_subs/init_line_opac_var_v2.f": "a8d66d4073e4deec309448822c5020afaa090653ccc0bb5520a1b70a9e0f5203",
+      "new_main/mod_subs/init_population_estimates.f90": "cf7cea0b4972cf775d69155781934e82eceb0227b625273f091a49608f9095b0",
+      "new_main/mod_subs/mod_lev_dis_blk.f": "7a804e51d6b0d5349a7c9b71a818306c66415f72f9ae7e98ce57a4f5668dc1dd",
+      "new_main/mod_subs/rd_control_variables.f": "70671200c08a15f3274c0762cae3a380bc05c63e0c63b1d5ca8612fcfcce2618",
+      "new_main/mod_subs/set_new_model_estimates.f": "57daa1c7936ea81d1f562d93a54c82e961da00c6d170c810509311fb3a775c77",
+      "new_main/mod_subs/var_rad_mod.f": "7acc04a04deba1a3541c69219571cc72fb8fe3b62772a3ea0ae1f0cc8e2af0c4",
+      "new_main/subs/auto_add_ion.f": "060bfc141825830439d5f44334b089f200b90f978d4d90d05538395602f9a132",
+      "new_main/subs/det_lte_ed.f": "db5c0780a776c4f8eb9855ba8f327d3e8bc5850fd2d124d7f99f007c31d9ff09",
+      "new_main/subs/do_ng_accel_band_v4.f": "046f7e99fe8fd9d6c7d283f7485793b4484249c2e3323828189a6013aed7200f",
+      "new_main/subs/evalse_qwvj_v8.f": "5ebea335a3a8e43433db45a66efc20e380d31423a4b33ac40f88a671b0c64cb4",
+      "new_main/subs/read_ba_data_v3.f": "ef502e02eea15e858c9c53574e9517dd8ac8d0a876bc2e060d1802d7dea2832d",
+      "new_main/subs/solveba_v13.f": "011f812dbef2c1f87851a53854db3c2d5e125e5ef7fa899277ee7d6d4d7547e5",
+      "new_main/subs/update_ba_for_line.f": "5d25f41fe09a4e1ea791b66e6fd4454a2907d560fd45d0ce4da495f20f94bc9c",
+      "new_main/subs/vsebyj_multi_v8.f": "d83d6f81eeb253739035c37399d58b7a5b94e094703bd885e978f10164a13daf",
+      "new_main/subs/vsebyj_x_v7.f": "0a07f509252ac9f3d70eb50fabeb6548a85983f28ace64f6fe747fd9a19d6408",
+      "newsubs/omega_gen_v3.f": "b0673823415316da261e97150b3461a30d20f4cc3d50e8c1e51d35841929ea4e",
+      "newsubs/rdphot_gen_v2.f": "21432fa96aa28a40b3fd876a6697c02725110375418fdd320562f5924e3a259e",
+      "newsubs/subcol_multi_v6.f": "c6709e314eb09911d6a4cad83e424c40d705ddefb1265adaaceeb9c624aa07bd",
+      "obs/cmf_flux_sub_v5.f": "4a1d33f3feabc864c8bbfead16aaecb8e31db78adeb1e498b6d541817f3d19ed",
+      "opac/par_opac_sub.f": "ecba7a6a0e4e2b3b7de6038285a9d993d168bab824efb55d3ebb542ad6536063",
+      "plane/edd_j_hub_var_v3.f": "43e4caa7875520ae2558999a88f44ed92c558568f0fa48c9c25bc24cb1e3584d",
+      "plane/get_jh_at_prev_time_step.f": "d8ca6cc79671afd92ebd80b149d1f272e2040c128a6b6d9fe61cea963c7a95d5",
+      "plane/get_moms_non_rel.f": "5562460455acfe464d41925496c554ac074fb0d6661028743875b233cf90f2e4",
+      "plane/get_moms_rel.f": "9b54f9944585f11dfec3d2a2f79bbfe738bde87a6bd693cc3f08a2122bf9987a",
+      "plane/mod_var_jrel_v2.f": "122c80e7e6dc150c541c7dcc870e103d24e9e2971d84c969ad915108a0279483",
+      "plane/mod_var_mom_j_cmf.f": "f2b4e12c5a0b45d3431972b4cc9462c758b47c063e1fbed4a19d4e80b031445f",
+      "plane/mom_j_cmf_v11.f": "812a24533bff2f9408357fd24abea5d4d728f6e6363cbf130a4ab100edd43449",
+      "plane/mom_j_ddt_v6.f": "662cefa49abc16dd50725ccd63bcecec8c1e9cdc62386cce67b733f4b6bf98d1",
+      "plane/mom_jrel_v9.f": "6c015e5477720e454e61c2ded7925ffb7f803fba6610dbe60e3cf7adeeb5498f",
+      "plane/var_jrel_v5.f": "76bdedbb7cb5bd142e0a180b795bbc262f97efa5404e875de214bd6c123c46b4",
+      "plane/var_mom_j_cmf_v12.f": "ff54a209c4a0a6d3cf6a43824d07bb0b7500f9d2f99e4b21422ab89f3f2fb481",
+      "plane/var_mom_j_ddt_v6.f": "cdbff2381a0ced8a0e9581e1a78303273fa0a7b6eb912f4166b1fccfa9bb3f93",
+      "plane/var_mom_jext_cmf_v3.f": "fedfc58845feb0e353f2f8276e5eb9c1f7ad6ba2458662be6ed5eab8654168fd",
+      "stark/get_prof_storage_limits.f": "8f251f11a7e00e0c0b438dfeca60a16bafed219775a1bfb5e1b7ef359795355c",
+      "stark/get_prof_storage_limits_v2.f": "4cf0b642b80aab77bde55f4bf4ee3d762d5d92e2102fdd710af76d85aa554eac",
+      "subs/edd_j_var_v6.f": "a985e609cace5d130dbc971c424c234e44aa36ad8bba1f892169adafed200532",
+      "subs/mon_interp.f": "9c6dda6a9b2fe0a8eca89bbc2bf712cb17e575bed787f727cac2fca76ce61e25",
+      "subs/regrid_t_ed_v3.f": "b0a60352a8d846fa4638ba136dacfc157956bd2f9a33d7c78f8723780d2428a0",
+      "subs/up_tx_tvx.f": "d56165b057edae66b80ce5dbd48f44a04a2dee2ff2da0e26ef4f6788242386bd",
+      "subs/up_tx_tvx_v2.f": "b7de17be80057e5afb713b345d89e485daa74b948b925ad66428f3b69f83b48a"
+    },
+    "executables": {
+      "cmfgen_dev.exe": {
+        "sha256": "26927c9e1c97f1a555189eb221f070050efac52866ba28482119da4027861c89",
+        "size": 3517440
+      },
+      "cmf_flux.exe": {
+        "sha256": "c0db059b97f4d7ddb449eb9c28a83724e6df3136651b5a37b45393e972c4cbad",
+        "size": 1479008
+      },
+      "obs_frame.exe": {
+        "sha256": "a2e89491a6cc5ac88ccbd5097043153189273087de54dfea950cf1f2cead77f3",
+        "size": 171584
+      }
+    },
+    "meaning": "Verified source snapshot and rebuild ordering; not a model-convergence certificate.",
+    "build_evidence": "/home/karpov/cmfgen_viewer/tmp/cmfgen-investigation-integration",
+    "final_link_commands": [
+      {
+        "cwd": "/home/karpov/CMFGEN2023/cur_cmf.25/new_main",
+        "command": [
+          "gfortran",
+          "-fopenmp",
+          "-O",
+          "-finit-local-zero",
+          "cmfgen.o",
+          "cmfgen_sub.o",
+          "-L/home/karpov/CMFGEN2023/cur_cmf.25/lib/",
+          "-lsubs",
+          "-lpgplt",
+          "-lmod",
+          "-llapack",
+          "-lblas",
+          "-L/usr/lib",
+          "-o",
+          "/home/karpov/CMFGEN2023/cur_cmf.25/exe/.cmfgen-link-xszd9tqb/cmfgen_dev.exe"
+        ],
+        "installed_as": "/home/karpov/CMFGEN2023/cur_cmf.25/exe/cmfgen_dev.exe",
+        "installation": "atomic replacement"
+      },
+      {
+        "cwd": "/home/karpov/CMFGEN2023/cur_cmf.25/obs",
+        "command": [
+          "gfortran",
+          "-fopenmp",
+          "-O",
+          "-finit-local-zero",
+          "cmf_flux_v5.o",
+          "cmf_flux_sub_v5.o",
+          "mod_cmf_obs.o",
+          "mod_freq_obs.o",
+          "cmf_flux_cntrl_var_mod.o",
+          "rd_cmf_flux_controls.o",
+          "check_cmf_flux_param_consis.o",
+          "rd_model_file.o",
+          "revise_obs_p.o",
+          "ins_line_v5.o",
+          "obs_frame_sub_v9.o",
+          "ins_line_obs_v4.o",
+          "rd_cont_j_obs.o",
+          "set_forbid_zero.o",
+          "form_ew.o",
+          "comp_ew_abs_ew.o",
+          "griem_stark_mod.o",
+          "-L/home/karpov/CMFGEN2023/cur_cmf.25/lib/",
+          "-lsubs",
+          "-lpgplt",
+          "-ldisp",
+          "-lmod",
+          "-L/usr/lib",
+          "-o",
+          "/home/karpov/CMFGEN2023/cur_cmf.25/exe/.cmfgen-link-ljgpo3vs/cmf_flux.exe"
+        ],
+        "installed_as": "/home/karpov/CMFGEN2023/cur_cmf.25/exe/cmf_flux.exe",
+        "installation": "atomic replacement"
+      },
+      {
+        "cwd": "/home/karpov/CMFGEN2023/cur_cmf.25/obs",
+        "command": [
+          "gfortran",
+          "-fopenmp",
+          "-O",
+          "-finit-local-zero",
+          "obs_frame_v2.o",
+          "obs_frame_sub_v9.o",
+          "-L/home/karpov/CMFGEN2023/cur_cmf.25/lib/",
+          "-ldisp",
+          "-lsubs",
+          "-L/usr/lib",
+          "-o",
+          "/home/karpov/CMFGEN2023/cur_cmf.25/exe/.cmfgen-link-944z0zc1/obs_frame.exe"
+        ],
+        "installed_as": "/home/karpov/CMFGEN2023/cur_cmf.25/exe/obs_frame.exe",
+        "installation": "atomic replacement"
+      }
+    ],
+    "validation": {
+      "native_output": "output-smoke-validation.json",
+      "default_and_guard": "default-and-guard.json",
+      "scope_guard": "output-scope-guard.json",
+      "viewer_full_suite": "1785 passed, 2 skipped, 6 failed and 11 setup errors; the 17 problems reproduced unchanged on upstream f921985",
+      "final_targeted_policy_tests": "81 passed",
+      "native_convergence_repairs": "O0 and O2 passed",
+      "core_native_suite": "O2 / 3 threads passed",
+      "moment_limits": "3480 native calls passed",
+      "native_output_tested_executable_sha256": "d358911cccd907dcd708bc422f3cddfa0f456aaca87f5ff99d7bf4b674069c00",
+      "output_test_version_note": "The full output run preceded final scope guards, X-ray logging and the existing LTE initializer alignment. None changes the admitted ordinary saved-checkpoint output path; final binary default/guard tests and source/kernel checks passed."
+    },
+    "covers_full_scientific_source_snapshot": true,
+    "covers_platform_settings": false
+  }
 }
