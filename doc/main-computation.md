@@ -380,3 +380,18 @@ limits are exhausted, or cancellation/failure prevents verification, the entire
 provisional population procedure rolls back to its conservative checkpoint.
 The CLI, live UI, and run journal explain when verification is waiting on native
 fallback rather than reporting it as failed numerical evidence.
+
+Deferred verification keeps a separate history for stall, missing-full-step, and
+localized temperature-cycle diagnostics. A diagnosed failure stops for review
+and restores the conservative checkpoint; it cannot nest another remedy inside
+the provisional recovery. Consistently declining corrections may continue within
+the shared budgets. The result panel and issue reports explicitly identify
+rolled-back recovery attempts, discarded checkpoints, and the restored checkpoint.
+
+The three-solve Lambda bootstrap may also finish after two solves when native
+convergence shortens the batch. Both solves must have native and uncapped raw
+correction extrema below `EPS_TERM`, use fixed temperature and fresh BA, and
+pass the same physical checks. A single solve, missing evidence, or a shortened
+batch above tolerance is rejected. This exception only ends the bootstrap;
+full variable-temperature verification and independent convergence verification
+remain required.

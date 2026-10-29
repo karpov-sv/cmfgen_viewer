@@ -441,6 +441,18 @@ def _fixed(ctx):
         return Decision('stop', 'No variable-temperature full steps in three batches')
 
 
+def pending_verification_check(ctx):
+    """Diagnose a provisional sequence without nesting another recovery recipe."""
+    vectors = [v for h in ctx.history for v in h.get('raw_temperature_steps', [])]
+    cycle_ctx = replace(ctx, evidence={**ctx.evidence, 'raw_temperature_steps': vectors[-5:]})
+    for check in (_fixed, _oscillation, _stall):
+        decision = check(cycle_ctx if check is _oscillation else ctx)
+        if decision and decision.kind in {'stop', 'action'}:
+            return replace(decision, kind='stop', action='', changes={},
+                           reason='Provisional verification cannot progress safely: ' + decision.reason)
+    return None
+
+
 # Order is explicit. Add a tested Policy here; the controller needs no new
 # diagnosis branches. Version changes make saved previews require review again.
 from .auto_recovery import (temperature_coupling, population_bootstrap, population_guard,
@@ -460,7 +472,7 @@ POLICIES = (
     Policy('verified_convergence', 2, 'success', 'Independent fresh-Jacobian convergence acceptance and restoration of starting BA reuse', _verified),
     Policy('verify_candidate', 2, 'success', 'Fresh-Jacobian verification of a numerical candidate', _candidate),
     Policy('superlevel_temperature', 1, 'success', 'Superlevel temperature coupling before oscillation damping', temperature_coupling, 1),
-    Policy('population_bootstrap', 3, 'success', 'Bounded fixed-T Lambda population recovery and full verification', population_bootstrap, 1),
+    Policy('population_bootstrap', 4, 'success', 'Bounded fixed-T Lambda population recovery and full verification', population_bootstrap, 1),
     Policy('ng_cadence', 1, 'success', 'Contiguous batches permitting the first native Ng acceleration', ng_cadence, 1),
     Policy('local_relaxation', 2, 'success', 'Measured localized temperature oscillation damping', _oscillation, 2),
     Policy('relaxation_release', 1, 'success', 'Gradually release automatic damping through guarded trials', relaxation_release, 3),

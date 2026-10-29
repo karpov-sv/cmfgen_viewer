@@ -3,6 +3,7 @@
 All tested remedies are selected automatically through auto_policies. This
 module owns guarded execution, provisional recovery steps and durable reports.
 """
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 import os
@@ -19,7 +20,7 @@ from .native_diagnostics import latest_main_log
 from .recovery_files import retire_recovery
 from .runner_controls import _patch
 from .runner_recipe import RunnerError, build_run_plan, snapshot
-from .runner_restart import RESTART_FILES
+from .runner_restart import RESTART_FILES, read_pointer
 from .workflow_permissions import copy_readable, mkdir_readable, open_readable
 
 RECOVERY_NAMES = (*RESTART_FILES, *NATIVE_CONTROLS, 'ADJUST_CORRECTIONS', 'MODEL', 'RVTJ', 'MOD_SUM',
@@ -59,7 +60,7 @@ def configure_auto(plan, *, cmfgen_root, atomic_root,
                                           if str(model/n) not in reviewed)]
     result['kind'] = 'auto'
     registry = policies.manifest()
-    result['auto'] = {'version': 7, 'batch_iterations': batch,
+    result['auto'] = {'version': 8, 'batch_iterations': batch,
                       'max_attempts': max_attempts, 'max_iterations': max_iterations,
                       'policies': registry,
                       'cmfgen_root': str(Path(cmfgen_root).resolve()),
@@ -228,10 +229,12 @@ def _issue_report(journal, plan, result, native_result):
               'executable': plan['executable_snapshot'],
               'recovery_directory': result['recovery_directory'],
               'preparation': result.get('preparation'),
+              'provisional_recovery_rolled_back': result.get('provisional_recovery_rolled_back'),
+              'restored_checkpoint': result.get('restored_checkpoint'),
               'attempts': [{k: a[k] for k in ('attempt', 'phase', 'status', 'journal',
                             'decision', 'policy_evaluations', 'validation_error', 'optimization_rejected',
                             'performance_trial', 'checkpoint_restored', 'verification_pending',
-                            'verification_reason', 'verification_full_steps') if k in a}
+                            'verification_reason', 'verification_full_steps', 'provisional_checkpoint_discarded') if k in a}
                            for a in result['attempts']],
               'last_native_result': {'status': (native_result or {}).get('status'),
                   'error': (native_result or {}).get('error'),
@@ -242,6 +245,9 @@ def _issue_report(journal, plan, result, native_result):
     with open_readable(journal/'issue.md', 'w') as stream:
         stream.write(f"# Automatic main run: {result['status']}\n\n{result.get('reason', '')}\n\n"
                      f"Model: {plan['model']}\n\nRecovery: {result['recovery_directory']}\n\n"
+                     + (f"Provisional recovery {result['provisional_recovery_rolled_back']} rolled back; "
+                        f"restored checkpoint: {result.get('restored_checkpoint')}.\n\n"
+                        if result.get('provisional_recovery_rolled_back') else '') +
                      "The structured issue.json contains the native failure evidence and policy decisions. "
                      "plan.json records the reviewed inputs, executable and work limits. Each attempt's "
                      "journal retains its native logs. A new remedy should reproduce this issue, "
@@ -345,6 +351,7 @@ def run_auto_plan(plan, emit=None, *, stop_requested=None):
         pending = None
         step_index = 0
         verification_anchor = None
+        verification_history = []
         native_result = None
         working = None
         working_root = journal/'provisional'
@@ -571,12 +578,24 @@ def run_auto_plan(plan, emit=None, *, stop_requested=None):
                                       final_checkpoint=evidence['checkpoint'])
                         break
                     if verification_waiting:
+                        if evidence['hydro_revisions']:
+                            verification_history = []
+                        else:
+                            verification_history.append(evidence)
+                        diagnosis = policies.pending_verification_check(
+                            replace(context('success'), history=verification_history))
+                        if diagnosis:
+                            entry['decision'] = diagnosis.summary()
+                            result.update(status='needs_review', reason=diagnosis.reason)
+                            event('auto_decision', attempt=attempt, decision=diagnosis.summary(), evaluations=[])
+                            break
                         _json(journal/'result.json', result)
                         event('auto_verification_pending', attempt=attempt, phase=phase,
                               checkpoint=evidence['checkpoint'], reason=entry['verification_reason'])
                         continue
                     if pending:
                         verification_anchor = None
+                        verification_history = []
                         step_index += 1
                         if step_index == len(pending.steps):
                             entry['recovery_verified'] = pending.policy_id
@@ -686,6 +705,15 @@ def run_auto_plan(plan, emit=None, *, stop_requested=None):
                         check_inputs()
                         restore()
                     result['provisional_recovery_rolled_back'] = pending.policy_id
+                    result['restored_checkpoint'] = (read_pointer(model/'POINT1')['iterations']
+                                                     if (model/'POINT1').exists() else None)
+                    # Successful native attempts can still be discarded when
+                    # their surrounding multi-step recovery remains provisional.
+                    for entry in reversed(result['attempts']):
+                        if entry['phase'] not in {s.name for s in pending.steps}:
+                            break
+                        entry['checkpoint_restored'] = True
+                        entry['provisional_checkpoint_discarded'] = True
                     if pending.reversible_trial:
                         finish_trial(pending, 'aborted', result.get('reason', result['status']))
                 except (OSError, ValueError) as exc:

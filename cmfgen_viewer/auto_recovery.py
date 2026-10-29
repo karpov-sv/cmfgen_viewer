@@ -131,17 +131,26 @@ def _full_check(ctx):
 
 def _bootstrap_check(ctx):
     records = ctx.evidence['records']
-    if (len(records) != 3 or ctx.evidence.get('ng_accelerations') or
+    # Native convergence may shorten a three-solve request to two solves:
+    # the converged solve plus its final-output loop. Do not treat arbitrary
+    # partial output as early convergence, or weaken the later full check.
+    eps = ctx.evidence['epsilon_percent']
+    early = len(records) == 2 and all(
+        _finite(r.get(key)) and 0 <= r[key] < eps
+        for r in records for key in ('solver_maximum_change',
+                                    'maximum_increase_percent', 'maximum_decrease_percent'))
+    if ((len(records) != 3 and not early) or ctx.evidence.get('ng_accelerations') or
             not all(r.get('lambda_iteration') and r.get('temperature_fixed') and r.get('ba_computed')
                     for r in records)):
-        raise RunnerError('Population bootstrap did not complete three fixed-T Lambda solves with fresh BA')
+        raise RunnerError('Population bootstrap needs three fixed-T Lambda solves with fresh BA, or two below EPS_TERM')
     extrema = [(r.get('maximum_increase_percent'), r.get('maximum_decrease_percent')) for r in records]
     if not all(_finite(v) and v >= 0 for pair in extrema for v in pair):
         raise RunnerError('Population bootstrap has incomplete uncapped correction extrema')
     values = [max(pair) for pair in extrema]
-    if not all(math.isfinite(v) and v >= 0 for v in values) or values[-1] >= values[0]:
+    if not all(math.isfinite(v) and v >= 0 for v in values) or (not early and values[-1] >= values[0]):
         raise RunnerError('Population bootstrap did not reduce uncapped population corrections')
     return {'population_bootstrap_extrema_percent': values,
+            'population_bootstrap_early_completion': early,
             'checkpoint_physics': _population_physics_check(ctx, fixed_temperature=True)}
 
 
@@ -192,7 +201,7 @@ def population_bootstrap(ctx):
     except (OSError, ValueError) as exc:
         raise Declined(str(exc)) from exc
     return Decision('action', 'Extreme population increases persist through fresh full solves; '
-                    'fill tiny seeds with three fixed-T Lambda solves at MAX_LAM=1e12, '
+                    'fill tiny seeds with up to three fixed-T Lambda solves at MAX_LAM=1e12, '
                     'restore normal controls, and verify full continuation',
                     action='population_bootstrap',
                     changes={'VADAT': {'COMP_BA': 'T', 'N_FIX_BA': '0', 'FIX_BA': '0.0'}},
