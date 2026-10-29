@@ -6,7 +6,7 @@ from pathlib import Path
 import re
 
 from .auto_diagnostics import control_value, number, oscillating_region
-from .auto_hydro import enabled
+from .auto_hydro import enabled, structure_fixed
 from .parsers.common import parse_float_token
 from .runner_recipe import RunnerError, snapshot
 
@@ -80,7 +80,7 @@ def ray_refinement(ctx):
         return None
     if ctx.native_plan.get('restart', {}).get('mode') != 'continuation':
         return None
-    if enabled(ctx.model, 'DO_HYDRO'):
+    if not structure_fixed(ctx.model):
         raise Declined('Ray refinement requires a fixed structure; scheduled hydro recovery is assessed separately')
     path = ctx.model/'OBSFLUX'
     if snapshot(path) == ctx.before.get('OBSFLUX'):
@@ -168,7 +168,7 @@ def population_bootstrap(ctx):
         return None
     if ctx.native_plan.get('restart', {}).get('mode') != 'continuation':
         return None
-    if enabled(ctx.model, 'DO_HYDRO'):
+    if not structure_fixed(ctx.model):
         raise Declined('Population bootstrap is validated only on a fixed structure')
     if control_value(ctx.model, 'VADAT', 'SCALE_OPT', '').upper() != 'MAJOR':
         raise Declined('Population bootstrap is validated with SCALE_OPT=MAJOR')

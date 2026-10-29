@@ -472,11 +472,19 @@ def run_plan(plan: dict, emit=None, *, diagnose_main=True, stop_requested=None) 
                         raise RunnerError(f"Refusing unsafe restart file: {path}")
                     if plan.get("fresh_start") and path.is_file():
                         path.unlink()
-            if plan.get('hydro_recovery_probe'):
+            if plan.get('hydro_recovery_probe') or plan.get('hydro_seed_probe'):
                 from .auto_hydro import enabled
+                seed = plan.get('hydro_seed_probe', False)
+                from .auto_diagnostics import number
+                seed_valid = (plan.get('restart', {}).get('mode') == 'fresh' and
+                    (plan.get('initialization') or {}).get('method') == 'POP' and
+                    number(model, 'HYDRO_DEFAULTS', 'N_ITS') == 1 and
+                    number(model, 'HYDRO_DEFAULTS', 'STRT_ITS') == 2 and
+                    number(model, 'HYDRO_DEFAULTS', 'ITS_DONE') == 0)
                 if (stage != 'main' or len(plan['passes']) != 1 or
                         str(plan['passes'][0]['overrides'].get('NUM_ITS')) != '1' or
-                        plan.get('restart', {}).get('mode') != 'continuation' or
+                        (not seed_valid if seed else plan.get('restart', {}).get('mode') != 'continuation') or
+                        (seed and plan.get('hydro_recovery_probe')) or
                         not enabled(model, 'DO_HYDRO') or not enabled(model, 'STOP_IF_MW', 'T')):
                     raise RunnerError('Invalid one-iteration hydro recovery probe')
                 path = cwd/'VADAT'
@@ -485,14 +493,15 @@ def run_plan(plan: dict, emit=None, *, diagnose_main=True, stop_requested=None) 
                 effective = journal/'effective'
                 mkdir_readable(effective, exist_ok=True)
                 copy_readable(path, effective/'VADAT')
-                result['hydro_recovery_probe'] = True
+                result['hydro_seed_probe' if seed else 'hydro_recovery_probe'] = True
                 event('hydro_guard_override', stage='main',
                       message='STOP_IF_MW=F for one hydro bridge iteration; restored on every exit')
             if plan.get("initialization"):
                 path = cwd / "VADAT"
                 if path.is_symlink() or path.stat().st_nlink != 1:
                     raise RunnerError("Refusing unsafe writable VADAT")
-                controls[path] = TemporaryControl(path, _write_control)
+                if path not in controls:
+                    controls[path] = TemporaryControl(path, _write_control)
                 # Validate compatibility before applying just the selected values.
                 if plan["initialization"]["method"] == "POP":
                     pop_source_evidence(model, plan)
@@ -514,12 +523,12 @@ def run_plan(plan: dict, emit=None, *, diagnose_main=True, stop_requested=None) 
                 controls[path] = TemporaryControl(path, _write_control)
             if plan.get('population_recovery_probe'):
                 from .auto_recovery import repaired_runtime
-                from .auto_hydro import enabled
+                from .auto_hydro import structure_fixed
                 if (stage != 'main' or len(plan['passes']) != 1 or
                         str(plan['passes'][0]['overrides'].get('NUM_ITS')) != '3' or
                         plan.get('restart', {}).get('mode') != 'continuation' or
                         plan.get('initialization') or plan.get('hydro_recovery_probe') or
-                        enabled(model, 'DO_HYDRO') or not repaired_runtime(plan)):
+                        not structure_fixed(model) or not repaired_runtime(plan)):
                     raise RunnerError('Invalid fixed-T Lambda population recovery probe')
                 path = cwd/'VADAT'
                 controls[path] = TemporaryControl(path, _write_control)

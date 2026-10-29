@@ -214,6 +214,51 @@ def _hydro_guarded_check(ctx):
     return {'guarded_measurements': measured, 'hydro_recovery_verified': True}
 
 
+def _hydro_seed_check(ctx):
+    from .checkpoint_physics import checkpoint_physics
+    from .pop_initialization import POP_MARKER
+    from .runner_restart import inspect_restart
+    records = ctx.evidence['records']
+    restart = inspect_restart(ctx.model)
+    if (not enabled(ctx.model, 'STOP_IF_MW', 'T') or
+            ctx.native_result['passes'][-1].get('startup_observed', {}).get('mode') != 'fresh' or
+            POP_MARKER not in ctx.log or len(records) != 1 or
+            records[0]['global_iteration'] != 1 or records[0].get('lambda_iteration') or
+            records[0].get('temperature_fixed') or ctx.evidence['hydro_revisions'] or
+            restart['errors'] or restart['pointer']['iterations'] != 1):
+        raise RunnerError('Startup hydro seed did not produce the expected healthy iteration-1 POP checkpoint')
+    physical = checkpoint_physics(ctx.model)
+    return {'startup_pop_checkpoint_verified': True,
+            'seed_charge_relative_error': physical['charge_relative_error']}
+
+
+def _startup_hydro(ctx):
+    from .auto_hydro import startup_hydro_evidence
+    codes = {f['code'] for p in ctx.native_result.get('passes', [])
+             for f in p.get('diagnostic_findings', []) if f.get('severity') == 'error'}
+    if ('inner_flux_accuracy' not in codes or not enabled(ctx.model, 'DO_HYDRO') or
+            number(ctx.model, 'HYDRO_DEFAULTS', 'N_ITS') != 0 or
+            number(ctx.model, 'HYDRO_DEFAULTS', 'ITS_DONE') != 0):
+        return None
+    try:
+        evidence = startup_hydro_evidence(ctx.model, ctx.native_plan, ctx.native_result, ctx.before)
+    except (OSError, ValueError) as exc:
+        raise Declined(str(exc)) from exc
+    steps = ((RecoveryStep('hydro_pop_seed', 1, _hydro_seed_check,
+                          {'hydro_seed_probe': True, 'pop_initialization': True}),)
+             if evidence['fresh_seed_required'] else ())
+    steps += (RecoveryStep('hydro_bridge', 1, _hydro_bridge_check,
+                           {'hydro_recovery_probe': True}),
+              RecoveryStep('hydro_guarded', 2, _hydro_guarded_check))
+    return Decision('action', 'Positive startup luminosity deficit with DO_HYDRO=T but no scheduled revisions; '
+                    'schedule one revision, seed POP if necessary, and verify guarded continuation',
+                    action='startup_hydro', evidence=evidence,
+                    changes={'HYDRO_DEFAULTS': ({'N_ITS': '1', 'ITS_DONE': '0'}
+                                if evidence['fresh_seed_required'] else {'N_ITS': '1'}),
+                             'VADAT': {'COMP_BA': 'T', 'N_FIX_BA': '0', 'FIX_BA': '0.0'}},
+                    caches=('BAMAT', 'BAMATPNT', 'EDDFACTOR', 'EDDFACTOR_INFO'), steps=steps)
+
+
 def _hydro(ctx):
     codes = {f['code'] for p in ctx.native_result.get('passes', [])
              for f in p.get('diagnostic_findings', []) if f.get('severity') == 'error'}
@@ -397,14 +442,15 @@ POLICIES = (
     Policy('invalid_numerical_state', 1, 'failure', 'Reject nonfinite model states and invalid selected checkpoints', _invalid_state),
     Policy('pop_initialization', 1, 'failure', 'Compatible saved-model population interpolation and verified continuation', _pop, 1),
     Policy('lte_initialization', 2, 'failure', 'Confirmed fresh-start population failure: temporary LTE and verified continuation', _lte, 1),
+    Policy('startup_hydro', 1, 'failure', 'Rearm an unperformed startup hydro revision after a positive POP luminosity deficit', _startup_hydro, 1),
     Policy('hydro_bootstrap', 1, 'failure', 'Scheduled hydro recovery with guard restoration and follow-up', _hydro, 1),
     Policy('radiation_cache', 1, 'failure', 'Explicit EDDFACTOR mismatch recovery', _cache, 1),
     Policy('population_guard', 1, 'failure', 'Physically audited provisional checkpoint after explicit MAX_CHNG stop', population_guard, 1),
-    Policy('ray_refinement', 2, 'failure', 'Negative-luminosity coarse-ray recovery with guarded verification', ray_refinement, 1),
+    Policy('ray_refinement', 3, 'failure', 'Negative-luminosity coarse-ray recovery with guarded verification', ray_refinement, 1),
     Policy('verified_convergence', 2, 'success', 'Independent fresh-Jacobian convergence acceptance and restoration of starting BA reuse', _verified),
     Policy('verify_candidate', 2, 'success', 'Fresh-Jacobian verification of a numerical candidate', _candidate),
     Policy('superlevel_temperature', 1, 'success', 'Superlevel temperature coupling before oscillation damping', temperature_coupling, 1),
-    Policy('population_bootstrap', 1, 'success', 'Bounded fixed-T Lambda population recovery and full verification', population_bootstrap, 1),
+    Policy('population_bootstrap', 2, 'success', 'Bounded fixed-T Lambda population recovery and full verification', population_bootstrap, 1),
     Policy('ng_cadence', 1, 'success', 'Contiguous batches permitting the first native Ng acceleration', ng_cadence, 1),
     Policy('local_relaxation', 2, 'success', 'Measured localized temperature oscillation damping', _oscillation, 2),
     Policy('relaxation_release', 1, 'success', 'Gradually release automatic damping through guarded trials', relaxation_release, 3),

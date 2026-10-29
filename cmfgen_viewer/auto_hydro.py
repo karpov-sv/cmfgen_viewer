@@ -228,3 +228,69 @@ def bridge_evidence(model, native, result, before):
     if measured['luminosity_min'] >= 0.5 and measured['luminosity_max'] <= 2:
         raise RunnerError('Luminosity profile does not corroborate the safeguard stop')
     return {'stopped_iteration': iteration, 'hydro_its_done_before': int(done), **measured}
+
+
+def hydro_exhausted(model):
+    """An explicitly completed schedule is fixed for subsequent solver remedies."""
+    return (enabled(model, 'DO_HYDRO') and
+            number(model, 'HYDRO_DEFAULTS', 'N_ITS') == 0 and
+            (done := number(model, 'HYDRO_DEFAULTS', 'ITS_DONE')) is not None and
+            done >= 1 and done == int(done))
+
+
+def structure_fixed(model):
+    return not enabled(model, 'DO_HYDRO') or hydro_exhausted(model)
+
+
+def startup_hydro_evidence(model, native, result, before):
+    """Bstar3512: copied zero-revision schedule blocks a positive POP startup."""
+    from .pop_initialization import POP_MARKER
+    from .checkpoint_physics import checkpoint_physics
+    from .auto_recovery import repaired_runtime
+    from .runner import _tail
+    passes = result.get('passes', [])
+    codes = {f['code'] for p in passes for f in p.get('diagnostic_findings', [])
+             if f.get('severity') == 'error'}
+    if (result['status'] != 'invalid_output' or len(passes) != 1 or
+            codes != {'inner_flux_accuracy'} or passes[0].get('returncode') != 0):
+        raise RunnerError('Startup hydro recovery needs an isolated zero-exit luminosity safeguard stop')
+    if not enabled(model, 'DO_HYDRO') or not enabled(model, 'STOP_IF_MW', 'T'):
+        raise RunnerError('Startup hydro recovery requires DO_HYDRO=T and STOP_IF_MW=T')
+    if (number(model, 'HYDRO_DEFAULTS', 'N_ITS') != 0 or
+            number(model, 'HYDRO_DEFAULTS', 'ITS_DONE') != 0 or
+            number(model, 'HYDRO_DEFAULTS', 'STRT_ITS') != 2):
+        raise RunnerError('Startup hydro recovery requires an unperformed zero-revision schedule starting at iteration 2')
+    freq = number(model, 'HYDRO_DEFAULTS', 'FREQ_ITS')
+    if freq is None or freq <= 0 or freq != int(freq):
+        raise RunnerError('Startup hydro recovery needs a valid explicit hydro frequency')
+    if (control_value(model, 'VADAT', 'DC_METH', '').upper() != 'POP' or
+            enabled(model, 'FIX_T') or
+            control_value(model, 'IN_ITS', 'DO_LAM_IT', 'F').upper().strip('.') not in {'F','FALSE'}):
+        raise RunnerError('Startup hydro recovery is established only for variable-T full POP startup')
+    if not repaired_runtime(native):
+        raise RunnerError('Startup hydro recovery requires an authenticated repaired executable')
+    text = latest_main_log(_tail(model/'OUTGEN', 32*1024*1024))
+    if re.search(r'SIG(?:SEGV|FPE|ILL|ABRT)|Fortran runtime error|segmentation fault',
+                 text+'\n'+passes[0].get('diagnostic_tail', ''), re.I):
+        raise RunnerError('Startup guard stop includes another native failure')
+    restart = native['restart']
+    fresh = restart['mode'] == 'fresh'
+    observed = passes[0].get('startup_observed', {}).get('mode')
+    if fresh:
+        if observed != 'fresh' or POP_MARKER not in text:
+            raise RunnerError('Fresh startup did not confirm native POP initialization')
+        iteration = 1
+    else:
+        if (restart['mode'] != 'continuation' or observed != 'continuation' or
+                restart['pointer']['iterations'] != 1):
+            raise RunnerError('Unscheduled startup hydro recovery applies only at the first continuation')
+        checkpoint_physics(model)
+        iteration = 2
+    records = _parse_iteration_records(text)
+    if (len(records) != 1 or records[0]['global_iteration'] != iteration or
+            'solver_maximum_change' in records[0]):
+        raise RunnerError('Startup guard stop was not before its first population solve')
+    measured = guard_measurements(model, before)
+    if not (.25 <= measured['luminosity_min'] < .5 and measured['luminosity_max'] <= 2):
+        raise RunnerError('Startup hydro recovery requires a moderate positive luminosity deficit (minimum 0.25–0.5, maximum <=2)')
+    return {'fresh_seed_required': fresh, 'stopped_iteration': iteration, **measured}

@@ -59,7 +59,7 @@ def configure_auto(plan, *, cmfgen_root, atomic_root,
                                           if str(model/n) not in reviewed)]
     result['kind'] = 'auto'
     registry = policies.manifest()
-    result['auto'] = {'version': 5, 'batch_iterations': batch,
+    result['auto'] = {'version': 6, 'batch_iterations': batch,
                       'max_attempts': max_attempts, 'max_iterations': max_iterations,
                       'policies': registry,
                       'cmfgen_root': str(Path(cmfgen_root).resolve()),
@@ -161,7 +161,16 @@ def _action(model, journal, actions, kind, reason, changes=None, caches=(), *, p
     _json(folder/'action.json', record)
     rendered = {}
     for name, values in (changes or {}).items():
-        if name not in {'VADAT', 'ADJUST_CORRECTIONS'}:
+        if name == 'HYDRO_DEFAULTS':
+            fresh_seed = (evidence or {}).get('fresh_seed_required') is True
+            wanted = {'N_ITS': '1', 'ITS_DONE': '0'} if fresh_seed else {'N_ITS': '1'}
+            done = number(model, name, 'ITS_DONE')
+            if (kind != 'startup_hydro' or values != wanted or
+                    number(model, name, 'N_ITS') != 0 or done is None or
+                    done < 0 or done != int(done) or (not fresh_seed and done != 0) or
+                    number(model, name, 'STRT_ITS') != 2):
+                raise RunnerError('Unsupported automatic hydro-schedule change')
+        elif name not in {'VADAT', 'ADJUST_CORRECTIONS'}:
             raise RunnerError('Unsupported automatic control target')
         path = model/name
         _safe(path)
@@ -289,13 +298,15 @@ def run_auto_plan(plan, emit=None, *, stop_requested=None):
             if emit:
                 emit(item)
 
-        def check_inputs():
+        def check_inputs(*, native_setup=False):
             for path, target in owned_links.items():
                 if not path.is_symlink() or os.readlink(path) != target:
                     raise RunnerError(f'Input link changed during automatic execution: {path}; preserving the edit')
             if snapshot(Path(plan['executable'])) != plan['executable_snapshot']:
                 raise RunnerError('Executable changed during automatic execution; review before continuing')
             for path, signature in expected.items():
+                if native_setup and path.name in DYNAMIC_NAMES:
+                    continue  # Native temporary controls are restored before the outer check.
                 if _signature(path) != signature:
                     raise RunnerError(f'Input changed during automatic execution: {path}; preserving the edit')
 
@@ -371,7 +382,7 @@ def run_auto_plan(plan, emit=None, *, stop_requested=None):
                 with model_mutation_guard(model, RunnerError):
                     check_inputs()
                     step_options = step.native_options if step else {}
-                    if set(step_options) - {'hydro_recovery_probe', 'lte_initialization', 't_exc', 'pop_initialization', 'population_recovery_probe'}:
+                    if set(step_options) - {'hydro_recovery_probe', 'hydro_seed_probe', 'lte_initialization', 't_exc', 'pop_initialization', 'population_recovery_probe'}:
                         raise RunnerError('Recovery step requested unsupported native options')
                     kwargs = {key: plan.get(key) for key in ('threads', 'memory_mib', 'no_core_dumps')}
                     native = build_run_plan(model, stage='main', cmfgen_root=Path(options['cmfgen_root']),
@@ -389,6 +400,8 @@ def run_auto_plan(plan, emit=None, *, stop_requested=None):
                         break
                     if 'hydro_recovery_probe' in step_options:
                         native['hydro_recovery_probe'] = step_options['hydro_recovery_probe']
+                    if step_options.get('hydro_seed_probe'):
+                        native['hydro_seed_probe'] = True
                     if step_options.get('population_recovery_probe'):
                         native['population_recovery_probe'] = True
                     before = {name: snapshot(model/name) for name in ('OUTGEN','CORRECTION_SUM','RVTJ','OBSFLUX','MEANOPAC')}
@@ -430,7 +443,7 @@ def run_auto_plan(plan, emit=None, *, stop_requested=None):
                                 raise RunnerError(f'Reviewed runner link was not installed: {path}')
                             owned_links[path] = link['target']
                             expected[path] = _signature(path)
-                        check_inputs()  # Source-file edits are never adopted with links.
+                        check_inputs(native_setup=True)  # Only source-file edits are checked during temporary overrides.
                     if emit:
                         emit({**item, 'auto_attempt': attempt, 'auto_phase': phase})
                     if item['event'] == 'progress' and item.get('current') != last_progress:

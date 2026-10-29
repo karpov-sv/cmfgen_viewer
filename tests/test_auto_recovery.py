@@ -312,3 +312,23 @@ def test_incomplete_population_extrema_do_not_trigger_recovery(tmp_path,value):
     evidence={'records':[{'ba_computed':True,'maximum_increase_percent':value}]*2}
     ctx=policies.Context(tmp_path,'success',{}, {}, {}, evidence, [],'iterate',[],'')
     assert population_bootstrap(ctx) is None
+
+
+
+def test_population_recovery_allows_an_explicitly_exhausted_hydro_schedule(population_workspace):
+    model,plan=population_workspace
+    (model/'VADAT').write_text((model/'VADAT').read_text()+'T [DO_HYDRO]\n')
+    (model/'HYDRO_DEFAULTS').write_text('0 [N_ITS]\n1 [ITS_DONE]\n2 [STRT_ITS]\n10 [FREQ_ITS]\n')
+    result=run_plan(plan('population'))
+    assert result['status']=='succeeded',result
+    assert any(a['policy_id']=='population_bootstrap' for a in result['actions'])
+    assert control_value(model,'VADAT','DO_HYDRO')=='T'
+    assert result['attempts'][1]['checkpoint_physics']['element_density_max_relative_change']==0
+
+
+@pytest.mark.parametrize('controls', ['0 [N_ITS]\n0 [ITS_DONE]\n', '1 [N_ITS]\n1 [ITS_DONE]\n', '0 [N_ITS]\n'])
+def test_incomplete_or_pending_hydro_is_not_a_fixed_structure(tmp_path,controls):
+    from cmfgen_viewer.auto_hydro import structure_fixed
+    (tmp_path/'VADAT').write_text('T [DO_HYDRO]\n')
+    (tmp_path/'HYDRO_DEFAULTS').write_text(controls)
+    assert not structure_fixed(tmp_path)

@@ -56,15 +56,15 @@ def test_pop_trial_then_normal_continuation_and_independent_verification(pop_wor
     original=(model/'VADAT').read_bytes()
     result=run_plan(make('pop_good'))
     assert result['status']=='succeeded',result
-    assert [a['policy_id'] for a in result['actions']]==['pop_initialization','verify_candidate']
+    assert [a['policy_id'] for a in result['actions']]==['pop_initialization','verify_candidate','verified_convergence']
     assert [a['phase'] for a in result['attempts']]==['iterate','pop_initialization','pop_continuation','verify']
     trace=[json.loads(row) for row in (model/'pop-trace.jsonl').read_text().splitlines()]
     assert [r['method'] for r in trace]==['R','POP','R','R']
     assert all(r['lin_int']=='T' and r['pop_scale']=='T' for r in trace)
     assert result['attempts'][1]['pop_bootstrap_completed']
     assert result['attempts'][2]['pop_recovery_verified']
-    expected = original.replace(b'2 [N_FIX_BA]', b'0 [N_FIX_BA]').replace(b'10 [FIX_BA]', b'0.0 [FIX_BA]')
-    assert (model/'VADAT').read_bytes()==expected
+    # Independent verification restores the caller's starting BA reuse policy.
+    assert (model/'VADAT').read_bytes()==original
     assert (model/'He2_IN').read_text()==SOURCE
     native=json.loads((Path(result['attempts'][1]['journal'])/'result.json').read_text())
     assert native['initialization']=={'method':'POP','temporary':True}
