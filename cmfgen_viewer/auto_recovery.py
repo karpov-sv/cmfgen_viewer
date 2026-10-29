@@ -152,7 +152,19 @@ def _population_physics_check(ctx, *, fixed_temperature=False):
 
 
 def _population_full_check(ctx):
-    return {**_full_check(ctx), 'checkpoint_physics': _population_physics_check(ctx)}
+    from .auto_policies import VerificationPending
+    physics = _population_physics_check(ctx)
+    records = ctx.evidence['records']
+    if len(records) < 2 or not all(r.get('ba_computed') for r in records):
+        raise RunnerError('Population verification needs two completed fresh-BA solves')
+    if any(r.get('lambda_iteration') or r.get('temperature_fixed') for r in records[-2:]):
+        full = sum(not r.get('lambda_iteration') and not r.get('temperature_fixed')
+                   for r in records)
+        raise VerificationPending(
+            'Native Lambda/fixed-temperature fallback; continue verification until two consecutive '
+            'full variable-temperature fresh-BA solves complete',
+            {'checkpoint_physics': physics, 'verification_full_steps': full})
+    return {**_full_check(ctx), 'checkpoint_physics': physics}
 
 
 def population_bootstrap(ctx):
@@ -187,7 +199,8 @@ def population_bootstrap(ctx):
                     caches=('BAMAT', 'BAMATPNT'),
                     steps=(RecoveryStep('population_lambda', 3, _bootstrap_check,
                                         {'population_recovery_probe': True}),
-                           RecoveryStep('population_full', 2, _population_full_check)),
+                           RecoveryStep('population_full', 2, _population_full_check,
+                                        repeat_on_native_fallback=True)),
                     evidence={'last_full_increases_percent': [r['maximum_increase_percent'] for r in full[-2:]]})
 
 

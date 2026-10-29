@@ -59,7 +59,7 @@ def configure_auto(plan, *, cmfgen_root, atomic_root,
                                           if str(model/n) not in reviewed)]
     result['kind'] = 'auto'
     registry = policies.manifest()
-    result['auto'] = {'version': 6, 'batch_iterations': batch,
+    result['auto'] = {'version': 7, 'batch_iterations': batch,
                       'max_attempts': max_attempts, 'max_iterations': max_iterations,
                       'policies': registry,
                       'cmfgen_root': str(Path(cmfgen_root).resolve()),
@@ -230,7 +230,8 @@ def _issue_report(journal, plan, result, native_result):
               'preparation': result.get('preparation'),
               'attempts': [{k: a[k] for k in ('attempt', 'phase', 'status', 'journal',
                             'decision', 'policy_evaluations', 'validation_error', 'optimization_rejected',
-                            'performance_trial', 'checkpoint_restored') if k in a}
+                            'performance_trial', 'checkpoint_restored', 'verification_pending',
+                            'verification_reason', 'verification_full_steps') if k in a}
                            for a in result['attempts']],
               'last_native_result': {'status': (native_result or {}).get('status'),
                   'error': (native_result or {}).get('error'),
@@ -343,6 +344,7 @@ def run_auto_plan(plan, emit=None, *, stop_requested=None):
         base_phase = 'iterate'
         pending = None
         step_index = 0
+        verification_anchor = None
         native_result = None
         working = None
         working_root = journal/'provisional'
@@ -419,6 +421,12 @@ def run_auto_plan(plan, emit=None, *, stop_requested=None):
                                 before['checkpoint_physics'] = checkpoint_physics(model)
                             except (OSError, ValueError):
                                 pass  # Unknown atomic/layout metadata cannot authorize guard recovery.
+                    if step and step.repeat_on_native_fallback:
+                        if 'checkpoint_physics' not in before:
+                            raise RunnerError('Repeatable verification lacks a physical baseline')
+                        if verification_anchor is None:
+                            verification_anchor = before['checkpoint_physics']
+                        before['checkpoint_physics'] = verification_anchor
                     controls_before = capture_controls(model)
                     solution_offset = (model/'STEQ_VALS').stat().st_size if (model/'STEQ_VALS').exists() else 0
                     if pending:
@@ -474,6 +482,7 @@ def run_auto_plan(plan, emit=None, *, stop_requested=None):
                         break  # Finally rolls back the entire unfinished recipe.
                     failure = native_result if native_result['status'] not in {'succeeded', 'stopped'} else None
                     evidence = {}
+                    verification_waiting = False
 
                     def context(when, outcome=native_result):
                         return policies.Context(model, when, native, outcome, before, evidence,
@@ -496,6 +505,12 @@ def run_auto_plan(plan, emit=None, *, stop_requested=None):
                                 break
                             if step:
                                 entry.update(step.validate(context('success')) or {})
+                        except policies.VerificationPending as exc:
+                            if not step or not step.repeat_on_native_fallback:
+                                raise RunnerError('Unexpected deferred recovery verification') from exc
+                            verification_waiting = True
+                            entry.update(exc.checks)
+                            entry.update(verification_pending=True, verification_reason=str(exc))
                         except policies.TrialRejected as exc:
                             if not pending or not pending.reversible_trial:
                                 raise
@@ -547,7 +562,7 @@ def run_auto_plan(plan, emit=None, *, stop_requested=None):
                         entry['charged_iterations'] = evidence['iterations']
                         # A multi-step remedy remains provisional until ALL
                         # validators pass. One baseline covers the entire recipe.
-                        if not pending or step_index == len(pending.steps)-1:
+                        if not pending or (step_index == len(pending.steps)-1 and not verification_waiting):
                             recovery = _capture(model, journal, recovery)
                         initializing = False
                 if failure is None:
@@ -555,7 +570,13 @@ def run_auto_plan(plan, emit=None, *, stop_requested=None):
                         result.update(status='stopped', reason='Clean stop requested; completed checkpoint retained',
                                       final_checkpoint=evidence['checkpoint'])
                         break
+                    if verification_waiting:
+                        _json(journal/'result.json', result)
+                        event('auto_verification_pending', attempt=attempt, phase=phase,
+                              checkpoint=evidence['checkpoint'], reason=entry['verification_reason'])
+                        continue
                     if pending:
+                        verification_anchor = None
                         step_index += 1
                         if step_index == len(pending.steps):
                             entry['recovery_verified'] = pending.policy_id

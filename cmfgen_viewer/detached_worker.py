@@ -53,6 +53,8 @@ def main(directory, descriptor):
                 state['auto_action'] = event['action']['reason']
             if event["event"] == "auto_performance_trial":
                 state['auto_action'] = f"Performance trial {event['outcome']}: {event['reason']}"
+            if event["event"] == "auto_verification_pending":
+                state["auto_action"] = event["reason"]
             if event["event"] == "auto_decision":
                 state['auto_reason'] = event['decision']['reason']
             if event["event"] == "progress":

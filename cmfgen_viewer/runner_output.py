@@ -390,6 +390,8 @@ class TerminalOutput:
                 self.line('INFO', item['reason'])
             elif kind == 'auto_performance_trial':
                 self.line('INFO', f"Performance trial {item['outcome']}: {item['reason']}")
+            elif kind == 'auto_verification_pending':
+                self.line('INFO', f"Checkpoint {item['checkpoint']}: {item['reason']}")
             elif kind == 'auto_assessment':
                 solver = ''
                 if 'solver_maximum_changes' in item:

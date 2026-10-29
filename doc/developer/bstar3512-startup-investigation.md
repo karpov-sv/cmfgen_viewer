@@ -233,3 +233,24 @@ checkpoint. It also recognizes an explicitly exhausted hydro schedule as fixed
 for existing population/ray remedies. The actual hydro-recovered counter-5
 state is eligible for the existing three-Lambda/two-full population bootstrap.
 Full model convergence is outside this investigation's objective.
+
+## First complete automatic test and deferred population verification
+
+Automatic run `20261029T002100Z-auto-96e10e5d` successfully selected and verified
+`startup_hydro`, including fresh POP seeding and guarded hydro follow-up. It
+then selected the existing population bootstrap. Its three Lambda steps reduced
+maximum raw increases from 2.41e17% to 1.29e11%, passing element conservation
+(maximum relative change 7.79e-12) and charge conservation (1.44e-15).
+
+The next batch had a full variable-T solve at iteration 9 and native fixed-T
+Lambda fallback at iteration 10. Both native steps succeeded. The old fixed
+verification validator rejected the mode mismatch and rolled the population
+procedure back to counter 5, retaining the successful hydro recovery.
+
+Population full-step verification now defers, rather than fails, after such
+physically audited native fallback. The same step repeats within shared budgets
+until two consecutive full variable-T fresh-BA steps are observed. Physical
+comparisons stay anchored to the first verification baseline, and the whole
+procedure remains provisional until then. Budget exhaustion, interruption, or
+physical failure still rolls back. Independent convergence acceptance is unchanged.
+No real model run was launched while implementing this verification fix.

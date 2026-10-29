@@ -28,6 +28,7 @@ class RecoveryStep:
     iterations: int
     validate: Callable
     native_options: dict = field(default_factory=dict)
+    repeat_on_native_fallback: bool = False
 
 
 @dataclass(frozen=True)
@@ -55,7 +56,9 @@ class Decision:
                 'preserve_caches': self.preserve_caches,
                 'reversible_trial': self.reversible_trial,
                 'steps': [{'name': s.name, 'iterations': s.iterations,
-                           'native_options': s.native_options} for s in self.steps]}
+                           'native_options': s.native_options,
+                           **({'repeat_on_native_fallback': True} if s.repeat_on_native_fallback else {})}
+                          for s in self.steps]}
 
 
 @dataclass(frozen=True)
@@ -91,6 +94,13 @@ class Declined(Exception):
 
 class TrialRejected(RunnerError):
     """Valid trial evidence disproves a performance adjustment; restore and continue."""
+
+
+class VerificationPending(Exception):
+    """A physically audited native fallback needs another verification batch."""
+    def __init__(self, reason, checks):
+        super().__init__(reason)
+        self.checks = checks
 
 
 def _invalid_state(ctx):
@@ -445,12 +455,12 @@ POLICIES = (
     Policy('startup_hydro', 1, 'failure', 'Rearm an unperformed startup hydro revision after a positive POP luminosity deficit', _startup_hydro, 1),
     Policy('hydro_bootstrap', 1, 'failure', 'Scheduled hydro recovery with guard restoration and follow-up', _hydro, 1),
     Policy('radiation_cache', 1, 'failure', 'Explicit EDDFACTOR mismatch recovery', _cache, 1),
-    Policy('population_guard', 1, 'failure', 'Physically audited provisional checkpoint after explicit MAX_CHNG stop', population_guard, 1),
+    Policy('population_guard', 2, 'failure', 'Physically audited provisional checkpoint after explicit MAX_CHNG stop', population_guard, 1),
     Policy('ray_refinement', 3, 'failure', 'Negative-luminosity coarse-ray recovery with guarded verification', ray_refinement, 1),
     Policy('verified_convergence', 2, 'success', 'Independent fresh-Jacobian convergence acceptance and restoration of starting BA reuse', _verified),
     Policy('verify_candidate', 2, 'success', 'Fresh-Jacobian verification of a numerical candidate', _candidate),
     Policy('superlevel_temperature', 1, 'success', 'Superlevel temperature coupling before oscillation damping', temperature_coupling, 1),
-    Policy('population_bootstrap', 2, 'success', 'Bounded fixed-T Lambda population recovery and full verification', population_bootstrap, 1),
+    Policy('population_bootstrap', 3, 'success', 'Bounded fixed-T Lambda population recovery and full verification', population_bootstrap, 1),
     Policy('ng_cadence', 1, 'success', 'Contiguous batches permitting the first native Ng acceleration', ng_cadence, 1),
     Policy('local_relaxation', 2, 'success', 'Measured localized temperature oscillation damping', _oscillation, 2),
     Policy('relaxation_release', 1, 'success', 'Gradually release automatic damping through guarded trials', relaxation_release, 3),
@@ -497,7 +507,9 @@ def choose(ctx):
                 (decision.batch_iterations is not None and
                  (decision.kind != 'action' or type(decision.batch_iterations) is not int or
                   not 2 <= decision.batch_iterations <= 20)) or
-                any(type(s.iterations) is not int or s.iterations < 1 or not callable(s.validate)
+                any(type(s.iterations) is not int or s.iterations < 1 or not callable(s.validate) or
+                    type(s.repeat_on_native_fallback) is not bool or
+                    (s.repeat_on_native_fallback and (decision.reversible_trial or s.iterations < 2))
                     for s in decision.steps)):
             raise RunnerError(f'Invalid automatic decision from {policy.id}')
         used = sum(a.get('policy_id') == policy.id for a in ctx.actions)

@@ -78,7 +78,7 @@ The following table lists every registered rule and the two fallback decisions. 
 | Verified numerical convergence — `verified_convergence` | In the independent verification phase, the final 2 steps are full, temperature-varying solves with fresh BA on both. Native solver metric and both absolute raw correction extrema are finite and strictly below `EPS_TERM`; relevant `CORRECTION_SUM` counts agree. No intervening hydro revision invalidates those steps. | Restore the starting `N_FIX_BA`/`FIX_BA` policy for future runs, retain `COMP_BA=T`, finish successfully, and report scientific-quality measurements separately. | Evaluated after each successful verification batch. |
 | Candidate verification — `verify_candidate` | The final 2 full, temperature-varying solves meet the raw/native correction tolerance and count checks, but independent verification is still required. | Set `COMP_BA=T`, `N_FIX_BA=0`, `FIX_BA=0.0`, retire `BAMAT`/`BAMATPNT`, and request up to 3 verification iterations. A rebound returns to further diagnosis/iteration. | Shared work budgets; never accepts a candidate without verification. |
 | Superlevel temperature derivatives — `superlevel_temperature` | A measured localized persistent temperature cycle, without a hydro revision, while `INCL_dSLdT` is disabled. | Enable `INCL_dSLdT=T` and fresh BA before attempting local damping. Retain the correction thresholds and physical model. | One application. |
-| Extreme populations — `population_bootstrap` | Fresh-BA solves have finite extreme population increases (two successive increases≥1e7%, or one≥1e12%). A fixed-structure continuation with `SCALE_OPT=MAJOR` must have an independently auditable positive, charge-conserving checkpoint and an authenticated line/BA-repaired executable. Native automatic Lambda steps also qualify. | Three fixed-T Lambda solves with temporary `MAX_LAM=1e12`, fresh BA and Ng disabled; require declining uncapped extrema, unchanged T/geometry and conserved elements/charge. Restore normal controls, then require two full variable-T/fresh-BA solves with the same physical checks. No floors or LTE reseeding. | One provisional procedure. |
+| Extreme populations — `population_bootstrap` | Fresh-BA solves have finite extreme population increases (two successive increases≥1e7%, or one≥1e12%). A fixed-structure continuation with `SCALE_OPT=MAJOR` must have an independently auditable positive, charge-conserving checkpoint and an authenticated line/BA-repaired executable. Native automatic Lambda steps also qualify. | Three fixed-T Lambda solves with temporary `MAX_LAM=1e12`, fresh BA and Ng disabled; require declining uncapped extrema, unchanged T/geometry and conserved elements/charge. Restore normal controls, then require two consecutive full variable-T/fresh-BA solves with the same physical checks. Native Lambda/fixed-T fallback defers verification and repeats the full-step batch within the shared budgets. No floors or LTE reseeding. | One provisional procedure. |
 | First Ng cadence — `ng_cadence` | Two short (2–5 solve) full batches stay below `BEG_NG`, past `IBEG_NG`, with native Ng enabled and `LAST_NG=-1000`. No hydro revision or successful Ng occurs. | Increase subsequent batches to eight contiguous physical solves, allowing the native first-Ng delay and final-step suppression to operate normally. Keep all native Ng validity checks; never force an acceleration. | One adjustment, only if the next eight-solve batch fits the remaining budget. |
 | Local oscillation damping — `local_relaxation` | Persistent sign reversals in raw temperature requests, or sufficient completed-batch temperature profiles, with nondecaying amplitude. The affected interval spans at most one third of the depth grid. Requires `SCALE_OPT=MAJOR` and supported simple correction controls. | Set depth-local `RELAX=0.25`, then `0.125` if necessary; set local `T_LIM=0.2` so a tighter cap does not suppress the native RELAX branch. Preserve/extend the existing simple depth interval within the supported width. | At most 2 adjustments; a persistent cycle at the minimum RELAX stops for review. |
 | Stalled corrections — `stalled_corrections` | Last full, variable-temperature steps from 3 comparable batches show no steady decline or improvement exceeding 2% relative to the first. A native metric at or above its `10,000,000%` cap requires uncapped population extrema; improving raw extrema, temperature requests, or relevant correction counts permit continuation. Counts are compared only for matching final-step modes. Missing raw extrema cannot prove a capped plateau. | Request fresh matrices with `COMP_BA=T`, `N_FIX_BA=0`, `FIX_BA=0.0`, retiring the saved BA caches. Stop for review if already using fresh matrices. Trends restart after adjustments and native hydro revisions; a hydro-containing batch is excluded from the new baseline. | One matrix-refresh remedy; shared work budgets still apply. |
@@ -358,3 +358,25 @@ qualify. This permits the existing population bootstrap to take over after a
 verified hydro recovery without disabling the user's hydro configuration.
 `startup_hydro` addresses the Bstar3512 startup guard; it does not require manually
 converging the atmosphere or adding another population-recovery algorithm.
+
+
+### Native fallback during population verification
+
+The full-step verification after population bootstrap (including the explicit
+large-change safeguard recovery) honors native automatic Lambda/fixed-temperature
+fallback. A completed batch containing such steps remains **provisional**, and
+the controller requests another two-step verification batch. It does not repeat
+the preceding three-step Lambda bootstrap or disable `DO_LAM_AUTO`.
+
+Every deferred batch must still complete fresh-BA solves and pass positivity,
+charge, geometry, and element-conservation checks. Element conservation remains
+anchored to the first full-verification checkpoint across repeated batches.
+Two consecutive full, variable-temperature fresh-BA solves are required to finish
+the recovery; final convergence still needs its separate tolerance and independent
+verification checks. Lambda steps never satisfy either full-step requirement.
+
+Repeats consume the normal attempt, iteration, and timeout budgets. If those
+limits are exhausted, or cancellation/failure prevents verification, the entire
+provisional population procedure rolls back to its conservative checkpoint.
+The CLI, live UI, and run journal explain when verification is waiting on native
+fallback rather than reporting it as failed numerical evidence.
