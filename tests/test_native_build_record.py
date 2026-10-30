@@ -1,5 +1,8 @@
 """Final native links must preserve an already mapped/running executable."""
 from pathlib import Path
+import hashlib
+import json
+import os
 import runpy
 import shlex
 import subprocess
@@ -52,3 +55,78 @@ def test_failed_link_preserves_installed_executable(tmp_path, monkeypatch):
         helper['relink'](root)
     assert all((root/'exe'/name).read_bytes() == b'previous executable' for name in names)
     assert not list((root/'exe').glob('.cmfgen-link-*'))
+
+
+def built_checkout(tmp_path, monkeypatch, *, newer_library=False, newer_source=False, fail=False):
+    root, names = prepare(tmp_path, monkeypatch, fail=fail)
+    (root/'lib').mkdir()
+    source = root/'scientific.f'
+    source.write_text('validated scientific source')
+    os.utime(source, ns=(100, 300 if newer_source else 100))
+    for name in names:
+        os.utime(root/'exe'/name, ns=(200, 200))
+    for name in ('libsubs.a', 'libmod.a'):
+        library = root/'lib'/name
+        library.write_bytes(b'compiled library')
+        os.utime(library, ns=(100, 300 if newer_library else 100))
+    manifest = {'patch_sha256': 'validated patch', 'files': [
+        {'path': source.name, 'sha256': hashlib.sha256(source.read_bytes()).hexdigest()}]}
+    return root, names, manifest
+
+
+def test_normal_recursive_build_automatically_finalizes_links(tmp_path, monkeypatch):
+    helper = runpy.run_path(str(HELPER))
+    root, names, manifest = built_checkout(tmp_path, monkeypatch, newer_library=True)
+    result = helper['finalize'](root, manifest)
+    assert len(result['final_link_commands']) == 3
+    assert all((root/'exe'/name).read_bytes() == b'new executable' for name in names)
+    saved = json.loads((root/'cmfgen-local-build.json').read_text())
+    assert saved == result
+    assert saved['executables'][names[0]]['sha256'] == hashlib.sha256(b'new executable').hexdigest()
+
+
+def test_current_build_does_not_relink(tmp_path, monkeypatch):
+    helper = runpy.run_path(str(HELPER))
+    root, names, manifest = built_checkout(tmp_path, monkeypatch)
+    monkeypatch.setattr(subprocess, 'check_output', lambda *a, **k: pytest.fail('Unexpected relink'))
+    result = helper['finalize'](root, manifest)
+    assert 'final_link_commands' not in result
+    assert all((root/'exe'/name).read_bytes() == b'previous executable' for name in names)
+
+
+@pytest.mark.parametrize('mode', ['auto', 'always'])
+def test_relink_cannot_mask_unbuilt_source_change(tmp_path, monkeypatch, mode):
+    helper = runpy.run_path(str(HELPER))
+    root, names, manifest = built_checkout(tmp_path, monkeypatch, newer_source=True)
+    monkeypatch.setattr(subprocess, 'check_output', lambda *a, **k: pytest.fail('Unexpected relink'))
+    with pytest.raises(ValueError, match='predates scientific source'):
+        helper['finalize'](root, manifest, link_mode=mode)
+    assert not (root/'cmfgen-local-build.json').exists()
+
+
+def test_changed_source_is_rejected_before_relink(tmp_path, monkeypatch):
+    helper = runpy.run_path(str(HELPER))
+    root, names, manifest = built_checkout(tmp_path, monkeypatch, newer_library=True)
+    (root/'scientific.f').write_text('unknown scientific source')
+    monkeypatch.setattr(subprocess, 'check_output', lambda *a, **k: pytest.fail('Unexpected relink'))
+    with pytest.raises(ValueError, match='Source differs'):
+        helper['finalize'](root, manifest)
+
+
+def test_failed_automatic_link_preserves_previous_record(tmp_path, monkeypatch):
+    helper = runpy.run_path(str(HELPER))
+    root, names, manifest = built_checkout(tmp_path, monkeypatch, newer_library=True, fail=True)
+    previous = root/'cmfgen-local-build.json'
+    previous.write_text('{"previous": true}\n')
+    with pytest.raises(subprocess.CalledProcessError):
+        helper['finalize'](root, manifest)
+    assert previous.read_text() == '{"previous": true}\n'
+
+
+def test_no_relink_mode_refuses_stale_links(tmp_path, monkeypatch):
+    helper = runpy.run_path(str(HELPER))
+    root, names, manifest = built_checkout(tmp_path, monkeypatch, newer_library=True)
+    monkeypatch.setattr(subprocess, 'check_output', lambda *a, **k: pytest.fail('Unexpected relink'))
+    with pytest.raises(ValueError, match='predates source/libraries'):
+        helper['finalize'](root, manifest, link_mode='never')
+    assert not (root/'cmfgen-local-build.json').exists()

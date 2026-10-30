@@ -2,8 +2,10 @@
 """Record executable hashes after a serial rebuild of the captured CMFGEN fixes.
 
 This records build provenance, not scientific convergence. Run the source
-regressions and rebuild new_main/obs before invoking it. Modified scientific
-sources or executables older than their source/library dependencies are refused.
+regressions and rebuild new_main/obs before invoking it. The normal recursive
+build can update shared libraries after linking the atmosphere executable;
+that ordering is finalized automatically. Modified scientific sources and
+executables older than the scientific sources are still refused.
 """
 import argparse
 from datetime import datetime, timezone
@@ -61,11 +63,32 @@ def relink(root):
     return commands
 
 
-def record(root, manifest):
+def checked_sources(root, manifest):
     scientific = [f for f in manifest['files'] if Path(f['path']).suffix in {'.f', '.f90'}]
     for item in scientific:
         if sha(root/item['path']) != item['sha256']:
             raise ValueError('Source differs from validated patch: '+item['path'])
+    return scientific
+
+
+def finalize(root, manifest, *, link_mode='auto'):
+    """Repair final-link ordering without hiding an unbuilt source change."""
+    scientific = checked_sources(root, manifest)
+    newest_source = max((root/f['path']).stat().st_mtime_ns for f in scientific)
+    executables = [root/'exe'/name for name in
+                   ('cmfgen_dev.exe', 'cmf_flux.exe', 'obs_frame.exe')]
+    for p in executables:
+        if p.stat().st_mtime_ns < newest_source:
+            raise ValueError('Executable predates scientific source; rebuild serially before recording: '+str(p))
+    libraries = [root/'lib'/name for name in ('libsubs.a', 'libmod.a')]
+    newest_library = max(p.stat().st_mtime_ns for p in libraries)
+    needs_link = any(p.stat().st_mtime_ns < newest_library for p in executables)
+    commands = relink(root) if link_mode == 'always' or (link_mode == 'auto' and needs_link) else []
+    return record(root, manifest, commands=commands)
+
+
+def record(root, manifest, *, commands=()):
+    scientific = checked_sources(root, manifest)
     newest = max((root/f['path']).stat().st_mtime_ns for f in scientific)
     libraries = list((root/'lib').glob('*.a'))
     if not libraries:
@@ -75,7 +98,7 @@ def record(root, manifest):
     for name in ('cmfgen_dev.exe','cmf_flux.exe','obs_frame.exe'):
         p = root/'exe'/name
         if p.stat().st_mtime_ns < newest:
-            raise ValueError('Executable predates source/libraries; rebuild serially: '+str(p))
+            raise ValueError('Executable predates source/libraries; run the recorder with automatic relinking: '+str(p))
         executables[name] = {'sha256':sha(p), 'size':p.stat().st_size}
     data = {'schema_version':1, 'recorded_at_utc':datetime.now(timezone.utc).isoformat(),
             'source_checkout':str(root), 'source_patch_sha256':manifest['patch_sha256'],
@@ -92,6 +115,8 @@ def record(root, manifest):
         previous = json.loads(target.read_text())
         if previous.get('build_evidence'):
             data['build_evidence'] = previous['build_evidence']
+    if commands:
+        data['final_link_commands'] = commands
     target.write_text(json.dumps(data,indent=2)+'\n')
     return data
 
@@ -99,14 +124,14 @@ def record(root, manifest):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('root', type=Path)
-    parser.add_argument('--relink', action='store_true',
-                        help='Relink all three executables against final shared archives after serial builds')
+    linking = parser.add_mutually_exclusive_group()
+    linking.add_argument('--relink', action='store_true',
+                         help='Always relink all three executables (default: relink when shared libraries are newer)')
+    linking.add_argument('--no-relink', action='store_true',
+                         help='Only record an already current build; refuse stale final links')
     args = parser.parse_args()
     source_manifest = Path(__file__).resolve().parents[1]/'patches/cmfgen-current.json'
     root = args.root.expanduser().resolve()
-    commands = relink(root) if args.relink else []
-    result = record(root,json.loads(source_manifest.read_text()))
-    if commands:
-        result['final_link_commands'] = commands
-        (root/'cmfgen-local-build.json').write_text(json.dumps(result,indent=2)+'\n')
+    mode = 'always' if args.relink else 'never' if args.no_relink else 'auto'
+    result = finalize(root, json.loads(source_manifest.read_text()), link_mode=mode)
     print(json.dumps(result,indent=2))

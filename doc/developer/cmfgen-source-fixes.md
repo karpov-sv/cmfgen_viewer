@@ -346,8 +346,16 @@ build_exe_dir=$(mktemp -d)
 make -C plane INSTALL_DIR="$PWD/" EXE_DIR="$build_exe_dir/"
 make -C new_main INSTALL_DIR="$PWD/" EXE_DIR="$build_exe_dir/"
 make -C obs INSTALL_DIR="$PWD/" EXE_DIR="$build_exe_dir/"
-python3 ~/cmfgen_viewer/doc/developer/cmfgen-review-tests/record_local_build.py --relink "$PWD"
+python3 ~/cmfgen_viewer/doc/developer/cmfgen-review-tests/record_local_build.py "$PWD"
 ```
+
+After an ordinary serial build, the recorder automatically performs the final
+three links if shared libraries are newer than an executable. A newer library
+is expected when a later recursive target updates a shared archive; it does
+not require another full rebuild. Source hashes are checked first, and an
+executable older than the patched scientific sources still requires rebuilding
+before recording. Use `--relink` to force the final links, or `--no-relink` to
+require an already current build without relinking.
 
 The helper links fresh executable files and atomically replaces their paths,
 preserving an existing run's mapped executable. The separate `EXE_DIR` above
