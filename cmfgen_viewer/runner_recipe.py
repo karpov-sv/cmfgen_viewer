@@ -300,11 +300,21 @@ def build_run_plan(model: Path, *, stage: str, cmfgen_root: Path, atomic_root: P
                 active.add(key[:-4].upper())
         except ValueError:
             errors.append(f"Invalid or duplicate ion dimensions [{key}]")
-    kept, seen = [], set()
+    kept, seen, local_atomic_files = [], set(), []
     for link in links:
         if link["name"] in seen:
             errors.append(f"Duplicate atomic destination: {link['name']}")
         seen.add(link["name"])
+        destination = cwd / link["name"]
+        if destination.exists() and not destination.is_symlink():
+            if not destination.is_file() or not os.access(destination, os.R_OK):
+                errors.append(f"Atomic destination is not a readable regular file: {destination}")
+            else:
+                # A model-local copy can deliberately override shared data.
+                # It is an input, not a link for the runner to install.
+                local_atomic_files.append({**link, "path": str(destination)})
+                warnings.append(f"Using model-local atomic data unchanged: {destination}")
+            continue
         target = Path(link["target"])
         if not target.is_file() or not os.access(target, os.R_OK):
             ion = link["name"].split("_", 1)[0].upper()
@@ -312,9 +322,6 @@ def build_run_plan(model: Path, *, stage: str, cmfgen_root: Path, atomic_root: P
                 warnings.append(f"Skipping unavailable inactive-ion link: {link['name']}")
                 continue
             errors.append(f"Atomic target is not a readable file: {link['name']} -> {target}")
-        destination = cwd / link["name"]
-        if destination.exists() and not destination.is_symlink():
-            errors.append(f"Refusing to replace non-symlink atomic destination: {destination}")
         kept.append(link)
     if stage in {"main", "test"} and not continuing:
         kept.append({"name": "T_IN", "target": str(model / "He2_IN"), "source": "recipe"})
@@ -376,6 +383,7 @@ def build_run_plan(model: Path, *, stage: str, cmfgen_root: Path, atomic_root: P
         if path.is_symlink() or (path.exists() and path.stat().st_nlink != 1):
             errors.append(f"Refusing symlinked writable control: {cwd / filename}")
     paths = {cwd / name for name in required} | set(recipe_files)
+    paths.update(Path(entry["path"]) for entry in local_atomic_files)
     if stage in {"main", "test"}:
         paths.add(model / "ADJUST_CORRECTIONS")
         if (model / "ROSSELAND_LTE_TAB").is_file():
@@ -405,6 +413,7 @@ def build_run_plan(model: Path, *, stage: str, cmfgen_root: Path, atomic_root: P
                 warnings.append(f"Before hydro, align MU_ATOM with LTE: {lte_alignment['current']} -> {lte_alignment['proposed']}")
     plan = {"lte_composition_alignment": lte_alignment, "schema_version": 1, "profile": "ostar-v1", "stage": stage, "model": str(model), "cwd": str(cwd),
             "executable": str(exe), "executable_snapshot": snapshot(exe), "links": kept, "passes": passes,
+            "local_atomic_files": local_atomic_files,
             "inputs": [snapshot(path) for path in sorted(paths)], "threads": threads, "timeout": timeout,
             "memory_mib": memory_mib, "no_core_dumps": no_core_dumps, "errors": errors, "warnings": warnings,
             "fresh_start": fresh_start, "initialization": initialization,

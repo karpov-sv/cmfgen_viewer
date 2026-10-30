@@ -81,11 +81,13 @@ def capture_inputs(model, archive, plan):
                           'size': info.st_size, 'sha256': before})
         except (OSError, ValueError) as exc:
             missing.append(f'{name}: {exc}')
-    # Atomic files remain external dependencies, identified but never copied.
+    # Atomic files remain dependencies outside the input bundle, including
+    # preserved model-local copies. Recovery must use the same data.
     dependency_paths = {link['target'] for link in plan.get('links', [])
                         if link['name'] != 'T_IN' and not Path(link['target']).is_relative_to(model)}
     dependency_paths.update(record['path'] for record in plan.get('inputs', [])
                             if not Path(record['path']).is_relative_to(model))
+    dependency_paths.update(record['path'] for record in plan.get('local_atomic_files', []))
     dependencies = [snapshot(Path(path)) for path in sorted(dependency_paths)]
     manifest = {'version': 1, 'model': str(model), 'stage': plan['stage'],
                 'files': files, 'required': sorted(required), 'missing': missing,

@@ -371,6 +371,8 @@ class TerminalOutput:
         if self.verbose:
             self.line("INFO", f"Working directory: {plan['cwd']}")
             self.line("INFO", f"{len(plan.get('links', []))} atomic links; {len(plan.get('inputs', []))} input snapshots")
+            if plan.get("local_atomic_files"):
+                self.line("INFO", f"{len(plan['local_atomic_files'])} model-local atomic files preserved")
             for name, source in plan.get("configuration_sources", {}).items():
                 self.line("INFO", f"{name} supplied by {source}")
             for step in passes:

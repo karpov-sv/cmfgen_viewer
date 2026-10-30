@@ -409,6 +409,10 @@ def run_plan(plan: dict, emit=None, *, diagnose_main=True, stop_requested=None) 
         for old in [*plan["inputs"], plan["executable_snapshot"]]:
             if snapshot(Path(old["path"])) != old:
                 raise RunnerError(f"Input changed since preflight: {old['path']}")
+        for entry in plan.get("local_atomic_files", []):
+            path = Path(entry["path"])
+            if path.is_symlink() or not path.is_file() or not os.access(path, os.R_OK):
+                raise RunnerError(f"Model-local atomic input is no longer a readable regular file: {path}")
         for path in cwd.iterdir():
             if path.is_symlink() and path.name not in plan["permitted_links"]:
                 raise RunnerError(f"Unclassified symlink in execution workspace: {path}")
