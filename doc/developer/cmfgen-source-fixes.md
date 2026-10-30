@@ -2,7 +2,8 @@
 
 Updated **30 October 2026**. The
 consolidated patch contains numerical fix groups **1–28**, performance changes
-**29–30**, and the optional fixed-state output feature **31**, based on CMFGEN
+**29–30**, the optional fixed-state output feature **31**, and the opacity diagnostic
+safeguard **32**, based on CMFGEN
 website release **version 18jun25**. Groups 26–31 come from the Bstar3010
 investigation; the three numerical repairs are distinct from the two optimizations
 and the output feature. See [validation and scope](cmfgen-convergence-repairs.md).
@@ -86,13 +87,13 @@ This output pass receives no solved-iteration or convergence credit.
 | 23 | `INC_GRID` variation omits the second refinement, uses wrong history and clears rectangular line storage as square. | Compose both interpolation maps, retain final-grid history, project flux consistently even at missing model midpoints, clear exact slot extents. Guard the legacy direct entry and correct its previous-factor typo. | `plane/mom_j_cmf_v11.f`, `var_mom_jext_cmf_v3.f`; `new_main/mod_subs/do_var_cont.f`, `init_line_opac_var_v2.f` |
 | 24 | Homologous/time-dependent variation rebuilds coarse transport and exposes temporal/boundary/cache inconsistencies. | Use final-grid rectangular responses and exact quadrature; match total-J hollow/HALF_MOM and zero-flux/HONJM derivatives. Retain first-frequency/hollow temporal terms, correct HONJM r², preserve homology on inserted points and resize/invalidate old-time caches on initialized grid changes. | `plane/mom_j_ddt_v6.f`, `var_mom_j_ddt_v6.f`, `edd_j_hub_var_v3.f`, `get_jh_at_prev_time_step.f`; `new_main/mod_subs/do_var_cont.f`; Makefiles |
 | 25 | Ordinary negative-J replacement and H caps are omitted from correction derivatives and frequency history. | Differentiate both limits on native moment rows, retain raw J for matrix/scattering forcing, correct direct H opacity partials, and propagate repaired J/H histories and diffusion responses. | `plane/var_mom_j_cmf_v12.f`, `new_main/mod_subs/do_var_cont.f`, its Makefile; [details](cmfgen-moment-limits.md) |
-
 | 26 | Monotone cubic evaluation cancels small positive radiation values to zero near nodes across extreme ranges. | Return exact stored nodes and reevaluate cancellation-prone intervals with the same cubic in stable Bezier form; preserve endpoint bounds and ordinary arithmetic. | `subs/mon_interp.f` |
 | 27 | Requested X-ray normalization only raises deficient emission; a changed source can reach the final-output pass without a new solve. | Apply bounded square-root scaling in both directions, retain intrinsic-emission/iteration eligibility, reject invalid luminosities, and require a fresh solved update after source changes. Log the multiplier for runner handoff. | `new_main/cmfgen_sub.f` |
 | 28 | Dissolution contributions overwrite the collision temperature Jacobian. | Accumulate each contribution while preserving forward rates. | `newsubs/subcol_multi_v6.f` |
 | 29 | Dense model-grid projection multiplies many exactly zero local-support weights. | Skip rows only when all three weights are exactly zero; retain nonzero summation order. Performance optimization for finite transport data. | `plane/var_mom_j_cmf_v12.f` |
 | 30 | Independent whole-slice remapping copies run serially. | Parallelize complete disjoint slices with OpenMP and a private inner index. Performance optimization. | `new_main/mod_subs/do_var_cont.f` |
 | 31 | Native flux-only output omits `MOD_SUM`/`RVTJ`; a zero-iteration writer gives zero mean opacities. Flux-only uses a different inner temperature gradient from an ordinary solve. | Add default-off `FINAL_OUTPUT_ONLY` in `IN_ITS` for coherent stationary continuation: use the existing ordinary luminosity boundary, bypass population updates and write standard complete outputs. Reject unsupported modes and label summaries as output-only. | `new_main/cmfgen_sub.f` |
+| 32 | `SRCE_CHK` can choose a nonpositive opacity floor when continuum absorption is negative; the formal solver then takes `LOG(CHI)`, trapping or propagating NaNs. | Stop before transfer with an explicit frequency/depth/opacity diagnostic. The runner can select the existing positive `ESEC_CHK` limiter once, without reseeding or bypassing safeguards. | `new_main/cmfgen_sub.f`; [investigation](bstar3513-opacity-investigation.md) |
 
 
 The complete diff for all groups is
@@ -295,7 +296,7 @@ git apply --check --exclude=Makefile_definitions ~/cmfgen_viewer/doc/developer/p
 git apply --exclude=Makefile_definitions ~/cmfgen_viewer/doc/developer/patches/cmfgen-current.patch
 ```
 
-The patch includes the initialization module and groups 1–31; no second patch
+The patch includes the initialization module and groups 1–32; no second patch
 is required. `Makefile_definitions` is excluded above to preserve the receiving
 checkout's local build configuration. Its original patch hunks remain available
 for reference. Directory aliases also reflect the captured local environment;
@@ -364,3 +365,38 @@ file hashes, build/test logs, the isolated build, and additional native test
 artifacts. Each regression invocation also prints its own temporary output
 location. The older investigation documents are historical background, not
 additional instructions required to use these fixes.
+
+
+## Bstar3513 source-opacity diagnostic (30 October 2026)
+
+The added diagnostic guard does not change a valid opacity or Jacobian. It turns
+an invalid `SRCE_CHK` floor into a nonzero native stop with measurements before
+this solve can write poisoned populations. The automatic `source_opacity` policy
+can then select the existing electron-scattering limiter, while retaining the
+normal radiation, luminosity, and convergence checks. The incremental upgrade is
+[cmfgen-source-opacity-guard.patch](patches/cmfgen-source-opacity-guard.patch);
+it is already included in the consolidated patch.
+
+Run the extracted-native-limiter regression after applying/rebuilding:
+
+```bash
+python3 doc/developer/cmfgen-review-tests/check_source_opacity_guard.py ~/CMFGEN2023/cur_cmf --optimization O0
+python3 doc/developer/cmfgen-review-tests/check_source_opacity_guard.py ~/CMFGEN2023/cur_cmf --optimization O2
+```
+
+Both optimizations pass seven cases, including the reproduced invalid floor,
+a zero source floor, positive ordinary source limiting, unchanged positive
+opacity, the native scattering floor, and its existing derivative-control flags.
+The historical Linux build described above predates this additive diagnostic.
+See the investigation record for current local installation and model-run evidence.
+
+The runner also adds a narrowly scoped fresh-POP radiation-seed recipe. If a
+negative-luminosity safeguard remains before the first population solve, it can
+initialize from a validated matching LTE/hydro temperature profile, run the
+existing three-step Lambda population bootstrap and verify guarded full
+continuation. This needs no further scientific source changes beyond the
+already consolidated LTE-charge/line/BA repairs. The entire recipe remains
+provisional and retains strict conservation checks. See
+[main computation](../main-computation.md#fresh-pop-radiation-initialization) for
+eligibility, temporary controls and rollback, and
+[Bstar3513 investigation](bstar3513-opacity-investigation.md) for native evidence.

@@ -191,3 +191,14 @@ def test_removed_recovery_rc_setting_is_rejected(tmp_path, monkeypatch):
     config.write_text('keep_large_files = true\n')
     with pytest.raises(RunnerError, match='supported viewer/runner setting'):
         _read_rc(config)
+
+
+def test_compact_retains_the_consumed_lte_seed_and_its_provenance(tmp_path):
+    effective=tmp_path/'effective';(effective/'lte-source').mkdir(parents=True)
+    (effective/'FIN_CAL_GRID').write_text('exact reviewed temperatures')
+    (effective/'lte-source/RVSIG_COL_NEW').write_text('paired reviewed grid')
+    (tmp_path/'RVSIG_COL_NEW').write_text('unneeded calculated structure')
+    compact_recovery(tmp_path)
+    assert (effective/'FIN_CAL_GRID').read_text()=='exact reviewed temperatures'
+    assert (effective/'lte-source/RVSIG_COL_NEW').read_text()=='paired reviewed grid'
+    assert not (tmp_path/'RVSIG_COL_NEW').exists()

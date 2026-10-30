@@ -92,6 +92,22 @@ def analyze_main_diagnostics(
                             'Do not bypass this error, automatically rewind, or reseed a continuation with LTE/POP.'],
             'links': [path for path in ('POINT1', 'POINT2', 'MODEL', 'RVTJ') if (model / path).is_file()],
         })
+    from .opacity_recovery import SOURCE_FLOOR_MARKER, source_floor_measurements
+    floor_reports = [(name, source_floor_measurements(text)) for name, text in sources.items()
+                     if SOURCE_FLOOR_MARKER in text]
+    if floor_reports:
+        name, measurements = next((r for r in floor_reports if r[1]), floor_reports[0])
+        findings.append({
+            'code': 'source_opacity_floor', 'title': 'Source-function opacity limiter produced an invalid floor',
+            'severity': 'error', 'path': name, 'evidence': SOURCE_FLOOR_MARKER,
+            'measurements': measurements,
+            'message': 'SRCE_CHK selected a nonpositive opacity floor. The native solver stopped before '
+                       'taking its logarithm or updating populations in this solve.',
+            'suggestions': ['With positive electron scattering, NEG_OPAC_OPT=ESEC_CHK uses the existing '
+                            'positive scattering floor. Auto mode can select this once and rebuild radiation and BA.',
+                            'Do not disable floating-point traps, accept NaN checkpoints, or infer this remedy from a generic crash.'],
+            'links': ['VADAT'], 'controls': {'NEG_OPAC_OPT': control('NEG_OPAC_OPT')},
+        })
     fatal = re.search(r"SIG(?:ILL|FPE|SEGV)|^\s*Floating[- ]point exception(?:\s*\(|\s*$)|error termination|Fortran runtime error", combined, re.I | re.M)
     stack = re.search(r"(?im)^.*(?:#\d+|Native crash frame:).*\b(?:scale_pops|cnvt_fr_dc)(?:_\w*)?\b.*$", combined)
     zero_rgu = re.search(r"Error in SETPOP_WLD_V\d+\s*--\s*zero RGU", combined, re.I)

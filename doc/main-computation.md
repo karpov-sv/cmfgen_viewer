@@ -67,8 +67,10 @@ The following table lists every registered rule and the two fallback decisions. 
 | Rule / policy identifier | Recognition and eligibility | Remedy or result | Limit |
 | --- | --- | --- | --- |
 | Invalid numerical state — `invalid_numerical_state` | Explicit NaN/Infinity temperature-gradient, luminosity, or opacity diagnostics, or a failed selected binary checkpoint check. An old finite RVTJ and zero correction summaries cannot overrule these findings. | Stop for review before applying remedies or accepting convergence; preserve evidence and restore the accepted automatic snapshot. No search for older records or automatic LTE/POP reseeding. Invalid starting checkpoints are blocked in preflight. | Terminal decision; first failure policy. |
+| Nonpositive source opacity floor — `source_opacity` | Explicit native `SRCE_CHK nonpositive opacity floor` report with complete finite measurements, negative absorption and positive emissivities/scattering. No companion errors; current limiter is `SRCE_CHK`. | Select native `NEG_OPAC_OPT=ESEC_CHK`, fresh BA and radiation caches. Keep all safeguards and the checkpoint; generic crashes cannot select it. | One application. |
 | Saved-population interpolation — `pop_initialization` | Same confirmed, isolated pre-iteration population failure as the LTE rule, but in a **fresh** startup with explicit legacy `DC_METH=R/TR/ED/SPH_TAU`, `LIN_INT=T`, `POP_SCALE=T`, and `LTE_EST=F` if present. The executable must contain the patched POP success marker. Original explicit-ion inputs must be unchanged, complete, have matching full-level counts, and share a saved radius/T/Ne/clumping grid. | Request 2 iterations with temporary `DC_METH=POP`; require native confirmation of fraction interpolation and charge-conserving Ne, fresh finite outputs, and a usable checkpoint. Restore original controls, then request 2 normal continuation iterations. Native atomic/occupation/conservation validation remains mandatory; a failed step rolls the whole procedure back. | One recovery procedure; never reseeds an established continuation. |
 | LTE starting populations — `lte_initialization` | Confirmed population-conversion/scaling failure before any iteration in a **fresh** startup: a native `SCALE_POPS`/`CNVT_FR_DC` crash frame or the `SETPOP_WLD_V*` zero-RGU safeguard. No other diagnosed error; LTE was not already selected. Explicit `LIN_INT=F`, and `LTE_EST=F` if present, must be compatible. | Request 2 iterations with temporary `DC_METH=LTE` and a positive `T_EXC`; restore the original initialization controls on every exit. Require finite refreshed outputs/a usable checkpoint, then request 2 normal continuation iterations before committing the recovered state. | One recovery procedure per automatic invocation. |
+| Fresh POP radiation seed — `opacity_lte_seed` | Isolated zero-exit luminosity stop before any population solve in a confirmed fresh POP startup; a complete negative luminosity profile, inner τRoss≥30, fixed structure, `SCALE_OPT=MAJOR`, authenticated LTE/line/BA repairs. Requires a preceding diagnosed source-floor repair or local matching LTE/hydro provenance. | Zero-iteration native LTE initialization, preferring the model’s matching promoted LTE/hydro temperatures; then 3 fixed-T Lambda solves at temporary `MAX_LAM=1e12` and full guarded variable-T/fresh-BA verification. Check exact source temperatures, declining uncapped extrema, charge/elements and geometry. No intermediate state is committed. | One provisional procedure; never reseeds a continuation. Failed/interrupted verification restores the pre-seed state. |
 | Dormant startup hydro schedule — `startup_hydro` | Isolated zero-exit luminosity guard before the first POP population solve, or at its first continuation (checkpoint 1). Explicit `DO_HYDRO=T`, `STOP_IF_MW=T`, `N_ITS=0`, `ITS_DONE=0`, `STRT_ITS=2`, valid hydro frequency, full variable-T startup, authenticated repaired executable. Fresh complete profiles must show a positive deficit with minimum in `[0.25,0.5)`, maximum ≤2, and inner τRoss≥30. Fresh startup must confirm the POP marker; continuation must pass checkpoint physics checks. | Schedule exactly one revision (`N_ITS=1`) and fresh BA. If fresh, first run one temporary-guard-off POP seed solve and audit checkpoint 1. Run the one-iteration hydro bridge, restore the guard, then require two guarded continuation iterations. The entire seed/bridge/follow-up recipe remains provisional. | One procedure; at most two guard-off solves for fresh startup, one for continuation. Insufficient budget, interruption, or failed validation rolls back the complete coupled state. |
 | Hydro startup bridge — `hydro_bootstrap` | An isolated, zero-exit factor-of-two luminosity stop before the first population solve of a confirmed continuation. A hydro revision is explicitly due in `HYDRO_DEFAULTS`; `DO_HYDRO=T` and the major-warning guard is enabled. Fresh complete luminosity/optical-depth profiles corroborate the stop and establish inner τRoss ≥ 30. | Run 1 iteration with temporary `STOP_IF_MW=F` to complete the scheduled hydro/grey revision, restore the guard, then request 2 guarded continuation iterations. Their luminosity profile must be within `[0.5, 2]` and inner τRoss at least 30. | One recovery procedure. |
 | Radiation cache — `radiation_cache` | A failed attempt explicitly reports **incorrect reading of EDDFACTOR**. A generic crash does not qualify. | Restore the appropriate checkpoint, retire the radiation cache, and retry. A cache error within a provisional recovery retries that step from its step snapshot. | One application. |
@@ -416,3 +418,66 @@ pass the same physical checks. A single solve, missing evidence, or a shortened
 batch above tolerance is rejected. This exception only ends the bootstrap;
 full variable-temperature verification and independent convergence verification
 remain required.
+
+### Nonpositive source-function opacity floor
+
+A patched native diagnostic, `CMFGEN diagnostic: SRCE_CHK nonpositive opacity
+floor`, identifies a failure before the transfer solver takes `LOG(CHI)`. With
+`NEG_OPAC_OPT=SRCE_CHK`, negative continuum absorption can cause the limiter
+itself to choose a negative value. A generic `SIGILL`, floating-point exception,
+or NaN luminosity does not establish this diagnosis.
+
+The `source_opacity` rule requires complete finite frequency/depth and opacity
+measurements, negative absorption, and positive emissivity, continuum emissivity,
+and electron scattering. It selects the existing `NEG_OPAC_OPT=ESEC_CHK` option
+once, requests fresh BA, and retires BA and Eddington caches. The native
+scattering limiter uses `0.1*CHI_SCAT`; the runner does not invent a new floor,
+change populations, reseed a continuation, or disable luminosity safeguards.
+
+The selected option is retained for ordinary continuation. It is a numerical
+limiter adjustment, not convergence acceptance: the next attempt must still
+pass native/output validation and can invoke existing hydro/population remedies.
+Final convergence still needs independent fresh-Jacobian verification. Additional
+nonfinite-state/checkpoint errors, an already selected `ESEC_CHK`, missing or
+invalid measurements, or a repeated exhausted remedy stop for review.
+
+Older executables may trap or propagate NaNs without this diagnostic. Install
+the source guard from the consolidated CMFGEN patch (or the incremental
+`doc/developer/patches/cmfgen-source-opacity-guard.patch`) and rebuild before
+expecting automatic recognition. Previously poisoned checkpoints remain invalid.
+
+### Fresh POP radiation initialization
+
+An opacity-limiter adjustment can expose a separate inherited-seed problem:
+the first radiation sweep still fails the luminosity safeguard before any
+population correction. `opacity_lte_seed` applies only to this narrowly
+diagnosed **fresh** startup, never to an established continuation. Positive
+moderate deficits remain the responsibility of `startup_hydro`.
+
+When present, `lte/FIN_CAL_GRID` must have a byte-identical paired promoted
+`lte/RVSIG_COL_NEW`, matching target TEFF/LOGG/LSTAR/MDOT and abundances, matching
+radii/velocities/depths, finite positive thermodynamic inputs, and outputs no
+older than their LTE/hydro controls. Incompatible or stale local artifacts
+stop recovery for review. Without such artifacts, only a preceding typed
+source-floor repair permits an LTE seed on the inherited temperature grid.
+
+The runner temporarily selects `LIN_INT=F, IT_ON_T=F, DC_METH=LTE` and, when
+using the reviewed LTE/hydro profile, `LTE_EST=T` plus an exact temporary
+`FIN_CAL_GRID`. It runs native test mode with zero radiation iterations, checks
+positive populations and charge consistency, and verifies the binary
+checkpoint’s temperatures against the reviewed source. It restores all
+initialization controls and any pre-existing root FIN_CAL_GRID on every exit;
+the consumed input and source provenance remain in the journal. The public
+`--lte-initialization` flag retains its original compatibility restrictions.
+
+This initialization consumes an attempt but **zero convergence iterations**.
+It cannot certify numerical progress or convergence. The recipe then uses the
+existing three-step population bootstrap and full-step verification, including
+unchanged 1e-6 element/charge checks and rollback. Native Lambda/fixed-T fallback
+can defer full verification within the shared work budgets. The luminosity
+safeguard stays enabled throughout.
+
+A complete explicit hydro schedule with `N_ITS=ITS_DONE=0` and positive integer
+`STRT_ITS/FREQ_ITS` is considered fixed for these guarded population/transfer
+remedies. This neither disables DO_HYDRO nor changes the schedule; the separate
+startup-hydro rule can still rearm it when its own evidence qualifies.

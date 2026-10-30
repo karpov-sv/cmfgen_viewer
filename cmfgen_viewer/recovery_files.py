@@ -15,7 +15,7 @@ INPUT_FILES = {'VADAT', 'MODEL_SPEC', 'IN_ITS', 'ADJUST_CORRECTIONS', 'GRID_PARA
                'RVSIG_COL', 'ROSSELAND_LTE_TAB', 'HYDRO_DEFAULTS', 'ADJUST_R_DEFAULTS',
                'RDINR', 'IT_SPECIFIER', 'arnaud_rothenflug.dat', 'batch.sh', 'batch_ins.sh',
                'clean.sh', 'batobs.sh', 'bat_ins.sh', 'IN_FILE', 'CMF_FLUX_PARAM',
-               'CMF_FLUX_PARAM_INIT', 'stdin.txt'}
+               'CMF_FLUX_PARAM_INIT', 'stdin.txt', 'FIN_CAL_GRID'}
 CHECKPOINT_FILES = {'POINT1', 'POINT2', 'SCRTEMP', 'NEW_POINT1', 'NEW_POINT2', 'NEW_SCRTEMP'}
 
 
@@ -28,7 +28,8 @@ def retention_action(path, size, *, relative=None):
         return 'discard'
     parts = Path(relative).parts if relative is not None else ()
     if (path.name in INPUT_FILES or path.name.endswith('_IN')
-            or (parts and parts[0] == 'inputs')):
+            or (parts and parts[0] == 'inputs')
+            or parts[:2] == ('effective', 'lte-source')):
         return 'keep'
     if _diagnostic(path):
         return 'excerpt' if size > RECOVERY_FILE_LIMIT else 'keep'

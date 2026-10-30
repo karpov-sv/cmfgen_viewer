@@ -55,11 +55,13 @@ def test_confirmed_fresh_failure_gets_lte_then_normal_continuation(lte_workspace
     model,plan=lte_workspace
     result=run_plan(plan(scenario))
     assert result['status']=='succeeded',result
-    assert [a['policy_id'] for a in result['actions']]==['lte_initialization','verify_candidate']
+    assert [a['policy_id'] for a in result['actions']]==['lte_initialization','verify_candidate','verified_convergence']
     assert [a['phase'] for a in result['attempts']]==['iterate','lte_initialization','lte_continuation','verify']
     trace=[json.loads(row) for row in (model/'initialization-trace.jsonl').read_text().splitlines()]
     assert [r['method'] for r in trace]==['ED','LTE','ED','ED']
     assert trace[1]['t_exc']=='1' and trace[1]['count']=='2'
+    assert control_value(model,'VADAT','N_FIX_BA')=='2'
+    assert control_value(model,'VADAT','FIX_BA')=='10'
     assert result['attempts'][1]['lte_bootstrap_completed']
     assert result['attempts'][2]['lte_recovery_verified']
     assert result['attempts'][2]['recovery_verified']=='lte_initialization'
@@ -99,6 +101,8 @@ def test_incompatible_or_invalid_initialization_is_not_rewritten(lte_workspace,e
     text=(model/'VADAT').read_text()
     text=''.join(row for row in text.splitlines(keepends=True) if f'[{key}]' not in row)+extra
     (model/'VADAT').write_text(text)
+    if key == 'LTE_EST':
+        (model/'FIN_CAL_GRID').write_text('Native fresh-LTE structure input\n')
     result=run_plan(plan('lte_scaling'))
     assert result['status']=='needs_review',result
     assert not result['actions']

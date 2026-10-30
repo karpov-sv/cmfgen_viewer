@@ -178,7 +178,7 @@ def native_updates(model, text, before, *, fresh_start=False):
     return result
 
 
-def guard_measurements(model, before):
+def guard_measurements(model, before, *, require_positive=True):
     """Require fresh, complete, finite luminosity and optical-depth profiles."""
     from .runner import _tail
     nd = int(number(model, 'MODEL_SPEC', 'ND'))
@@ -200,7 +200,8 @@ def guard_measurements(model, before):
         if not row or any(v is None for v in row):
             break
         luminosity.extend(row)
-    if len(luminosity) != nd or any(not math.isfinite(v) or v <= 0 for v in luminosity):
+    if (len(luminosity) != nd or any(not math.isfinite(v) for v in luminosity) or
+            (require_positive and min(luminosity) <= 0)):
         raise RunnerError('Incomplete/invalid normalized luminosity profile')
     mean = _tail(model/'MEANOPAC', 4*1024*1024)
     if not mean.splitlines() or 'Tau(Ross)' not in mean.splitlines()[0]:
@@ -264,7 +265,15 @@ def hydro_exhausted(model):
 
 
 def structure_fixed(model):
-    return not enabled(model, 'DO_HYDRO') or hydro_exhausted(model)
+    if not enabled(model, 'DO_HYDRO') or hydro_exhausted(model):
+        return True
+    # An explicitly empty, complete schedule performs no structure changes,
+    # including before its first revision. Startup-hydro recovery may still
+    # rearm it when its stronger luminosity evidence qualifies.
+    if number(model, 'HYDRO_DEFAULTS', 'N_ITS') != 0 or number(model, 'HYDRO_DEFAULTS', 'ITS_DONE') != 0:
+        return False
+    values = [number(model, 'HYDRO_DEFAULTS', key) for key in ('STRT_ITS','FREQ_ITS')]
+    return all(v is not None and math.isfinite(v) and v >= 1 and v == int(v) for v in values)
 
 
 def startup_hydro_evidence(model, native, result, before):

@@ -1,0 +1,20 @@
+diff --git a/new_main/cmfgen_sub.f b/new_main/cmfgen_sub.f
+--- a/new_main/cmfgen_sub.f
++++ b/new_main/cmfgen_sub.f
+@@ -2298,6 +2298,16 @@
+ 	        IF(CHI(I) .LT. CHI_CONT(I) .AND.
+ 	1            CHI(I) .LT. 0.1_LDP*ETA(I)*CHI_NOSCAT(I)/ETA_CONT(I) )THEN
+ 	          CHI(I)=0.1_LDP*ETA(I)*CHI_NOSCAT(I)/ETA_CONT(I)
++! A source-function limiter cannot supply a positive transfer opacity when
++! its absorption factor is negative. Stop before LOG(CHI) corrupts the solve.
++                  IF(CHI(I) .LE. 0.0_LDP)THEN
++                    WRITE(LUER,'(A)')'CMFGEN diagnostic: SRCE_CHK nonpositive opacity floor'
++                    WRITE(LUER,*)'ITERATION=',MAIN_COUNTER,' DEPTH=',I,' FREQUENCY=',FL
++                    WRITE(LUER,*)'CHI=',CHI(I),' CHI_CONT=',CHI_CONT(I),' CHI_NOSCAT=',CHI_NOSCAT(I)
++                    WRITE(LUER,*)'ETA=',ETA(I),' ETA_CONT=',ETA_CONT(I),' CHI_SCAT=',CHI_SCAT(I)
++                    WRITE(LUER,'(A)')'Review NEG_OPAC_OPT=ESEC_CHK; no populations updated by this solve'
++                    STOP 1
++                  END IF
+ 	          NEG_OPACITY(I)=.TRUE.
+ 	          NEG_OPAC_FAC(I)=0.0_LDP
+ 	          AT_LEAST_ONE_NEG_OPAC=.TRUE.

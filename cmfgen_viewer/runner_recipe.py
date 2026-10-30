@@ -12,7 +12,7 @@ import shlex
 import shutil
 import sys
 
-from .model_initialization import lte_initialization_controls
+from .model_initialization import lte_initialization_controls, opacity_lte_seed_controls
 from .pop_initialization import pop_initialization_controls, pop_source_evidence
 from .control_files import control_occurrences
 from .model_activity import inspect_model_activity
@@ -137,7 +137,8 @@ def resolve_atomic_links(model: Path, stage: str, atomic: Path):
 
 def build_run_plan(model: Path, *, stage: str, cmfgen_root: Path, atomic_root: Path,
                    threads=None, timeout=None, memory_mib=None, iterations=None, fresh_start=False,
-                   no_core_dumps=False, lte_initialization=False, t_exc=1.0, pop_initialization=False) -> dict:
+                   no_core_dumps=False, lte_initialization=False, t_exc=1.0, pop_initialization=False,
+                   opacity_lte_seed=False, lte_structure_seed=False) -> dict:
     if stage not in PROGRAMS:
         raise RunnerError("Supported stages: test, main, lte, hydro, flux")
     if (threads is not None and threads < 1) or (memory_mib is not None and memory_mib < 128):
@@ -151,6 +152,12 @@ def build_run_plan(model: Path, *, stage: str, cmfgen_root: Path, atomic_root: P
         raise RunnerError("--iterations is a positive main-stage override only")
     if fresh_start and stage not in {"main", "test"}:
         raise RunnerError("--fresh-start applies only to main/test")
+    if lte_structure_seed:
+        opacity_lte_seed = True
+    if opacity_lte_seed:
+        if stage != 'test' or lte_initialization or pop_initialization:
+            raise RunnerError('Opacity LTE seed is an exclusive zero-iteration startup test')
+        lte_initialization = True
     if pop_initialization and lte_initialization:
         raise RunnerError("Select only one temporary initialization method")
     if pop_initialization and stage not in {"main", "test"}:
@@ -171,13 +178,25 @@ def build_run_plan(model: Path, *, stage: str, cmfgen_root: Path, atomic_root: P
         if continuing:
             errors.append("LTE initialization applies to fresh startup; explicitly select --fresh-start to retire checkpoints")
         try:
-            lte_initialization_controls((model / "VADAT").read_text(), t_exc)
+            initializer = opacity_lte_seed_controls if opacity_lte_seed else lte_initialization_controls
+            if opacity_lte_seed:
+                initializer((model / "VADAT").read_text(), t_exc, structure=lte_structure_seed)
+            else:
+                initializer((model / "VADAT").read_text(), t_exc)
         except (ValueError, OSError) as exc:
             errors.append(str(exc))
         vadat = model / "VADAT"
         if vadat.is_symlink() or vadat.stat().st_nlink != 1:
             errors.append("Refusing unsafe writable VADAT for LTE initialization")
         initialization = {"method": "LTE", "t_exc": t_exc, "temporary": True}
+        if opacity_lte_seed:
+            initialization['opacity_seed'] = True
+        if lte_structure_seed:
+            from .lte_structure_seed import lte_structure_source
+            try:
+                initialization['structure_seed'] = lte_structure_source(model)
+            except (OSError, ValueError) as exc:
+                errors.append(str(exc))
         warnings.append("Fresh LTE initial populations: DC_METH=LTE, T_EXC=" + str(t_exc) + " (10^4 K). VADAT will be restored afterward; convergence remains unassessed.")
     if pop_initialization:
         if continuing:
@@ -216,6 +235,11 @@ def build_run_plan(model: Path, *, stage: str, cmfgen_root: Path, atomic_root: P
         ["VADAT", "MODEL_SPEC", "GRID_PARAMS"] if stage == "lte" else
         ["HYDRO_PARAMS", "ROSSELAND_LTE_TAB", "MODEL_SPEC"] + (["RVTJ"] if old_model else []) if stage == "hydro" else
         ["CMF_FLUX_PARAM_INIT", "IN_FILE", "../RVTJ", "../MODEL", "../MODEL_SPEC"])
+    if stage in {'main','test'} and not continuing and not lte_structure_seed:
+        vadat_rows = control_occurrences((model/'VADAT').read_text())
+        truth = lambda key: len(vadat_rows.get(key, [])) == 1 and vadat_rows[key][0]['value'].upper().strip('.') in {'T','TRUE'}
+        if truth('LTE_EST') and not truth('LIN_INT'):
+            required.append('FIN_CAL_GRID')
     for name in required:
         path = cwd / name
         if not path.is_file() or not path.stat().st_size:
@@ -383,6 +407,10 @@ def build_run_plan(model: Path, *, stage: str, cmfgen_root: Path, atomic_root: P
         if path.is_symlink() or (path.exists() and path.stat().st_nlink != 1):
             errors.append(f"Refusing symlinked writable control: {cwd / filename}")
     paths = {cwd / name for name in required} | set(recipe_files)
+    if (initialization or {}).get('structure_seed'):
+        evidence = initialization['structure_seed']
+        paths.add(Path(evidence['source']['path']))
+        paths.update(Path(item['path']) for item in evidence['dependencies'])
     paths.update(Path(entry["path"]) for entry in local_atomic_files)
     if stage in {"main", "test"}:
         paths.add(model / "ADJUST_CORRECTIONS")

@@ -60,7 +60,7 @@ def configure_auto(plan, *, cmfgen_root, atomic_root,
                                           if str(model/n) not in reviewed)]
     result['kind'] = 'auto'
     registry = policies.manifest()
-    result['auto'] = {'version': 8, 'batch_iterations': batch,
+    result['auto'] = {'version': 9, 'batch_iterations': batch,
                       'max_attempts': max_attempts, 'max_iterations': max_iterations,
                       'policies': registry,
                       'cmfgen_root': str(Path(cmfgen_root).resolve()),
@@ -237,7 +237,7 @@ def _issue_report(journal, plan, result, native_result):
               'restored_checkpoint': result.get('restored_checkpoint'),
               'attempts': [{k: a[k] for k in ('attempt', 'phase', 'status', 'journal',
                             'decision', 'policy_evaluations', 'validation_error', 'optimization_rejected',
-                            'performance_trial', 'checkpoint_restored', 'verification_pending',
+                            'performance_trial', 'checkpoint_restored', 'verification_pending', 'initialization_only',
                             'verification_reason', 'verification_full_steps', 'provisional_checkpoint_discarded') if k in a}
                            for a in result['attempts']],
               'last_native_result': {'status': (native_result or {}).get('status'),
@@ -380,6 +380,7 @@ def run_auto_plan(plan, emit=None, *, stop_requested=None):
                     result.update(status='stopped', reason='Clean stop requested; no further automatic attempts')
                     break
                 step = pending.steps[step_index] if pending else None
+                initializing_only = bool(step and step.initialization_only)
                 phase = step.name if step else base_phase
                 remaining = options['max_iterations']-result['iterations_used']
                 minimum = sum(s.iterations for s in pending.steps[step_index:]) if pending else (2 if base_phase == 'verify' else 1)
@@ -395,11 +396,13 @@ def run_auto_plan(plan, emit=None, *, stop_requested=None):
                 with model_mutation_guard(model, RunnerError):
                     check_inputs()
                     step_options = step.native_options if step else {}
-                    if set(step_options) - {'hydro_recovery_probe', 'hydro_seed_probe', 'lte_initialization', 't_exc', 'pop_initialization', 'population_recovery_probe'}:
+                    if set(step_options) - {'hydro_recovery_probe', 'hydro_seed_probe', 'lte_initialization', 't_exc', 'pop_initialization', 'population_recovery_probe', 'opacity_lte_seed', 'lte_structure_seed'}:
                         raise RunnerError('Recovery step requested unsupported native options')
                     kwargs = {key: plan.get(key) for key in ('threads', 'memory_mib', 'no_core_dumps')}
-                    native = build_run_plan(model, stage='main', cmfgen_root=Path(options['cmfgen_root']),
-                        atomic_root=Path(options['atomic_root']), iterations=batch,
+                    native = build_run_plan(model, stage='test' if initializing_only else 'main', cmfgen_root=Path(options['cmfgen_root']),
+                        atomic_root=Path(options['atomic_root']), iterations=None if initializing_only else batch,
+                        opacity_lte_seed=bool(step_options.get('opacity_lte_seed')),
+                        lte_structure_seed=bool(step_options.get('lte_structure_seed')),
                         fresh_start=bool(initializing and plan.get('fresh_start')),
                         lte_initialization=bool(step_options.get('lte_initialization',
                             initializing and (plan.get('initialization') or {}).get('method') == 'LTE')),
@@ -443,7 +446,8 @@ def run_auto_plan(plan, emit=None, *, stop_requested=None):
                     if pending:
                         mkdir_readable(working_root, exist_ok=True)
                         working = _capture(model, working_root, working)
-                event('auto_attempt', attempt=attempt, phase=phase, requested_iterations=batch)
+                event('auto_attempt', attempt=attempt, phase=phase, requested_iterations=batch,
+                      **({'initialization_only': True} if initializing_only else {}))
                 _json(journal/f'attempt-{attempt:03d}-plan.json', native)
                 result['iterations_used'] += batch
                 _json(journal/'result.json', result)
@@ -473,6 +477,8 @@ def run_auto_plan(plan, emit=None, *, stop_requested=None):
                 entry = {'attempt': attempt, 'phase': phase, 'requested_iterations': batch,
                          'charged_iterations': batch, 'status': native_result['status'],
                          'journal': native_result['journal']}
+                if initializing_only:
+                    entry['initialization_only'] = True
                 result['attempts'].append(entry)
                 _json(journal/'result.json', result)
                 with model_mutation_guard(model, RunnerError):
@@ -491,7 +497,8 @@ def run_auto_plan(plan, emit=None, *, stop_requested=None):
                         entry['checkpoint_restored'] = True
                         result.update(status='stopped', reason='Clean stop during provisional recovery; conservative checkpoint restored')
                         break  # Finally rolls back the entire unfinished recipe.
-                    failure = native_result if native_result['status'] not in {'succeeded', 'stopped'} else None
+                    failure = native_result if native_result['status'] not in (
+                        {'succeeded', 'stopped', 'tested'} if initializing_only else {'succeeded', 'stopped'}) else None
                     evidence = {}
                     verification_waiting = False
 
@@ -506,8 +513,12 @@ def run_auto_plan(plan, emit=None, *, stop_requested=None):
                             observed = native_result['passes'][-1].get('startup_observed', {})
                             if native['restart']['mode'] == 'continuation' and observed.get('mode') != 'continuation':
                                 raise RunnerError('Native continuation was not confirmed')
-                            evidence = assess(model, native_result, before, solution_offset, batch,
-                                              hydro_revisions=revisions(text))
+                            if initializing_only:
+                                from .auto_diagnostics import assess_initialization
+                                evidence = assess_initialization(model, native_result, before)
+                            else:
+                                evidence = assess(model, native_result, before, solution_offset, batch,
+                                                  hydro_revisions=revisions(text))
                             if (adopted.get('VADAT') or {}).get('xray_normalization'):
                                 evidence.update(candidate=False, fresh_verified=False, population_cycle=None, source_changed=True)
                                 history = []  # Raw requests across different X-ray sources are not a trend.
@@ -613,6 +624,13 @@ def run_auto_plan(plan, emit=None, *, stop_requested=None):
                             pending = None
                             base_phase = 'iterate'
                             history = []  # Do not mix correction trends across a recovery.
+                    if initializing_only:
+                        history = []  # An initialized checkpoint is not a solved batch.
+                        _json(journal/'result.json', result)
+                        event('auto_initialized', attempt=attempt, phase=phase,
+                              checkpoint=evidence['checkpoint'],
+                              reason='Initialized a positive, charge-conserving checkpoint; no radiation iterations performed')
+                        continue
                     if evidence['hydro_revisions']:
                         history = []  # Mixed pre/post-hydro vectors are not a trend baseline.
                         event('auto_history_reset', attempt=attempt, hydro_revisions=evidence['hydro_revisions'],

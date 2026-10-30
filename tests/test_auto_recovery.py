@@ -336,3 +336,31 @@ def test_incomplete_or_pending_hydro_is_not_a_fixed_structure(tmp_path,controls)
     (tmp_path/'VADAT').write_text('T [DO_HYDRO]\n')
     (tmp_path/'HYDRO_DEFAULTS').write_text(controls)
     assert not structure_fixed(tmp_path)
+
+
+@pytest.mark.parametrize('start,freq',[(2,10),(5,20)])
+def test_explicit_complete_zero_revision_schedule_is_fixed(tmp_path,start,freq):
+    from cmfgen_viewer.auto_hydro import structure_fixed
+    (tmp_path/'VADAT').write_text('T [DO_HYDRO]\n')
+    (tmp_path/'HYDRO_DEFAULTS').write_text(f'0 [N_ITS]\n0 [ITS_DONE]\n{start} [STRT_ITS]\n{freq} [FREQ_ITS]\n')
+    assert structure_fixed(tmp_path)
+
+
+@pytest.mark.parametrize('start,freq',[(0,10),(2,0),(2.5,10),(2,1.5)])
+def test_invalid_zero_revision_schedule_is_not_fixed(tmp_path,start,freq):
+    from cmfgen_viewer.auto_hydro import structure_fixed
+    (tmp_path/'VADAT').write_text('T [DO_HYDRO]\n')
+    (tmp_path/'HYDRO_DEFAULTS').write_text(f'0 [N_ITS]\n0 [ITS_DONE]\n{start} [STRT_ITS]\n{freq} [FREQ_ITS]\n')
+    assert not structure_fixed(tmp_path)
+
+
+def test_population_recovery_allows_complete_unperformed_zero_schedule(population_workspace):
+    model,make=population_workspace
+    (model/'VADAT').write_text((model/'VADAT').read_text()+'T [DO_HYDRO]\n')
+    (model/'HYDRO_DEFAULTS').write_text('0 [N_ITS]\n0 [ITS_DONE]\n2 [STRT_ITS]\n10 [FREQ_ITS]\n')
+    result=run_plan(make('population'))
+    assert result['status']=='succeeded',result
+    assert any(a['policy_id']=='population_bootstrap' for a in result['actions'])
+    assert control_value(model,'VADAT','DO_HYDRO')=='T'
+    assert control_value(model,'HYDRO_DEFAULTS','N_ITS')=='0'
+    assert control_value(model,'HYDRO_DEFAULTS','ITS_DONE')=='0'

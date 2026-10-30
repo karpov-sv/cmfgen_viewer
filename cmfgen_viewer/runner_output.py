@@ -384,7 +384,11 @@ class TerminalOutput:
         kind = item["event"]
         stage = item.get("stage", "")
         if kind.startswith('auto_'):
-            if kind == 'auto_attempt':
+            if kind == 'auto_initialized':
+                self.line('INFO', item['reason'])
+            elif kind == 'auto_attempt' and item.get('initialization_only'):
+                self.line('RUN', f"Automatic attempt {item['attempt']}: {item['phase']}, initialize populations only")
+            elif kind == 'auto_attempt':
                 self.line('RUN', f"Automatic attempt {item['attempt']}: {item['phase']}, up to {item['requested_iterations']} iterations")
             elif kind == 'auto_action':
                 self.line('INFO', f"Automatic adjustment: {item['action']['kind']} — {item['action']['reason']}")

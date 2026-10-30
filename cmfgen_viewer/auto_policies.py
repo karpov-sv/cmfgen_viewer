@@ -29,6 +29,7 @@ class RecoveryStep:
     validate: Callable
     native_options: dict = field(default_factory=dict)
     repeat_on_native_fallback: bool = False
+    initialization_only: bool = False
 
 
 @dataclass(frozen=True)
@@ -57,7 +58,8 @@ class Decision:
                 'reversible_trial': self.reversible_trial,
                 'steps': [{'name': s.name, 'iterations': s.iterations,
                            'native_options': s.native_options,
-                           **({'repeat_on_native_fallback': True} if s.repeat_on_native_fallback else {})}
+                           **({'repeat_on_native_fallback': True} if s.repeat_on_native_fallback else {}),
+                           **({'initialization_only': True} if s.initialization_only else {})}
                           for s in self.steps]}
 
 
@@ -458,28 +460,31 @@ def pending_verification_check(ctx):
 from .auto_recovery import (temperature_coupling, population_bootstrap, population_guard,
                             ray_refinement, ng_cadence)
 from .auto_performance import ba_reuse_trial, relaxation_release
+from .opacity_recovery import source_opacity_recovery, opacity_lte_seed
 from .auto_convergence_remedies import population_relaxation, stalled_transfer_refinement
 
 POLICIES = (
     Policy('nonfinite_radiation_cache', 1, 'prepare', 'Preserve nonfinite EDDFACTOR and recompute radiation before execution', _nonfinite_cache, 1),
     Policy('invalid_numerical_state', 1, 'failure', 'Reject nonfinite model states and invalid selected checkpoints', _invalid_state),
+    Policy('source_opacity', 1, 'failure', 'Replace a diagnosed nonpositive source opacity floor with the native scattering limiter', source_opacity_recovery, 1),
     Policy('pop_initialization', 1, 'failure', 'Compatible saved-model population interpolation and verified continuation', _pop, 1),
     Policy('lte_initialization', 2, 'failure', 'Confirmed fresh-start population failure: temporary LTE and verified continuation', _lte, 1),
+    Policy('opacity_lte_seed', 1, 'failure', 'Audited LTE seed, population bootstrap and full verification after negative fresh POP radiation', opacity_lte_seed, 1),
     Policy('startup_hydro', 1, 'failure', 'Rearm an unperformed startup hydro revision after a positive POP luminosity deficit', _startup_hydro, 1),
     Policy('hydro_bootstrap', 1, 'failure', 'Scheduled hydro recovery with guard restoration and follow-up', _hydro, 1),
     Policy('radiation_cache', 1, 'failure', 'Explicit EDDFACTOR mismatch recovery', _cache, 1),
-    Policy('population_guard', 2, 'failure', 'Physically audited provisional checkpoint after explicit MAX_CHNG stop', population_guard, 1),
-    Policy('ray_refinement', 3, 'failure', 'Negative-luminosity coarse-ray recovery with guarded verification', ray_refinement, 1),
+    Policy('population_guard', 3, 'failure', 'Physically audited provisional checkpoint after explicit MAX_CHNG stop', population_guard, 1),
+    Policy('ray_refinement', 4, 'failure', 'Negative-luminosity coarse-ray recovery with guarded verification', ray_refinement, 1),
     Policy('verified_convergence', 3, 'success', 'Independent fresh-Jacobian acceptance with a stable source and restoration of starting BA reuse', _verified),
     Policy('verify_candidate', 2, 'success', 'Fresh-Jacobian verification of a numerical candidate', _candidate),
     Policy('superlevel_temperature', 2, 'success', 'Superlevel temperature coupling before oscillation damping', temperature_coupling, 1),
-    Policy('population_bootstrap', 4, 'success', 'Bounded fixed-T Lambda population recovery and full verification', population_bootstrap, 1),
+    Policy('population_bootstrap', 5, 'success', 'Bounded fixed-T Lambda population recovery and full verification', population_bootstrap, 1),
     Policy('ng_cadence', 1, 'success', 'Contiguous batches permitting the first native Ng acceleration', ng_cadence, 1),
-    Policy('population_relaxation', 1, 'success', 'Guarded half-relaxation for measured small population cycles', population_relaxation, 1),
+    Policy('population_relaxation', 2, 'success', 'Guarded half-relaxation for measured small population cycles', population_relaxation, 1),
     Policy('local_relaxation', 2, 'success', 'Measured localized temperature oscillation damping', _oscillation, 2),
     Policy('relaxation_release', 1, 'success', 'Gradually release automatic damping through guarded trials', relaxation_release, 3),
     Policy('ba_reuse_trial', 2, 'success', 'Guarded one-iteration BA reuse after sustained healthy progress', ba_reuse_trial, 1),
-    Policy('stalled_transfer_refinement', 1, 'success', 'Guarded formal and moment refinement for a small fresh-matrix stall', stalled_transfer_refinement, 1),
+    Policy('stalled_transfer_refinement', 2, 'success', 'Guarded formal and moment refinement for a small fresh-matrix stall', stalled_transfer_refinement, 1),
     Policy('stalled_corrections', 2, 'success', 'Fresh-matrix test for a stalled correction sequence', _stall, 1),
     Policy('fixed_temperature', 1, 'success', 'Detect absence of temperature-varying full steps', _fixed),
 )
@@ -522,7 +527,10 @@ def choose(ctx):
                 (decision.batch_iterations is not None and
                  (decision.kind != 'action' or type(decision.batch_iterations) is not int or
                   not 2 <= decision.batch_iterations <= 20)) or
-                any(type(s.iterations) is not int or s.iterations < 1 or not callable(s.validate) or
+                any(type(s.iterations) is not int or
+                    (s.iterations != 0 if s.initialization_only else s.iterations < 1) or
+                    type(s.initialization_only) is not bool or not callable(s.validate) or
+                    (s.initialization_only and (s.repeat_on_native_fallback or decision.reversible_trial)) or
                     type(s.repeat_on_native_fallback) is not bool or
                     (s.repeat_on_native_fallback and (decision.reversible_trial or s.iterations < 2))
                     for s in decision.steps)):

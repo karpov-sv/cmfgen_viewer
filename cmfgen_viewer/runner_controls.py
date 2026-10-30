@@ -106,3 +106,38 @@ class TemporaryControl:
         if restored != current:
             self.writer(self.path, restored, self.path.stat().st_mode)
         return conflicts
+
+
+class TemporaryInput:
+    """Install exact reviewed input bytes and preserve edits on restoration."""
+
+    def __init__(self, path, writer):
+        self.path = path
+        self.writer = writer
+        if path.is_symlink() or (path.exists() and (not path.is_file() or path.stat().st_nlink != 1)):
+            raise RunnerError(f'Refusing unsafe temporary input: {path}')
+        self.original = path.read_bytes() if path.exists() else None
+        self.info = path.stat() if self.original is not None else None
+        self.effective = None
+
+    def install(self, data):
+        if self.path.is_symlink() or (self.path.exists() and self.path.stat().st_nlink != 1):
+            raise RunnerError(f'Temporary input changed before installation: {self.path}')
+        current = self.path.read_bytes() if self.path.exists() else None
+        if current != self.original:
+            raise RunnerError(f'Temporary input edited before installation: {self.path}')
+        self.effective = data  # Also restore after a writer fails following replacement.
+        self.writer(self.path, data, self.info.st_mode if self.info else 0o644)
+
+    def restore(self):
+        if self.effective is None:
+            return []
+        if (self.path.is_symlink() or not self.path.is_file() or self.path.stat().st_nlink != 1
+                or self.path.read_bytes() != self.effective):
+            return [f'{self.path.name}: preserving external edit to temporary LTE structure input']
+        if self.original is None:
+            self.path.unlink()
+        else:
+            self.writer(self.path, self.original, self.info.st_mode)
+            os.utime(self.path, ns=(self.info.st_atime_ns, self.info.st_mtime_ns))
+        return []

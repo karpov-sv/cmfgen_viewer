@@ -17,10 +17,10 @@ import uuid
 from .workflow_permissions import copy_readable, make_readable, mkdir_readable, open_readable, readable_mode
 from .recovery_files import compact_recovery, copy_recovery, retire_recovery, retention_action
 from .model_activity import model_mutation_guard, model_run_reservation
-from .model_initialization import lte_initialization_controls
+from .model_initialization import lte_initialization_controls, opacity_lte_seed_controls
 from .pop_initialization import pop_initialization_controls, pop_source_evidence
 from .control_files import control_occurrences
-from .runner_controls import TemporaryControl
+from .runner_controls import TemporaryControl, TemporaryInput
 from .native_diagnostics import analyze_main_diagnostics
 from .native_crash import macos_crash_evidence
 from .parsers.common import parse_float_token
@@ -510,6 +510,30 @@ def run_plan(plan: dict, emit=None, *, diagnose_main=True, stop_requested=None) 
                 if plan["initialization"]["method"] == "POP":
                     pop_source_evidence(model, plan)
                     changes = pop_initialization_controls(controls[path].original.decode())
+                elif plan["initialization"].get("opacity_seed"):
+                    structure_seed = plan['initialization'].get('structure_seed')
+                    changes = opacity_lte_seed_controls(controls[path].original.decode(), plan["initialization"]["t_exc"], structure=bool(structure_seed))
+                    if structure_seed:
+                        from .lte_structure_seed import lte_structure_source
+                        current = lte_structure_source(model)
+                        if current != structure_seed:
+                            raise RunnerError('LTE structure seed changed since review')
+                        target = cwd/'FIN_CAL_GRID'
+                        controls[target] = TemporaryInput(target, _write_control)
+                        import hashlib
+                        data = Path(structure_seed['source']['path']).read_bytes()
+                        if hashlib.sha256(data).hexdigest() != structure_seed['source']['sha256']:
+                            raise RunnerError('LTE structure input changed while being read')
+                        controls[target].install(data)
+                        effective = journal/'effective'
+                        mkdir_readable(effective, exist_ok=True)
+                        copy_readable(target, effective/'FIN_CAL_GRID')
+                        origin = effective/'lte-source'
+                        mkdir_readable(origin, exist_ok=True)
+                        for item in structure_seed['dependencies']:
+                            dependency = Path(item['path'])
+                            if dependency.parent == model/'lte':
+                                copy_readable(dependency, origin/dependency.name)
                 else:
                     lte_initialization_controls(controls[path].original.decode(), plan["initialization"]["t_exc"])
                     changes = {"DC_METH": "LTE", "T_EXC": f"{plan['initialization']['t_exc']:.12g}"}

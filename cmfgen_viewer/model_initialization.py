@@ -25,3 +25,31 @@ def lte_initialization_controls(contents: str, t_exc: float = 1.0) -> str:
                 lines[-1] += "\n"
             lines.append(f"{value:<13} [{key}]\n")
     return "".join(lines)
+
+
+def opacity_lte_seed_controls(contents: str, t_exc: float = 1.0, *, structure=False) -> dict:
+    """A diagnosed fresh POP seed may use LTE on the same temperature grid.
+
+    This is an internal zero-iteration recovery mode, not permission for the
+    ordinary LTE flag to override interpolation or to reseed a continuation.
+    The caller restores the whole original VADAT using TemporaryControl.
+    """
+    from .runner_controls import _patch
+    rows = control_occurrences(contents)
+    for key in ('DC_METH', 'LIN_INT', 'IT_ON_T', 'T_EXC', 'LTE_EST', 'T_ON_R', 'SN_MODEL',
+                'REVISE_R_GRID', 'FLUX_CAL_ONLY', 'USE_FIXED_J'):
+        if len(rows.get(key, [])) > 1:
+            raise ValueError(f'Duplicate [{key}]; opacity seed recovery refused')
+    value = lambda key, default='': rows[key][0]['value'].upper().strip('.') if rows.get(key) else default
+    if value('DC_METH') != 'POP' or value('LIN_INT') not in {'T', 'TRUE'}:
+        raise ValueError('Opacity LTE seed requires an explicit interpolated POP fresh-start model')
+    for key in ('SN_MODEL', 'REVISE_R_GRID', 'FLUX_CAL_ONLY', 'USE_FIXED_J'):
+        if value(key, 'F') not in {'F', 'FALSE'}:
+            raise ValueError(f'Opacity LTE seed is not validated with [{key}] enabled')
+    if not structure and value('T_ON_R', 'T') not in {'T', 'TRUE'}:
+        raise ValueError('Opacity LTE seed is validated only with the ordinary radius temperature interpolation')
+    changes = {'LIN_INT': 'F', 'IT_ON_T': 'F', 'DC_METH': 'LTE', 'T_EXC': f'{t_exc:.12g}'}
+    lte_initialization_controls(_patch(contents, {'LIN_INT': 'F', 'IT_ON_T': 'F'}), t_exc)
+    if structure:
+        changes['LTE_EST'] = 'T'
+    return changes

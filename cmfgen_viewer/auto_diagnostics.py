@@ -3,6 +3,7 @@
 Decisions use raw corrections, never small applied steps alone. No binary
 checkpoint layout or atomic-model semantics are assumed here.
 """
+from pathlib import Path
 from array import array
 from collections import deque
 import math
@@ -378,3 +379,37 @@ def convergence_status(evidence, *, historical=False):
         detail += ' Based on timestamp-screened saved outputs; the original invocation and independent verification phase are unconfirmed.'
     detail += ' Physical-quality warnings are assessed separately.'
     return {'status': status, 'label': label, 'detail': detail}
+
+
+def assess_initialization(model, result, before):
+    """A zero-iteration native test establishes a seed, never numerical progress."""
+    from .checkpoint_physics import checkpoint_physics
+    from .runner import _tail
+    if (result.get('stage') != 'test' or result.get('status') != 'tested' or
+            (result.get('initialization') or {}).get('method') != 'LTE' or
+            not (result.get('initialization') or {}).get('opacity_seed')):
+        raise RunnerError('Unconfirmed zero-iteration LTE opacity seed')
+    text = latest_main_log(_tail(model/'OUTGEN', 32*1024**2))
+    observed = (result.get('passes') or [{}])[-1].get('startup_observed', {})
+    if (observed.get('mode') != 'fresh' or 'LTE assumed for departure coefficients.' not in text or
+            'LTE charge consistency:' not in text):
+        raise RunnerError('Initialization-only recovery did not confirm native LTE population initialization')
+    if _parse_iteration_records(text):
+        raise RunnerError('Initialization-only recovery unexpectedly performed radiation iterations')
+    if snapshot(model/'RVTJ') == before.get('RVTJ'):
+        raise RunnerError('Initialization-only recovery did not refresh its atmosphere')
+    validate_rvtj_core(model/'RVTJ', model/'MODEL_SPEC', finite_all=True)
+    restart = inspect_restart(model)
+    if restart['errors'] or restart['mode'] != 'continuation' or restart['pointer']['iterations'] != 1:
+        raise RunnerError('Initialization-only recovery lacks its initial checkpoint')
+    physics = checkpoint_physics(model)
+    source = result['initialization'].get('structure_seed')
+    if source:
+        if any(snapshot(Path(p['path'])) != p for p in [source['source'], *source['dependencies']]):
+            raise RunnerError('LTE structure source changed during initialization; review the seed')
+        if any(abs(a/b-1)>1e-12 for a,b in zip(physics['temperature'],source['temperatures'])) or len(physics['temperature'])!=source['depths']:
+            raise RunnerError('Native initialization did not preserve the reviewed LTE/hydro temperatures')
+    return {'initialized_only': True, 'records': [], 'iterations': 0, 'full_iterations': 0,
+            'candidate': False, 'fresh_verified': False, 'checkpoint': 1,
+            'hydro_revisions': [], 'ng_accelerations': [],
+            'charge_relative_error': physics['charge_relative_error']}
