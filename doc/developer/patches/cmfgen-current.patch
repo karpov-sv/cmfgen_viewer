@@ -400,7 +400,7 @@ diff --git a/new_main/mod_subs/Makefile b/new_main/mod_subs/Makefile
                $(LIB_MOD)(line_mod.o) $(LIB_MOD)(line_vec_mod.o) $(LIB_MOD)(mod_cmfgen.o) $(LIB_MOD)(ang_qw_mod.o)
  	$(F90) -c $(OPTION) set_new_model_estimates.f
  	ar $(AR_OPTION) $(LIB) set_new_model_estimates.o
-@@ -193,3 +198,14 @@
+@@ -193,3 +198,18 @@
  
  clean :
  	rm -f *.o 
@@ -415,6 +415,10 @@ diff --git a/new_main/mod_subs/Makefile b/new_main/mod_subs/Makefile
 +
 +$(LIB)(mom_j_ddt_v6.o) : ../../plane/mom_j_ddt_v6.f
 +	$(MAKE) -C ../../plane '$(LIB)(mom_j_ddt_v6.o)'
++
++# Forward the variation-module dependency to its owning directory.
++$(LIB)(mod_var_mom_j_cmf.o) : ../../plane/mod_var_mom_j_cmf.f
++	$(MAKE) -C ../../plane '$(LIB)(mod_var_mom_j_cmf.o)'
 diff --git a/new_main/mod_subs/comp_grey_v4.f b/new_main/mod_subs/comp_grey_v4.f
 --- a/new_main/mod_subs/comp_grey_v4.f
 +++ b/new_main/mod_subs/comp_grey_v4.f

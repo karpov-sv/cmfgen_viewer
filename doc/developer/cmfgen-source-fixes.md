@@ -1,6 +1,6 @@
 # CMFGEN local source fixes — consolidated record
 
-Updated **29 October 2026**, after pulling viewer commit `f921985`. The
+Updated **30 October 2026**. The
 consolidated patch contains numerical fix groups **1–28**, performance changes
 **29–30**, and the optional fixed-state output feature **31**, based on CMFGEN
 website release **version 18jun25**. Groups 26–31 come from the Bstar3010
@@ -13,12 +13,33 @@ upgrades fixes 1–24 to 1–25; the convergence-repair patch upgrades the previ
 1–25 snapshot, followed optionally by the fixed-state-output patch. Do not apply
 incremental patches on top of the current consolidated patch.
 
+The 30 October build correction adds the missing forwarding rule for
+`libsubs.a(mod_var_mom_j_cmf.o)` in `new_main/mod_subs/Makefile`. The top-level
+serial build reaches `DO_VAR_CONT` before `plane/`; a clean build needs this
+rule to create the imported variation module. Existing archives could hide the
+omission during incremental builds. This correction changes no scientific code.
+For a checkout already carrying the previous consolidated patch, append this
+rule to `new_main/mod_subs/Makefile`, then rebuild serially:
+
+```make
+# Forward the variation-module dependency to its owning directory.
+$(LIB)(mod_var_mom_j_cmf.o) : ../../plane/mod_var_mom_j_cmf.f
+	$(MAKE) -C ../../plane '$(LIB)(mod_var_mom_j_cmf.o)'
+```
+
+Fresh releases need only the current consolidated patch, which includes it.
+
 The Linux atmosphere and spectrum executables were rebuilt serially and linked
 atomically. The atmosphere executable SHA-256 is
-`26927c9e1c97f1a555189eb221f070050efac52866ba28482119da4027861c89`.
-Build records are `cmfgen-local-build.json` and
-`cmfgen-convergence-repairs-build.json` in `~/CMFGEN2023/cur_cmf.25/`.
-The rollback snapshot is `.cmfgen-backups/20261029-convergence-repairs-132609/`.
+`06667b95f225c9ef978d4d3d5ca629605a0120583443b96cd0ee5073395ae3a1`.
+The current build record is `~/CMFGEN2023/cur_cmf.25/cmfgen-local-build.json`.
+The 30 October rollback snapshot and validation logs are
+`.cmfgen-backups/20261030T115750Z-clean-build-dependency/` in that checkout.
+A clean serial build in an isolated source copy and the local serial build both
+completed, producing all 80 executables. The convergence-repair regressions passed
+at `O0` and `O2`; the core suite passed at `O2` with five threads and atomic data.
+The consolidated patch applied and reversed with all 45 non-machine-specific
+file hashes checked. The two machine-specific patch sections remain unchanged.
 The previously older local LTE initializer is now aligned with the already
 captured charge-consistency fix 12; all installed scientific source hashes match
 the consolidated manifest. Earlier Linux/macOS builds remain historical evidence.

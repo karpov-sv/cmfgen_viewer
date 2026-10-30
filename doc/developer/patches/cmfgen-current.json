@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
-  "captured_at_utc": "2026-10-29T13:25:46.084845+00:00",
+  "captured_at_utc": "2026-10-30T11:53:35.646319+00:00",
   "source_checkout": "~/CMFGEN2023/cur_cmf/",
   "baseline_release": "18jun25",
   "baseline_description": "CMFGEN website release as of 18 Jun 2025; extracted release contents, including documentation changes absent from the archive's Git tree",
   "patch_file": "cmfgen-current.patch",
-  "patch_sha256": "61f30ed5b2818d24b5152b898c035b92ccad91afaff02679d628a027162db25a",
+  "patch_sha256": "6c332deaf22c23c0115392c63a428b5e939afa2680b0ba0ed8de0a7f10317626",
   "files": [
     {
       "path": "Makefile_definitions",
@@ -28,7 +28,7 @@
     {
       "path": "new_main/mod_subs/Makefile",
       "status": "modified",
-      "sha256": "afc5f6d590af284c86dc36809c3495b3bbc8c87f81b83f69593a8153233599ea",
+      "sha256": "b200efa22bf879a492ca8c2341c795918d90513124c32221249bd0f71e937ac0",
       "baseline_sha256": "9d0509b63c624bf8a60885ec890b4b6a1ff70195abf900b88f8569c0f7abab0f"
     },
     {
@@ -773,6 +773,180 @@
         "com/aliases_for_cmfgen.sh",
         "new_main/mod_subs/init_population_estimates.f90"
       ]
+    },
+    {
+      "schema_version": 1,
+      "recorded_at_utc": "2026-10-29T13:49:14.100992+00:00",
+      "source_checkout": "/home/karpov/CMFGEN2023/cur_cmf.25",
+      "source_patch_sha256": "61f30ed5b2818d24b5152b898c035b92ccad91afaff02679d628a027162db25a",
+      "capabilities": [
+        "line-jacobian-v1",
+        "ba-restart-v1",
+        "lte-charge-v1",
+        "grey-intensity-guard-v1",
+        "ng-temperature-v1",
+        "moment-grid-jacobian-v1",
+        "moment-grid-family-v1",
+        "moment-limits-v1",
+        "monotone-range-v1",
+        "collision-temperature-v1",
+        "xray-normalization-v1",
+        "fixed-state-output-v1"
+      ],
+      "sources": {
+        "new_main/cmfgen_sub.f": "13e67a7e0735e632155f613bac8ce7b03775d44a4117173d53bf0be65f685aa9",
+        "new_main/mod_subs/comp_grey_v4.f": "154a9d5212c4c9ccddd084f2a01245f3e8f549d06c5928d39b8ad1e1577b80b2",
+        "new_main/mod_subs/do_var_cont.f": "16607f1c6da1ca67c067bc300c21766b88c36e60d39267c5b883a5fdaa94919a",
+        "new_main/mod_subs/init_line_opac_var_v2.f": "a8d66d4073e4deec309448822c5020afaa090653ccc0bb5520a1b70a9e0f5203",
+        "new_main/mod_subs/init_population_estimates.f90": "cf7cea0b4972cf775d69155781934e82eceb0227b625273f091a49608f9095b0",
+        "new_main/mod_subs/mod_lev_dis_blk.f": "7a804e51d6b0d5349a7c9b71a818306c66415f72f9ae7e98ce57a4f5668dc1dd",
+        "new_main/mod_subs/rd_control_variables.f": "70671200c08a15f3274c0762cae3a380bc05c63e0c63b1d5ca8612fcfcce2618",
+        "new_main/mod_subs/set_new_model_estimates.f": "57daa1c7936ea81d1f562d93a54c82e961da00c6d170c810509311fb3a775c77",
+        "new_main/mod_subs/var_rad_mod.f": "7acc04a04deba1a3541c69219571cc72fb8fe3b62772a3ea0ae1f0cc8e2af0c4",
+        "new_main/subs/auto_add_ion.f": "060bfc141825830439d5f44334b089f200b90f978d4d90d05538395602f9a132",
+        "new_main/subs/det_lte_ed.f": "db5c0780a776c4f8eb9855ba8f327d3e8bc5850fd2d124d7f99f007c31d9ff09",
+        "new_main/subs/do_ng_accel_band_v4.f": "046f7e99fe8fd9d6c7d283f7485793b4484249c2e3323828189a6013aed7200f",
+        "new_main/subs/evalse_qwvj_v8.f": "5ebea335a3a8e43433db45a66efc20e380d31423a4b33ac40f88a671b0c64cb4",
+        "new_main/subs/read_ba_data_v3.f": "ef502e02eea15e858c9c53574e9517dd8ac8d0a876bc2e060d1802d7dea2832d",
+        "new_main/subs/solveba_v13.f": "011f812dbef2c1f87851a53854db3c2d5e125e5ef7fa899277ee7d6d4d7547e5",
+        "new_main/subs/update_ba_for_line.f": "5d25f41fe09a4e1ea791b66e6fd4454a2907d560fd45d0ce4da495f20f94bc9c",
+        "new_main/subs/vsebyj_multi_v8.f": "d83d6f81eeb253739035c37399d58b7a5b94e094703bd885e978f10164a13daf",
+        "new_main/subs/vsebyj_x_v7.f": "0a07f509252ac9f3d70eb50fabeb6548a85983f28ace64f6fe747fd9a19d6408",
+        "newsubs/omega_gen_v3.f": "b0673823415316da261e97150b3461a30d20f4cc3d50e8c1e51d35841929ea4e",
+        "newsubs/rdphot_gen_v2.f": "21432fa96aa28a40b3fd876a6697c02725110375418fdd320562f5924e3a259e",
+        "newsubs/subcol_multi_v6.f": "c6709e314eb09911d6a4cad83e424c40d705ddefb1265adaaceeb9c624aa07bd",
+        "obs/cmf_flux_sub_v5.f": "4a1d33f3feabc864c8bbfead16aaecb8e31db78adeb1e498b6d541817f3d19ed",
+        "opac/par_opac_sub.f": "ecba7a6a0e4e2b3b7de6038285a9d993d168bab824efb55d3ebb542ad6536063",
+        "plane/edd_j_hub_var_v3.f": "43e4caa7875520ae2558999a88f44ed92c558568f0fa48c9c25bc24cb1e3584d",
+        "plane/get_jh_at_prev_time_step.f": "d8ca6cc79671afd92ebd80b149d1f272e2040c128a6b6d9fe61cea963c7a95d5",
+        "plane/get_moms_non_rel.f": "5562460455acfe464d41925496c554ac074fb0d6661028743875b233cf90f2e4",
+        "plane/get_moms_rel.f": "9b54f9944585f11dfec3d2a2f79bbfe738bde87a6bd693cc3f08a2122bf9987a",
+        "plane/mod_var_jrel_v2.f": "122c80e7e6dc150c541c7dcc870e103d24e9e2971d84c969ad915108a0279483",
+        "plane/mod_var_mom_j_cmf.f": "f2b4e12c5a0b45d3431972b4cc9462c758b47c063e1fbed4a19d4e80b031445f",
+        "plane/mom_j_cmf_v11.f": "812a24533bff2f9408357fd24abea5d4d728f6e6363cbf130a4ab100edd43449",
+        "plane/mom_j_ddt_v6.f": "662cefa49abc16dd50725ccd63bcecec8c1e9cdc62386cce67b733f4b6bf98d1",
+        "plane/mom_jrel_v9.f": "6c015e5477720e454e61c2ded7925ffb7f803fba6610dbe60e3cf7adeeb5498f",
+        "plane/var_jrel_v5.f": "76bdedbb7cb5bd142e0a180b795bbc262f97efa5404e875de214bd6c123c46b4",
+        "plane/var_mom_j_cmf_v12.f": "ff54a209c4a0a6d3cf6a43824d07bb0b7500f9d2f99e4b21422ab89f3f2fb481",
+        "plane/var_mom_j_ddt_v6.f": "cdbff2381a0ced8a0e9581e1a78303273fa0a7b6eb912f4166b1fccfa9bb3f93",
+        "plane/var_mom_jext_cmf_v3.f": "fedfc58845feb0e353f2f8276e5eb9c1f7ad6ba2458662be6ed5eab8654168fd",
+        "stark/get_prof_storage_limits.f": "8f251f11a7e00e0c0b438dfeca60a16bafed219775a1bfb5e1b7ef359795355c",
+        "stark/get_prof_storage_limits_v2.f": "4cf0b642b80aab77bde55f4bf4ee3d762d5d92e2102fdd710af76d85aa554eac",
+        "subs/edd_j_var_v6.f": "a985e609cace5d130dbc971c424c234e44aa36ad8bba1f892169adafed200532",
+        "subs/mon_interp.f": "9c6dda6a9b2fe0a8eca89bbc2bf712cb17e575bed787f727cac2fca76ce61e25",
+        "subs/regrid_t_ed_v3.f": "b0a60352a8d846fa4638ba136dacfc157956bd2f9a33d7c78f8723780d2428a0",
+        "subs/up_tx_tvx.f": "d56165b057edae66b80ce5dbd48f44a04a2dee2ff2da0e26ef4f6788242386bd",
+        "subs/up_tx_tvx_v2.f": "b7de17be80057e5afb713b345d89e485daa74b948b925ad66428f3b69f83b48a"
+      },
+      "executables": {
+        "cmfgen_dev.exe": {
+          "sha256": "26927c9e1c97f1a555189eb221f070050efac52866ba28482119da4027861c89",
+          "size": 3517440
+        },
+        "cmf_flux.exe": {
+          "sha256": "c0db059b97f4d7ddb449eb9c28a83724e6df3136651b5a37b45393e972c4cbad",
+          "size": 1479008
+        },
+        "obs_frame.exe": {
+          "sha256": "a2e89491a6cc5ac88ccbd5097043153189273087de54dfea950cf1f2cead77f3",
+          "size": 171584
+        }
+      },
+      "meaning": "Verified source snapshot and rebuild ordering; not a model-convergence certificate.",
+      "build_evidence": "/home/karpov/cmfgen_viewer/tmp/cmfgen-investigation-integration",
+      "final_link_commands": [
+        {
+          "cwd": "/home/karpov/CMFGEN2023/cur_cmf.25/new_main",
+          "command": [
+            "gfortran",
+            "-fopenmp",
+            "-O",
+            "-finit-local-zero",
+            "cmfgen.o",
+            "cmfgen_sub.o",
+            "-L/home/karpov/CMFGEN2023/cur_cmf.25/lib/",
+            "-lsubs",
+            "-lpgplt",
+            "-lmod",
+            "-llapack",
+            "-lblas",
+            "-L/usr/lib",
+            "-o",
+            "/home/karpov/CMFGEN2023/cur_cmf.25/exe/.cmfgen-link-xszd9tqb/cmfgen_dev.exe"
+          ],
+          "installed_as": "/home/karpov/CMFGEN2023/cur_cmf.25/exe/cmfgen_dev.exe",
+          "installation": "atomic replacement"
+        },
+        {
+          "cwd": "/home/karpov/CMFGEN2023/cur_cmf.25/obs",
+          "command": [
+            "gfortran",
+            "-fopenmp",
+            "-O",
+            "-finit-local-zero",
+            "cmf_flux_v5.o",
+            "cmf_flux_sub_v5.o",
+            "mod_cmf_obs.o",
+            "mod_freq_obs.o",
+            "cmf_flux_cntrl_var_mod.o",
+            "rd_cmf_flux_controls.o",
+            "check_cmf_flux_param_consis.o",
+            "rd_model_file.o",
+            "revise_obs_p.o",
+            "ins_line_v5.o",
+            "obs_frame_sub_v9.o",
+            "ins_line_obs_v4.o",
+            "rd_cont_j_obs.o",
+            "set_forbid_zero.o",
+            "form_ew.o",
+            "comp_ew_abs_ew.o",
+            "griem_stark_mod.o",
+            "-L/home/karpov/CMFGEN2023/cur_cmf.25/lib/",
+            "-lsubs",
+            "-lpgplt",
+            "-ldisp",
+            "-lmod",
+            "-L/usr/lib",
+            "-o",
+            "/home/karpov/CMFGEN2023/cur_cmf.25/exe/.cmfgen-link-ljgpo3vs/cmf_flux.exe"
+          ],
+          "installed_as": "/home/karpov/CMFGEN2023/cur_cmf.25/exe/cmf_flux.exe",
+          "installation": "atomic replacement"
+        },
+        {
+          "cwd": "/home/karpov/CMFGEN2023/cur_cmf.25/obs",
+          "command": [
+            "gfortran",
+            "-fopenmp",
+            "-O",
+            "-finit-local-zero",
+            "obs_frame_v2.o",
+            "obs_frame_sub_v9.o",
+            "-L/home/karpov/CMFGEN2023/cur_cmf.25/lib/",
+            "-ldisp",
+            "-lsubs",
+            "-L/usr/lib",
+            "-o",
+            "/home/karpov/CMFGEN2023/cur_cmf.25/exe/.cmfgen-link-944z0zc1/obs_frame.exe"
+          ],
+          "installed_as": "/home/karpov/CMFGEN2023/cur_cmf.25/exe/obs_frame.exe",
+          "installation": "atomic replacement"
+        }
+      ],
+      "validation": {
+        "native_output": "output-smoke-validation.json",
+        "default_and_guard": "default-and-guard.json",
+        "scope_guard": "output-scope-guard.json",
+        "viewer_full_suite": "1785 passed, 2 skipped, 6 failed and 11 setup errors; the 17 problems reproduced unchanged on upstream f921985",
+        "final_targeted_policy_tests": "81 passed",
+        "native_convergence_repairs": "O0 and O2 passed",
+        "core_native_suite": "O2 / 3 threads passed",
+        "moment_limits": "3480 native calls passed",
+        "native_output_tested_executable_sha256": "d358911cccd907dcd708bc422f3cddfa0f456aaca87f5ff99d7bf4b674069c00",
+        "output_test_version_note": "The full output run preceded final scope guards, X-ray logging and the existing LTE initializer alignment. None changes the admitted ordinary saved-checkpoint output path; final binary default/guard tests and source/kernel checks passed."
+      },
+      "covers_full_scientific_source_snapshot": true,
+      "covers_platform_settings": false
     }
   ],
   "performance_groups": [
@@ -806,9 +980,9 @@
   },
   "installed_build": {
     "schema_version": 1,
-    "recorded_at_utc": "2026-10-29T13:49:14.100992+00:00",
-    "source_checkout": "/home/karpov/CMFGEN2023/cur_cmf.25",
-    "source_patch_sha256": "61f30ed5b2818d24b5152b898c035b92ccad91afaff02679d628a027162db25a",
+    "recorded_at_utc": "2026-10-30T12:00:57.964796+00:00",
+    "source_checkout": "/home/maryeva/CMFGEN2023/cur_cmf.25",
+    "source_patch_sha256": "6c332deaf22c23c0115392c63a428b5e939afa2680b0ba0ed8de0a7f10317626",
     "capabilities": [
       "line-jacobian-v1",
       "ba-restart-v1",
@@ -870,23 +1044,102 @@
     },
     "executables": {
       "cmfgen_dev.exe": {
-        "sha256": "26927c9e1c97f1a555189eb221f070050efac52866ba28482119da4027861c89",
-        "size": 3517440
+        "sha256": "06667b95f225c9ef978d4d3d5ca629605a0120583443b96cd0ee5073395ae3a1",
+        "size": 3545976
       },
       "cmf_flux.exe": {
-        "sha256": "c0db059b97f4d7ddb449eb9c28a83724e6df3136651b5a37b45393e972c4cbad",
-        "size": 1479008
+        "sha256": "8d87aace5fd5dfbabd510d8c3d140addaedbfc25edbf79ede02f7b9431c285fe",
+        "size": 1483072
       },
       "obs_frame.exe": {
-        "sha256": "a2e89491a6cc5ac88ccbd5097043153189273087de54dfea950cf1f2cead77f3",
+        "sha256": "dc5061cfff9a0d4c42da955cbf50b4f236a0caed0fcab4e9e08883b820b0c379",
         "size": 171584
       }
     },
     "meaning": "Verified source snapshot and rebuild ordering; not a model-convergence certificate.",
-    "build_evidence": "/home/karpov/cmfgen_viewer/tmp/cmfgen-investigation-integration",
+    "build_evidence": {
+      "directory": "/home/maryeva/CMFGEN2023/cur_cmf.25/.cmfgen-backups/20261030T115750Z-clean-build-dependency",
+      "clean_build_dependency_fix": {
+        "date": "2026-10-30",
+        "file": "new_main/mod_subs/Makefile",
+        "description": "Forward mod_var_mom_j_cmf.o to plane/ when DO_VAR_CONT is built before plane in a clean serial build."
+      },
+      "clean_serial_build_passed": true,
+      "patch_roundtrip": {
+        "passed": true,
+        "files_checked": 45,
+        "baseline_hashes_match": true,
+        "patched_hashes_match": true,
+        "reversal_hashes_match": true,
+        "excluded_machine_configuration": [
+          "Makefile_definitions",
+          "com/aliases_for_cmfgen.sh"
+        ],
+        "patch_sha256": "6c332deaf22c23c0115392c63a428b5e939afa2680b0ba0ed8de0a7f10317626"
+      },
+      "native_regressions": [
+        {
+          "name": "convergence-O0",
+          "command": [
+            "venv/bin/python",
+            "/home/maryeva/cmfgen_viewer/doc/developer/cmfgen-review-tests/check_convergence_repairs.py",
+            "/tmp/cmfgen-build-failure-20261030/clean-source",
+            "--optimization",
+            "O0",
+            "--build",
+            "/tmp/cmfgen-build-failure-20261030/regression-convergence-O0"
+          ],
+          "returncode": 0,
+          "log": "/tmp/cmfgen-build-failure-20261030/convergence-O0.log"
+        },
+        {
+          "name": "convergence-O2",
+          "command": [
+            "venv/bin/python",
+            "/home/maryeva/cmfgen_viewer/doc/developer/cmfgen-review-tests/check_convergence_repairs.py",
+            "/tmp/cmfgen-build-failure-20261030/clean-source",
+            "--optimization",
+            "O2",
+            "--build",
+            "/tmp/cmfgen-build-failure-20261030/regression-convergence-O2"
+          ],
+          "returncode": 0,
+          "log": "/tmp/cmfgen-build-failure-20261030/convergence-O2.log"
+        },
+        {
+          "name": "core-O2",
+          "command": [
+            "venv/bin/python",
+            "/home/maryeva/cmfgen_viewer/doc/developer/cmfgen-review-tests/run_review.py",
+            "/tmp/cmfgen-build-failure-20261030/clean-source",
+            "--optimization",
+            "O2",
+            "--threads",
+            "5",
+            "--atomic-data",
+            "/home/maryeva/CMFGEN2023/atomic"
+          ],
+          "returncode": 0,
+          "log": "/tmp/cmfgen-build-failure-20261030/core-O2.log"
+        }
+      ],
+      "build_command": [
+        "make",
+        "-j1",
+        "-C",
+        "/home/maryeva/CMFGEN2023/cur_cmf.25",
+        "INSTALL_DIR=/home/maryeva/CMFGEN2023/cur_cmf.25/",
+        "EXE_DIR=/tmp/cmfgen-build-failure-20261030/local-executables/"
+      ],
+      "local_settings_preserved": {
+        "Makefile_definitions": "b2b227abce6f115254f0dd53f0ddea58ac71730756965d5e9754464d266b8208",
+        "com/aliases_for_cmfgen.sh": "529802fdb36f5dfea2875651480ef532ce20836ff78f99ef608ce25fe2f1133f"
+      },
+      "scientific_scope": "Build and native source regressions only; no model calculations launched"
+    },
     "final_link_commands": [
       {
-        "cwd": "/home/karpov/CMFGEN2023/cur_cmf.25/new_main",
+        "cwd": "/home/maryeva/CMFGEN2023/cur_cmf.25/new_main",
         "command": [
           "gfortran",
           "-fopenmp",
@@ -894,7 +1147,7 @@
           "-finit-local-zero",
           "cmfgen.o",
           "cmfgen_sub.o",
-          "-L/home/karpov/CMFGEN2023/cur_cmf.25/lib/",
+          "-L/home/maryeva/CMFGEN2023/cur_cmf.25/lib/",
           "-lsubs",
           "-lpgplt",
           "-lmod",
@@ -902,13 +1155,13 @@
           "-lblas",
           "-L/usr/lib",
           "-o",
-          "/home/karpov/CMFGEN2023/cur_cmf.25/exe/.cmfgen-link-xszd9tqb/cmfgen_dev.exe"
+          "/home/maryeva/CMFGEN2023/cur_cmf.25/exe/.cmfgen-link-soku7418/cmfgen_dev.exe"
         ],
-        "installed_as": "/home/karpov/CMFGEN2023/cur_cmf.25/exe/cmfgen_dev.exe",
+        "installed_as": "/home/maryeva/CMFGEN2023/cur_cmf.25/exe/cmfgen_dev.exe",
         "installation": "atomic replacement"
       },
       {
-        "cwd": "/home/karpov/CMFGEN2023/cur_cmf.25/obs",
+        "cwd": "/home/maryeva/CMFGEN2023/cur_cmf.25/obs",
         "command": [
           "gfortran",
           "-fopenmp",
@@ -931,20 +1184,20 @@
           "form_ew.o",
           "comp_ew_abs_ew.o",
           "griem_stark_mod.o",
-          "-L/home/karpov/CMFGEN2023/cur_cmf.25/lib/",
+          "-L/home/maryeva/CMFGEN2023/cur_cmf.25/lib/",
           "-lsubs",
           "-lpgplt",
           "-ldisp",
           "-lmod",
           "-L/usr/lib",
           "-o",
-          "/home/karpov/CMFGEN2023/cur_cmf.25/exe/.cmfgen-link-ljgpo3vs/cmf_flux.exe"
+          "/home/maryeva/CMFGEN2023/cur_cmf.25/exe/.cmfgen-link-qif7di9g/cmf_flux.exe"
         ],
-        "installed_as": "/home/karpov/CMFGEN2023/cur_cmf.25/exe/cmf_flux.exe",
+        "installed_as": "/home/maryeva/CMFGEN2023/cur_cmf.25/exe/cmf_flux.exe",
         "installation": "atomic replacement"
       },
       {
-        "cwd": "/home/karpov/CMFGEN2023/cur_cmf.25/obs",
+        "cwd": "/home/maryeva/CMFGEN2023/cur_cmf.25/obs",
         "command": [
           "gfortran",
           "-fopenmp",
@@ -952,30 +1205,66 @@
           "-finit-local-zero",
           "obs_frame_v2.o",
           "obs_frame_sub_v9.o",
-          "-L/home/karpov/CMFGEN2023/cur_cmf.25/lib/",
+          "-L/home/maryeva/CMFGEN2023/cur_cmf.25/lib/",
           "-ldisp",
           "-lsubs",
           "-L/usr/lib",
           "-o",
-          "/home/karpov/CMFGEN2023/cur_cmf.25/exe/.cmfgen-link-944z0zc1/obs_frame.exe"
+          "/home/maryeva/CMFGEN2023/cur_cmf.25/exe/.cmfgen-link-tppn5c65/obs_frame.exe"
         ],
-        "installed_as": "/home/karpov/CMFGEN2023/cur_cmf.25/exe/obs_frame.exe",
+        "installed_as": "/home/maryeva/CMFGEN2023/cur_cmf.25/exe/obs_frame.exe",
         "installation": "atomic replacement"
       }
-    ],
-    "validation": {
-      "native_output": "output-smoke-validation.json",
-      "default_and_guard": "default-and-guard.json",
-      "scope_guard": "output-scope-guard.json",
-      "viewer_full_suite": "1785 passed, 2 skipped, 6 failed and 11 setup errors; the 17 problems reproduced unchanged on upstream f921985",
-      "final_targeted_policy_tests": "81 passed",
-      "native_convergence_repairs": "O0 and O2 passed",
-      "core_native_suite": "O2 / 3 threads passed",
-      "moment_limits": "3480 native calls passed",
-      "native_output_tested_executable_sha256": "d358911cccd907dcd708bc422f3cddfa0f456aaca87f5ff99d7bf4b674069c00",
-      "output_test_version_note": "The full output run preceded final scope guards, X-ray logging and the existing LTE initializer alignment. None changes the admitted ordinary saved-checkpoint output path; final binary default/guard tests and source/kernel checks passed."
+    ]
+  },
+  "clean_build_dependency_fix": {
+    "date": "2026-10-30",
+    "file": "new_main/mod_subs/Makefile",
+    "description": "Forward mod_var_mom_j_cmf.o to plane/ when DO_VAR_CONT is built before plane in a clean serial build.",
+    "patch_roundtrip": {
+      "passed": true,
+      "files_checked": 45,
+      "baseline_hashes_match": true,
+      "patched_hashes_match": true,
+      "reversal_hashes_match": true,
+      "excluded_machine_configuration": [
+        "Makefile_definitions",
+        "com/aliases_for_cmfgen.sh"
+      ],
+      "patch_sha256": "6c332deaf22c23c0115392c63a428b5e939afa2680b0ba0ed8de0a7f10317626"
     },
-    "covers_full_scientific_source_snapshot": true,
-    "covers_platform_settings": false
+    "isolated_clean_serial_build": {
+      "passed": true,
+      "executables": 80,
+      "log": "/tmp/cmfgen-build-failure-20261030/fixed-clean-build.log"
+    },
+    "local_build": {
+      "root": "/home/maryeva/CMFGEN2023/cur_cmf.25",
+      "backup": "/home/maryeva/CMFGEN2023/cur_cmf.25/.cmfgen-backups/20261030T115750Z-clean-build-dependency",
+      "executable_count": 80,
+      "build_seconds": 187.4,
+      "executables": {
+        "cmfgen_dev.exe": {
+          "sha256": "06667b95f225c9ef978d4d3d5ca629605a0120583443b96cd0ee5073395ae3a1",
+          "size": 3545976
+        },
+        "cmf_flux.exe": {
+          "sha256": "8d87aace5fd5dfbabd510d8c3d140addaedbfc25edbf79ede02f7b9431c285fe",
+          "size": 1483072
+        },
+        "obs_frame.exe": {
+          "sha256": "dc5061cfff9a0d4c42da955cbf50b4f236a0caed0fcab4e9e08883b820b0c379",
+          "size": 171584
+        }
+      },
+      "manifest": "/home/maryeva/CMFGEN2023/cur_cmf.25/cmfgen-local-build.json",
+      "settings_unchanged": true,
+      "authenticated": true
+    },
+    "native_regressions_passed": [
+      "convergence-O0",
+      "convergence-O2",
+      "core-O2"
+    ]
   }
 }
