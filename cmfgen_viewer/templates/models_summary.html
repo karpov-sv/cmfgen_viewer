@@ -140,12 +140,17 @@
         {% endif %}
       </div>
 
+      {% include "_model_spectrum_comparison.html" %}
+
       <div class="table-responsive table-view-wrap mb-3">
         <table class="table table-sm table-striped" id="summary-table">
           <thead>
             <tr>
               {% for column in columns %}
                 <th>
+                  {% if loop.index0 == 0 %}
+                    <input type="checkbox" class="form-check-input me-2" id="comparison-select-visible" aria-label="Select visible models for spectrum comparison" title="Select visible models for spectrum comparison">
+                  {% endif %}
                   <button
                     type="button"
                     class="table-sort"
@@ -171,6 +176,7 @@
                 {% for value in row["values"] %}
                   <td>
                     {% if loop.index0 == 0 %}
+                      <input type="checkbox" class="form-check-input me-2 comparison-model" value="{{ row['path'] }}" aria-label="Compare spectrum: {{ row['path'] or 'ROOT' }}">
                       <a href="{{ url_for('viewer.view', path=row['path']) }}">{{ value }}</a>
                     {% else %}
                       {{ value }}
@@ -183,6 +189,9 @@
         </table>
       </div>
       <script src="{{ url_for('static', filename='summary_table.js') }}"></script>
+      {% for script in ['spectrum_controls.js', 'spectrum_sampling.js', 'spectral_lines.js', 'model_spectrum_comparison.js'] %}
+        <script src="{{ url_for('static', filename=script) }}"></script>
+      {% endfor %}
     {% else %}
       <p class="text-muted">
         {% if is_global_summary %}

@@ -48,6 +48,37 @@ from .view_common import (
 )
 
 
+@bp.route("/models/spectrum-data")
+def model_comparison_spectrum():
+    """Load one selected model lazily, using the ordinary spectrum view's data."""
+    config = _viewer_config()
+    try:
+        model_dir = resolve_path(str(config.get("basepath", ".")), request.args.get("model", ""))
+    except FileNotFoundError:
+        return jsonify(error="Model folder not found."), 404
+    if not model_dir.is_dir():
+        return jsonify(error="Not a model folder."), 404
+    mode = request.args.get("mode", "normalized")
+    if mode not in {"normalized", "both"}:
+        return jsonify(error="Unknown spectrum mode."), 400
+    try:
+        files = discover_final_spectrum_files(model_dir)
+        if files is None:
+            return jsonify(error="Missing obs/obs_cont or obs/obs_fin*; compute spectra first."), 404
+        final_path = files["fin_files"][0]
+        lambda_min, lambda_max = _spectrum_lambda_bounds(config)
+        continuum = load_obs_spectrum(Path(files["obs_cont"]), lambda_min=lambda_min, lambda_max=lambda_max)
+        final = load_obs_spectrum(final_path, lambda_min=lambda_min, lambda_max=lambda_max)
+        plot = build_both_plot(continuum, final) if mode == "both" else build_normalized_plot(continuum, final)
+    except (OSError, ValueError) as exc:
+        return jsonify(error=f"Could not read spectrum: {exc}"), 422
+    if plot is None:
+        return jsonify(error="Insufficient spectrum points in the configured wavelength range."), 422
+    response = jsonify(plot=plot, fin=final_path.name)
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 @bp.route("/spectrum-upload/<path:path>", methods=["POST"])
 def spectrum_upload(path: str):
     config = _viewer_config()

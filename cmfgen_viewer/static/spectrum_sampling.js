@@ -178,6 +178,15 @@
       initialData: sources.map(function (trace) { return displayed(trace, true); }),
       getSources: getSources,
       render: render,
+      setTraces: function (traces, layout, config) {
+        // Dynamic comparison pages change trace counts. Serialize replacement
+        // with viewport redraws so an older redraw cannot restore removed data.
+        renderPromise = renderPromise.then(function () {
+          sources = traces.map(function (trace) { return Object.assign({}, trace); });
+          return Plotly.react(target, sources.map(function (trace) { return displayed(trace, false); }), layout, config);
+        }).then(function () { report(target.data); });
+        return renderPromise;
+      },
       setSeries: function (x, y) {
         sources = sources.map(function (trace, index) { return Object.assign({}, trace, { x: x[index], y: y[index] }); });
         return render();

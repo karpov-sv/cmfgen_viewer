@@ -178,6 +178,23 @@ async function main() {
   zoom.handlers.change();
   assert.deepEqual(target._fullLayout.xaxis.range, [4000,7000]);
   assert.deepEqual(controller.getSources()[0].y, fixture.y);
+  // Dynamic model selection replaces complete native sources, preserves the
+  // viewport, and serializes replacement behind any pending sampling redraw.
+  global.Plotly.react = async (plot, data, layout) => { plot.data = data; plot.layout = layout; };
+  const replacement = {mode: 'lines', x, y, name: 'replacement'};
+  const pendingRender = controller.render();
+  await controller.setTraces([replacement, fixture], target.layout, {});
+  await pendingRender;
+  assert.equal(target.data.length, 2);
+  assert.equal(controller.getSources()[0].x.length, 40001);
+  assert.equal(controller.getSources()[1].x.length, fixture.x.length);
+  assert(target.data[0].x.length < x.length);
+  await controller.setTraces([], target.layout, {});
+  assert.equal(target.data.length, 0);
+  assert.equal(controller.getSources().length, 0);
+  await controller.setTraces([fixture], target.layout, {});
+  assert.equal(target.data.length, 1);
+  assert.deepEqual(controller.getSources()[0].y, fixture.y);
   console.log('Native spectrum sampling, aligned uncertainties, transforms, zoom/reset, visibility, and overlays passed.');
 }
 

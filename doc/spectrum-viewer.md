@@ -8,6 +8,30 @@ On a model's final spectrum page, choose an available `obs_fin` spectrum and a s
 
 Use the wavelength and flux scale selectors to switch between linear and logarithmic axes. Logarithmic axes require positive values. Drag to zoom, use **Zoom to** for a preset or reference line, and double-click the plot to reset the view. Use the plot legend to show or hide curves.
 
+## Compare models on the Models page
+
+Use the checkbox beside each model name on **Models** (or a bulk summary page)
+to overlay its spectrum in **Compare Model Spectra** above the table. Spectra
+load only when selected. The checkbox in the MODEL header selects or deselects
+the currently visible rows; **Clear selection** removes all curves, including
+models hidden by a scatter-plot filter. Filtering or sorting the table does not
+otherwise change the comparison selection.
+
+Choose **Normalized (F/Fc)** for line profiles or **Spectrum + continuum** for
+absolute flux at the native 1 kpc reference distance. Each model uses its first
+available `obs_fin*` file in the same numeric order as the bulk spectrum viewer,
+with its own `obs/obs_cont`. Model colors remain stable while selecting curves;
+the continuum uses a dotted line in the same color. Legend labels include the
+model path so models with identical folder names remain distinguishable.
+Missing or unusable spectra are listed without hiding the other selected models.
+Use **Reload spectra** after a calculation produces new output.
+
+The inline comparison shares wavelength zoom, axis scales, spectral line markers,
+and adaptive display sampling with the other spectrum viewers. The wavelength
+window is retained when adding or removing models; the vertical scale refits to
+the selected curves. Use the individual or bulk spectrum page for
+transformations and observed-data overlays.
+
 ## Model transformations
 
 Expand **Model transformations** to adjust redshift or radial velocity, velocity dispersion, E(B-V), and distance. Redshift and radial velocity represent the same shift and stay synchronized. **Reset transformations** restores the defaults. Transformations apply to the model curves; check the wavelength convention and units of uploaded observations when comparing them.

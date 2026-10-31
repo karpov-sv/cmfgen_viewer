@@ -1,0 +1,31 @@
+{% set plot_id = "model-comparison-plot" %}
+{% set x_scale_id = plot_id ~ "-xscale" %}
+{% set y_scale_id = plot_id ~ "-yscale" %}
+<div class="plot-wrap spectrum-panel mb-3" id="model-spectrum-comparison" data-spectrum-url="{{ url_for('viewer.model_comparison_spectrum') }}">
+  <div class="plot-title">Compare Model Spectra</div>
+  <div class="spectrum-toolbar">
+    <div class="spectrum-field">
+      <label for="comparison-mode" class="plot-control-label">Spectrum</label>
+      <select id="comparison-mode" class="form-select form-select-sm">
+        <option value="normalized">Normalized (F/Fc)</option>
+        <option value="both">Spectrum + continuum</option>
+      </select>
+    </div>
+    {% with default_x_scale='log', default_y_scale='linear' %}
+      {% include "_spectrum_view_toolbar.html" %}
+    {% endwith %}
+    <button type="button" class="btn btn-sm btn-outline-secondary" id="comparison-clear" disabled>Clear selection</button>
+    <button type="button" class="btn btn-sm btn-outline-secondary" id="comparison-refresh" disabled>Reload spectra</button>
+  </div>
+  <p id="comparison-status" class="small text-muted mb-2" role="status">Select models using the checkboxes in the table below.</p>
+  <ul id="comparison-errors" class="small text-danger mb-2" hidden></ul>
+  <details class="spectrum-settings">
+    <summary>Comparison help</summary>
+    <p class="small text-muted mt-2 mb-0">Each model uses its first available obs_fin* with obs/obs_cont. Absolute flux is shown at the 1 kpc reference distance. Click legend entries to hide curves. Scatter-plot filters change the table; checked models remain in the spectrum comparison until unchecked or cleared.</p>
+  </details>
+  {% include "_spectrum_view_controls.html" %}
+  <div id="comparison-canvas" hidden>
+    {% include "_spectrum_plot_canvas.html" %}
+  </div>
+  <noscript><p class="small text-muted">Enable JavaScript to compare model spectra.</p></noscript>
+</div>

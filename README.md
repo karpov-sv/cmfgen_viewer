@@ -311,6 +311,9 @@ and exit codes. Execution checks do not establish scientific convergence.
     peaks/troughs and restore native detail on zoom or pan, with a full-resolution option,
   - physical preview transforms and broadening applied before display reduction,
   - single-model `/spectrum/<path>` and bulk-spectrum `/bulk/spectra/<path>` views,
+  - inline spectrum comparison on **Models** and bulk summaries: check model rows
+    to overlay normalized or absolute spectra with shared zoom and line controls
+    ([comparison guide](doc/spectrum-viewer.md#compare-models-on-the-models-page)),
   - Plotly interactivity with log/linear toggles, redshift/velocity, distance scaling, reddening `E(B-V)`, and resizable plot container,
   - observed overlay support with flux-mode compatibility checks,
   - bulk visibility toggles for final vs continuum traces (without removing traces).
