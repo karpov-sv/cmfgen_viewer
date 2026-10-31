@@ -4,8 +4,10 @@
 This records build provenance, not scientific convergence. Run the source
 regressions and rebuild new_main/obs before invoking it. The normal recursive
 build can update shared libraries after linking the atmosphere executable;
-that ordering is finalized automatically. Modified scientific sources and
-executables older than the scientific sources are still refused.
+that ordering is finalized automatically. Scientific sources and captured
+Makefiles must match the manifest before any final links. Executables older
+than the scientific sources are still refused. Site-specific
+Makefile_definitions and aliases remain local.
 """
 import argparse
 from datetime import datetime, timezone
@@ -68,6 +70,11 @@ def checked_sources(root, manifest):
     for item in scientific:
         if sha(root/item['path']) != item['sha256']:
             raise ValueError('Source differs from validated patch: '+item['path'])
+    build_files = [f for f in manifest['files'] if Path(f['path']).name == 'Makefile']
+    for item in build_files:
+        path = root/item['path']
+        if not path.is_file() or sha(path) != item['sha256']:
+            raise ValueError('Build file differs from validated patch: '+item['path'])
     return scientific
 
 
@@ -108,7 +115,10 @@ def record(root, manifest, *, commands=()):
                             'monotone-range-v1','collision-temperature-v1',
                             'xray-normalization-v1','fixed-state-output-v1',
                             'source-opacity-floor-diagnostic-v1'],
-            'sources':{f['path']:f['sha256'] for f in scientific}, 'executables':executables,
+            'sources':{f['path']:f['sha256'] for f in scientific},
+            'build_files':{f['path']:f['sha256'] for f in manifest['files']
+                           if Path(f['path']).name == 'Makefile'},
+            'executables':executables,
             'meaning':'Verified source snapshot and rebuild ordering; not a model-convergence certificate.'}
     target = root/'cmfgen-local-build.json'
     if target.exists():

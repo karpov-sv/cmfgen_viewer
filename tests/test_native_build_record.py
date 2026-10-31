@@ -130,3 +130,69 @@ def test_no_relink_mode_refuses_stale_links(tmp_path, monkeypatch):
     with pytest.raises(ValueError, match='predates source/libraries'):
         helper['finalize'](root, manifest, link_mode='never')
     assert not (root/'cmfgen-local-build.json').exists()
+
+
+@pytest.fixture
+def captured_build(tmp_path):
+    root = tmp_path/'cmfgen'
+    files = {'new_main/model.f': b'validated scientific source',
+             'new_main/mod_subs/Makefile': b'validated forwarding rule',
+             'Makefile_definitions': b'captured foreign platform options',
+             'com/aliases_for_cmfgen.sh': b'captured foreign aliases'}
+    manifest = {'patch_sha256': 'validated patch digest', 'files': []}
+    for name, contents in files.items():
+        path = root/name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(contents)
+        os.utime(path, ns=(1, 1))
+        manifest['files'].append({'path': name, 'sha256': hashlib.sha256(contents).hexdigest()})
+    (root/'Makefile_definitions').write_bytes(b'local macOS compiler options')
+    (root/'com/aliases_for_cmfgen.sh').write_bytes(b'local directory aliases')
+    for name in ['lib/libsubs.a', 'lib/libmod.a', 'exe/cmfgen_dev.exe',
+                 'exe/cmf_flux.exe', 'exe/obs_frame.exe']:
+        path = root/name
+        path.parent.mkdir(exist_ok=True)
+        path.write_bytes(b'existing build product')
+        os.utime(path, ns=(2, 2))
+    return root, manifest
+
+
+@pytest.mark.parametrize('missing', [False, True])
+def test_record_refuses_missing_captured_build_fix(captured_build, missing):
+    helper = runpy.run_path(str(HELPER))
+    root, manifest = captured_build
+    path = root/'new_main/mod_subs/Makefile'
+    if missing:
+        path.unlink()
+    else:
+        path.write_bytes(b'old Makefile without forwarding rule')
+    with pytest.raises(ValueError, match='new_main/mod_subs/Makefile'):
+        helper['record'](root, manifest)
+    assert not (root/'cmfgen-local-build.json').exists()
+
+
+def test_record_captures_build_rules_and_preserves_local_platform_settings(captured_build):
+    helper = runpy.run_path(str(HELPER))
+    root, manifest = captured_build
+    result = helper['record'](root, manifest)
+    assert result['build_files'] == {'new_main/mod_subs/Makefile': manifest['files'][1]['sha256']}
+    assert result['sources'] == {'new_main/model.f': manifest['files'][0]['sha256']}
+    assert (root/'Makefile_definitions').read_bytes() == b'local macOS compiler options'
+    assert (root/'com/aliases_for_cmfgen.sh').read_bytes() == b'local directory aliases'
+
+
+@pytest.mark.parametrize('mode', ['auto', 'always'])
+def test_missing_build_fix_is_rejected_before_final_links(tmp_path, monkeypatch, mode):
+    helper = runpy.run_path(str(HELPER))
+    root, names, manifest = built_checkout(tmp_path, monkeypatch, newer_library=True)
+    path = root/'new_main/mod_subs/Makefile'
+    path.parent.mkdir(parents=True)
+    expected = b'validated forwarding rule'
+    manifest['files'].append({'path': 'new_main/mod_subs/Makefile',
+                              'sha256': hashlib.sha256(expected).hexdigest()})
+    path.write_bytes(b'old Makefile without forwarding rule')
+    monkeypatch.setattr(subprocess, 'check_output', lambda *a, **k: pytest.fail('Unexpected relink'))
+    with pytest.raises(ValueError, match='Build file differs'):
+        helper['finalize'](root, manifest, link_mode=mode)
+    assert not (root/'cmfgen-local-build.json').exists()
+    assert all((root/'exe'/name).read_bytes() == b'previous executable' for name in names)

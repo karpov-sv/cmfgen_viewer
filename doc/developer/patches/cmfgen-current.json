@@ -1378,7 +1378,11 @@
         "installed_as": "/Users/karpov/CMFGEN2023/cur_cmf/exe/obs_frame.exe",
         "installation": "atomic replacement"
       }
-    ]
+    ],
+    "build_files": {
+      "new_main/mod_subs/Makefile": "b200efa22bf879a492ca8c2341c795918d90513124c32221249bd0f71e937ac0",
+      "plane/Makefile": "d8a48239d0a3273f3ecdcfc8cfb14e9745ef072bea05af60623eea46941d58a0"
+    }
   },
   "clean_build_dependency_fix": {
     "date": "2026-10-30",
@@ -1428,7 +1432,28 @@
       "convergence-O0",
       "convergence-O2",
       "core-O2"
-    ]
+    ],
+    "macos_installation_sync": {
+      "backup": "/Users/karpov/CMFGEN2023/cur_cmf/.cmfgen-backups/20261030T233617Z-build-dependency-sync",
+      "commit": "9148732b804f18aafbc814eb5a5a7aaa81c483e6",
+      "file": "new_main/mod_subs/Makefile",
+      "before_sha256": "afc5f6d590af284c86dc36809c3495b3bbc8c87f81b83f69593a8153233599ea",
+      "after_sha256": "b200efa22bf879a492ca8c2341c795918d90513124c32221249bd0f71e937ac0",
+      "manifest_files_checked": 47,
+      "all_files_match": true,
+      "isolated_empty_archive_test": {
+        "before_exit": 2,
+        "after_exit": 0,
+        "archive_members": [
+          "__.SYMDEF SORTED",
+          "mod_var_mom_j_cmf.o"
+        ],
+        "patched_sha256": "b200efa22bf879a492ca8c2341c795918d90513124c32221249bd0f71e937ac0",
+        "isolated": "/private/tmp/cmfgen-build-forwarding-20261031"
+      },
+      "executables_and_local_settings_unchanged": true,
+      "scope": "Build dependency only; no scientific source, libraries or executable changes; no relink needed."
+    }
   },
   "source_opacity_guard": {
     "group": 32,

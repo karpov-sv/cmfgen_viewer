@@ -30,6 +30,22 @@ $(LIB)(mod_var_mom_j_cmf.o) : ../../plane/mod_var_mom_j_cmf.f
 
 Fresh releases need only the current consolidated patch, which includes it.
 
+The macOS checkout `~/CMFGEN2023/cur_cmf` was audited again on 31 October.
+The forwarding rule from commit `9148732` was still missing locally, although
+both consolidated patch versions contained it. It is now restored: all 47
+captured files match the manifest. The previous provenance recorder checked
+Fortran files only; it now also validates and records captured Makefiles before
+linking or recording a build, while leaving site-specific compiler settings and
+aliases local. Regression tests reject an absent or outdated build recipe.
+
+An isolated empty-archive test reproduced `No rule to make target` with the old
+Makefile and successfully compiled/archived `mod_var_mom_j_cmf.o` after the rule
+was added. This is a focused dependency test, not another full clean build.
+The local fix changed no scientific source, libraries or executables, so no
+rebuild or relink was needed. Binary and local-setting hashes are unchanged.
+Rollback files and the test record are under
+`~/CMFGEN2023/cur_cmf/.cmfgen-backups/20261030T233617Z-build-dependency-sync/`.
+
 The Linux atmosphere and spectrum executables were rebuilt serially and linked
 atomically. The atmosphere executable SHA-256 is
 `06667b95f225c9ef978d4d3d5ca629605a0120583443b96cd0ee5073395ae3a1`.
@@ -352,7 +368,7 @@ python3 ~/cmfgen_viewer/doc/developer/cmfgen-review-tests/record_local_build.py 
 After an ordinary serial build, the recorder automatically performs the final
 three links if shared libraries are newer than an executable. A newer library
 is expected when a later recursive target updates a shared archive; it does
-not require another full rebuild. Source hashes are checked first, and an
+not require another full rebuild. Scientific source and captured Makefile hashes are checked first, and an
 executable older than the patched scientific sources still requires rebuilding
 before recording. Use `--relink` to force the final links, or `--no-relink` to
 require an already current build without relinking.
