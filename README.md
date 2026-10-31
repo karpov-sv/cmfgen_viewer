@@ -302,6 +302,7 @@ and exit codes. Execution checks do not establish scientific convergence.
   - `POP*`, `*OUT` departure files, `NETRATE`/`TOTRATE`/`EWDATA`/`LINEHEAT`, `J_COMP`, `SOB_FORCE_MULT`, `GAMFLUX`, `GAMRAY_ENERGY_DEP`, `CFDAT_OUT`, `CONT_FREQ`, `OBS_FREQ`.
 - Final spectrum tools:
   - toggleable common spectral line markers (hydrogen, helium, metals), optional labels,
+    plus browser-saved custom wavelength/label lists with their own line group,
     air/vacuum conventions, and positions following model redshift; also available on
     uploaded spectra and parsed wavelength plots ([usage and sources](doc/spectrum-viewer.md)),
   - quick wavelength zoom presets for each reference line (±150 Å), the optical

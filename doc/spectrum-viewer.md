@@ -61,7 +61,7 @@ controls. Open **Line and display settings** to choose a line group, wavelength
 convention, labels, and sampling detail. Model transformations are in a separate
 expandable group on the model, bulk, and upload pages.
 
-Choose **All common lines**, **Hydrogen**, **Helium**, or **Metals**. Hydrogen includes
+Choose **All lines**, **Hydrogen**, **Helium**, **Metals**, or **Custom lines**. Hydrogen includes
 Lyman, Balmer, Paschen, and Brackett lines; helium includes common He I and He II
 diagnostics; metals include UV blends, Ca II, Na I D, and common nebular lines.
 This is a small reference list for visual inspection. Multiplets use representative
@@ -92,6 +92,36 @@ and line segments crossing its edges, with a small margin. They retain the selec
 linear/logarithmic scales. Empty windows keep the previous vertical range; log
 scales use positive flux values. After a jump,
 the menu returns to its prompt so you can select the same destination again.
+
+### Custom spectral lines
+
+Open **Line and display settings** and enter custom rest wavelengths in the
+textarea, one per line, followed by an optional label. Wavelengths are in Å;
+spaces, commas, or semicolons can separate the wavelength and label:
+
+```text
+# Optical diagnostics in air
+5006.84 [O III]
+6562.80, Hα
+6678.15 He I
+```
+
+Set **Input wavelengths** to **Air** for this example, or **Vacuum** for vacuum
+values. This specifies the convention of the entered numbers independently of
+the **Wavelengths** display selector. Below 2000 Å, values remain in vacuum.
+Blank lines and lines beginning with `#` are ignored. Labels are optional and
+display as plain text. Invalid rows are listed beneath the field and skipped;
+valid rows still appear. Edits apply immediately.
+
+Enable **Spectral lines**, then choose **Custom lines** to show only your lines,
+or **All lines** to include the built-in catalog. Custom lines also appear in
+the **Zoom to** menu, follow model redshift, and use the same wavelength
+conversion and label-spacing rules. Their labels take priority in crowded views.
+
+The list and its input convention are saved in this browser, when browser
+storage is available, and shared across viewers and tabs on the same server
+origin. Clear the textarea to remove the list. Custom lines affect reference
+markers only; model files, spectrum values, fitting, and exports are unchanged.
 
 ## Spectrum detail
 

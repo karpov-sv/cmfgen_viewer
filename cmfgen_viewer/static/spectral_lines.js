@@ -3,7 +3,32 @@
 (function () {
   "use strict";
   var markerName = "cmfgen-spectral-line";
-  var colors = { hydrogen: "#a34747", helium: "#7054a2", metals: "#537787" };
+  var colors = { hydrogen: "#a34747", helium: "#7054a2", metals: "#537787", custom: "#b06a18" };
+  var customStorageKey = "cmfgen-custom-spectral-lines-v1";
+
+  function escapePlotText(text) {
+    return String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+
+  function parseCustomLines(text, medium) {
+    var lines = [];
+    var invalidRows = [];
+    String(text).split(/\r?\n/).forEach(function (row, index) {
+      row = row.trim();
+      if (!row || row[0] === "#") return;
+      var match = row.match(/^([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eEdD][+-]?\d+)?)(?:[\s,;]+(.*))?$/);
+      var wavelength = match ? Number(match[1].replace(/[dD]/, "e")) : NaN;
+      var vacuum = medium === "air" ? airToVacuum(wavelength) : wavelength;
+      var air = vacuumToAir(vacuum);
+      if (!Number.isFinite(wavelength) || wavelength <= 0 || !Number.isFinite(vacuum) ||
+          vacuum <= 0 || !Number.isFinite(air) || air <= 0) {
+        invalidRows.push(index + 1);
+        return;
+      }
+      lines.push({ label: match[2] && match[2].trim() || wavelength + " Å", group: "custom", vacuum: vacuum, air: air });
+    });
+    return { lines: lines, invalidRows: invalidRows };
+  }
 
   // Ciddor (1996), as used by SDSS DR9+. Never extrapolate into the vacuum UV.
   function vacuumToAir(wavelength) {
@@ -20,7 +45,7 @@
 
   // [label, group, rest wavelength, native medium]. NIST supplies H/He;
   // SDSS supplies optical metal lines and representative UV blend positions.
-  var catalog = [
+  var commonCatalog = [
     ["Lyγ", "hydrogen", 972.5367, "vacuum"],
     ["Lyβ", "hydrogen", 1025.7222, "vacuum"],
     ["Lyα", "hydrogen", 1215.6682, "vacuum"],
@@ -88,6 +113,11 @@
     var medium = document.getElementById(target.id + "-lines-medium");
     var labels = document.getElementById(target.id + "-lines-labels");
     var zoom = document.getElementById(target.id + "-lines-zoom");
+    var customInput = document.getElementById(target.id + "-lines-custom");
+    var customMedium = document.getElementById(target.id + "-lines-custom-medium");
+    var customStatus = document.getElementById(target.id + "-lines-custom-status");
+    var catalog = commonCatalog.slice();
+    var customOptgroup = null;
     var zoomOptions = [];
     var coverageSnapshot = [];
     var coverage = null;
@@ -219,6 +249,66 @@
       });
       zoom.appendChild(optgroup);
     });
+
+    function updateCustomLines() {
+      if (!customInput || !customMedium) return;
+      var parsed = parseCustomLines(customInput.value, customMedium.value);
+      catalog = commonCatalog.concat(parsed.lines);
+      zoomOptions.length = commonCatalog.length;
+      if (customOptgroup) customOptgroup.remove();
+      customOptgroup = null;
+      if (parsed.lines.length) {
+        customOptgroup = document.createElement("optgroup");
+        customOptgroup.label = "Custom lines";
+        parsed.lines.forEach(function (line, index) {
+          var option = document.createElement("option");
+          var catalogIndex = commonCatalog.length + index;
+          option.value = "line-" + catalogIndex;
+          zoomOptions[catalogIndex] = option;
+          customOptgroup.appendChild(option);
+        });
+        zoom.appendChild(customOptgroup);
+      }
+      customInput.setAttribute("aria-invalid", String(parsed.invalidRows.length > 0));
+      if (customStatus) {
+        customStatus.textContent = parsed.lines.length + " custom line(s)." + (parsed.invalidRows.length
+          ? " Ignored invalid rows: " + parsed.invalidRows.join(", ") + ". Enter a positive wavelength in Å, then an optional label." : "");
+        customStatus.classList.toggle("text-danger", parsed.invalidRows.length > 0);
+        customStatus.classList.toggle("text-muted", parsed.invalidRows.length === 0);
+      }
+      schedule();
+    }
+
+    function useCustomSettings(settings) {
+      if (!customInput || !customMedium) return;
+      customInput.value = settings && typeof settings.text === "string" ? settings.text : "";
+      customMedium.value = settings && settings.medium === "air" ? "air" : "vacuum";
+      updateCustomLines();
+    }
+
+    if (customInput && customMedium) {
+      customInput.disabled = customMedium.disabled = false;
+      try { useCustomSettings(JSON.parse(window.localStorage.getItem(customStorageKey))); }
+      catch (error) { updateCustomLines(); } // Storage may be unavailable; editing still works.
+      function customChanged() {
+        updateCustomLines();
+        var settings = { text: customInput.value, medium: customMedium.value };
+        try { window.localStorage.setItem(customStorageKey, JSON.stringify(settings)); }
+        catch (error) { /* Keep the current plot usable without storage access. */ }
+        window.dispatchEvent(new CustomEvent("cmfgen-custom-lines-changed", { detail: settings }));
+      }
+      customInput.addEventListener("input", customChanged);
+      customMedium.addEventListener("change", customChanged);
+      // Keep multiple wavelength plots on one page, and other viewer tabs, in sync.
+      window.addEventListener("cmfgen-custom-lines-changed", function (event) {
+        if (customInput.value !== event.detail.text || customMedium.value !== event.detail.medium) useCustomSettings(event.detail);
+      });
+      window.addEventListener("storage", function (event) {
+        if (event.key !== customStorageKey && event.key !== null) return;
+        try { useCustomSettings(JSON.parse(window.localStorage.getItem(customStorageKey))); }
+        catch (error) { /* Ignore unavailable or malformed browser storage. */ }
+      });
+    }
     zoom.addEventListener("change", function () {
       var selection = zoom.value;
       // This is a jump menu: returning to the prompt lets the same preset be
@@ -269,9 +359,8 @@
           var pixel = (axisPosition - low) / (high - low) * axis._length;
           candidates.push({ line: line, rest: rest, wavelength: wavelength, x: axisPosition, pixel: pixel });
         });
-        // Keep every marker. Give hydrogen labels priority in crowded views,
-        // so a nearby metal or helium feature cannot obscure Hα or Hβ.
-        var priority = { hydrogen: 0, helium: 1, metals: 2 };
+        // Keep every marker. Prefer user labels, then hydrogen, in crowded views.
+        var priority = { custom: -1, hydrogen: 0, helium: 1, metals: 2 };
         var occupied = [];
         candidates.sort(function (a, b) { return priority[a.line.group] - priority[b.line.group]; });
         candidates.forEach(function (candidate) {
@@ -282,10 +371,10 @@
           occupied.push(pixel);
           nextAnnotations.push({
             name: markerName, xref: "x", yref: "paper", x: candidate.x, y: 0.98,
-            text: line.label, textangle: -90, showarrow: false,
+            text: escapePlotText(line.label), textangle: -90, showarrow: false,
             xanchor: "center", yanchor: "top", font: { size: 10, color: colors[line.group] },
             bgcolor: "rgba(255,255,255,0.75)", borderpad: 1,
-            hovertext: line.label + "<br>Rest: " + candidate.rest.toFixed(2) + " Å (" +
+            hovertext: escapePlotText(line.label) + "<br>Rest: " + candidate.rest.toFixed(2) + " Å (" +
               (medium.value === "air" && line.vacuum >= 2000 ? "air" : "vacuum") +
               ")<br>Shifted: " + candidate.wavelength.toFixed(2) + " Å"
           });
@@ -314,5 +403,5 @@
     schedule();
   }
 
-  window.CmfgenSpectralLines = { bind: bind };
+  window.CmfgenSpectralLines = { bind: bind, parseCustomLines: parseCustomLines };
 })();

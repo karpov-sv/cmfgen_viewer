@@ -158,6 +158,9 @@ def test_spectral_pages_render_native_payloads_and_valid_inline_scripts(tmp_path
         assert "spectrum_sampling.js" in html
         assert "spectrum_controls.js" in html
         assert "Line and display settings" in html
+        assert "Custom spectral lines" in html
+        assert '<option value="custom">Custom lines</option>' in html
+        assert 'aria-describedby=' in html
         assert "Full resolution in displayed region" in html
         plot_ids = [
             value for value in re.findall(r'\bid="([^"]+)"', html)
