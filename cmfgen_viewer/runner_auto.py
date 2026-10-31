@@ -522,12 +522,21 @@ def run_auto_plan(plan, emit=None, *, stop_requested=None):
                             if (adopted.get('VADAT') or {}).get('xray_normalization'):
                                 evidence.update(candidate=False, fresh_verified=False, population_cycle=None, source_changed=True)
                                 history = []  # Raw requests across different X-ray sources are not a trend.
+                            # Charge measured work once, even if a later remedy
+                            # validator rejects this provisional checkpoint.
+                            result['iterations_used'] += evidence['iterations']-batch
+                            entry['charged_iterations'] = evidence['iterations']
                             if evidence['iterations'] > batch:
-                                result['iterations_used'] += evidence['iterations']-batch
-                                entry['charged_iterations'] = evidence['iterations']
-                                restore()
-                                result.update(status='limit_reached', reason='Native execution exceeded its requested iteration budget')
-                                break
+                                entry['native_iteration_extension'] = {
+                                    'reason': 'Native iteration schedule extended the requested batch',
+                                    'requested': batch, 'actual': evidence['iterations']}
+                                event('auto_native_extension', attempt=attempt, **entry['native_iteration_extension'])
+                                if result['iterations_used'] > options['max_iterations']:
+                                    entry.update(evidence=evidence, checkpoint_restored=True)
+                                    restore()
+                                    result.update(status='limit_reached',
+                                                  reason='Native execution exceeded the shared automatic iteration budget')
+                                    break
                             if step:
                                 entry.update(step.validate(context('success')) or {})
                         except policies.VerificationPending as exc:
@@ -583,8 +592,6 @@ def run_auto_plan(plan, emit=None, *, stop_requested=None):
                         entry['checkpoint_restored'] = not entry.get('checkpoint_provisional', False)
                     else:
                         entry['evidence'] = evidence
-                        result['iterations_used'] += evidence['iterations'] - batch
-                        entry['charged_iterations'] = evidence['iterations']
                         # A multi-step remedy remains provisional until ALL
                         # validators pass. One baseline covers the entire recipe.
                         if not pending or (step_index == len(pending.steps)-1 and not verification_waiting):

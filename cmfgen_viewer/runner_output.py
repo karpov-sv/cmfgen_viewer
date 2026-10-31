@@ -393,7 +393,10 @@ class TerminalOutput:
             elif kind == 'auto_attempt' and item.get('initialization_only'):
                 self.line('RUN', f"Automatic attempt {item['attempt']}: {item['phase']}, initialize populations only")
             elif kind == 'auto_attempt':
-                self.line('RUN', f"Automatic attempt {item['attempt']}: {item['phase']}, up to {item['requested_iterations']} iterations")
+                self.line('RUN', f"Automatic attempt {item['attempt']}: {item['phase']}, requested {item['requested_iterations']} iterations")
+            elif kind == 'auto_native_extension':
+                self.line('INFO', f"Native schedule completed {item['actual']} iterations "
+                          f"(requested {item['requested']}); actual work charged to the shared budget")
             elif kind == 'auto_action':
                 self.line('INFO', f"Automatic adjustment: {item['action']['kind']} — {item['action']['reason']}")
             elif kind == 'auto_history_reset':

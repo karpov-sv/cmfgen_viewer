@@ -61,6 +61,25 @@ def test_ng_after_final_solve_cannot_establish_convergence(ng_workspace):
     assert result['attempts'][-1]['evidence']['fresh_verified']
 
 
+def test_ng_followup_extends_batch_without_charging_checkpoint_increment(ng_workspace):
+    model, plan = ng_workspace
+    exe = model.parent/'cmf/exe/cmfgen_dev.exe'
+    exe.write_text(exe.read_text().replace('start=int(', 'if attempt==1:count+=1\nstart=int('))
+
+    result = run_plan(plan('ng_success', iterations=2))
+
+    assert result['status'] == 'succeeded', result
+    first = result['attempts'][0]
+    assert first['requested_iterations'] == 2
+    assert first['charged_iterations'] == 3
+    assert first['evidence']['checkpoint'] == 4
+    assert first['evidence']['ng_accelerations'] == [1]
+    assert first['native_iteration_extension']['actual'] == 3
+    assert result['iterations_used'] == sum(a['charged_iterations'] for a in result['attempts'])
+    assert result['attempts'][-1]['phase'] == 'verify'
+    assert result['attempts'][-1]['evidence']['fresh_verified']
+
+
 def test_ng_between_last_two_solves_requires_more_full_steps(ng_workspace):
     _model, plan = ng_workspace
     result = run_plan(plan('ng_success', iterations=2))

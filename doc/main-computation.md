@@ -104,6 +104,19 @@ A batch that changes the source cannot certify convergence, including during
 verification; another invocation with a stable source is required. Unrelated
 input edits still stop the run.
 
+`NUM_ITS` is a requested batch size. CMFGEN may extend its native schedule,
+including to perform follow-up solves after X-ray normalization or Ng
+acceleration, or to finish output after a structure revision. A longer batch
+with fresh outputs and a coherent, healthy checkpoint is informational, not an
+automatic failure. Every completed solve is charged once against the shared
+iteration budget; the attempt journal records requested and actual counts.
+Checkpoint-counter increments from recognized Ng/hydro updates are distinguished
+from physical solves. Ordinary output validation, control-edit safeguards,
+recovery validators and convergence verification still apply. Extensions that
+exceed the shared budget stop the loop and restore the preceding accepted
+checkpoint; native schedule extensions cannot be predicted as a hard per-batch
+work cap. Use the shared timeout when a wall-clock limit is needed.
+
 The optional native `FINAL_OUTPUT_ONLY` mode writes complete files at a fixed
 checkpoint without solving corrections. Main/test runner plans reject this
 mode; restore `FINAL_OUTPUT_ONLY=F` before ordinary or automatic iterations.

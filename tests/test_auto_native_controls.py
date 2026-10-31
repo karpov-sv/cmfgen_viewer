@@ -201,3 +201,82 @@ if attempt=={changed_attempt}:
     assert result['attempts'][-1]['attempt']>changed_attempt
     assert result['attempts'][-1]['phase']=='verify'
     assert result['attempts'][-1]['evidence']['fresh_verified']
+
+
+@pytest.mark.parametrize('extra,marker_after,max_iterations,expected', [
+    (1, 2, 50, 'succeeded'),
+    (1, None, 50, 'succeeded'),
+    (2, 2, 50, 'succeeded'),
+    (1, 4, 50, 'succeeded'),
+    (1, 2, 3, 'limit_reached'),
+    (1, 2, 4, 'limit_reached'),
+])
+def test_native_schedule_extension_uses_shared_budget(
+        auto_workspace, extra, marker_after, max_iterations, expected):
+    model, plan = auto_workspace
+    original = (model/'VADAT').read_text() + (
+        'T [INC_XRAYS]\nT [SCL_XLUM]\nF [XSLOW]\n1 [FIL_FAC_1]\n2 [FIL_FAC_2]\n')
+    (model/'VADAT').write_text(original)
+    exe = model.parent/'cmf/exe/cmfgen_dev.exe'
+    code = exe.read_text().replace('start=int(', f'if attempt==1:count+={extra}\nstart=int(')
+    code = code.replace("  sol.write(' STEQ SOLUTION ARRAY\\n')",
+        f"  if attempt==1 and n+1=={marker_after!r}:out+='XRAY_NORMALIZATION_FACTOR: 0.5\\n'\n"
+        "  if attempt==1 and n==count-1:out+='LAMBDA iteration used\\nTemperature held fixed at all depths.\\n'\n"
+        "  sol.write(' STEQ SOLUTION ARRAY\\n')")
+    if marker_after is not None:
+        code += """
+if attempt==1:
+ text=(p/'VADAT').read_text().replace('1 [FIL_FAC_1]','0.5 [FIL_FAC_1]').replace('2 [FIL_FAC_2]','1.0 [FIL_FAC_2]')
+ (p/'VADAT').write_text(text)
+"""
+    exe.write_text(code)
+
+    events = []
+    result = run_plan(plan(max_iterations=max_iterations), events.append)
+
+    assert result['status'] == expected, result
+    first = result['attempts'][0]
+    assert first['charged_iterations'] == 3+extra
+    assert result['iterations_used'] == sum(a['charged_iterations'] for a in result['attempts'])
+    assert first['native_iteration_extension']['actual'] == 3+extra
+    extension = next(e for e in events if e['event'] == 'auto_native_extension')
+    assert extension['requested'] == 3 and extension['actual'] == 3+extra
+    if max_iterations >= 3+extra:
+        if marker_after is not None:
+            assert first['evidence']['source_changed']
+            assert '0.5 [FIL_FAC_1]' in (model/'VADAT').read_text()
+        else:
+            assert not first['evidence'].get('source_changed')
+        assert not first['evidence']['candidate'] and not first['evidence']['fresh_verified']
+        assert first['evidence']['records'][-1]['lambda_iteration']
+        assert int((model/'POINT1').read_text().splitlines()[1].split()[1]) >= 3+extra
+        if expected == 'succeeded':
+            assert result['attempts'][-1]['phase'] == 'verify'
+            assert result['attempts'][-1]['evidence']['fresh_verified']
+        else:
+            assert len(result['attempts']) == 1
+    else:
+        assert first['checkpoint_restored']
+        assert not (model/'POINT1').exists()
+        assert (model/'VADAT').read_text() == original
+        if max_iterations == 3:
+            assert 'shared automatic iteration budget' in result['reason']
+
+
+@pytest.mark.parametrize('fault', ['stale', 'counter_mismatch'])
+def test_longer_native_batch_still_requires_fresh_coherent_outputs(auto_workspace, fault):
+    model, plan = auto_workspace
+    assert run_plan(plan())['status'] == 'succeeded'
+    baseline = {n: (model/n).read_bytes() for n in ('POINT1', 'POINT2', 'SCRTEMP')}
+    (model/'attempts.txt').unlink()
+    exe = model.parent/'cmf/exe/cmfgen_dev.exe'
+    code = exe.read_text().replace('start=int(', 'if attempt==1:count+=2\nstart=int(')
+    if fault == 'counter_mismatch':
+        code += "\n(p/'POINT1').write_text((p/'POINT1').read_text().replace(str(start+count-1)+' 1 -1000',str(start+count)+' 1 -1000'))\n"
+    exe.write_text(code)
+
+    result = run_plan(plan('stale' if fault == 'stale' else 'good'))
+
+    assert result['status'] == 'needs_review', result
+    assert result['attempts'][0]['checkpoint_restored']
+    assert all((model/name).read_bytes() == data for name, data in baseline.items())

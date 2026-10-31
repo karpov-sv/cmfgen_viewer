@@ -76,6 +76,17 @@ def test_native_hydro_trend_reset_is_visible():
     assert "[INFO] Native hydrostatic revision; correction trends restart with subsequent batches" in stream.getvalue()
 
 
+def test_native_schedule_extension_is_informational():
+    stream = io.StringIO()
+    output = TerminalOutput(stream, color="never")
+    output.event({'event': 'auto_attempt', 'attempt': 1, 'phase': 'iterate', 'requested_iterations': 5})
+    output.event({'event': 'auto_native_extension', 'requested': 5, 'actual': 6})
+    text = stream.getvalue()
+    assert 'requested 5 iterations' in text
+    assert '[INFO] Native schedule completed 6 iterations (requested 5)' in text
+    assert '[WARN]' not in text and '[ERROR]' not in text
+
+
 def test_readable_preflight_shows_explicit_timeout(plan):
     plan["timeout"] = 60
     stream = io.StringIO()
