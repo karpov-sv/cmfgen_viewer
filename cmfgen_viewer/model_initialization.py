@@ -28,7 +28,7 @@ def lte_initialization_controls(contents: str, t_exc: float = 1.0) -> str:
 
 
 def opacity_lte_seed_controls(contents: str, t_exc: float = 1.0, *, structure=False) -> dict:
-    """A diagnosed fresh POP seed may use LTE on the same temperature grid.
+    """A diagnosed fresh POP/LTE seed may use reviewed LTE temperatures.
 
     This is an internal zero-iteration recovery mode, not permission for the
     ordinary LTE flag to override interpolation or to reseed a continuation.
@@ -41,15 +41,20 @@ def opacity_lte_seed_controls(contents: str, t_exc: float = 1.0, *, structure=Fa
         if len(rows.get(key, [])) > 1:
             raise ValueError(f'Duplicate [{key}]; opacity seed recovery refused')
     value = lambda key, default='': rows[key][0]['value'].upper().strip('.') if rows.get(key) else default
-    if value('DC_METH') != 'POP' or value('LIN_INT') not in {'T', 'TRUE'}:
-        raise ValueError('Opacity LTE seed requires an explicit interpolated POP fresh-start model')
+    pop = value('DC_METH') == 'POP' and value('LIN_INT') in {'T', 'TRUE'}
+    lte = structure and value('DC_METH') == 'LTE' and value('LIN_INT') in {'F', 'FALSE'}
+    if not (pop or lte):
+        raise ValueError('Opacity LTE seed requires interpolated POP or explicit LTE with a reviewed structure')
     for key in ('SN_MODEL', 'REVISE_R_GRID', 'FLUX_CAL_ONLY', 'USE_FIXED_J'):
         if value(key, 'F') not in {'F', 'FALSE'}:
             raise ValueError(f'Opacity LTE seed is not validated with [{key}] enabled')
     if not structure and value('T_ON_R', 'T') not in {'T', 'TRUE'}:
         raise ValueError('Opacity LTE seed is validated only with the ordinary radius temperature interpolation')
     changes = {'LIN_INT': 'F', 'IT_ON_T': 'F', 'DC_METH': 'LTE', 'T_EXC': f'{t_exc:.12g}'}
-    lte_initialization_controls(_patch(contents, {'LIN_INT': 'F', 'IT_ON_T': 'F'}), t_exc)
+    validation = {'LIN_INT': 'F', 'IT_ON_T': 'F'}
+    if lte:
+        validation['LTE_EST'] = 'F'  # The reviewed structure is selected separately below.
+    lte_initialization_controls(_patch(contents, validation), t_exc)
     if structure:
         changes['LTE_EST'] = 'T'
     return changes

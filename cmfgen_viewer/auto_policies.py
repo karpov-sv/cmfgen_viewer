@@ -469,7 +469,7 @@ POLICIES = (
     Policy('source_opacity', 1, 'failure', 'Replace a diagnosed nonpositive source opacity floor with the native scattering limiter', source_opacity_recovery, 1),
     Policy('pop_initialization', 1, 'failure', 'Compatible saved-model population interpolation and verified continuation', _pop, 1),
     Policy('lte_initialization', 2, 'failure', 'Confirmed fresh-start population failure: temporary LTE and verified continuation', _lte, 1),
-    Policy('opacity_lte_seed', 1, 'failure', 'Audited LTE seed, population bootstrap and full verification after negative fresh POP radiation', opacity_lte_seed, 1),
+    Policy('opacity_lte_seed', 2, 'failure', 'Audited LTE seed, population bootstrap and full verification after negative fresh POP/LTE radiation', opacity_lte_seed, 1),
     Policy('startup_hydro', 1, 'failure', 'Rearm an unperformed startup hydro revision after a positive POP luminosity deficit', _startup_hydro, 1),
     Policy('hydro_bootstrap', 1, 'failure', 'Scheduled hydro recovery with guard restoration and follow-up', _hydro, 1),
     Policy('radiation_cache', 1, 'failure', 'Explicit EDDFACTOR mismatch recovery', _cache, 1),

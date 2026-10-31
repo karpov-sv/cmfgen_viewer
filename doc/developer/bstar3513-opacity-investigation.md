@@ -210,3 +210,59 @@ retain their original behavior; limiter/derivative-control flags remain correct.
 Runner regressions cover diagnosis, malformed/stale evidence, unrelated or mixed
 crashes, one-time selection, cache requests, continuation preservation, advisory
 integration, and independent convergence verification.
+
+
+## LTE-start variant Bstar3513.2 (31 October 2026)
+
+The copied variation `models/tests/model_Bstar3513.2` has a promoted, matching
+LTE/hydro grid, explicit `DC_METH=LTE, LIN_INT=F, T_EXC=1`, and `IT_ON_T=T`.
+It does not select `LTE_EST=T`. Its latest native run
+`20261030T232831Z-93cba59c` (journals retain the original pre-copy folder name)
+confirms LTE initialization and charge consistency, performs grey-temperature
+refinement and stops at the first radiation sweep before any population solve.
+The exit code is zero, but normalized luminosity spans -5.0188 to 512.21 with
+inner Rosseland depth 102.6. Automatic run
+`20261030T232827Z-auto-962fe8af` correctly rejects the failed output, then finds
+no eligible remedy because the thermal-seed rule previously required POP.
+
+Rebuilding LTE/hydro alone does not select its temperatures for main. The native
+initialization reads the inherited `T_IN` profile unless the FIN_CAL_GRID branch
+is enabled. The log shows initial core temperature 3.9048744, followed by grey
+refinement corrections as large as 76.5%. The model's matching FIN_CAL_GRID spans
+1.3862–4.7928. The existing guarded thermal-seed recipe is now extended to an
+explicit LTE start, requiring both native LTE/charge markers, complete fresh
+negative luminosity evidence and validated local LTE/hydro provenance. It
+refuses a continuation or a start already using that profile without grey
+refinement. Initialization controls are restored, and the same strict
+Lambda/bootstrap/full-verification and rollback procedure follows.
+
+A read-only replay of the actual archived failure selects `opacity_lte_seed`
+version 2. All archived input bytes still match the copied model, and OBSFLUX /
+MEANOPAC timestamps lie within the native attempt. The replay record is
+`models/test/model_Bstar3513_2_lte_seed_test/.archived-failure-diagnosis.json`;
+it is diagnostic analysis, not a newly executed automatic run.
+
+Native zero-iteration test `20261031T001821Z-2bdda039` ran in the isolated
+input-only copy `models/test/model_Bstar3513_2_lte_seed_test`. It selected the
+reviewed LTE/hydro temperatures with no grey iteration and passed the strict
+charge check (9.99201e-16). Its complete SCRTEMP is **byte-for-byte identical**
+to the initial LTE/hydro checkpoint used in the successful previous bootstrap
+and two-solve continuation experiment above. Geometry, temperature and element
+densities match exactly. The runner restores original LTE controls and removes
+the temporary FIN_CAL_GRID. No radiation iterations were repeated for this
+validation, and the original variation was not modified.
+
+The copied variation currently has an absolute T_IN link into the former model
+folder. The Python runner rebuilds its reviewed links before starting; the
+isolated native test confirms T_IN resolves to its own He2_IN. No manual link
+repair or permanent initialization-control change is needed to retry with the
+updated automatic runner:
+
+```bash
+python cmfgen_run.py models/tests/model_Bstar3513.2 --stage main --auto --iterations 5
+```
+
+The retry will first encounter the same guard, then select the new eligible
+thermal recovery. Source-floor repair remains a separate rule and changes
+NEG_OPAC_OPT only from its own typed native evidence. The LTE thermal remedy
+does not disable STOP_IF_MW or declare convergence.

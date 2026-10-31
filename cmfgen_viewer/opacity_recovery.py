@@ -71,7 +71,7 @@ def _opacity_lte_seed_check(ctx):
 
 
 def opacity_lte_seed(ctx):
-    """Reset a diagnosed fresh POP radiation seed before guarded continuation."""
+    """Reset a diagnosed fresh radiation seed before guarded continuation."""
     from .auto_policies import Decision, Declined, RecoveryStep
     from .auto_diagnostics import control_value
     from .auto_hydro import guard_measurements, structure_fixed
@@ -91,10 +91,23 @@ def opacity_lte_seed(ctx):
             passes[0].get('returncode') != 0 or
             passes[0].get('startup_observed', {}).get('mode') != 'fresh'):
         raise Declined('Opacity LTE seed requires an isolated zero-exit fresh-start luminosity safeguard stop')
-    if (ctx.native_plan.get('restart', {}).get('mode') != 'fresh' or
-            (repaired_floor and control_value(ctx.model, 'VADAT', 'NEG_OPAC_OPT', '').upper() != 'ESEC_CHK') or
-            POP_MARKER not in ctx.log):
-        raise Declined('Opacity LTE seed requires the same fresh POP start after the diagnosed limiter recovery')
+    if ctx.native_plan.get('restart', {}).get('mode') != 'fresh':
+        raise Declined('Opacity LTE seed never reseeds a continuation')
+    method = control_value(ctx.model, 'VADAT', 'DC_METH', '').upper()
+    interpolated = control_value(ctx.model, 'VADAT', 'LIN_INT', '').upper().strip('.')
+    if method == 'POP' and interpolated in {'T', 'TRUE'}:
+        if (POP_MARKER not in ctx.log or (repaired_floor and
+                control_value(ctx.model, 'VADAT', 'NEG_OPAC_OPT', '').upper() != 'ESEC_CHK')):
+            raise Declined('Opacity LTE seed requires confirmed POP initialization and the selected limiter repair')
+    elif method == 'LTE' and interpolated in {'F', 'FALSE'}:
+        if (not has_structure or 'LTE assumed for departure coefficients.' not in ctx.log or
+                'LTE charge consistency:' not in ctx.log):
+            raise Declined('Fresh LTE thermal recovery needs confirmed charge-consistent LTE initialization and a matching LTE/hydro profile')
+        from .auto_hydro import enabled
+        if enabled(ctx.model, 'LTE_EST') and not enabled(ctx.model, 'IT_ON_T', 'T'):
+            raise Declined('The reviewed LTE profile is already selected without grey refinement; repeating its seed is not a remedy')
+    else:
+        raise Declined('Opacity LTE seed requires confirmed interpolated POP or explicit noninterpolated LTE initialization')
     records = _parse_iteration_records(ctx.log)
     if (len(records) != 1 or records[0]['global_iteration'] != 1 or
             records[0].get('solver_maximum_change') is not None):
@@ -116,7 +129,7 @@ def opacity_lte_seed(ctx):
     t_exc = min(1.0, structure['temperature_min']) if structure else 1.0
     opacity_lte_seed_controls((ctx.model/'VADAT').read_text(), t_exc, structure=bool(structure))
     label = 'the matching, promoted LTE/hydro temperature profile' if structure else 'the same temperature grid'
-    return Decision('action', 'Fresh POP radiation has a nonpositive luminosity profile before its first population solve; '
+    return Decision('action', f'Fresh {method} radiation has a nonpositive luminosity profile before its first population solve; '
                     f'initialize LTE populations using {label}, fill tiny seeds with fixed-T Lambda solves, '
                     'then verify guarded full continuation',
                     action='opacity_lte_seed',
@@ -129,6 +142,7 @@ def opacity_lte_seed(ctx):
                                         {'population_recovery_probe': True}),
                            RecoveryStep('opacity_population_full', 2, _population_full_check,
                                         repeat_on_native_fallback=True)),
-                    evidence={'seed_luminosity': measured, 't_exc': t_exc, 'structure_seed': structure,
+                    evidence={'seed_luminosity': measured, 'initialization_method': method,
+                              't_exc': t_exc, 'structure_seed': structure,
                               'temporary_controls': {'LIN_INT':'F','IT_ON_T':'F','DC_METH':'LTE',
                                                      'LTE_EST':'T' if structure else 'unchanged'}})

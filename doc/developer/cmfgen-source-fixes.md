@@ -414,7 +414,7 @@ opacity, the native scattering floor, and its existing derivative-control flags.
 The historical Linux build described above predates this additive diagnostic.
 See the investigation record for current local installation and model-run evidence.
 
-The runner also adds a narrowly scoped fresh-POP radiation-seed recipe. If a
+The runner also adds a narrowly scoped fresh-POP/LTE radiation-seed recipe. If a
 negative-luminosity safeguard remains before the first population solve, it can
 initialize from a validated matching LTE/hydro temperature profile, run the
 existing three-step Lambda population bootstrap and verify guarded full

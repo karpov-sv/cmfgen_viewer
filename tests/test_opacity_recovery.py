@@ -349,3 +349,142 @@ if not seed and ({condition}):
     assert control_value(model, 'VADAT', 'FIX_T') == 'F'
     assert control_value(model, 'VADAT', 'MAX_LAM') is None
     assert control_value(model, 'IN_ITS', 'DO_LAM_IT') is None
+
+
+@pytest.fixture
+def lte_thermal_workspace(structure_seed_workspace):
+    import json
+    from test_auto_recovery import authenticate
+    from cmfgen_viewer.pop_initialization import POP_MARKER
+
+    model, make = structure_seed_workspace
+    p = model/'VADAT'
+    p.write_text(p.read_text().replace('POP [DC_METH]', 'LTE [DC_METH]')
+                 .replace('T [LIN_INT]', 'F [LIN_INT]')+'1 [T_EXC]\n')
+    exe = model.parent/'cmf/exe/cmfgen_dev.exe'
+    code = exe.read_text().replace(repr(POP_MARKER), repr(
+        'LTE assumed for departure coefficients.\nLTE charge consistency: iterations=1 residual=0'))
+    code = code.replace("if get('VADAT','NEG_OPAC_OPT','')=='SRCE_CHK':", 'if False:')
+    exe.write_text(code)
+    authenticate(model)
+    manifest = model.parent/'cmf/cmfgen-local-build.json'
+    data = json.loads(manifest.read_text())
+    data['capabilities'].append('lte-charge-v1')
+    manifest.write_text(json.dumps(data))
+    return model, make
+
+
+@pytest.mark.parametrize('already_reads_profile', [False, True])
+def test_fresh_lte_guard_uses_matching_thermal_seed_and_existing_bootstrap(lte_thermal_workspace, already_reads_profile):
+    model, make = lte_thermal_workspace
+    if already_reads_profile:
+        p = model/'VADAT'
+        p.write_text(p.read_text()+'T [LTE_EST]\n')
+        (model/'FIN_CAL_GRID').write_bytes((model/'lte/FIN_CAL_GRID').read_bytes())
+    original = (model/'VADAT').read_text()
+    result = run_plan(make('population_opacity_seed', fresh_start=True))
+    assert result['status'] == 'succeeded', result
+    assert result['actions'][0]['policy_id'] == 'opacity_lte_seed'
+    assert result['actions'][0]['evidence']['initialization_method'] == 'LTE'
+    assert not any(a['policy_id'] == 'source_opacity' for a in result['actions'])
+    assert [a['phase'] for a in result['attempts'][:4]] == [
+        'iterate', 'opacity_lte_seed', 'opacity_population_lambda', 'opacity_population_full']
+    assert result['attempts'][1]['charged_iterations'] == 0
+    assert result['attempts'][2]['checkpoint_physics']['element_density_max_relative_change'] == 0
+    assert result['attempts'][3]['recovery_verified'] == 'opacity_lte_seed'
+    for key in ['DC_METH', 'LIN_INT', 'IT_ON_T', 'T_EXC', 'NEG_OPAC_OPT']:
+        from cmfgen_viewer.control_files import control_occurrences
+        assert control_value(model, 'VADAT', key) == control_occurrences(original)[key][0]['value']
+    if already_reads_profile:
+        assert control_value(model, 'VADAT', 'LTE_EST') == 'T'
+        assert (model/'FIN_CAL_GRID').read_bytes() == (model/'lte/FIN_CAL_GRID').read_bytes()
+    else:
+        assert control_value(model, 'VADAT', 'LTE_EST') is None
+        assert not (model/'FIN_CAL_GRID').exists()
+
+
+@pytest.mark.parametrize('change', ['no_structure', 'no_lte_marker', 'no_charge_marker',
+                                    'already_using_profile', 'interpolated_lte', 'continuation'])
+def test_fresh_lte_thermal_recovery_refuses_unproven_or_repeated_seed(lte_thermal_workspace, change):
+    import json
+    from test_auto_recovery import authenticate
+
+    model, make = lte_thermal_workspace
+    exe = model.parent/'cmf/exe/cmfgen_dev.exe'
+    if change == 'no_structure':
+        (model/'lte/FIN_CAL_GRID').unlink()
+        (model/'lte/RVSIG_COL_NEW').unlink()
+    elif change in {'no_lte_marker', 'no_charge_marker'}:
+        text = 'LTE assumed for departure coefficients.' if change == 'no_lte_marker' else 'LTE charge consistency:'
+        exe.write_text(exe.read_text().replace(text, 'Unconfirmed initialization:'))
+        authenticate(model)
+        manifest = model.parent/'cmf/cmfgen-local-build.json'
+        data = json.loads(manifest.read_text())
+        data['capabilities'].append('lte-charge-v1')
+        manifest.write_text(json.dumps(data))
+    elif change == 'already_using_profile':
+        p = model/'VADAT'
+        p.write_text(p.read_text().replace('T [IT_ON_T]', 'F [IT_ON_T]')+'T [LTE_EST]\n')
+        (model/'FIN_CAL_GRID').write_bytes((model/'lte/FIN_CAL_GRID').read_bytes())
+    elif change == 'interpolated_lte':
+        p = model/'VADAT'
+        p.write_text(p.read_text().replace('F [LIN_INT]', 'T [LIN_INT]'))
+    result = run_plan(make('population_opacity_seed', fresh_start=change != 'continuation'))
+    assert result['status'] == 'needs_review', result
+    assert not any(a['policy_id'] == 'opacity_lte_seed' for a in result['actions'])
+    if change != 'continuation':
+        assert not result['actions']
+    assert not any(a.get('initialization_only') for a in result['attempts'])
+
+
+def test_interrupted_lte_thermal_recovery_restores_original_lte_controls(lte_thermal_workspace):
+    model, make = lte_thermal_workspace
+    original = {name: (model/name).read_bytes() for name in ['VADAT', 'POINT1', 'POINT2', 'SCRTEMP']}
+    stop = False
+    def event(item):
+        nonlocal stop
+        if item['event'] == 'auto_initialized':
+            stop = True
+    result = run_plan(make('population_opacity_seed', fresh_start=True), event,
+                      stop_requested=lambda: stop)
+    assert result['status'] == 'stopped', result
+    assert result['provisional_recovery_rolled_back'] == 'opacity_lte_seed'
+    for name in ['POINT1', 'POINT2', 'SCRTEMP']:
+        assert (model/name).read_bytes() == original[name]
+    for key, value in [('DC_METH', 'LTE'), ('LIN_INT', 'F'), ('IT_ON_T', 'T'), ('T_EXC', '1')]:
+        assert control_value(model, 'VADAT', key) == value
+    assert control_value(model, 'VADAT', 'LTE_EST') is None
+    assert not (model/'FIN_CAL_GRID').exists()
+
+
+def test_lte_thermal_recipe_can_apply_typed_opacity_fix_without_reseeding(lte_thermal_workspace):
+    import json
+    from test_auto_recovery import authenticate
+
+    model, make = lte_thermal_workspace
+    exe = model.parent/'cmf/exe/cmfgen_dev.exe'
+    report = REPORT.replace('DEPTH= 75', 'DEPTH= 2').replace('ITERATION= 1', 'ITERATION= 2')
+    guard = """
+if get('IN_ITS','DO_LAM_IT','F')=='T' and get('VADAT','NEG_OPAC_OPT','')=='SRCE_CHK':
+ out='Model started on: now\\n'+%r
+ (p/'OUTGEN').write_text(out)
+ print(out,flush=True)
+ raise SystemExit(1)
+""" % report
+    code = exe.read_text().replace("seed=get('IN_ITS','NUM_ITS','2')=='0'",
+                                    "seed=get('IN_ITS','NUM_ITS','2')=='0'\n"+guard)
+    exe.write_text(code)
+    authenticate(model)
+    manifest = model.parent/'cmf/cmfgen-local-build.json'
+    data = json.loads(manifest.read_text())
+    data['capabilities'].append('lte-charge-v1')
+    manifest.write_text(json.dumps(data))
+    result = run_plan(make('population_opacity_seed', fresh_start=True))
+    assert result['status'] == 'succeeded', result
+    assert [a['policy_id'] for a in result['actions'][:2]] == ['opacity_lte_seed', 'source_opacity']
+    assert sum(bool(a.get('initialization_only')) for a in result['attempts']) == 1
+    failed = next(a for a in result['attempts'] if a.get('decision', {}).get('policy_id') == 'source_opacity')
+    assert failed['restored_state'] == 'recovery_step'
+    assert failed['phase'] == 'opacity_population_lambda'
+    assert control_value(model, 'VADAT', 'DC_METH') == 'LTE'
+    assert control_value(model, 'VADAT', 'NEG_OPAC_OPT') == 'ESEC_CHK'
