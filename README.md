@@ -50,23 +50,47 @@ pip install -r requirements.txt
 ## Local CMFGEN Source Fixes
 
 This repository tracks local fixes against the CMFGEN website release
-**version 18jun25** (released version as of 18 Jun 2025). They cover
-photoionization target mapping, rate and Jacobian calculations, automatic ion
-addition, profile storage, temperature correction limits, radius-endpoint
-interpolation, and population reconstruction, including opt-in `DC_METH=POP`
-initialization.
+**version 18jun25** (18 Jun 2025), including numerical repairs, initialization
+options, and build fixes. Installing the viewer does not apply these changes.
 
-The complete source diff is [cmfgen-current.patch](doc/developer/patches/cmfgen-current.patch).
-It includes the new initialization module and local build adaptations. See the
-[consolidated summary](doc/developer/cmfgen-source-fixes.md) for all ten fixes,
-validation results and limits, POP requirements, and patch application and
-rebuild instructions. The [snapshot manifest](doc/developer/patches/cmfgen-current.json)
-records the baseline release and file hashes;
-[regression drivers](doc/developer/cmfgen-review-tests/README.md) are included.
+From the viewer checkout, use the standalone updater (Python and `git` required;
+no viewer dependencies are needed):
 
-Apply the patch to a clean copy of version 18jun25 and rebuild the native
-executables as described in the summary. Installing the viewer does not apply
-these CMFGEN source changes.
+```bash
+# Preview the latest bundled source patch set
+python3 cmfgen_patch.py /path/to/cur_cmf --check
+
+# Apply it, or update a previously patched installation
+python3 cmfgen_patch.py /path/to/cur_cmf
+```
+
+After updating the viewer repository, rerun these commands to install its latest
+patch set. The updater preserves `Makefile_definitions` and
+`com/aliases_for_cmfgen.sh`, backs up changed files under `.cmfgen-backups/`,
+and retains update state in `.cmfgen-patches/`. It supports clean 18jun25 sources
+and recognized older patch sets; unfamiliar local source edits stop the update
+for review. It does not build executables or change model folders.
+
+Between model jobs, rebuild the patched source tree serially and check its
+reported patch revision:
+
+```bash
+cd /path/to/cur_cmf
+make -j1 clean && make -j1 all
+./exe/cmfgen_dev.exe --version
+```
+
+Use a separate source/build tree if calculations are still using the installed
+executables. The clean target removes the tree's existing executables and
+archives. No build-recording command is required.
+
+See [source updates and versioning](doc/developer/cmfgen-versioning.md) for update
+behavior and build details, and the
+[consolidated summary](doc/developer/cmfgen-source-fixes.md) for fixes, validation,
+and limitations. The complete changes are in
+[cmfgen-current.patch](doc/developer/patches/cmfgen-current.patch), with baseline
+and file hashes in its [manifest](doc/developer/patches/cmfgen-current.json).
+[Regression drivers](doc/developer/cmfgen-review-tests/README.md) are included.
 
 ## Running the Viewer
 
@@ -370,6 +394,7 @@ and exit codes. Execution checks do not establish scientific convergence.
 - `viewer.py`: executable entry point.
 - `cmfgen_run.py`: standalone model status, preflight, and execution entry point.
 - `cmfgen_model.py`: standalone model copying, cleanup, and quick-parameter maintenance.
+- `cmfgen_patch.py`: standalone installer/updater for the bundled native CMFGEN source patches.
 - `MODEL_GRIDS.md`: model-grid preparation, import, conventions, and fitting guide.
 - `cmfgen_viewer/`:
   - `app.py`, `cli.py`: app factory and CLI configuration.
