@@ -171,10 +171,10 @@ def test_interrupted_convergence_trial_restores_accepted_state(convergence_works
     assert not (model/'ADJUST_CORRECTIONS').exists()
 
 
-def test_remedy_improvement_cannot_mix_different_xray_sources(tmp_path):
+def test_source_comparison_reset_requires_audited_physical_baseline(tmp_path):
     from cmfgen_viewer.auto_convergence_remedies import _validate
     from cmfgen_viewer.auto_policies import Context
     from cmfgen_viewer.runner_recipe import RunnerError
     context=Context(tmp_path,'success',{}, {}, {}, {'records':[{},{}],'source_changed':True}, [],'iterate',[],'')
-    with pytest.raises(RunnerError,match='unchanged structure and source'):
+    with pytest.raises(RunnerError,match='audited physical baseline'):
         _validate(context,{})

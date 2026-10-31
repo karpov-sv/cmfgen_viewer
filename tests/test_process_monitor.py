@@ -19,6 +19,9 @@ class Process:
     def is_running(self):
         return True
 
+    def status(self):
+        return self.info['status']
+
     def as_dict(self, **kwargs):
         if self.error:
             raise self.error
@@ -60,6 +63,22 @@ def test_native_detector_handles_denied_and_exited_processes(tmp_path, monkeypat
     assert not runtime['monitoring_available']
     assert runtime['monitoring_uncertainties']
     install_processes(monkeypatch, [Process(101, tmp_path, error=monitor.psutil.AccessDenied(101))])
+    assert not inspect_model_activity(tmp_path)['safe_to_modify']
+
+
+@pytest.mark.parametrize('status', [None, monitor.psutil.STATUS_ZOMBIE, monitor.psutil.STATUS_DEAD])
+def test_exiting_unidentified_process_does_not_make_model_activity_uncertain(tmp_path, monkeypatch, status):
+    process = Process(101, None)
+    process.info = dict(name=None, cmdline=None, status=status)
+    monkeypatch.setattr(process, 'is_running', lambda: False)
+    install_processes(monkeypatch, [process])
+    assert inspect_model_activity(tmp_path)['state'] == 'idle'
+
+
+def test_live_unidentified_process_still_blocks_mutation(tmp_path, monkeypatch):
+    process = Process(101, None)
+    process.info = dict(name=None, cmdline=None, status='running')
+    install_processes(monkeypatch, [process])
     assert not inspect_model_activity(tmp_path)['safe_to_modify']
 
 

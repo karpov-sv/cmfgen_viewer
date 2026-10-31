@@ -224,7 +224,7 @@ def test_fixed_t_requires_explicit_native_auto_release(auto_workspace):
     (model/'VADAT').write_text((model/'VADAT').read_text().replace('F [FIX_T]','T [FIX_T]'))
     with pytest.raises(RunnerError,match='DO_T_AUTO'):
         plan()
-    (model/'VADAT').write_text((model/'VADAT').read_text()+'T [DO_T_AUTO]\n')
+    (model/'IN_ITS').write_text((model/'IN_ITS').read_text()+'T [DO_T_AUTO]\n')
     prepared=plan()
     before=capture_controls(model)
     (model/'VADAT').write_text((model/'VADAT').read_text().replace('T [FIX_T]','F [FIX_T]'))

@@ -223,17 +223,17 @@ def ng_accelerations(text):
     return result
 
 
-def assess(model, run, before, solution_offset, requested, *, hydro_revisions=()):
+def assess(model, run, before, solution_offset, requested, *, hydro_revisions=(), checkpoint_events=()):
     """Reject stale or ambiguous evidence rather than declaring success."""
     for name in ('OUTGEN', 'CORRECTION_SUM', 'RVTJ'):
         if snapshot(model / name) == before.get(name):
             raise RunnerError(f'{name} was not refreshed by this attempt')
     from datetime import datetime
     started = datetime.fromisoformat(run['started_at']).timestamp()
-    return _assess_outputs(model, solution_offset, requested, hydro_revisions, started)
+    return _assess_outputs(model, solution_offset, requested, hydro_revisions, started, checkpoint_events=checkpoint_events)
 
 
-def _assess_outputs(model, solution_offset, requested, hydro_revisions, started):
+def _assess_outputs(model, solution_offset, requested, hydro_revisions, started, *, checkpoint_events=()):
     from .runner import _tail
     validate_rvtj_core(model / 'RVTJ', model / 'MODEL_SPEC', finite_all=True)
     restart = inspect_restart(model)
@@ -245,10 +245,14 @@ def _assess_outputs(model, solution_offset, requested, hydro_revisions, started)
         raise RunnerError('No native iteration evidence; refusing an automatic restart')
     counters = [r['global_iteration'] for r in records]
     ng = ng_accelerations(text)
-    adjusted_counters = set(hydro_revisions) | set(ng)
+    extra = {}
+    for event in checkpoint_events:
+        counter = event['after_iteration']
+        extra[counter] = extra.get(counter, 0)+1
+    adjusted_counters = set(hydro_revisions) | set(ng) | set(extra)
 
     def saved_counter(counter):
-        return counter + (counter in hydro_revisions) + (counter in ng)
+        return counter + (counter in hydro_revisions) + (counter in ng) + extra.get(counter, 0)
 
     expected = [saved_counter(a) + 1 for a in counters[:-1]]
     if (counters[1:] != expected or adjusted_counters - set(counters) or
@@ -279,7 +283,7 @@ def _assess_outputs(model, solution_offset, requested, hydro_revisions, started)
                               _correction_summary(model, started))
     return {'records': records, 'full_iterations': len(full), 'iterations': len(records),
             'checkpoint': restart['pointer']['iterations'], 'hydro_revisions': list(hydro_revisions),
-            'ng_accelerations': ng,
+            'ng_accelerations': ng, 'checkpoint_updates': list(checkpoint_events),
             'epsilon_percent': eps,
             'candidate': candidate, 'fresh_verified': candidate and all(r.get('ba_computed') for r in records[-2:]),
             'population_cycle': (population_cycle(model/'STEQ_VALS', solution_offset, counts['nt'], counts['nd'], eps)
@@ -357,6 +361,8 @@ def convergence_status(evidence, *, historical=False):
     native = len(records) == 2 and all(
         not r.get('lambda_iteration') and not r.get('temperature_fixed') and
         r['global_iteration'] not in evidence.get('hydro_revisions', []) and
+        r['global_iteration'] not in evidence.get('ng_accelerations', []) and
+        r['global_iteration'] not in {e['after_iteration'] for e in evidence.get('checkpoint_updates', [])} and
         r.get('solver_maximum_change') is not None and
         math.isfinite(r['solver_maximum_change']) and abs(r['solver_maximum_change']) < eps
         for r in records)

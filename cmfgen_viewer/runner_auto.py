@@ -11,7 +11,7 @@ import shutil
 import time
 import uuid
 
-from .auto_diagnostics import assess, number
+from .auto_diagnostics import assess, number, control_value
 from .auto_hydro import NATIVE_CONTROLS, capture_controls, enabled, native_updates, revisions
 from . import auto_policies as policies
 from .control_files import NATIVE_VADAT_KEY_SPELLINGS, control_occurrences
@@ -48,8 +48,10 @@ def configure_auto(plan, *, cmfgen_root, atomic_root,
     eps = number(model, 'VADAT', 'EPS_TERM')
     if eps is None or eps <= 0:
         raise RunnerError('--auto requires a positive explicit [EPS_TERM]')
-    if enabled(model, 'FIX_T') and not enabled(model, 'DO_T_AUTO'):
-        raise RunnerError('--auto requires variable temperature or explicit [DO_T_AUTO]=T')
+    from .auto_native_cycle import allows_full
+    if (enabled(model, 'FIX_T') and control_value(model, 'IN_ITS', 'DO_T_AUTO', 'F').upper().strip('.') not in {'T', 'TRUE'}
+            and not allows_full(model)):
+        raise RunnerError('--auto requires variable temperature, IN_ITS [DO_T_AUTO]=T or a reachable IT_SPECIFIER FULL')
     batch = plan['passes'][0]['overrides'].get('NUM_ITS')
     batch = int(batch) if batch is not None else 5
     if batch < 2:
@@ -60,7 +62,7 @@ def configure_auto(plan, *, cmfgen_root, atomic_root,
                                           if str(model/n) not in reviewed)]
     result['kind'] = 'auto'
     registry = policies.manifest()
-    result['auto'] = {'version': 9, 'batch_iterations': batch,
+    result['auto'] = {'version': 10, 'batch_iterations': batch,
                       'max_attempts': max_attempts, 'max_iterations': max_iterations,
                       'policies': registry,
                       'cmfgen_root': str(Path(cmfgen_root).resolve()),
@@ -484,7 +486,13 @@ def run_auto_plan(plan, emit=None, *, stop_requested=None):
                 with model_mutation_guard(model, RunnerError):
                     text = latest_main_log(_tail(model/'OUTGEN', 32*1024*1024))
                     observed = native_result.get('startup_observed', {})
-                    adopted = native_updates(model, text, controls_before,
+                    process_text = '\n'.join(_tail(Path(p['log']), 32*1024*1024)
+                                             for p in native_result.get('passes', []) if p.get('log'))
+                    iteration_overrides = dict(native['passes'][0]['overrides'])
+                    if native.get('population_recovery_probe'):
+                        iteration_overrides.update(DO_LAM_IT='T', DO_LAM_AUTO='F', DO_T_AUTO='F', DO_GT_AUTO='F')
+                    adopted = native_updates(model, text, controls_before, process_text=process_text,
+                        iteration_overrides=iteration_overrides,
                         fresh_start=native['restart']['mode'] == 'fresh' and observed.get('mode') == 'fresh')
                     if adopted:
                         entry['native_control_updates'] = adopted
@@ -517,9 +525,16 @@ def run_auto_plan(plan, emit=None, *, stop_requested=None):
                                 from .auto_diagnostics import assess_initialization
                                 evidence = assess_initialization(model, native_result, before)
                             else:
+                                from .auto_native_events import checkpoint_updates
+                                transitions = (adopted.get('VADAT') or {}).get('native_transitions', [])
+                                updates = checkpoint_updates(model, text,
+                                    grids=(adopted.get('ADJUST_R_DEFAULTS') or {}).get('grid_revisions', []),
+                                    grey_release=('fixed_j_release' in transitions and
+                                        control_value(model, 'IN_ITS', 'DO_GT_AUTO', 'T').upper().strip('.') in {'T', 'TRUE'}))
                                 evidence = assess(model, native_result, before, solution_offset, batch,
-                                                  hydro_revisions=revisions(text))
-                            if (adopted.get('VADAT') or {}).get('xray_normalization'):
+                                                  hydro_revisions=revisions(text), checkpoint_events=updates)
+                            if ((adopted.get('VADAT') or {}).get('xray_normalization') or
+                                    (adopted.get('VADAT') or {}).get('native_transitions')):
                                 evidence.update(candidate=False, fresh_verified=False, population_cycle=None, source_changed=True)
                                 history = []  # Raw requests across different X-ray sources are not a trend.
                             # Charge measured work once, even if a later remedy
@@ -603,7 +618,7 @@ def run_auto_plan(plan, emit=None, *, stop_requested=None):
                                       final_checkpoint=evidence['checkpoint'])
                         break
                     if verification_waiting:
-                        if evidence['hydro_revisions']:
+                        if evidence['hydro_revisions'] or evidence.get('checkpoint_updates') or evidence.get('source_changed') or evidence.get('ng_accelerations'):
                             verification_history = []
                         else:
                             verification_history.append(evidence)
@@ -638,14 +653,18 @@ def run_auto_plan(plan, emit=None, *, stop_requested=None):
                               checkpoint=evidence['checkpoint'],
                               reason='Initialized a positive, charge-conserving checkpoint; no radiation iterations performed')
                         continue
-                    if evidence['hydro_revisions']:
+                    if evidence.get('checkpoint_updates') or evidence.get('ng_accelerations'):
+                        history = []
+                        event('auto_history_reset', attempt=attempt, checkpoint_updates=evidence.get('checkpoint_updates', []),
+                              reason='Native checkpoint update; correction trends restart with subsequent batches')
+                    elif evidence['hydro_revisions']:
                         history = []  # Mixed pre/post-hydro vectors are not a trend baseline.
                         event('auto_history_reset', attempt=attempt, hydro_revisions=evidence['hydro_revisions'],
                               reason='Native hydrostatic revision; correction trends restart with subsequent batches')
                     elif evidence.get('source_changed'):
                         history = []
                         event('auto_history_reset', attempt=attempt, source_changed=True,
-                              reason='Native X-ray source change; correction trends restart with subsequent batches')
+                              reason='Native source/control transition; correction trends restart with subsequent batches')
                     else:
                         history.append(evidence)
                     _json(journal/'result.json', result)

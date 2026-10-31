@@ -374,17 +374,17 @@ def _oscillation(ctx):
                         action='relaxation', changes=changes)
 
 
-def _stall(ctx):
+def _progress(ctx, *, full_only=True):
     if len(ctx.history) < 3:
         return None
     window = ctx.history[-3:]
-    if any(h.get('hydro_revisions') for h in window):
+    if any(h.get('hydro_revisions') or h.get('checkpoint_updates') or h.get('source_changed') or h.get('ng_accelerations') for h in window):
         return None
     grids = [(h.get('counts', {}).get('nt'), h.get('counts', {}).get('nd')) for h in window]
     if any(None in grid for grid in grids) or len(set(grids)) != 1:
         return None
     records = [next((r for r in reversed(h['records'])
-                     if not r.get('lambda_iteration') and not r.get('temperature_fixed')), {})
+                     if not full_only or (not r.get('lambda_iteration') and not r.get('temperature_fixed'))), {})
                for h in window]
 
     def valid(values):
@@ -402,22 +402,27 @@ def _stall(ctx):
                   for key in ('maximum_increase_percent', 'maximum_decrease_percent')}
         if not all(valid(values) for values in trends.values()):
             return None
-        thermal = [h.get('raw_temperature_steps', []) for h in window]
-        if all(vectors and len(vectors[-1]) == h['counts']['nd'] and
-               all(isinstance(v, (int, float)) and math.isfinite(v) for v in vectors[-1])
-               for h, vectors in zip(window, thermal)):
-            trends['raw_temperature_maximum_percent'] = [max(abs(v) for v in vectors[-1])
-                                                         for vectors in thermal]
-        # Counts describe the final solve, which may be a lambda step. Only
-        # compare them when those final solves have the same iteration mode.
-        modes = {(h['records'][-1].get('lambda_iteration', False),
-                  h['records'][-1].get('temperature_fixed', False)) for h in window}
-        if len(modes) == 1:
-            totals = [h['counts']['totals'] for h in window]
-            for label in sorted(set.intersection(*(set(t) for t in totals))):
-                values = [t[label] for t in totals]
-                if float(label.removesuffix('%')) >= ctx.evidence['epsilon_percent'] and valid(values):
-                    trends['count_above_' + label] = values
+    thermal = [h.get('raw_temperature_steps', []) for h in window]
+    if all(vectors and len(vectors[-1]) == h['counts']['nd'] and
+           all(isinstance(v, (int, float)) and math.isfinite(v) for v in vectors[-1])
+           for h, vectors in zip(window, thermal)):
+        trends['raw_temperature_maximum_percent'] = [max(abs(v) for v in vectors[-1])
+                                                     for vectors in thermal]
+    # Counts describe the final solve, which may be a lambda step. Only
+    # compare them when those final solves have the same iteration mode.
+    modes = {(h['records'][-1].get('lambda_iteration', False),
+              h['records'][-1].get('temperature_fixed', False)) for h in window}
+    if len(modes) == 1:
+        totals = [h['counts']['totals'] for h in window]
+        for label in sorted(set.intersection(*(set(t) for t in totals))):
+            values = [t[label] for t in totals]
+            if float(label.removesuffix('%')) >= ctx.evidence['epsilon_percent'] and valid(values):
+                trends['count_above_' + label] = values
+    if not saturated:
+        for key in ('maximum_increase_percent', 'maximum_decrease_percent'):
+            values = [r.get(key) for r in records]
+            if valid(values):
+                trends[key] = values
     # Slow but consistent decay is progress, even when less than 10% per
     # batch. Do not interrupt it merely because convergence needs patience.
     improving = [key for key, values in trends.items()
@@ -426,11 +431,15 @@ def _stall(ctx):
     evidence = {'saturated_solver_metric': saturated,
                 'solver_maximum_changes': recent, 'correction_trends': trends,
                 'improving_diagnostics': improving}
-    if improving:
-        if saturated:
-            return Decision('continue', 'Uncapped correction diagnostics show progress despite a saturated solver metric',
-                            evidence=evidence)
+    return evidence
+
+
+def _stall(ctx):
+    evidence = _progress(ctx)
+    if evidence is None:
         return None
+    if evidence['improving_diagnostics']:
+        return Decision('continue', 'Correction diagnostics show continuing progress', evidence=evidence)
     if number(ctx.model, 'VADAT', 'N_FIX_BA', 0) != 0 or number(ctx.model, 'VADAT', 'FIX_BA', 0) != 0:
         return replace(_matrix('Corrections stalled; check the matrix before considering further changes'),
                        evidence=evidence)
@@ -440,7 +449,19 @@ def _stall(ctx):
 
 def _fixed(ctx):
     if len(ctx.history) >= 3 and all(h['full_iterations'] == 0 for h in ctx.history[-3:]):
-        return Decision('stop', 'No variable-temperature full steps in three batches')
+        progress = _progress(ctx, full_only=False)
+        needs_lambda_release = any(r.get('lambda_iteration') for h in ctx.history[-3:] for r in h['records'])
+        automatic = (not needs_lambda_release or
+                     control_value(ctx.model, 'IN_ITS', 'DO_LAM_AUTO', 'T').upper().strip('.') in {'T', 'TRUE'})
+        thermal_release = (not enabled(ctx.model, 'FIX_T') or
+                           control_value(ctx.model, 'IN_ITS', 'DO_T_AUTO', 'F').upper().strip('.') in {'T', 'TRUE'})
+        from .auto_native_cycle import allows_full
+        if allows_full(ctx.model):
+            automatic = thermal_release = True
+        if automatic and thermal_release and progress and progress['improving_diagnostics']:
+            return Decision('continue', 'Native fixed-temperature/Lambda startup is improving; full-step verification still required',
+                            evidence=progress)
+        return Decision('stop', 'No variable-temperature full steps in three batches and no demonstrated automatic startup progress')
 
 
 def pending_verification_check(ctx):
@@ -469,24 +490,24 @@ POLICIES = (
     Policy('source_opacity', 1, 'failure', 'Replace a diagnosed nonpositive source opacity floor with the native scattering limiter', source_opacity_recovery, 1),
     Policy('pop_initialization', 1, 'failure', 'Compatible saved-model population interpolation and verified continuation', _pop, 1),
     Policy('lte_initialization', 2, 'failure', 'Confirmed fresh-start population failure: temporary LTE and verified continuation', _lte, 1),
-    Policy('opacity_lte_seed', 3, 'failure', 'Audited LTE seed, population bootstrap and full verification after negative fresh POP/LTE radiation', opacity_lte_seed, 1),
+    Policy('opacity_lte_seed', 4, 'failure', 'Audited LTE seed, population bootstrap and full verification after negative fresh POP/LTE radiation', opacity_lte_seed, 1),
     Policy('startup_hydro', 2, 'failure', 'Rearm an unperformed startup hydro revision after a positive POP luminosity deficit', _startup_hydro, 1),
     Policy('hydro_bootstrap', 1, 'failure', 'Scheduled hydro recovery with guard restoration and follow-up', _hydro, 1),
     Policy('radiation_cache', 1, 'failure', 'Explicit EDDFACTOR mismatch recovery', _cache, 1),
-    Policy('population_guard', 4, 'failure', 'Physically audited provisional checkpoint after explicit MAX_CHNG stop', population_guard, 1),
+    Policy('population_guard', 5, 'failure', 'Physically audited provisional checkpoint after explicit MAX_CHNG stop', population_guard, 1),
     Policy('ray_refinement', 5, 'failure', 'Negative-luminosity coarse-ray recovery with guarded verification', ray_refinement, 1),
     Policy('verified_convergence', 3, 'success', 'Independent fresh-Jacobian acceptance with a stable source and restoration of starting BA reuse', _verified),
     Policy('verify_candidate', 2, 'success', 'Fresh-Jacobian verification of a numerical candidate', _candidate),
     Policy('superlevel_temperature', 2, 'success', 'Superlevel temperature coupling before oscillation damping', temperature_coupling, 1),
-    Policy('population_bootstrap', 6, 'success', 'Bounded fixed-T Lambda population recovery and full verification', population_bootstrap, 1),
+    Policy('population_bootstrap', 7, 'success', 'Bounded fixed-T Lambda population recovery and full verification', population_bootstrap, 1),
     Policy('ng_cadence', 1, 'success', 'Contiguous batches permitting the first native Ng acceleration', ng_cadence, 1),
-    Policy('population_relaxation', 3, 'success', 'Guarded half-relaxation for measured small population cycles', population_relaxation, 1),
+    Policy('population_relaxation', 4, 'success', 'Guarded half-relaxation for measured small population cycles', population_relaxation, 1),
     Policy('local_relaxation', 2, 'success', 'Measured localized temperature oscillation damping', _oscillation, 2),
     Policy('relaxation_release', 2, 'success', 'Gradually release automatic damping through guarded trials', relaxation_release, 3),
     Policy('ba_reuse_trial', 3, 'success', 'Guarded one-iteration BA reuse after sustained healthy progress', ba_reuse_trial, 1),
-    Policy('stalled_transfer_refinement', 3, 'success', 'Guarded formal and moment refinement for a small fresh-matrix stall', stalled_transfer_refinement, 1),
-    Policy('stalled_corrections', 2, 'success', 'Fresh-matrix test for a stalled correction sequence', _stall, 1),
-    Policy('fixed_temperature', 1, 'success', 'Detect absence of temperature-varying full steps', _fixed),
+    Policy('stalled_transfer_refinement', 4, 'success', 'Guarded formal and moment refinement for a small fresh-matrix stall', stalled_transfer_refinement, 1),
+    Policy('stalled_corrections', 3, 'success', 'Fresh-matrix test for a stalled correction sequence', _stall, 1),
+    Policy('fixed_temperature', 2, 'success', 'Detect absence of temperature-varying full steps', _fixed),
 )
 
 

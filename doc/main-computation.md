@@ -86,7 +86,7 @@ The following table lists every registered rule and the two fallback decisions. 
 | Local oscillation damping — `local_relaxation` | Persistent sign reversals in raw temperature requests, or sufficient completed-batch temperature profiles, with nondecaying amplitude. The affected interval spans at most one third of the depth grid. Requires `SCALE_OPT=MAJOR` and supported simple correction controls. | Set depth-local `RELAX=0.25`, then `0.125` if necessary; set local `T_LIM=0.2` so a tighter cap does not suppress the native RELAX branch. Preserve/extend the existing simple depth interval within the supported width. | At most 2 adjustments; a persistent cycle at the minimum RELAX stops for review. |
 | Stalled transfer sampling — `stalled_transfer_refinement` | The ordinary small-correction tail (≤1%) stalls across 3 comparable fresh-matrix batches with `VFRAC_FG` or `VFRAC_MOM` above `0.1`. Requires CMFGEN viewer patches ≥2026-10-31.1, including interpolation, collision, X-ray and moment-Jacobian/limiter repairs, fixed structure, conserved elements/charge and fresh positive luminosity/optical-depth guards. | Provisionally reduce coarse formal/moment sampling controls to `0.1`, preserving any finer setting and the atmosphere grid. Retire BA/radiation caches and request 3 iterations. Keep the change only after full fresh solves reduce the raw maximum without increasing correction counts and pass physical guards. Independent convergence verification still follows. | One provisional procedure; unsupported solver families or unproductive trials require review. |
 | Stalled corrections — `stalled_corrections` | Last full, variable-temperature steps from 3 comparable batches show no steady decline or improvement exceeding 2% relative to the first. A native metric at or above its `10,000,000%` cap requires uncapped population extrema; improving raw extrema, temperature requests, or relevant correction counts permit continuation. Counts are compared only for matching final-step modes. Missing raw extrema cannot prove a capped plateau. | Request fresh matrices with `COMP_BA=T`, `N_FIX_BA=0`, `FIX_BA=0.0`, retiring the saved BA caches. If already using fresh matrices, first consider the guarded transfer-sampling remedy above; otherwise stop for review. Trends restart after adjustments and native hydro revisions; a hydro-containing batch is excluded from the new baseline. | One matrix-refresh remedy; shared work budgets still apply. |
-| No temperature-varying steps — `fixed_temperature` | Three batches since the last intervention contain no full, variable-temperature solve. | Stop for review; Lambda/fixed-temperature changes cannot prove convergence. The loop does not disable Lambda handling or force a temperature-release policy. | Terminal decision. |
+| No temperature-varying steps — `fixed_temperature` | Three comparable batches since the last intervention contain no full, variable-temperature solve and show no continuing progress toward an enabled native automatic release. | Stop for review. Improving automatic Lambda/fixed-temperature startup may continue within the shared budgets, but cannot certify convergence. The loop does not disable Lambda handling or force a temperature-release policy. | Terminal only when automatic startup progress is not demonstrated. |
 | Healthy continuation — `continue` | Fresh outputs and a coherent, finite-core continuation checkpoint, with no higher-priority rule matching. | Continue another normal batch. | Shared work budgets. |
 | Unhandled problem — `unhandled` | Unknown failure, or a recognized problem whose tested remedy is ineligible. Invalid/stale numerical evidence is also passed to failure diagnosis. | Stop with the diagnosis/refusal trail and an investigation report. Do not invent an untested adjustment. | Terminal decision. |
 
@@ -116,6 +116,52 @@ recovery validators and convergence verification still apply. Extensions that
 exceed the shared budget stop the loop and restore the preceding accepted
 checkpoint; native schedule extensions cannot be predicted as a hard per-batch
 work cap. Use the shared timeout when a wall-clock limit is needed.
+
+### Normal native transitions during automatic runs
+
+The controller distinguishes progress and native state changes from numerical
+failure:
+
+- `DO_T_AUTO` is read from **IN_ITS**, matching CMFGEN. A fixed-temperature
+  startup requires this explicit automatic release; its verified `FIX_T=T → F`
+  update in VADAT is accepted. An explicit reachable `FULL` in `IT_SPECIFIER`
+  can also provide a scripted temperature release, provided the subsequent
+  IN_ITS reread does not force permanent Lambda iterations.
+- Three Lambda/fixed-temperature batches do not stop an improving startup when
+  the relevant native automatic release is enabled. Full variable-temperature
+  solves and independent fresh-Jacobian verification are still required for
+  convergence.
+- Stall screening considers finite uncapped population extrema, temperature
+  requests and correction-threshold counts even below the native solver metric's
+  saturation ceiling. Counts must describe matching solve modes and grids, and
+  only thresholds at or above `EPS_TERM` can establish progress. Comparisons
+  restart after source, grid, averaging/undo and Ng transitions.
+- Native gradual X-ray, advection, radioactive-decay and shock-power ramps, and
+  automatic fixed-J release are recognized only when enabled controls, logged
+  measurements and the native update algorithms agree. Unrelated edits remain
+  errors. These transitions reset correction history and cannot certify
+  convergence in that batch.
+- Completed radial-grid revisions require a matching decrement in
+  `ADJUST_R_DEFAULTS [N_ITS]` and the invocation's own native process log.
+  Native `IT_SPECIFIER` rotations and `REVISE_R` rescheduling are replayed
+  against the completed counters; both mutable files participate in rollback.
+  Averaging/undo and grey-release checkpoint increments require their specific
+  evidence and enabled controls. They are counted separately from radiation
+  solves; unexplained or duplicate counter evidence still stops the loop.
+- Population-damping and transfer-refinement verification can wait through
+  native Lambda/fixed-temperature fallback, Ng, or a source transition. Every
+  deferred checkpoint must pass the original physical and luminosity checks.
+  A changed source starts a new numerical comparison, recorded in the attempt
+  journal; it does not replace the original physical anchor. The full procedure
+  stays provisional until stable full fresh-BA solves pass verification. Budget
+  exhaustion, interruption or failed physical checks roll it back.
+
+Strict speed-optimization trials still roll back an unverified optimization and
+continue from its baseline. None of these allowances bypass invalid checkpoints,
+nonfinite data, changed executables or the shared work/time budgets.
+Process scans recheck unidentified processes before declaring uncertainty:
+processes confirmed to have exited or become zombies do not block the next
+batch. Denied visibility or a live unidentified process still prevents writes.
 
 The optional native `FINAL_OUTPUT_ONLY` mode writes complete files at a fixed
 checkpoint without solving corrections. Main/test runner plans reject this

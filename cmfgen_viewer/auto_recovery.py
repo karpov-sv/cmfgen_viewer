@@ -123,10 +123,10 @@ def _bootstrap_check(ctx):
         _finite(r.get(key)) and 0 <= r[key] < eps
         for r in records for key in ('solver_maximum_change',
                                     'maximum_increase_percent', 'maximum_decrease_percent'))
-    if ((len(records) != 3 and not early) or ctx.evidence.get('ng_accelerations') or
+    if ((len(records) < 3 and not early) or ctx.evidence.get('ng_accelerations') or
             not all(r.get('lambda_iteration') and r.get('temperature_fixed') and r.get('ba_computed')
                     for r in records)):
-        raise RunnerError('Population bootstrap needs three fixed-T Lambda solves with fresh BA, or two below EPS_TERM')
+        raise RunnerError('Population bootstrap needs at least three fixed-T Lambda solves with fresh BA, or two below EPS_TERM')
     extrema = [(r.get('maximum_increase_percent'), r.get('maximum_decrease_percent')) for r in records]
     if not all(_finite(v) and v >= 0 for pair in extrema for v in pair):
         raise RunnerError('Population bootstrap has incomplete uncapped correction extrema')
@@ -150,7 +150,9 @@ def _population_full_check(ctx):
     records = ctx.evidence['records']
     if len(records) < 2 or not all(r.get('ba_computed') for r in records):
         raise RunnerError('Population verification needs two completed fresh-BA solves')
-    if any(r.get('lambda_iteration') or r.get('temperature_fixed') for r in records[-2:]):
+    if (ctx.evidence.get('source_changed') or ctx.evidence.get('checkpoint_updates') or
+            ctx.evidence.get('ng_accelerations') or
+            any(r.get('lambda_iteration') or r.get('temperature_fixed') for r in records[-2:])):
         full = sum(not r.get('lambda_iteration') and not r.get('temperature_fixed')
                    for r in records)
         raise VerificationPending(

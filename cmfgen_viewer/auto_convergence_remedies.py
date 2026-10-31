@@ -43,25 +43,43 @@ def _baseline(ctx):
 def _validate(ctx, baseline):
     from .checkpoint_physics import checkpoint_physics, compare_physics
     records = ctx.evidence['records']
-    if (len(records) < 2 or ctx.evidence.get('source_changed') or
-            ctx.evidence.get('hydro_revisions') or ctx.evidence.get('ng_accelerations') or
-            any(r.get('lambda_iteration') or r.get('temperature_fixed') or not r.get('ba_computed')
-                for r in records)):
-        raise RunnerError('Convergence remedy requires full fresh-BA solves with unchanged structure and source')
-    values = [records[-1].get(k) for k in
-              ('solver_maximum_change', 'maximum_increase_percent', 'maximum_decrease_percent')]
-    if (not all(isinstance(v, (int, float)) and math.isfinite(v) and v >= 0 for v in values) or
-            max(values) >= baseline['raw_maximum_percent']):
-        raise RunnerError('Convergence remedy did not reduce the raw maximum request')
-    old, new = baseline['counts'], ctx.evidence['counts']
-    if (old['nt'] != new['nt'] or old['nd'] != new['nd'] or
-            old['totals'].keys() != new['totals'].keys() or
-            any(v > old['totals'][k] for k, v in new['totals'].items())):
-        raise RunnerError('Convergence remedy increased correction counts or changed the model grid')
+    from .auto_policies import VerificationPending
+    if 'physical' not in baseline:
+        raise RunnerError('Convergence remedy requires an audited physical baseline')
     physics = compare_physics(baseline['physical'], checkpoint_physics(ctx.model))
     guard = guard_measurements(ctx.model, ctx.before)
     if not .5 <= guard['luminosity_min'] <= guard['luminosity_max'] <= 2:
         raise RunnerError('Convergence remedy failed the luminosity guards')
+    if len(records) < 2 or any(not r.get('ba_computed') for r in records):
+        raise RunnerError('Convergence remedy requires at least two fresh-BA solves')
+    if ctx.evidence.get('source_changed'):
+        # Corrections across distinct sources cannot measure remedy response.
+        # Preserve the original physical anchor and establish a new numerical
+        # comparison only after its independent physical/luminosity audit.
+        values = [records[-1].get(k) for k in
+                  ('solver_maximum_change', 'maximum_increase_percent', 'maximum_decrease_percent')]
+        if not all(isinstance(v, (int, float)) and math.isfinite(v) and v >= 0 for v in values):
+            raise RunnerError('Source transition lacks complete finite correction measurements')
+        baseline.update(raw_maximum_percent=max(values), counts=ctx.evidence['counts'])
+    if (ctx.evidence.get('source_changed') or ctx.evidence.get('hydro_revisions') or
+            ctx.evidence.get('checkpoint_updates') or ctx.evidence.get('ng_accelerations') or
+            any(r.get('lambda_iteration') or r.get('temperature_fixed') for r in records[-2:])):
+        raise VerificationPending('Native transition or Lambda/fixed-temperature fallback; require a stable full fresh-BA batch',
+                                  {'checkpoint_physics': physics, 'guard': guard,
+                                   'source_comparison_reset': bool(ctx.evidence.get('source_changed')),
+                                   'comparison_raw_maximum_percent': baseline['raw_maximum_percent']})
+    values = [records[-1].get(k) for k in
+              ('solver_maximum_change', 'maximum_increase_percent', 'maximum_decrease_percent')]
+    settled = ctx.evidence.get('candidate', False)
+    if (not all(isinstance(v, (int, float)) and math.isfinite(v) and v >= 0 for v in values) or
+            (max(values) >= baseline['raw_maximum_percent'] and not settled)):
+        raise RunnerError('Convergence remedy did not reduce the raw maximum request')
+    old, new = baseline['counts'], ctx.evidence['counts']
+    if (old['nt'] != new['nt'] or old['nd'] != new['nd'] or
+            old['totals'].keys() != new['totals'].keys() or
+            any(v > old['totals'][k] for k, v in new['totals'].items()
+                if not settled or float(k.removesuffix('%')) >= ctx.evidence['epsilon_percent'])):
+        raise RunnerError('Convergence remedy increased correction counts or changed the model grid')
     return {'convergence_remedy_check': {'raw_maximum_percent': max(values),
                                         'physical_checks': physics, 'guard': guard}}
 
@@ -91,7 +109,7 @@ def population_relaxation(ctx):
                     changes={'ADJUST_CORRECTIONS': {'L_ST': '1', 'L_END': str(nd), 'RELAX': '0.5'},
                              'VADAT': {'COMP_BA': 'T', 'N_FIX_BA': '0', 'FIX_BA': '0.0'}},
                     caches=('BAMAT', 'BAMATPNT'), evidence={**baseline, 'population_cycle': cycle},
-                    steps=(RecoveryStep('population_relaxation_check', 3, lambda c: _validate(c, baseline)),))
+                    steps=(RecoveryStep('population_relaxation_check', 3, lambda c: _validate(c, baseline), repeat_on_native_fallback=True),))
 
 
 def stalled_transfer_refinement(ctx):
@@ -116,4 +134,4 @@ def stalled_transfer_refinement(ctx):
                     action='stalled_transfer_refinement', changes={'VADAT': changes},
                     caches=('EDDFACTOR', 'EDDFACTOR_INFO', 'BAMAT', 'BAMATPNT'),
                     evidence={**baseline, 'old_VFRAC_FG': fg, 'old_VFRAC_MOM': mom},
-                    steps=(RecoveryStep('transfer_refinement_check', 3, lambda c: _validate(c, baseline)),))
+                    steps=(RecoveryStep('transfer_refinement_check', 3, lambda c: _validate(c, baseline), repeat_on_native_fallback=True),))

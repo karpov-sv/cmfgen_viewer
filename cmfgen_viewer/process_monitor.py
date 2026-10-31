@@ -27,6 +27,8 @@ def scan_model_processes(target_dir: Path, *, recursive=False, tokens=None, now_
             if process.pid == os.getpid():
                 continue
             info = process.info
+            if info.get("status") in {psutil.STATUS_ZOMBIE, psutil.STATUS_DEAD}:
+                continue
             name, arguments = info.get("name"), info.get("cmdline")
             # Paths passed as data (e.g. --working-dir cmfgen_viewer) are not executables.
             candidates = [name, (arguments or [None])[0]]
@@ -36,6 +38,17 @@ def scan_model_processes(target_dir: Path, *, recursive=False, tokens=None, now_
             names = [Path(arg).name for arg in candidates if arg]
             if not any(PROGRAM_RE.fullmatch(arg) for arg in names):
                 if (name is None and arguments is None) or (name in SHELL_NAMES and arguments is None):
+                    try:
+                        # Empty cached fields can describe a process that exited
+                        # during enumeration, rather than denied visibility.
+                        if not process.is_running():
+                            continue
+                        if info.get("status") is None and process.status() in {psutil.STATUS_ZOMBIE, psutil.STATUS_DEAD}:
+                            continue
+                    except psutil.NoSuchProcess:
+                        continue
+                    except (psutil.AccessDenied, OSError, ValueError):
+                        pass  # A still-unidentified process remains unsafe.
                     uncertainties.append(f"Cannot identify process {process.pid}; model activity is uncertain.")
                 continue
             if tokens and not any(token in arg.lower() for arg in names for token in tokens):

@@ -73,7 +73,8 @@ def _validate(ctx, baseline, *, reuse):
     e = ctx.evidence
     try:
         from .checkpoint_physics import checkpoint_physics, compare_physics
-        if e['hydro_revisions'] or e.get('ng_accelerations') or e['full_iterations'] != e['iterations'] or len(e['records']) != 2:
+        if (e['hydro_revisions'] or e.get('ng_accelerations') or e.get('checkpoint_updates') or
+                e.get('source_changed') or e['full_iterations'] != e['iterations'] or len(e['records']) != 2):
             raise RunnerError('Trial needs exactly two full variable-temperature solves without grid/Ng revisions')
         if not _thermal_complete(e):
             raise RunnerError('Trial lacks complete temperature-request vectors')

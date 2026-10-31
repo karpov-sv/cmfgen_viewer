@@ -16,7 +16,7 @@ from .runner_recipe import RunnerError, snapshot
 from .runner_validation import validate_rvsig_structure
 
 COUPLED_CONTROLS = ('VADAT', 'RVSIG_COL', 'HYDRO_DEFAULTS')
-NATIVE_CONTROLS = (*COUPLED_CONTROLS, 'IN_ITS')
+NATIVE_CONTROLS = (*COUPLED_CONTROLS, 'IN_ITS', 'ADJUST_R_DEFAULTS', 'IT_SPECIFIER')
 HYDRO_MESSAGE = 'Revised hydrostatic structure and output new RVSIG_COL file'
 
 
@@ -55,7 +55,7 @@ def capture_controls(model):
     return result
 
 
-def native_updates(model, text, before, *, fresh_start=False):
+def native_updates(model, text, before, *, fresh_start=False, process_text='', iteration_overrides=None):
     """Accept documented native-owned changes with matching solver evidence.
 
     Other input changes still stop the controller. This does not authenticate
@@ -64,13 +64,56 @@ def native_updates(model, text, before, *, fresh_start=False):
     completed = revisions(text)
     after = capture_controls(model)
     changed = {n for n in NATIVE_CONTROLS if after[n] != before[n]}
-    if not changed and not completed:
+    from .auto_native_events import grid_revisions
+    grids = grid_revisions(process_text)
+    normalizing = bool(re.search(r'^\s*XRAY_NORMALIZATION_FACTOR:', text, re.M))
+    if not changed and not completed and not grids and not normalizing:
         return {}
     old = _values(before['VADAT'] or '')
     new = _values(after['VADAT'] or '')
     vd_keys = {k for k in old.keys() | new.keys() if old.get(k) != new.get(k)}
     allowed = set()
     records = _parse_iteration_records(text)
+    from .auto_native_updates import ramp_updates, truth, native_rewrite_only
+    its = _values(before['IN_ITS'] or '')
+    its.update({k: str(v) for k, v in (iteration_overrides or {}).items()
+                if k in {'DO_LAM_IT', 'DO_LAM_AUTO', 'DO_T_AUTO', 'DO_GT_AUTO'}})
+    ramp_keys, transitions = ramp_updates(old, new, its, text, process_text)
+    allowed.update(ramp_keys)
+    slow_release = 'xray_ramp' in transitions and not truth(new, 'XSLOW')
+    from .auto_native_cycle import replay
+    scheduled = replay(before['IT_SPECIFIER'], after['IT_SPECIFIER'],
+                       [r['global_iteration']-1 for r in records[1:]])
+    if grids or scheduled:
+        if (grids and not truth(old, 'REV_RGRID')) or before['ADJUST_R_DEFAULTS'] is None:
+            raise RunnerError('Radial-grid update lacks its reviewed schedule')
+        old_grid, new_grid = _values(before['ADJUST_R_DEFAULTS']), _values(after['ADJUST_R_DEFAULTS'] or '')
+        try:
+            remaining = int(old_grid['N_ITS'])
+            start = int(old_grid.get('STRT_ITS', '1'))
+            frequency = int(old_grid.get('FREQ_ITS', '10'))
+            if remaining < 0 or start < 1 or frequency < 1:
+                raise ValueError('Invalid grid schedule')
+            for i, record in enumerate(records):
+                counter = record['global_iteration']
+                if counter in grids:
+                    if remaining < 1 or counter < start or (counter-start) % frequency:
+                        raise ValueError('Unscheduled grid revision')
+                    remaining -= 1
+                if i+1 < len(records):
+                    end = records[i+1]['global_iteration']-1
+                    if end in scheduled:
+                        remaining, start = 1, scheduled[end]
+            expected_grid = dict(old_grid, N_ITS=str(remaining))
+            if scheduled:
+                expected_grid['STRT_ITS'] = str(start)
+            if new_grid != expected_grid:
+                raise ValueError('Grid counter mismatch')
+        except (KeyError, ValueError) as exc:
+            raise RunnerError('Radial-grid counters do not match completed revisions and native cycle') from exc
+        native_rewrite_only(before['ADJUST_R_DEFAULTS'], after['ADJUST_R_DEFAULTS'], {'N_ITS', 'STRT_ITS'})
+        if 'RVSIG_COL' in changed:
+            validate_rvsig_structure(model/'RVSIG_COL', model/'MODEL_SPEC')
     hydro_before = before['HYDRO_DEFAULTS']
     reset = False
     if (fresh_start and enabled(model, 'DO_HYDRO') and hydro_before is not None and
@@ -98,7 +141,7 @@ def native_updates(model, text, before, *, fresh_start=False):
         transition = next((full['global_iteration'] for lam, full in zip(records, records[1:])
                            if lam.get('lambda_iteration') and not full.get('lambda_iteration')
                            and full['global_iteration'] == lam['global_iteration'] + 1
-                           and 0 <= lam.get('solver_maximum_change', math.inf) < 50
+                           and 0 <= lam.get('solver_maximum_change', math.inf) < (100 if slow_release else 50)
                            and math.isfinite(full.get('solver_maximum_change', math.inf))), None)
         if (old_its.get('DO_LAM_IT', '').upper().strip('.') not in {'T', 'TRUE'} or
                 old_its.get('DO_LAM_AUTO', 'T').upper().strip('.') not in {'T', 'TRUE'} or
@@ -116,7 +159,7 @@ def native_updates(model, text, before, *, fresh_start=False):
         if [line.rstrip() for line in expected] != [line.rstrip() for line in (after['IN_ITS'] or '').splitlines()]:
             raise RunnerError('Unexpected IN_ITS edit during execution; preserving it for review')
     # CMFGEN can release an explicitly requested automatic fixed-T startup.
-    if (old.get('DO_T_AUTO', '').upper().strip('.') in {'T', 'TRUE'} and
+    if (its.get('DO_T_AUTO', 'F').upper().strip('.') in {'T', 'TRUE'} and
             old.get('FIX_T', '').upper().strip('.') in {'T', 'TRUE'} and
             new.get('FIX_T', '').upper().strip('.') in {'F', 'FALSE'} and
             any(not r.get('lambda_iteration') and r.get('solver_maximum_change', math.inf) < 50
@@ -146,17 +189,17 @@ def native_updates(model, text, before, *, fresh_start=False):
             value = parse_float_token(new.get(key, ''))
             if value is None or not math.isfinite(value) or value <= 0:
                 raise RunnerError(f'Invalid native hydro [{key}]')
-    elif changed - ({'VADAT', 'IN_ITS', 'HYDRO_DEFAULTS'} if reset else {'VADAT', 'IN_ITS'}):
+    elif changed - ({'VADAT', 'IN_ITS'} | ({'HYDRO_DEFAULTS'} if reset else set()) |
+                    ({'ADJUST_R_DEFAULTS', 'RVSIG_COL'} if grids or scheduled else set()) | {'IT_SPECIFIER'}):
         raise RunnerError('Structure controls changed without completed native hydro evidence')
     xray_keys = {'FIL_FAC_1', 'FIL_FAC_2'}
     xray_update = None
-    if vd_keys & xray_keys:
+    if vd_keys & xray_keys or normalizing:
         factors = [parse_float_token(v) for v in re.findall(
             r'^\s*XRAY_NORMALIZATION_FACTOR:\s*(\S+)\s*$', text, re.M)]
         if (not factors or any(v is None or not math.isfinite(v) or not .1 <= v <= 10 for v in factors) or
                 not enabled(model, 'INC_XRAYS') or not enabled(model, 'SCL_XLUM') or enabled(model, 'XSLOW') or
-                not any(not r.get('lambda_iteration') and
-                        math.isfinite(r.get('solver_maximum_change', math.inf)) and
+                not any(math.isfinite(r.get('solver_maximum_change', math.inf)) and
                         r.get('solver_maximum_change', math.inf) < 100 for r in records)):
             raise RunnerError('X-ray filling factors changed without verified native normalization evidence')
         factor = math.prod(factors)
@@ -172,9 +215,17 @@ def native_updates(model, text, before, *, fresh_start=False):
         xray_update = {'factors': factors, 'requires_stable_source_verification': True}
     if vd_keys - allowed:
         raise RunnerError('Unexpected VADAT edit during execution; preserving it for review')
+    if transitions and not completed:
+        native_rewrite_only(before['VADAT'] or '', after['VADAT'] or '', allowed)
     result = {name: {'before': before[name], 'after': after[name]} for name in changed}
     if xray_update:
+        result.setdefault('VADAT', {'before': before['VADAT'], 'after': after['VADAT']})
         result['VADAT']['xray_normalization'] = xray_update
+    if transitions:
+        result['VADAT']['native_transitions'] = transitions
+    if grids:
+        result.setdefault('ADJUST_R_DEFAULTS', {'before': before['ADJUST_R_DEFAULTS'], 'after': after['ADJUST_R_DEFAULTS']})
+        result['ADJUST_R_DEFAULTS']['grid_revisions'] = grids
     return result
 
 
@@ -265,6 +316,8 @@ def hydro_exhausted(model):
 
 
 def structure_fixed(model):
+    if enabled(model, 'REV_RGRID') and number(model, 'ADJUST_R_DEFAULTS', 'N_ITS', -1) != 0:
+        return False  # Fixed-geometry remedies cannot span scheduled regridding.
     if not enabled(model, 'DO_HYDRO') or hydro_exhausted(model):
         return True
     # An explicitly empty, complete schedule performs no structure changes,
