@@ -66,7 +66,7 @@ def relink(root):
 
 
 def checked_sources(root, manifest):
-    scientific = [f for f in manifest['files'] if Path(f['path']).suffix in {'.f', '.f90'}]
+    scientific = [f for f in manifest['files'] if (Path(f['path']).suffix in {'.f', '.f90'} or Path(f['path']).name == 'cmfgen_version.inc')]
     for item in scientific:
         if sha(root/item['path']) != item['sha256']:
             raise ValueError('Source differs from validated patch: '+item['path'])
@@ -107,14 +107,8 @@ def record(root, manifest, *, commands=()):
         if p.stat().st_mtime_ns < newest:
             raise ValueError('Executable predates source/libraries; run the recorder with automatic relinking: '+str(p))
         executables[name] = {'sha256':sha(p), 'size':p.stat().st_size}
-    data = {'schema_version':1, 'recorded_at_utc':datetime.now(timezone.utc).isoformat(),
+    data = {'schema_version':2, 'recorded_at_utc':datetime.now(timezone.utc).isoformat(),
             'source_checkout':str(root), 'source_patch_sha256':manifest['patch_sha256'],
-            'capabilities':['line-jacobian-v1','ba-restart-v1','lte-charge-v1',
-                            'grey-intensity-guard-v1','ng-temperature-v1','moment-grid-jacobian-v1',
-                            'moment-grid-family-v1','moment-limits-v1',
-                            'monotone-range-v1','collision-temperature-v1',
-                            'xray-normalization-v1','fixed-state-output-v1',
-                            'source-opacity-floor-diagnostic-v1'],
             'sources':{f['path']:f['sha256'] for f in scientific},
             'build_files':{f['path']:f['sha256'] for f in manifest['files']
                            if Path(f['path']).name == 'Makefile'},

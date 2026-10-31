@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from .native_version import output_revision
 from pathlib import Path
 
 from .browser import is_model_directory, resolve_path
@@ -155,6 +156,7 @@ def inspect_main_model_workflow(basepath: str, *, model_relpath: str, config: di
         "results": results,
         "mod_sum_fresh": mod_sum_fresh,
         "result_status": result_status,
+        "solution_patch_revision": output_revision(model_dir/"MOD_SUM"),
         "marker_stale": marker_stale,
         "lte_handoff_required": lte_handoff_required,
         "convergence": inspect_model_convergence(model_dir),

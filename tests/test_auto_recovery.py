@@ -15,12 +15,25 @@ from cmfgen_viewer.runner import run_plan
 from cmfgen_viewer.runner_recipe import RunnerError
 
 
+def stamp_version(exe, revision='2026-10-31.1'):
+    import re
+    code = exe.read_text()
+    code = re.sub(r'(?ms)^# BEGIN PATCH VERSION QUERY\n.*?^# END PATCH VERSION QUERY\n', '', code)
+    first, rest = code.split('\n', 1)
+    query = ("# BEGIN PATCH VERSION QUERY\nimport sys\n"
+             "if sys.argv[1:] == ['--version']:\n"
+             f" print('CMFGEN_VIEWER_PATCH {revision}')\n raise SystemExit(0)\n"
+             "# END PATCH VERSION QUERY\n")
+    exe.write_text(first+'\n'+query+rest)
+    exe.chmod(0o755)
+
+
 def authenticate(model):
-    root=model.parent/'cmf'
-    exe=root/'exe/cmfgen_dev.exe'
-    (root/'cmfgen-local-build.json').write_text(json.dumps({
-        'capabilities':['line-jacobian-v1','ba-restart-v1'],
-        'executables':{'cmfgen_dev.exe':{'sha256':hashlib.sha256(exe.read_bytes()).hexdigest()}}}))
+    stamp_version(model.parent/'cmf/exe/cmfgen_dev.exe')
+
+
+def unidentify(model):
+    stamp_version(model.parent/'cmf/exe/cmfgen_dev.exe', 'unknown')
 
 
 @pytest.fixture
@@ -95,7 +108,7 @@ def test_bootstrap_declines_unidentified_binary(auto_workspace):
     authenticate(model)
     exe=model.parent/'cmf/exe/cmfgen_dev.exe'
     assert repaired_runtime({'executable':str(exe)})
-    exe.write_text(exe.read_text()+'\n# changed binary\n')
+    stamp_version(exe, 'unknown')
     assert not repaired_runtime({'executable':str(exe)})
 
 
@@ -167,53 +180,41 @@ def test_ray_refinement_requires_negative_fresh_profile_and_original_moment_grid
         ray_refinement(replace(ctx,before={'OBSFLUX':snapshot(tmp_path/'OBSFLUX')}))
 
 
-def test_ray_refinement_authenticates_inserted_moment_repair(tmp_path):
+def test_ray_refinement_requires_dated_inserted_moment_repair(tmp_path):
+    import sys
     ctx = ray_context(tmp_path)
     (tmp_path/'VADAT').write_text('F [DO_HYDRO]\n20000 [VFRAC_FG]\n0.5 [VFRAC_MOM]\n')
-    root = tmp_path/'runtime'
-    exe = root/'exe/cmfgen_dev.exe'
+    exe = tmp_path/'runtime/exe/cmfgen_dev.exe'
     exe.parent.mkdir(parents=True)
-    exe.write_bytes(b'test native executable')
-    ctx = replace(ctx, native_plan={**ctx.native_plan, 'executable':str(exe)})
-    manifest = {'capabilities':['line-jacobian-v1', 'ba-restart-v1'],
-                'executables':{exe.name:{'sha256':hashlib.sha256(exe.read_bytes()).hexdigest()}}}
-    record = root/'cmfgen-local-build.json'
-    record.write_text(json.dumps(manifest))
-    with pytest.raises(policies.Declined, match='moment-grid-jacobian-v1'):
+    exe.write_text(f'#!{sys.executable}\n')
+    stamp_version(exe, '2026-10-30.1')
+    ctx = replace(ctx, native_plan={**ctx.native_plan, 'executable': str(exe)})
+    with pytest.raises(policies.Declined, match='2026-10-31.1'):
         ray_refinement(ctx)
-    manifest['capabilities'].append('moment-grid-jacobian-v1')
-    record.write_text(json.dumps(manifest))
-    decision = ray_refinement(ctx)
-    assert decision.changes['VADAT']['VFRAC_FG'] == '0.1'
-    assert 'VFRAC_MOM' not in decision.changes['VADAT']
-    assert decision.evidence['VFRAC_MOM'] == .5
-    assert decision.steps[0].iterations == 2
-    exe.write_bytes(b'unrecorded replacement executable')
-    with pytest.raises(policies.Declined, match='moment-grid-jacobian-v1'):
+    stamp_version(exe)
+    assert ray_refinement(ctx).changes['VADAT']['VFRAC_FG'] == '0.1'
+    stamp_version(exe, 'unknown')
+    with pytest.raises(policies.Declined, match='2026-10-31.1'):
         ray_refinement(ctx)
+
 
 @pytest.mark.parametrize('flag', ['USE_J_REL', 'USE_DJDT_RTE', 'INC_GRID'])
 @pytest.mark.parametrize('moment_fraction', [20000, .5])
-def test_ray_refinement_authenticates_solver_family_repair(tmp_path, flag, moment_fraction):
+def test_ray_refinement_requires_dated_solver_family_repair(tmp_path, flag, moment_fraction):
+    import sys
     ctx = ray_context(tmp_path)
     (tmp_path/'VADAT').write_text(f'F [DO_HYDRO]\n20000 [VFRAC_FG]\n{moment_fraction} [VFRAC_MOM]\nT [{flag}]\n')
     exe = tmp_path/'runtime/exe/cmfgen_dev.exe'
     exe.parent.mkdir(parents=True)
-    exe.write_bytes(b'family test executable')
-    ctx = replace(ctx, native_plan={**ctx.native_plan, 'executable':str(exe)})
-    manifest = {'capabilities':['line-jacobian-v1', 'ba-restart-v1', 'moment-grid-jacobian-v1'],
-                'executables':{exe.name:{'sha256':hashlib.sha256(exe.read_bytes()).hexdigest()}}}
-    record = exe.parent.parent/'cmfgen-local-build.json'
-    record.write_text(json.dumps(manifest))
-    with pytest.raises(policies.Declined, match='moment-grid-family-v1'):
+    exe.write_text(f'#!{sys.executable}\n')
+    stamp_version(exe, '2026-10-30.1')
+    ctx = replace(ctx, native_plan={**ctx.native_plan, 'executable': str(exe)})
+    with pytest.raises(policies.Declined, match='2026-10-31.1'):
         ray_refinement(ctx)
-    manifest['capabilities'].append('moment-grid-family-v1')
-    record.write_text(json.dumps(manifest))
-    decision = ray_refinement(ctx)
-    assert decision.changes['VADAT']['VFRAC_FG'] == '0.1'
-    assert 'VFRAC_MOM' not in decision.changes['VADAT']
-    exe.write_bytes(b'changed family executable')
-    with pytest.raises(policies.Declined, match='moment-grid-family-v1'):
+    stamp_version(exe)
+    assert ray_refinement(ctx).changes['VADAT']['VFRAC_FG'] == '0.1'
+    stamp_version(exe, 'unknown')
+    with pytest.raises(policies.Declined, match='2026-10-31.1'):
         ray_refinement(ctx)
 
 

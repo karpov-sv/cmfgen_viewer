@@ -112,8 +112,8 @@ def opacity_lte_seed(ctx):
     if (len(records) != 1 or records[0]['global_iteration'] != 1 or
             records[0].get('solver_maximum_change') is not None):
         raise Declined('Opacity LTE seed never reseeds after a population solve or a continuation')
-    if not repaired_runtime(ctx.native_plan, required=('line-jacobian-v1','ba-restart-v1','lte-charge-v1')):
-        raise Declined('Opacity LTE seed requires an authenticated charge-consistent LTE build')
+    if not repaired_runtime(ctx.native_plan):
+        raise Declined('Opacity LTE seed requires a supported dated CMFGEN patch revision')
     measured = guard_measurements(ctx.model, ctx.before, require_positive=False)
     if measured['luminosity_min'] >= 0:
         return None  # A moderate positive deficit belongs to startup hydro.

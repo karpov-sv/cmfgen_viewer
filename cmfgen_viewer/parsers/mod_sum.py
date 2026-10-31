@@ -16,6 +16,8 @@ DATE_PREFIXES = {
     "Model Started on": "model_started_on",
     "Model Finalized on": "model_finalized_on",
     "Main program last changed on": "main_program_last_changed_on",
+    "CMFGEN viewer patch revision": "cmfgen_viewer_patch_revision",
+    "CMFGEN upstream release": "cmfgen_upstream_release",
 }
 
 SPECIES_ROW_RE = re.compile(
@@ -193,6 +195,8 @@ def present_mod_sum(data: ModSumData) -> dict[str, object]:
         "model_started_on",
         "model_finalized_on",
         "main_program_last_changed_on",
+        "cmfgen_viewer_patch_revision",
+        "cmfgen_upstream_release",
     ]:
         if key in metadata:
             summary_rows.append([key, metadata[key]])

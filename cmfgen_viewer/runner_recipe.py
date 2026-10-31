@@ -12,6 +12,7 @@ import shlex
 import shutil
 import sys
 
+from .native_version import executable_revision
 from .model_initialization import lte_initialization_controls, opacity_lte_seed_controls
 from .pop_initialization import pop_initialization_controls, pop_source_evidence
 from .control_files import control_occurrences
@@ -440,7 +441,8 @@ def build_run_plan(model: Path, *, stage: str, cmfgen_root: Path, atomic_root: P
             if lte_alignment["changed"]:
                 warnings.append(f"Before hydro, align MU_ATOM with LTE: {lte_alignment['current']} -> {lte_alignment['proposed']}")
     plan = {"lte_composition_alignment": lte_alignment, "schema_version": 1, "profile": "ostar-v1", "stage": stage, "model": str(model), "cwd": str(cwd),
-            "executable": str(exe), "executable_snapshot": snapshot(exe), "links": kept, "passes": passes,
+            "executable": str(exe), "executable_snapshot": snapshot(exe),
+            "native_patch_revision": executable_revision(exe) if stage in {"main", "test"} else None, "links": kept, "passes": passes,
             "local_atomic_files": local_atomic_files,
             "inputs": [snapshot(path) for path in sorted(paths)], "threads": threads, "timeout": timeout,
             "memory_mib": memory_mib, "no_core_dumps": no_core_dumps, "errors": errors, "warnings": warnings,

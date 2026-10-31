@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from test_runner_auto import auto_workspace
-from test_auto_recovery import population_workspace, authenticate
+from test_auto_recovery import population_workspace, authenticate, unidentify
 from test_auto_pop import SOURCE
 from test_auto_hydro import BEFORE_SOLVE, AFTER_SOLVE, RVSIG
 from cmfgen_viewer.pop_initialization import POP_MARKER
@@ -95,7 +95,7 @@ def test_unproven_startup_cases_remain_ineligible(startup_hydro_workspace,proble
     if problem=='not_pop':(model/'VADAT').write_text((model/'VADAT').read_text().replace('POP [DC_METH]','R [DC_METH]'))
     if problem=='wrong_schedule':(model/'HYDRO_DEFAULTS').write_text((model/'HYDRO_DEFAULTS').read_text().replace('2 [STRT_ITS]','5 [STRT_ITS]'))
     authenticate(model)
-    if problem=='unidentified':(model.parent/'cmf/cmfgen-local-build.json').unlink()
+    if problem=='unidentified':unidentify(model)
     result=run_plan(make('hydro_shallow' if problem=='shallow' else 'startup_hydro'))
     assert result['status']=='needs_review',result
     assert not result['actions']

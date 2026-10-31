@@ -1,6 +1,7 @@
 {% from "_runner_ui.html" import stage_sequence with context %}
     <h2 class="h6">{{ ("Automatic main convergence → spectra" if "flux" in options.stages else "Automatic main convergence") if options.automatic else stage_sequence(options.stages) }}</h2>
     {% set first = plan.initial_plan|default(plan) %}
+    {% if first.native_patch_revision %}<p class="small">CMFGEN patch revision: <code>{{ first.native_patch_revision }}</code></p>{% endif %}
     {% if first.restart %}<p>{{ first.restart.message }}</p>{% endif %}
     <p class="small">{% if 'main' in options.stages %}{{ 'Iterations per batch' if options.automatic else 'Main iterations' }}: {{ options.iterations or (5 if options.automatic else 'from IN_ITS') }} · {% endif %}Threads: {{ options.threads or 'configured default' }} · Timeout: {{ options.timeout or 'unlimited' }}{% if options.timeout %} seconds{% endif %} · Memory: {{ options.memory_mib or 'no added limit' }}{% if options.memory_mib %} MiB{% endif %}{% if options.fresh_start %} · Fresh start{% endif %}</p>
     {% if options.automatic %}

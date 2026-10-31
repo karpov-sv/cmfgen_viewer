@@ -12,15 +12,12 @@ from .auto_recovery import repaired_runtime
 from .control_files import control_occurrences
 from .runner_recipe import RunnerError
 
-REPAIRS = ('line-jacobian-v1', 'ba-restart-v1', 'moment-grid-jacobian-v1',
-           'moment-limits-v1', 'monotone-range-v1', 'collision-temperature-v1',
-           'xray-normalization-v1')
 
 
 def _baseline(ctx):
     if (ctx.evidence.get('hydro_revisions') or ctx.evidence.get('source_changed') or ctx.evidence.get('ng_accelerations') or
             ctx.evidence.get('candidate') or not structure_fixed(ctx.model) or
-            not repaired_runtime(ctx.native_plan, required=REPAIRS)):
+            not repaired_runtime(ctx.native_plan)):
         return None
     records = ctx.evidence.get('records', [])
     if len(records) < 2 or any(r.get('lambda_iteration') or r.get('temperature_fixed')

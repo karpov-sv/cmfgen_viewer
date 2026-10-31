@@ -81,6 +81,7 @@
     </summary>
     <div class="card-body">
       {{ main_convergence(state.main_diagnostics) }}
+      {% if state.solution_patch_revision %}<p class="small text-muted">Solution produced with CMFGEN patches <code>{{ state.solution_patch_revision }}</code>.</p>{% endif %}
       {% if state.convergence.available %}
         <div class="border rounded p-3 mb-3">
           <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">

@@ -155,9 +155,6 @@ if seed:
     code=code.replace("range(start,start+count)","range(start,start+(0 if seed else count))")
     code=code.replace("out='Model started on: now\\n'", "out='Model started on: now\\n'+('Starting a new model.\\nLTE assumed for departure coefficients.\\nLTE charge consistency: iterations=1 residual=0\\n' if seed else '')")
     exe.write_text(code);authenticate(model)
-    manifest=model.parent/'cmf/cmfgen-local-build.json'
-    import json
-    data=json.loads(manifest.read_text());data['capabilities'].append('lte-charge-v1');manifest.write_text(json.dumps(data))
     return model,make
 
 
@@ -337,10 +334,6 @@ if not seed and ({condition}):
 """
     exe.write_text(exe.read_text().replace("(p/'SCRTEMP').write_bytes(g+g+", injection+"\n(p/'SCRTEMP').write_bytes(g+g+"))
     authenticate(model)
-    manifest = model.parent/'cmf/cmfgen-local-build.json'
-    record = json.loads(manifest.read_text())
-    record['capabilities'].append('lte-charge-v1')
-    manifest.write_text(json.dumps(record))
     result = run_plan(make('population_opacity_seed', fresh_start=True))
     assert result['status'] == 'needs_review', result
     assert result['provisional_recovery_rolled_back'] == 'opacity_lte_seed'
@@ -367,10 +360,6 @@ def lte_thermal_workspace(structure_seed_workspace):
     code = code.replace("if get('VADAT','NEG_OPAC_OPT','')=='SRCE_CHK':", 'if False:')
     exe.write_text(code)
     authenticate(model)
-    manifest = model.parent/'cmf/cmfgen-local-build.json'
-    data = json.loads(manifest.read_text())
-    data['capabilities'].append('lte-charge-v1')
-    manifest.write_text(json.dumps(data))
     return model, make
 
 
@@ -418,10 +407,6 @@ def test_fresh_lte_thermal_recovery_refuses_unproven_or_repeated_seed(lte_therma
         text = 'LTE assumed for departure coefficients.' if change == 'no_lte_marker' else 'LTE charge consistency:'
         exe.write_text(exe.read_text().replace(text, 'Unconfirmed initialization:'))
         authenticate(model)
-        manifest = model.parent/'cmf/cmfgen-local-build.json'
-        data = json.loads(manifest.read_text())
-        data['capabilities'].append('lte-charge-v1')
-        manifest.write_text(json.dumps(data))
     elif change == 'already_using_profile':
         p = model/'VADAT'
         p.write_text(p.read_text().replace('T [IT_ON_T]', 'F [IT_ON_T]')+'T [LTE_EST]\n')
@@ -475,10 +460,6 @@ if get('IN_ITS','DO_LAM_IT','F')=='T' and get('VADAT','NEG_OPAC_OPT','')=='SRCE_
                                     "seed=get('IN_ITS','NUM_ITS','2')=='0'\n"+guard)
     exe.write_text(code)
     authenticate(model)
-    manifest = model.parent/'cmf/cmfgen-local-build.json'
-    data = json.loads(manifest.read_text())
-    data['capabilities'].append('lte-charge-v1')
-    manifest.write_text(json.dumps(data))
     result = run_plan(make('population_opacity_seed', fresh_start=True))
     assert result['status'] == 'succeeded', result
     assert [a['policy_id'] for a in result['actions'][:2]] == ['opacity_lte_seed', 'source_opacity']

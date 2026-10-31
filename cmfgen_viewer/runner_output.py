@@ -212,6 +212,8 @@ class TerminalOutput:
             values = report[key]
             self.line("INFO", f"{label}: " + (", ".join(f"{name}={value}" for name, value in values.items()) or "unavailable"))
         state = report["state"]
+        if state.get("solution_patch_revision"):
+            self.line("INFO", "Solution produced with CMFGEN patches " + state["solution_patch_revision"])
         self.section("Run status and checkpoint")
         self.line("INFO", "Run evidence: " + (", ".join(state["evidence_files"]) if state["evidence_files"] else "runner journal" if state["has_run"] else "none recorded"))
         self.line("INFO", f"Model activity: {state['activity']['state']}")
@@ -356,6 +358,8 @@ class TerminalOutput:
         core_dumps = "core dumps disabled" if plan.get("no_core_dumps") else "core-dump policy inherited"
         self.line("INFO", f"{thread_count} | {time_limit} | {memory_limit} | {core_dumps}")
         self.line("INFO", f"Executable: {plan['executable']}")
+        if plan.get("native_patch_revision"):
+            self.line("INFO", "CMFGEN patch revision: " + plan["native_patch_revision"])
         if plan.get("restart"):
             self.line("INFO", plan["restart"]["message"])
         if plan.get("initialization"):

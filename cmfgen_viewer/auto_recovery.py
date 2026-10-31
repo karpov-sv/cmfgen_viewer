@@ -1,6 +1,4 @@
 """Evidence-driven numerical remedies established by the Bstar3502 investigation."""
-import hashlib
-import json
 import math
 from pathlib import Path
 import re
@@ -10,31 +8,16 @@ from .auto_hydro import enabled, structure_fixed
 from .parsers.common import parse_float_token
 from .runner_recipe import RunnerError, snapshot
 
-BUILD_MANIFEST = 'cmfgen-local-build.json'
+from .native_version import MINIMUM_PATCH_REVISION, supports_revision
 
 
 def _finite(value):
     return isinstance(value, (int, float)) and math.isfinite(value)
 
 
-def repaired_runtime(plan, *, required=('line-jacobian-v1', 'ba-restart-v1')):
-    """Authenticate capabilities against the executable, not a source-tree claim."""
-    executable = Path(plan.get('executable', ''))
-    manifest = executable.parent.parent / BUILD_MANIFEST
-    if not manifest.is_file() or manifest.stat().st_size > 64*1024:
-        return False
-    try:
-        data = json.loads(manifest.read_text())
-        expected = data['executables'][executable.name]['sha256']
-        digest = hashlib.sha256()
-        with executable.open('rb') as stream:
-            for block in iter(lambda: stream.read(1024*1024), b''):
-                digest.update(block)
-        actual = digest.hexdigest()
-        return (actual == expected and
-                set(required) <= set(data['capabilities']))
-    except (OSError, ValueError, KeyError, TypeError):
-        return False
+def repaired_runtime(plan, *, minimum=MINIMUM_PATCH_REVISION):
+    """Require the dated revision reported by the selected native executable."""
+    return supports_revision(plan, minimum=minimum)
 
 
 def temperature_coupling(ctx):
@@ -94,10 +77,10 @@ def ray_refinement(ctx):
     if fg <= .1:
         raise Declined('Negative luminosities persist with VFRAC_FG<=0.1; no finer-ray remedy established')
     family_grid = any(enabled(ctx.model, key) for key in ('USE_J_REL', 'USE_DJDT_RTE', 'INC_GRID'))
-    capability = 'moment-grid-family-v1' if family_grid else 'moment-grid-jacobian-v1'
+    capability = 'CMFGEN viewer patch revision '+MINIMUM_PATCH_REVISION
     if (family_grid or mom != 20000) and not repaired_runtime(
-            ctx.native_plan, required=('line-jacobian-v1', 'ba-restart-v1', capability)):
-        raise Declined('Inserted moment grids and alternate solver families require an authenticated '
+            ctx.native_plan):
+        raise Declined('Inserted moment grids and alternate solver families require a supported '
                        + capability + ' repair')
     return Decision('action', 'Negative normalized luminosities with coarse formal rays; refine VFRAC_FG to0.1 '
                     'on the existing moment grid and require guarded full continuation',
@@ -195,7 +178,7 @@ def population_bootstrap(ctx):
     if control_value(ctx.model, 'VADAT', 'SCALE_OPT', '').upper() != 'MAJOR':
         raise Declined('Population bootstrap is validated with SCALE_OPT=MAJOR')
     if not repaired_runtime(ctx.native_plan):
-        raise Declined('Extreme-population bootstrap requires an authenticated build with repaired line Jacobians and BA restart')
+        raise Declined('Extreme-population bootstrap requires a supported build with repaired line Jacobians and BA restart')
     from .checkpoint_physics import checkpoint_physics
     try:
         checkpoint_physics(ctx.model)

@@ -3,13 +3,19 @@
 Updated **30 October 2026**. The
 consolidated patch contains numerical fix groups **1–28**, performance changes
 **29–30**, the optional fixed-state output feature **31**, and the opacity diagnostic
-safeguard **32**, based on CMFGEN
+safeguard **32**, and dated version/build support **33**, based on CMFGEN
 website release **version 18jun25**. Groups 26–31 come from the Bstar3010
 investigation; the three numerical repairs are distinct from the two optimizations
 and the output feature. See [validation and scope](cmfgen-convergence-repairs.md).
 
 **Status:** [cmfgen-current.patch](patches/cmfgen-current.patch) includes all the
-changes below. A clean release needs only this patch. The separate limiter patch
+changes below. The recommended installer/updater is
+`python3 cmfgen_patch.py /path/to/cur_cmf` from the viewer checkout; add `--check`
+for a read-only preview. It preserves local compiler settings and aliases,
+backs up changed files, and safely replaces recognized older patch sets.
+See [source updates](cmfgen-versioning.md#apply-or-update-the-source-patch-set).
+
+A clean release needs only this patch. The separate limiter patch
 upgrades fixes 1–24 to 1–25; the convergence-repair patch upgrades the previous
 1–25 snapshot, followed optionally by the fixed-state-output patch. Do not apply
 incremental patches on top of the current consolidated patch.
@@ -110,13 +116,14 @@ This output pass receives no solved-iteration or convergence credit.
 | 30 | Independent whole-slice remapping copies run serially. | Parallelize complete disjoint slices with OpenMP and a private inner index. Performance optimization. | `new_main/mod_subs/do_var_cont.f` |
 | 31 | Native flux-only output omits `MOD_SUM`/`RVTJ`; a zero-iteration writer gives zero mean opacities. Flux-only uses a different inner temperature gradient from an ordinary solve. | Add default-off `FINAL_OUTPUT_ONLY` in `IN_ITS` for coherent stationary continuation: use the existing ordinary luminosity boundary, bypass population updates and write standard complete outputs. Reject unsupported modes and label summaries as output-only. | `new_main/cmfgen_sub.f` |
 | 32 | `SRCE_CHK` can choose a nonpositive opacity floor when continuum absorption is negative; the formal solver then takes `LOG(CHI)`, trapping or propagating NaNs. | Stop before transfer with an explicit frequency/depth/opacity diagnostic. The runner can select the existing positive `ESEC_CHK` limiter once, without reseeding or bypassing safeguards. | `new_main/cmfgen_sub.f`; [investigation](bstar3513-opacity-investigation.md) |
+| 33 | Source release identity was absent from patched binaries; local module leftovers and a missing partial-build module export could mask build problems. | Add a shared dated patch revision and fast --version query, stamp outputs, clean source-local modules and export the variation module during partial builds. Runtime remedies use minimum dated revisions; build audits remain separate. | `new_main/cmfgen_version.inc`, `cmfgen.f`, `cmfgen_sub.f`, Makefiles; [versioning](cmfgen-versioning.md) |
 
 
 The complete diff for all groups is
 [cmfgen-current.patch](patches/cmfgen-current.patch), with the release baseline,
 capture time, patch SHA-256, installed executable hashes and before/after file
 SHA-256 values in [cmfgen-current.json](patches/cmfgen-current.json). It captures
-**47 files**, including the new population-initialization module which ordinary
+**52 files**, including the new population-initialization module which ordinary
 `git diff` would omit while untracked in the external checkout.
 
 The full diff also preserves local macOS and Ubuntu compiler/linker settings
@@ -129,7 +136,7 @@ Linux fix-25 build and native tests are documented in the
 Generated modules, binaries, logs, save files, and scratch patches are excluded.
 
 Patch application and reversal were checked against the recovered release
-contents in a fresh temporary directory. All **47 files** matched their expected
+contents in a fresh temporary directory. All **52 files** matched their expected
 SHA-256 hashes, including the three files updated for fix 25. A separate
 application excluding `Makefile_definitions` reproduced the other 44 files and
 kept the current local build file byte for byte. Do not apply the patch again
@@ -261,7 +268,7 @@ as read-only recommendations outside auto mode:
 - `superlevel_temperature`: measured persistent T oscillation with superlevel
   T derivatives disabled. Enable the derivatives and fresh BA before damping.
 - `population_bootstrap`: extreme finite population increases with fresh BA,
-  an authenticated repaired runtime, `SCALE_OPT=MAJOR` and a physically auditable
+  a dated supported patched runtime, `SCALE_OPT=MAJOR` and a physically auditable
   checkpoint. Three fixed-T Lambda steps use temporary `MAX_LAM=1e12`; all normal
   controls are restored before two full/fresh-BA checks. Charge, element sums,
   geometry and fixed bootstrap T are independently checked.
@@ -274,10 +281,10 @@ as read-only recommendations outside auto mode:
   solves so process restarts do not keep postponing the first Ng. Native
   scheduling/validity tests and all automatic work limits remain active.
 
-Bootstrap recognition needs `cmfgen-local-build.json` whose atmosphere-executable
-hash matches the running binary and advertises the line/BA repairs. Rebuilding
-changes that hash: refresh the build record after source regression checks,
-using `cmfgen-review-tests/record_local_build.py`. Unknown binaries are declined.
+Bootstrap recognition now queries the actual executable for
+`CMFGEN_VIEWER_PATCH` at revision `2026-10-31.1` or later. The optional JSON build
+record is no longer read for remedy eligibility; unidentified binaries are
+declined. See [versioning](cmfgen-versioning.md).
 
 These are numerical controls, not changes to stellar parameters, atomic data,
 Rmax or population floors. They never raise `EPS_TERM` or bypass the luminosity
@@ -294,9 +301,10 @@ Nonrelativistic forward transport remains unchanged; optional DDT forward
 boundary/homology corrections are explicit in the
 [related moment repair report](cmfgen-related-moment-repairs.md).
 
-The earlier failure-triggered automatic ray recovery requires an authenticated `moment-grid-jacobian-v1`
-executable for an ordinary inserted grid, and `moment-grid-family-v1` for REL,
-DDT or `INC_GRID`, even without insertion. That rule retains `VFRAC_MOM`. The separate guarded small-stall remedy may now refine it with the complete repairs authenticated; neither rule enables optional solver families. Experimental log-radius `QFROMF` integration and
+Failure-triggered automatic ray recovery requires CMFGEN viewer patches
+≥2026-10-31.1 for inserted moment grids, REL, DDT or INC_GRID. That rule retains
+VFRAC_MOM. The separate guarded small-stall remedy can refine it with the same
+minimum dated revision; neither rule enables optional solver families. Experimental log-radius `QFROMF` integration and
 diagnostic-only instrumentation remain excluded.
 
 ## Reproduce and rebuild
@@ -312,7 +320,7 @@ git apply --check --exclude=Makefile_definitions ~/cmfgen_viewer/doc/developer/p
 git apply --exclude=Makefile_definitions ~/cmfgen_viewer/doc/developer/patches/cmfgen-current.patch
 ```
 
-The patch includes the initialization module and groups 1–32; no second patch
+The patch includes the initialization module and groups 1–33; no second patch
 is required. `Makefile_definitions` is excluded above to preserve the receiving
 checkout's local build configuration. Its original patch hunks remain available
 for reference. Directory aliases also reflect the captured local environment;
@@ -358,14 +366,15 @@ For production use, rebuild serially in the external checkout:
 
 ```sh
 cd ~/CMFGEN2023/cur_cmf.25/
-build_exe_dir=$(mktemp -d)
-make -C plane INSTALL_DIR="$PWD/" EXE_DIR="$build_exe_dir/"
-make -C new_main INSTALL_DIR="$PWD/" EXE_DIR="$build_exe_dir/"
-make -C obs INSTALL_DIR="$PWD/" EXE_DIR="$build_exe_dir/"
-python3 ~/cmfgen_viewer/doc/developer/cmfgen-review-tests/record_local_build.py "$PWD"
+make -j1 clean all
+./exe/cmfgen_dev.exe --version
 ```
 
-After an ordinary serial build, the recorder automatically performs the final
+The updated top-level all target performs the final three links after all
+recursive library updates. No recording command is required. Build in an
+isolated checkout while model jobs are active.
+
+For selective incremental builds, the optional recorder performs the final
 three links if shared libraries are newer than an executable. A newer library
 is expected when a later recursive target updates a shared archive; it does
 not require another full rebuild. Scientific source and captured Makefile hashes are checked first, and an
@@ -374,11 +383,11 @@ before recording. Use `--relink` to force the final links, or `--no-relink` to
 require an already current build without relinking.
 
 The helper links fresh executable files and atomically replaces their paths,
-preserving an existing run's mapped executable. The separate `EXE_DIR` above
-also keeps intermediate recursive links away from the installed binaries.
+preserving an existing run's mapped executable. An isolated checkout keeps intermediate recursive links away from installed
+binaries.
 The helper performs the three final links after both recursive builds have
 finished updating shared archives; it then checks source hashes and executable
-ordering before recording capabilities. Rebuild other affected executables if used. The latest installation preserved source, library, module and executable backups in the build record's `build_evidence` directory under `installed-before/`. Keep pre-fix executables and binary checkpoints separate
+ordering before writing optional audit metadata. Rebuild other affected executables if used. The latest installation preserved source, library, module and executable backups in the build record's `build_evidence` directory under `installed-before/`. Keep pre-fix executables and binary checkpoints separate
 for comparisons. Do not run a parallel make: the archives and module directories
 are shared by recursive targets. No source fixes from this work were committed
 to the external Git repository.
@@ -424,3 +433,9 @@ provisional and retains strict conservation checks. See
 [main computation](../main-computation.md#fresh-pop-radiation-initialization) for
 eligibility, temporary controls and rollback, and
 [Bstar3513 investigation](bstar3513-opacity-investigation.md) for native evidence.
+
+
+The current dated revision and build workflow are documented in
+[CMFGEN versioning](cmfgen-versioning.md). Runtime remedies no longer depend on
+the optional JSON build record. Existing installation records above describe
+their historical builds.

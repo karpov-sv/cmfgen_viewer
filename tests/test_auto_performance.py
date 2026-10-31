@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from test_auto_recovery import population_workspace, authenticate
+from test_auto_recovery import population_workspace, authenticate, unidentify
 from test_runner_auto import auto_workspace
 from cmfgen_viewer.auto_diagnostics import control_value
 from cmfgen_viewer.runner import run_plan
@@ -162,7 +162,7 @@ def test_rejected_damping_release_is_not_repeated(performance_workspace):
 
 def test_unidentified_runtime_skips_optional_tuning(performance_workspace):
     model,plan=performance_workspace
-    (model.parent/'cmf/cmfgen-local-build.json').unlink()
+    unidentify(model)
     result=run_plan(plan('performance'))
     assert result['status']=='succeeded',result
     assert not any(a.get('reversible_trial') for a in result['actions'])

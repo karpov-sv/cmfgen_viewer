@@ -6,9 +6,8 @@ import json
 import pytest
 
 from test_runner_auto import auto_workspace
-from test_auto_recovery import population_workspace
+from test_auto_recovery import population_workspace, authenticate, unidentify
 from test_auto_performance import performance_workspace
-from cmfgen_viewer.auto_convergence_remedies import REPAIRS
 from cmfgen_viewer.auto_diagnostics import population_cycle, control_value
 from cmfgen_viewer.runner import run_plan
 
@@ -67,8 +66,7 @@ if mode.startswith('tail_'):
     exe.write_text(code)
     (model/'VADAT').write_text((model/'VADAT').read_text().replace('T [STORE_BA]','F [STORE_BA]')+
                              'F [DO_HYDRO]\n20000 [VFRAC_FG]\n20000 [VFRAC_MOM]\n')
-    manifest={'capabilities':list(REPAIRS),'executables':{'cmfgen_dev.exe':{'sha256':hashlib.sha256(exe.read_bytes()).hexdigest()}}}
-    (model.parent/'cmf/cmfgen-local-build.json').write_text(json.dumps(manifest))
+    authenticate(model)
     return model,plan
 
 
@@ -110,7 +108,7 @@ def test_unproductive_adjustment_restores_accepted_checkpoint_and_inputs(converg
 
 def test_unknown_runtime_never_authorizes_population_damping(convergence_workspace):
     model,plan=convergence_workspace
-    (model.parent/'cmf/cmfgen-local-build.json').unlink()
+    unidentify(model)
     result=run_plan(plan('tail_relax',max_attempts=4))
     assert not any(a['policy_id']=='population_relaxation' for a in result['actions'])
     assert not (model/'ADJUST_CORRECTIONS').exists()

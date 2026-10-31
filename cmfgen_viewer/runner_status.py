@@ -1,6 +1,7 @@
 """Read-only model information and native/runner execution evidence."""
 
 import json
+from .native_version import output_revision
 from pathlib import Path
 import re
 
@@ -108,6 +109,7 @@ def inspect_model_status(model: Path, *, diagnose=False) -> dict:
         "parameters": parameters,
         "dimensions": dimensions,
         "state": {
+            "solution_patch_revision": output_revision(model/"MOD_SUM"),
             "has_run": bool(evidence) or bool(latest_run and latest_run["executed"]),
             "evidence_files": evidence,
             "activity": activity,

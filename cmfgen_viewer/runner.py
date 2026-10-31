@@ -428,6 +428,7 @@ def run_plan(plan: dict, emit=None, *, diagnose_main=True, stop_requested=None) 
         _json(journal / "plan.json", plan)
         result = {"run_id": run_id, "stage": stage, "status": "running", "journal": str(journal),
                   "passes": [], "planned_passes": len(plan["passes"]),
+                  "native_patch_revision": plan.get("native_patch_revision"),
                   "scientific_acceptance": "not assessed", "started_at": datetime.now(timezone.utc).isoformat()}
         if plan.get("restart"):
             result["restart"] = plan["restart"]

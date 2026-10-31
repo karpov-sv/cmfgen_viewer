@@ -120,7 +120,7 @@ diff --git a/com/aliases_for_cmfgen.sh b/com/aliases_for_cmfgen.sh
 diff --git a/new_main/cmfgen_sub.f b/new_main/cmfgen_sub.f
 --- a/new_main/cmfgen_sub.f
 +++ b/new_main/cmfgen_sub.f
-@@ -41,6 +41,8 @@
+@@ -40,6 +40,8 @@
  	USE VAR_RAD_MOD
  	USE EDDFAC_REC_DEFS_MOD
  	IMPLICIT NONE
@@ -129,7 +129,16 @@ diff --git a/new_main/cmfgen_sub.f b/new_main/cmfgen_sub.f
  !
  ! Altered 11-Aug-2024 : Fixed bug with Copper - species abbreviation incorrect (24-Jan-2025)
  ! Altered 02-Aug-2024 : Minor cleaning. Changed minimum valuer for RLUMST & warning output.
-@@ -567,6 +569,9 @@
+@@ -86,7 +88,7 @@
+ 	INTEGER NCF
+ 	LOGICAL, PARAMETER :: IMPURITY_CODE=.FALSE.
+ !
+-	CHARACTER(LEN=12), PARAMETER :: PRODATE='18-Jun-2025'		!Must be changed after alterations
++      INCLUDE 'cmfgen_version.inc'
+ !
+ ! 
+ !
+@@ -556,6 +558,9 @@
  	  CALL RD_OPTIONS_INTO_STORE(LUIN,LUSCR)
  	  CALL RD_STORE_INT(NUM_ITS_TO_DO,'NUM_ITS',L_TRUE,'Number of iterations to perform')
  	  CALL RD_STORE_LOG(RD_LAMBDA,'DO_LAM_IT',L_TRUE,'Do LAMBDA iterations ?')
@@ -139,7 +148,7 @@ diff --git a/new_main/cmfgen_sub.f b/new_main/cmfgen_sub.f
  	  DO_LAMBDA_AUTO=.TRUE.
  	  CALL RD_STORE_LOG(DO_LAMBDA_AUTO,'DO_LAM_AUTO',L_FALSE,
  	1                      'Start non-lambda iterations automatically?')
-@@ -599,6 +604,18 @@
+@@ -588,6 +593,18 @@
  ! point to the input data record (Note : Single Record)
  !
  	CALL RD_CONTROL_VARIABLES(LUIN,LUSCR,LUER,NUM_BNDS)
@@ -158,7 +167,16 @@ diff --git a/new_main/cmfgen_sub.f b/new_main/cmfgen_sub.f
  !
  ! Get the Solar abundance scale that will be used when MOD_SUM is
  ! created.
-@@ -1175,6 +1192,10 @@
+@@ -815,6 +832,8 @@
+ 	  WRITE(LUMOD,'(//,'' Model Started on:'',15X,(A))')TIME
+ 	  WRITE(LUMOD,
+ 	1       '('' Main program last changed on:'',3X,(A))')PRODATE
++      WRITE(LUMOD,'(A)')'CMFGEN viewer patch revision: '//PATCH_REVISION
++      WRITE(LUMOD,'(A)')'CMFGEN upstream release: '//UPSTREAM_DATE
+ 	  WRITE(LUMOD,'()')
+ 	  FMT='(5X,I8,5X,''!Number of depth points'')'
+ 	  WRITE(LUMOD,FMT)ND
+@@ -1152,6 +1171,10 @@
  ! Useful for assisting convergence when the model is experiencing
  ! difficulty converging.
  !
@@ -169,7 +187,7 @@ diff --git a/new_main/cmfgen_sub.f b/new_main/cmfgen_sub.f
  	IF(NUM_ITS_TO_DO .EQ. 0)THEN
  	  IF(RDINSOL)THEN
  !
-@@ -1233,7 +1254,7 @@
+@@ -1209,7 +1232,7 @@
  ! Read in BA and STEQ arrays. We only attempt this if we have an existing
  ! model.
  !
@@ -178,7 +196,7 @@ diff --git a/new_main/cmfgen_sub.f b/new_main/cmfgen_sub.f
  	IF(.NOT. NEWMOD)THEN
            CALL READ_BA_DATA_V3(LU_BA,NION,NUM_BNDS,ND,CHK,FIXED_T,SUCCESS,'BAMAT')
  	END IF
-@@ -1317,6 +1338,7 @@
+@@ -1292,6 +1315,7 @@
  	NEXT_AV=0
  !
  20000	CONTINUE
@@ -186,7 +204,7 @@ diff --git a/new_main/cmfgen_sub.f b/new_main/cmfgen_sub.f
  	CALL TUNE(IONE,'GIT')
  	NUM_ITS_TO_DO=NUM_ITS_TO_DO-1
  	IF(NUM_ITS_TO_DO .EQ. 0)LST_ITERATION=.TRUE.
-@@ -1472,7 +1494,8 @@
+@@ -1443,7 +1467,8 @@
  	CALL TUNE(IONE,'DTDR')
  	DTDR=0.0_LDP
  	SECTION='DTDR'
@@ -196,7 +214,7 @@ diff --git a/new_main/cmfgen_sub.f b/new_main/cmfgen_sub.f
  	  DTDR=(T(ND)-T(ND-1))/(R(ND-1)-R(ND))
  	  DIFFW(1:NT)=0.0_LDP
  	ELSE
-@@ -2275,6 +2298,16 @@
+@@ -2232,6 +2257,16 @@
  	        IF(CHI(I) .LT. CHI_CONT(I) .AND.
  	1            CHI(I) .LT. 0.1_LDP*ETA(I)*CHI_NOSCAT(I)/ETA_CONT(I) )THEN
  	          CHI(I)=0.1_LDP*ETA(I)*CHI_NOSCAT(I)/ETA_CONT(I)
@@ -213,7 +231,7 @@ diff --git a/new_main/cmfgen_sub.f b/new_main/cmfgen_sub.f
  	          NEG_OPACITY(I)=.TRUE.
  	          NEG_OPAC_FAC(I)=0.0_LDP
  	          AT_LEAST_ONE_NEG_OPAC=.TRUE.
-@@ -2312,7 +2345,7 @@
+@@ -2269,7 +2304,7 @@
  	       IF(NEG_OPACITY(I) .AND. K .EQ. 0)K=I
  	       IF(NEG_OPACITY(I))J=I
  	      END DO
@@ -222,7 +240,7 @@ diff --git a/new_main/cmfgen_sub.f b/new_main/cmfgen_sub.f
  	1        ' 1st depth',K,'Last depth',J
  	    END IF
  !
-@@ -4003,6 +4036,10 @@
+@@ -3939,6 +3974,10 @@
  ! quickly by setting FLUX_CAL_ONLY=.FALSE. and putting N_ITS=0.
  !
  	IF(FLUX_CAL_ONLY .AND. RD_COHERENT_ES)THEN
@@ -233,7 +251,7 @@ diff --git a/new_main/cmfgen_sub.f b/new_main/cmfgen_sub.f
  	   WRITE(LUER,*)'Stopping CMFGEN as finished FLUX calculation.'
  	   WRITE(LUER,*)'For a FLUX calculation we do 1 iteration only'
  	   STOP
-@@ -4240,6 +4277,7 @@
+@@ -4172,6 +4211,7 @@
  ! Output brief summary of the model. This is to facilate the creation
  ! of compact model logs.
  !
@@ -241,7 +259,16 @@ diff --git a/new_main/cmfgen_sub.f b/new_main/cmfgen_sub.f
  	IF(LST_ITERATION)THEN
  !
  	  CALL GEN_ASCI_OPEN(LUMOD,'MOD_SUM','UNKNOWN',' ',' ',IZERO,IOS)
-@@ -4427,8 +4465,12 @@
+@@ -4180,6 +4220,8 @@
+ 	  CALL DATE_TIME(TIME)
+ 	  WRITE(LUMOD,'(''Model Finalized on:'',13X,(A))')TIME
+ 	  WRITE(LUMOD,'(''Main program last changed on:'',3X,(A))')PRODATE
++      WRITE(LUMOD,'(A)')'CMFGEN viewer patch revision: '//PATCH_REVISION
++      WRITE(LUMOD,'(A)')'CMFGEN upstream release: '//UPSTREAM_DATE
+ 	  WRITE(LUMOD,'()')
+ !
+ 	  STRING=' '
+@@ -4359,8 +4401,12 @@
  	    WRITE(LUMOD,'(A)')' '
  	  END IF
  !
@@ -254,7 +281,17 @@ diff --git a/new_main/cmfgen_sub.f b/new_main/cmfgen_sub.f
  	  CLOSE(LUMOD)
  !
  	END IF
-@@ -4690,7 +4732,7 @@
+@@ -4399,7 +4445,8 @@
+ 	    FORMAT_DATE='15-Aug-2019'
+ 	    WRITE(LU_POP,'(1X,A,T30,A)')'Output format date:',FORMAT_DATE
+ 	    WRITE(LU_POP,'(1X,A,T30,A)')'Completion of Model:',TIME
+-	    WRITE(LU_POP,'(1X,A,T30,A)')'Program Date:',PRODATE
++	    WRITE(LU_POP,'(1X,A,T30,A,1X,A)')'Program Date:',PRODATE,
++     1      'CMFGEN viewer patch revision: '//PATCH_REVISION
+ !
+ 	    WRITE(LU_POP,'(1X,A,T30,I5)')'ND:',ND
+ 	    WRITE(LU_POP,'(1X,A,T30,I5)')'NC:',NC
+@@ -4618,7 +4665,7 @@
  	  CLOSE(UNIT=LU_SE)
  	  CALL GEN_ASCI_OPEN(LU_SE,'STEQ_VALS','OLD','APPEND',' ',IZERO,IOS)
  !
@@ -263,7 +300,7 @@ diff --git a/new_main/cmfgen_sub.f b/new_main/cmfgen_sub.f
  ! We adjust MAXCH to ensure that NUM_ITS_TO_DO is not set to 1.
  !
  	  IF(XRAYS .AND. ADD_XRAYS_SLOWLY .AND. RD_LAMBDA .AND. MAXCH .LT. 100)THEN
-@@ -4718,18 +4760,24 @@
+@@ -4646,18 +4693,24 @@
  ! We do not do the scaling if there is intrinsic X-ray emssion from the star.
  ! DESIRED_XRAY_LUM should be in units of LSTAR.
  !
@@ -300,7 +337,7 @@ diff --git a/new_main/cmfgen_sub.f b/new_main/cmfgen_sub.f
  	    END IF
  	  END IF
  	  IF(INCL_ADVECTION .AND. ADVEC_RELAX_PARAM .LT. 1.0_LDP .AND. MAXCH .LT. 100)THEN
-@@ -4847,6 +4895,8 @@
+@@ -4775,6 +4828,8 @@
  	         WRITE(LUER,*)'Error opening IN_ITS or MODEL_SCR in CMFGEN, IOS=',IOS
  	         WRITE(LUER,*)'Error occurs at the end of CMFGEN_SUB.'
  	         WRITE(LUER,*)'Error will be ignored.'
@@ -309,7 +346,7 @@ diff --git a/new_main/cmfgen_sub.f b/new_main/cmfgen_sub.f
  	         GOTO 20000
  	      END IF
  	      CALL RD_OPTIONS_INTO_STORE(LUIN,LUSCR)
-@@ -4885,7 +4935,58 @@
+@@ -4813,7 +4868,58 @@
  !	  WRITE(6,*)'Inserted temporary fudge for FIXED_T'
  !	  FIXED_T=.TRUE.
  !	  IF(MAXCH .LT. 50.0D0 .AND. LAST_LAMBDA .NE. MAIN_COUNTER)FIXED_T=RD_FIX_T
@@ -2113,7 +2150,7 @@ diff --git a/plane/Makefile b/plane/Makefile
  
  $(LIB)(optdepth_v2.o) : optdepth_v2.f $(LIB)(mod_space_grid_v2.o)
  	$(F90) -c $(OPTION) optdepth_v2.f
-@@ -208,3 +209,22 @@
+@@ -208,3 +209,30 @@
  
  clean_lib :
  	rm -f *.a
@@ -2136,6 +2173,14 @@ diff --git a/plane/Makefile b/plane/Makefile
 +	$(F90) -c $(OPTION) mom_j_ddt_v6.f
 +	ar $(AR_OPTION) $(LIB) mom_j_ddt_v6.o
 +	if test -f mod_mom_j_ddt_v6.mod; then cp -f mod_mom_j_ddt_v6.mod $(MOD_DIR); fi
++
++# Export the variation module for callers built before plane/all.
++# Remove a local stale module first: some compiler settings use -J$(MOD_DIR).
++$(LIB)(mod_var_mom_j_cmf.o) : mod_var_mom_j_cmf.f
++	rm -f mod_var_mom_j_cmf.mod
++	$(F90) -c $(OPTION) mod_var_mom_j_cmf.f
++	ar $(AR_OPTION) $(LIB) mod_var_mom_j_cmf.o
++	if test -f mod_var_mom_j_cmf.mod; then cp -f mod_var_mom_j_cmf.mod $(MOD_DIR); fi
 diff --git a/plane/edd_j_hub_var_v3.f b/plane/edd_j_hub_var_v3.f
 --- a/plane/edd_j_hub_var_v3.f
 +++ b/plane/edd_j_hub_var_v3.f
@@ -6412,3 +6457,128 @@ diff --git a/subs/up_tx_tvx_v2.f b/subs/up_tx_tvx_v2.f
 +!
 +	RETURN
 +	END
+diff --git a/Makefile b/Makefile
+--- a/Makefile
++++ b/Makefile
+@@ -15,7 +15,7 @@
+ # libraries and executables.
+ 
+ all : info d_tools d_blas d_dust d_lpack d_nm_subs d_stark d_unix d_subs d_plane d_newsubs d_pgplt \
+-         d_lte d_new_main d_disp d_spec_plt d_obs d_misc
++         d_lte d_new_main d_disp d_spec_plt d_obs d_misc d_final_links
+ 
+ # We now MAKE the required libraries and executables.
+ 
+@@ -77,6 +77,7 @@
+ 	rm -f exe/*.exe
+ 	rm -f */*.o
+ 	rm -f */*/*.o
++	rm -f $(filter-out mod/%.mod mod_dbg/%.mod,$(wildcard */*.mod */*/*.mod))
+ 
+ dbg_clean:
+ 	rm -f lib_dbg/*.a
+@@ -84,3 +85,10 @@
+ 	rm -f exe_dbg/*.exe
+ 	rm -f */*.o
+ 	rm -f */*/*.o
++	rm -f $(filter-out mod/%.mod mod_dbg/%.mod,$(wildcard */*.mod */*/*.mod))
++
++# Serial all reaches this after every recursive archive update.
++.PHONY: d_final_links
++d_final_links:
++	$(MAKE) -C new_main final_link
++	$(MAKE) -C obs final_links
+diff --git a/new_main/Makefile b/new_main/Makefile
+--- a/new_main/Makefile
++++ b/new_main/Makefile
+@@ -47,10 +47,10 @@
+       $(LIB_DIR)libmod.a(steq_data_mod.o)\
+       $(LIB_DIR)libmod.a(var_rad_mod.o)
+ 
+-cmfgen.o : cmfgen.f $(MODS) $(USR)
++cmfgen.o : cmfgen.f cmfgen_version.inc $(MODS) $(USR)
+ 	$(F90) -c $(OPTIONS) cmfgen.f 
+ 
+-cmfgen_sub.o : cmfgen_sub.f $(MODS) $(UPDATE) GET_J_CHI.INC  
++cmfgen_sub.o : cmfgen_sub.f cmfgen_version.inc $(MODS) $(UPDATE) GET_J_CHI.INC  
+ 	$(F90) -c $(OPTIONS) cmfgen_sub.f 
+ 
+ $(USR):
+@@ -91,3 +91,11 @@
+ 
+ clean_lib :
+ 	rm -f $(LIB)
++
++# Top-level final link: all shared archives are already complete.
++.PHONY: final_link
++final_link:
++	$(F90) cmfgen.o cmfgen_sub.o \
++              -L$(LIB_DIR) -l$(LN1) -l$(LN2) -l$(LN3) \
++               $(LAPACK) $(BLAS) $(LOCLIB) \
++              -o $(EXE_DIR)cmfgen_dev.exe
+diff --git a/new_main/cmfgen.f b/new_main/cmfgen.f
+--- a/new_main/cmfgen.f
++++ b/new_main/cmfgen.f
+@@ -12,6 +12,8 @@
+ 	USE MOD_CMFGEN
+ 	USE MOD_USR_OPTION
+ 	IMPLICIT NONE
++      INCLUDE 'cmfgen_version.inc'
++      CHARACTER(LEN=128) VERSION_ARG
+ !
+ ! Altered 25-Jul-2024: Added new species -- Zn and Mn.
+ ! Altered 02-Sep-2023: Now zero ABS_MEAN
+@@ -92,6 +94,15 @@
+ ! have the output go to the terminal/batch log file. NB: The WARNINGS
+ ! file is overwritten.
+ !
++! Query the binary before opening files, reading a model, or allocating arrays.
++      IF(COMMAND_ARGUMENT_COUNT() .GT. 0)THEN
++        CALL GET_COMMAND_ARGUMENT(1,VERSION_ARG)
++        IF(TRIM(VERSION_ARG) .EQ. '--version')THEN
++          WRITE(6,'(A)')'CMFGEN_VIEWER_PATCH '//PATCH_REVISION
++          WRITE(6,'(A)')'CMFGEN_UPSTREAM '//UPSTREAM_DATE
++          STOP
++        END IF
++      END IF
+ 	LUER=ERROR_LU()
+ 	LUWARN=WARNING_LU()
+ 	DO_TERM_OUT=.FALSE.                                   !TRUE.
+@@ -111,6 +122,8 @@
+ 	CALL SET_LINE_BUFFERING(LUWARN)
+         CALL DATE_TIME(TIME)
+         WRITE(LUER,'(//,'' Model started on:'',15X,(A))')TIME
++      WRITE(LUER,'(A)')'CMFGEN viewer patch revision: '//PATCH_REVISION
++      WRITE(LUER,'(A)')'CMFGEN upstream release: '//UPSTREAM_DATE
+ !
+ ! Set constants.
+ !
+diff --git a/new_main/cmfgen_version.inc b/new_main/cmfgen_version.inc
+new file mode 100644
+--- /dev/null
++++ b/new_main/cmfgen_version.inc
+@@ -0,0 +1,4 @@
++! Maintained cumulative patch stream. Bump date/revision for every release.
++      CHARACTER(LEN=*), PARAMETER :: PRODATE='31-Oct-2026'
++      CHARACTER(LEN=*), PARAMETER :: UPSTREAM_DATE='18-Jun-2025'
++      CHARACTER(LEN=*), PARAMETER :: PATCH_REVISION='2026-10-31.1'
+diff --git a/obs/Makefile b/obs/Makefile
+--- a/obs/Makefile
++++ b/obs/Makefile
+@@ -124,3 +124,16 @@
+ 	$(F90) -c $(OPTION) mod_freq_obs.f
+ 	cp -f $(INSTALL_DIR)perm_mod_file jnk.mod
+ 	mv -f *.mod $(MOD_DIR) 
++
++# Final links only; never reenter recursive archive updates here.
++.PHONY: final_links
++final_links:
++	ar -xo ../lib/libsubs.a griem_stark_mod.o
++	$(F90) $(OBJ1) griem_stark_mod.o \
++              -L$(LIB_DIR) -l$(LN1) -l$(LN5) -l$(LN2) -l$(LN6) \
++               $(LOCLIB) \
++               -o $(EXE_DIR)cmf_flux.exe
++	$(F90) $(OBJ2) \
++              -L$(LIB_DIR) -l$(LN2) -l$(LN1) \
++               $(LOCLIB) \
++              -o  $(EXE_DIR)obs_frame.exe

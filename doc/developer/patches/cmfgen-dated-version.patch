@@ -1,0 +1,180 @@
+diff --git a/Makefile b/Makefile
+--- a/Makefile
++++ b/Makefile
+@@ -15,7 +15,7 @@
+ # libraries and executables.
+ 
+ all : info d_tools d_blas d_dust d_lpack d_nm_subs d_stark d_unix d_subs d_plane d_newsubs d_pgplt \
+-         d_lte d_new_main d_disp d_spec_plt d_obs d_misc
++         d_lte d_new_main d_disp d_spec_plt d_obs d_misc d_final_links
+ 
+ # We now MAKE the required libraries and executables.
+ 
+@@ -77,6 +77,7 @@
+ 	rm -f exe/*.exe
+ 	rm -f */*.o
+ 	rm -f */*/*.o
++	rm -f $(filter-out mod/%.mod mod_dbg/%.mod,$(wildcard */*.mod */*/*.mod))
+ 
+ dbg_clean:
+ 	rm -f lib_dbg/*.a
+@@ -84,3 +85,10 @@
+ 	rm -f exe_dbg/*.exe
+ 	rm -f */*.o
+ 	rm -f */*/*.o
++	rm -f $(filter-out mod/%.mod mod_dbg/%.mod,$(wildcard */*.mod */*/*.mod))
++
++# Serial all reaches this after every recursive archive update.
++.PHONY: d_final_links
++d_final_links:
++	$(MAKE) -C new_main final_link
++	$(MAKE) -C obs final_links
+diff --git a/new_main/Makefile b/new_main/Makefile
+--- a/new_main/Makefile
++++ b/new_main/Makefile
+@@ -47,10 +47,10 @@
+       $(LIB_DIR)libmod.a(steq_data_mod.o)\
+       $(LIB_DIR)libmod.a(var_rad_mod.o)
+ 
+-cmfgen.o : cmfgen.f $(MODS) $(USR)
++cmfgen.o : cmfgen.f cmfgen_version.inc $(MODS) $(USR)
+ 	$(F90) -c $(OPTIONS) cmfgen.f 
+ 
+-cmfgen_sub.o : cmfgen_sub.f $(MODS) $(UPDATE) GET_J_CHI.INC  
++cmfgen_sub.o : cmfgen_sub.f cmfgen_version.inc $(MODS) $(UPDATE) GET_J_CHI.INC  
+ 	$(F90) -c $(OPTIONS) cmfgen_sub.f 
+ 
+ $(USR):
+@@ -91,3 +91,11 @@
+ 
+ clean_lib :
+ 	rm -f $(LIB)
++
++# Top-level final link: all shared archives are already complete.
++.PHONY: final_link
++final_link:
++	$(F90) cmfgen.o cmfgen_sub.o \
++              -L$(LIB_DIR) -l$(LN1) -l$(LN2) -l$(LN3) \
++               $(LAPACK) $(BLAS) $(LOCLIB) \
++              -o $(EXE_DIR)cmfgen_dev.exe
+diff --git a/new_main/cmfgen.f b/new_main/cmfgen.f
+--- a/new_main/cmfgen.f
++++ b/new_main/cmfgen.f
+@@ -12,6 +12,8 @@
+ 	USE MOD_CMFGEN
+ 	USE MOD_USR_OPTION
+ 	IMPLICIT NONE
++      INCLUDE 'cmfgen_version.inc'
++      CHARACTER(LEN=128) VERSION_ARG
+ !
+ ! Altered 25-Jul-2024: Added new species -- Zn and Mn.
+ ! Altered 02-Sep-2023: Now zero ABS_MEAN
+@@ -92,6 +94,15 @@
+ ! have the output go to the terminal/batch log file. NB: The WARNINGS
+ ! file is overwritten.
+ !
++! Query the binary before opening files, reading a model, or allocating arrays.
++      IF(COMMAND_ARGUMENT_COUNT() .GT. 0)THEN
++        CALL GET_COMMAND_ARGUMENT(1,VERSION_ARG)
++        IF(TRIM(VERSION_ARG) .EQ. '--version')THEN
++          WRITE(6,'(A)')'CMFGEN_VIEWER_PATCH '//PATCH_REVISION
++          WRITE(6,'(A)')'CMFGEN_UPSTREAM '//UPSTREAM_DATE
++          STOP
++        END IF
++      END IF
+ 	LUER=ERROR_LU()
+ 	LUWARN=WARNING_LU()
+ 	DO_TERM_OUT=.FALSE.                                   !TRUE.
+@@ -111,6 +122,8 @@
+ 	CALL SET_LINE_BUFFERING(LUWARN)
+         CALL DATE_TIME(TIME)
+         WRITE(LUER,'(//,'' Model started on:'',15X,(A))')TIME
++      WRITE(LUER,'(A)')'CMFGEN viewer patch revision: '//PATCH_REVISION
++      WRITE(LUER,'(A)')'CMFGEN upstream release: '//UPSTREAM_DATE
+ !
+ ! Set constants.
+ !
+diff --git a/new_main/cmfgen_sub.f b/new_main/cmfgen_sub.f
+--- a/new_main/cmfgen_sub.f
++++ b/new_main/cmfgen_sub.f
+@@ -88,7 +88,7 @@
+ 	INTEGER NCF
+ 	LOGICAL, PARAMETER :: IMPURITY_CODE=.FALSE.
+ !
+-	CHARACTER(LEN=12), PARAMETER :: PRODATE='18-Jun-2025'		!Must be changed after alterations
++      INCLUDE 'cmfgen_version.inc'
+ !
+ ! 
+ !
+@@ -832,6 +832,8 @@
+ 	  WRITE(LUMOD,'(//,'' Model Started on:'',15X,(A))')TIME
+ 	  WRITE(LUMOD,
+ 	1       '('' Main program last changed on:'',3X,(A))')PRODATE
++      WRITE(LUMOD,'(A)')'CMFGEN viewer patch revision: '//PATCH_REVISION
++      WRITE(LUMOD,'(A)')'CMFGEN upstream release: '//UPSTREAM_DATE
+ 	  WRITE(LUMOD,'()')
+ 	  FMT='(5X,I8,5X,''!Number of depth points'')'
+ 	  WRITE(LUMOD,FMT)ND
+@@ -4218,6 +4220,8 @@
+ 	  CALL DATE_TIME(TIME)
+ 	  WRITE(LUMOD,'(''Model Finalized on:'',13X,(A))')TIME
+ 	  WRITE(LUMOD,'(''Main program last changed on:'',3X,(A))')PRODATE
++      WRITE(LUMOD,'(A)')'CMFGEN viewer patch revision: '//PATCH_REVISION
++      WRITE(LUMOD,'(A)')'CMFGEN upstream release: '//UPSTREAM_DATE
+ 	  WRITE(LUMOD,'()')
+ !
+ 	  STRING=' '
+@@ -4441,7 +4445,8 @@
+ 	    FORMAT_DATE='15-Aug-2019'
+ 	    WRITE(LU_POP,'(1X,A,T30,A)')'Output format date:',FORMAT_DATE
+ 	    WRITE(LU_POP,'(1X,A,T30,A)')'Completion of Model:',TIME
+-	    WRITE(LU_POP,'(1X,A,T30,A)')'Program Date:',PRODATE
++	    WRITE(LU_POP,'(1X,A,T30,A,1X,A)')'Program Date:',PRODATE,
++     1      'CMFGEN viewer patch revision: '//PATCH_REVISION
+ !
+ 	    WRITE(LU_POP,'(1X,A,T30,I5)')'ND:',ND
+ 	    WRITE(LU_POP,'(1X,A,T30,I5)')'NC:',NC
+diff --git a/new_main/cmfgen_version.inc b/new_main/cmfgen_version.inc
+new file mode 100644
+--- /dev/null
++++ b/new_main/cmfgen_version.inc
+@@ -0,0 +1,4 @@
++! Maintained cumulative patch stream. Bump date/revision for every release.
++      CHARACTER(LEN=*), PARAMETER :: PRODATE='31-Oct-2026'
++      CHARACTER(LEN=*), PARAMETER :: UPSTREAM_DATE='18-Jun-2025'
++      CHARACTER(LEN=*), PARAMETER :: PATCH_REVISION='2026-10-31.1'
+diff --git a/plane/Makefile b/plane/Makefile
+--- a/plane/Makefile
++++ b/plane/Makefile
+@@ -228,3 +228,11 @@
+ 	$(F90) -c $(OPTION) mom_j_ddt_v6.f
+ 	ar $(AR_OPTION) $(LIB) mom_j_ddt_v6.o
+ 	if test -f mod_mom_j_ddt_v6.mod; then cp -f mod_mom_j_ddt_v6.mod $(MOD_DIR); fi
++
++# Export the variation module for callers built before plane/all.
++# Remove a local stale module first: some compiler settings use -J$(MOD_DIR).
++$(LIB)(mod_var_mom_j_cmf.o) : mod_var_mom_j_cmf.f
++	rm -f mod_var_mom_j_cmf.mod
++	$(F90) -c $(OPTION) mod_var_mom_j_cmf.f
++	ar $(AR_OPTION) $(LIB) mod_var_mom_j_cmf.o
++	if test -f mod_var_mom_j_cmf.mod; then cp -f mod_var_mom_j_cmf.mod $(MOD_DIR); fi
+diff --git a/obs/Makefile b/obs/Makefile
+--- a/obs/Makefile
++++ b/obs/Makefile
+@@ -124,3 +124,16 @@
+ 	$(F90) -c $(OPTION) mod_freq_obs.f
+ 	cp -f $(INSTALL_DIR)perm_mod_file jnk.mod
+ 	mv -f *.mod $(MOD_DIR) 
++
++# Final links only; never reenter recursive archive updates here.
++.PHONY: final_links
++final_links:
++	ar -xo ../lib/libsubs.a griem_stark_mod.o
++	$(F90) $(OBJ1) griem_stark_mod.o \
++              -L$(LIB_DIR) -l$(LN1) -l$(LN5) -l$(LN2) -l$(LN6) \
++               $(LOCLIB) \
++               -o $(EXE_DIR)cmf_flux.exe
++	$(F90) $(OBJ2) \
++              -L$(LIB_DIR) -l$(LN2) -l$(LN1) \
++               $(LOCLIB) \
++              -o  $(EXE_DIR)obs_frame.exe

@@ -302,7 +302,7 @@ def startup_hydro_evidence(model, native, result, before):
             control_value(model, 'IN_ITS', 'DO_LAM_IT', 'F').upper().strip('.') not in {'F','FALSE'}):
         raise RunnerError('Startup hydro recovery is established only for variable-T full POP startup')
     if not repaired_runtime(native):
-        raise RunnerError('Startup hydro recovery requires an authenticated repaired executable')
+        raise RunnerError('Startup hydro recovery requires a supported dated CMFGEN patch revision')
     text = latest_main_log(_tail(model/'OUTGEN', 32*1024*1024))
     if re.search(r'SIG(?:SEGV|FPE|ILL|ABRT)|Fortran runtime error|segmentation fault',
                  text+'\n'+passes[0].get('diagnostic_tail', ''), re.I):
