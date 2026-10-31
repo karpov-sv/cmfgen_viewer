@@ -17,6 +17,15 @@ the currently visible rows; **Clear selection** removes all curves, including
 models hidden by a scatter-plot filter. Filtering or sorting the table does not
 otherwise change the comparison selection.
 
+Use **Filter models** immediately above the list to narrow rows by a name or
+relative path. Matching ignores case and accepts partial text; `*` matches any
+text and `?` matches one character (for example, `Bstar3*` or `grid/*3100`).
+Other punctuation is literal. The count shows how many rows match both this
+filter and any scatter-plot selection. **Clear filter** or Escape clears only
+the name filter; **Clear Point Filter** clears only the scatter selection.
+Hidden checked models remain in the spectrum comparison, and the header
+checkbox selects only the visible rows. Copy as Text exports only visible rows.
+
 Choose **Normalized (F/Fc)** for line profiles or **Spectrum + continuum** for
 absolute flux at the native 1 kpc reference distance. Each model uses its first
 available `obs_fin*` file in the same numeric order as the bulk spectrum viewer,

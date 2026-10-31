@@ -142,6 +142,19 @@
 
       {% include "_model_spectrum_comparison.html" %}
 
+      <div class="row align-items-end g-2 mb-2">
+        <div class="col-md-6 col-lg-5">
+          <label for="summary-name-filter" class="form-label small mb-1">Filter models</label>
+          <div class="input-group input-group-sm">
+            <input type="search" id="summary-name-filter" class="form-control" placeholder="Name or pattern, e.g. Bstar3*" aria-controls="summary-table" aria-describedby="summary-name-filter-help" autocomplete="off">
+            <button type="button" id="summary-name-filter-clear" class="btn btn-outline-secondary" disabled>Clear filter</button>
+          </div>
+        </div>
+        <div class="col-md-auto">
+          <span id="summary-name-filter-status" class="small text-muted" role="status"></span>
+        </div>
+      </div>
+      <p id="summary-name-filter-help" class="small text-muted mb-2">Matches names or paths, ignoring case. Use * for any text and ? for one character. Combines with the scatter-plot filter; checked spectra stay selected.</p>
       <div class="table-responsive table-view-wrap mb-3">
         <table class="table table-sm table-striped" id="summary-table">
           <thead>
@@ -168,6 +181,7 @@
             {% for row in rows %}
               <tr
                 data-entry
+                data-model-path="{{ row['path'] }}"
                 data-model-url="{{ url_for('viewer.view', path=row['path']) }}"
                 {% for value in row["values"] %}
                   data-col{{ loop.index0 }}="{{ value }}"
@@ -188,6 +202,7 @@
           </tbody>
         </table>
       </div>
+      <p id="summary-no-matches" class="text-muted small" hidden>No models match the current filters.</p>
       <script src="{{ url_for('static', filename='summary_table.js') }}"></script>
       {% for script in ['spectrum_controls.js', 'spectrum_sampling.js', 'spectral_lines.js', 'model_spectrum_comparison.js'] %}
         <script src="{{ url_for('static', filename=script) }}"></script>

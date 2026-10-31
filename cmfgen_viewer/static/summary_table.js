@@ -25,6 +25,11 @@
     const plotHint = document.getElementById("summary-scatter-plot-hint");
     const selectionClearButton = document.getElementById("summary-scatter-plot-selection-clear");
     const selectionStatus = document.getElementById("summary-scatter-plot-selection-status");
+    const nameFilter = document.getElementById("summary-name-filter");
+    const nameFilterClear = document.getElementById("summary-name-filter-clear");
+    const nameFilterStatus = document.getElementById("summary-name-filter-status");
+    const noMatches = document.getElementById("summary-no-matches");
+    let namePattern = null;
     let currentPlotMode = "generic";
     let currentHrAxisMode = "log_values";
     let openModelOnClick = false;
@@ -699,9 +704,18 @@
     }
 
     function updateSelectionStatus() {
+        const shown = rowEntries.filter((entry) => !entry.row.hidden).length;
+        if (nameFilterStatus) {
+            nameFilterStatus.textContent = shown + " of " + rowEntries.length + " models shown";
+        }
+        if (noMatches) {
+            noMatches.hidden = shown !== 0;
+        }
         if (selectedEntryIndexes === null) {
             if (selectionStatus) {
-                selectionStatus.textContent = "All " + rowEntries.length + " models shown";
+                selectionStatus.textContent = namePattern
+                    ? shown + " of " + rowEntries.length + " models shown by name filter"
+                    : "All " + rowEntries.length + " models shown";
             }
             if (selectionClearButton) {
                 selectionClearButton.disabled = true;
@@ -710,19 +724,36 @@
         }
         if (selectionStatus) {
             selectionStatus.textContent =
-                selectedEntryIndexes.size + " of " + rowEntries.length + " models shown from plot selection";
+                shown + " of " + rowEntries.length + " models shown from " + (namePattern ? "name filter and plot selection" : "plot selection");
         }
         if (selectionClearButton) {
             selectionClearButton.disabled = false;
         }
     }
 
-    function applyPointSelectionFilter(entryIndexes) {
-        selectedEntryIndexes = entryIndexes && entryIndexes.size ? new Set(entryIndexes) : null;
+    function applyTableFilters() {
         rowEntries.forEach(function (entry) {
-            entry.row.hidden = selectedEntryIndexes !== null && !selectedEntryIndexes.has(entry.index);
+            const matchesName = !namePattern || namePattern.test(entry.rawValues[0]) || namePattern.test(entry.row.dataset.modelPath || "");
+            entry.row.hidden = !matchesName || (selectedEntryIndexes !== null && !selectedEntryIndexes.has(entry.index));
         });
         updateSelectionStatus();
+    }
+
+    function applyNameFilter() {
+        const pattern = nameFilter.value.trim();
+        // Treat regex punctuation literally; only shell-style * and ? are wildcards.
+        namePattern = pattern ? new RegExp(pattern.split("*").map(function (part) {
+            return part.split("?").map(function (literal) {
+                return literal.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            }).join(".");
+        }).join(".*"), "i") : null;
+        if (nameFilterClear) nameFilterClear.disabled = !nameFilter.value;
+        applyTableFilters();
+    }
+
+    function applyPointSelectionFilter(entryIndexes) {
+        selectedEntryIndexes = entryIndexes && entryIndexes.size ? new Set(entryIndexes) : null;
+        applyTableFilters();
     }
 
     function clearPointSelectionFilter() {
@@ -855,6 +886,23 @@
             hrOverlayWrap.classList.toggle("d-none", !isHrMode);
         }
         renderSummaryScatter(currentPlotMode);
+    }
+
+    if (nameFilter) {
+        nameFilter.addEventListener("input", applyNameFilter);
+        function clearNameFilter() {
+            nameFilter.value = "";
+            applyNameFilter();
+            nameFilter.focus();
+        }
+        nameFilter.addEventListener("keydown", function (event) {
+            if (event.key === "Escape") {
+                event.preventDefault();
+                clearNameFilter();
+            }
+        });
+        if (nameFilterClear) nameFilterClear.addEventListener("click", clearNameFilter);
+        applyNameFilter();
     }
 
     if (scatterPlot && xColumnSelect && yColumnSelect && xScaleSelect && yScaleSelect) {

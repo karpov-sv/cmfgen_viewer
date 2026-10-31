@@ -43,6 +43,9 @@ def test_summary_has_lazy_comparison_without_altering_table_columns(comparison, 
     assert 'id="comparison-select-visible"' in html
     assert html.count('id="model-comparison-plot"') == 1
     assert 'data-col0="star"' in html
+    assert 'data-model-path="grid/star"' in html
+    assert 'id="summary-name-filter"' in html
+    assert 'aria-controls="summary-table"' in html
 
 
 def test_comparison_normalizes_native_samples_and_chooses_first_fin(comparison):

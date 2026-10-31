@@ -74,3 +74,9 @@ def test_browser_reports_missing_job_and_stops_polling():
     assert result["elements"]["summary-job-cancel"]["disabled"]
     assert result["elements"]["summary-job-status"]["textContent"] == "Unavailable"
     assert not result["timers"]
+
+
+def test_summary_name_filter_composes_with_scatter_selection():
+    result = subprocess.run([NODE, str(Path(__file__).with_name("summary_table_filter.cjs"))],
+                            capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, result.stdout + result.stderr
