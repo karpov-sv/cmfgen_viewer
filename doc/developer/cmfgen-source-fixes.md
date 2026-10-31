@@ -1,12 +1,11 @@
-# CMFGEN local source fixes — consolidated record
+# CMFGEN source fixes — consolidated record
 
-Updated **30 October 2026**. The
-consolidated patch contains numerical fix groups **1–28**, performance changes
+The consolidated patch contains numerical fix groups **1–28**, performance changes
 **29–30**, the optional fixed-state output feature **31**, and the opacity diagnostic
 safeguard **32**, and dated version/build support **33**, based on CMFGEN
-website release **version 18jun25**. Groups 26–31 come from the Bstar3010
-investigation; the three numerical repairs are distinct from the two optimizations
-and the output feature. See [validation and scope](cmfgen-convergence-repairs.md).
+website release **version 18jun25**. Groups 26–31 cover positive interpolation,
+bidirectional X-ray normalization, collision derivatives, two optimizations
+and a fixed-state output feature. See [validation and scope](cmfgen-convergence-repairs.md).
 
 **Status:** [cmfgen-current.patch](patches/cmfgen-current.patch) includes all the
 changes below. The recommended installer/updater is
@@ -25,8 +24,8 @@ The 30 October build correction adds the missing forwarding rule for
 serial build reaches `DO_VAR_CONT` before `plane/`; a clean build needs this
 rule to create the imported variation module. Existing archives could hide the
 omission during incremental builds. This correction changes no scientific code.
-For a checkout already carrying the previous consolidated patch, append this
-rule to `new_main/mod_subs/Makefile`, then rebuild serially:
+The cumulative patch includes this forwarding rule in
+`new_main/mod_subs/Makefile`:
 
 ```make
 # Forward the variation-module dependency to its owning directory.
@@ -36,46 +35,16 @@ $(LIB)(mod_var_mom_j_cmf.o) : ../../plane/mod_var_mom_j_cmf.f
 
 Fresh releases need only the current consolidated patch, which includes it.
 
-The macOS checkout `~/CMFGEN2023/cur_cmf` was audited again on 31 October.
-The forwarding rule from commit `9148732` was still missing locally, although
-both consolidated patch versions contained it. It is now restored: all 47
-captured files match the manifest. The previous provenance recorder checked
-Fortran files only; it now also validates and records captured Makefiles before
-linking or recording a build, while leaving site-specific compiler settings and
-aliases local. Regression tests reject an absent or outdated build recipe.
+Build validation covered clean serial builds of all 80 executables on Linux
+and a focused macOS dependency test for `mod_var_mom_j_cmf.o`. The tests also
+verify that missing or outdated captured build recipes are rejected, local
+compiler settings and aliases are preserved, and installed scientific source
+hashes match the consolidated manifest. Historical installation paths, binary
+hashes, rollback locations and individual build records remain in the
+[manifest](patches/cmfgen-current.json); they are provenance, not prerequisites
+for applying the fixes elsewhere.
 
-An isolated empty-archive test reproduced `No rule to make target` with the old
-Makefile and successfully compiled/archived `mod_var_mom_j_cmf.o` after the rule
-was added. This is a focused dependency test, not another full clean build.
-The local fix changed no scientific source, libraries or executables, so no
-rebuild or relink was needed. Binary and local-setting hashes are unchanged.
-Rollback files and the test record are under
-`~/CMFGEN2023/cur_cmf/.cmfgen-backups/20261030T233617Z-build-dependency-sync/`.
-
-The Linux atmosphere and spectrum executables were rebuilt serially and linked
-atomically. The atmosphere executable SHA-256 is
-`06667b95f225c9ef978d4d3d5ca629605a0120583443b96cd0ee5073395ae3a1`.
-The current build record is `~/CMFGEN2023/cur_cmf.25/cmfgen-local-build.json`.
-The 30 October rollback snapshot and validation logs are
-`.cmfgen-backups/20261030T115750Z-clean-build-dependency/` in that checkout.
-A clean serial build in an isolated source copy and the local serial build both
-completed, producing all 80 executables. The convergence-repair regressions passed
-at `O0` and `O2`; the core suite passed at `O2` with five threads and atomic data.
-The consolidated patch applied and reversed with all 45 non-machine-specific
-file hashes checked. The two machine-specific patch sections remain unchanged.
-The previously older local LTE initializer is now aligned with the already
-captured charge-consistency fix 12; all installed scientific source hashes match
-the consolidated manifest. Earlier Linux/macOS builds remain historical evidence.
-
-**Local build settings are preserved.** Neither the live `Makefile_definitions`
-nor its existing patch section changed. Local directory aliases also remain
-unchanged. The application commands below exclude the Makefile to retain local
-compiler options, paths and libraries. User model folders and checkpoints were
-not modified by this integration; regression calculations use isolated copies.
-Diagnostic recorders, model-specific fitted histories and the optional EHB loop
-experiment are excluded from the installed solver.
-
-The complete opt-in fixed-state output check preserved checkpoint 111 and
+The complete opt-in fixed-state output check preserved its saved checkpoint and
 matched all 119,342 printed spectral points and the ordinary boundary/energy
 profiles; see the [execution version and validation limits](cmfgen-convergence-repairs.md#installation-and-validation).
 This output pass receives no solved-iteration or convergence credit.
@@ -137,10 +106,10 @@ Generated modules, binaries, logs, save files, and scratch patches are excluded.
 
 Patch application and reversal were checked against the recovered release
 contents in a fresh temporary directory. All **52 files** matched their expected
-SHA-256 hashes, including the three files updated for fix 25. A separate
-application excluding `Makefile_definitions` reproduced the other 44 files and
-kept the current local build file byte for byte. Do not apply the patch again
-to an already patched checkout.
+SHA-256 hashes, including the three files updated for fix 25. Updater regression
+checks also verify that compiler settings and directory aliases remain
+unchanged. Use the updater to identify and
+upgrade already patched sources; do not reapply the cumulative diff blindly.
 
 ## Using population-based initialization
 
@@ -225,8 +194,8 @@ iterations in fresh temporary model copies.
 | GLOBAL scaling | Both outer and inner dominant corrections honor 20% and 10% configured limits. |
 | Endpoint interpolation | Rounded outer/inner endpoints, genuine extensions and a single overlapping point pass; disjoint grids are rejected explicitly. |
 | Synthetic occupation/population initialization | Same-grid occupation round trip, all three coefficient formats, zero populations, dissolution disabled, element conservation, charge conservation and grid-size changes pass. Mismatched source files are rejected. |
-| Native Bstar same-grid R and POP startup, with rounded RMAX | Outer T is `1843.602800 K`, compared with saved `1843.602811 K`; the broken startup had selected `1952.959100 K`. |
-| Native Bstar same-grid population round trip, current text export | Maximum relative discrepancy is `4.35e-5` (0.00435%), versus the earlier 8.74% high-level discrepancy. Median discrepancy is about `1.37e-7`. |
+| Native stellar-atmosphere same-grid R and POP startup, with rounded RMAX | Outer T is `1843.602800 K`, compared with saved `1843.602811 K`; the broken startup had selected `1952.959100 K`. |
+| Native stellar-atmosphere same-grid population round trip, current text export | Maximum relative discrepancy is `4.35e-5` (0.00435%), versus the earlier 8.74% high-level discrepancy. Median discrepancy is about `1.37e-7`. |
 | Native 125-depth POP startup using the same current text export | At depth 6, N III/N IV/N VI fractions are about 62.144%/35.005%/0.02848%; the earlier log-b startup had 99.99818% N VI. All population variables agree with the independently constructed 125-depth estimate within `4.35e-5` relative; at depth 6 the maximum is `1.69e-5`. |
 | Conservation in the native refined POP startup | Ne matches the charge sum within `1.34e-15` relative. Element densities match the independently specified target densities within `4.0e-9` relative. |
 
@@ -236,7 +205,7 @@ one thread. Native atmosphere tests verify initialization and text reconstructio
 not radiation iterations or final convergence. Non-GRID grey iteration, SN/dust
 models and arbitrary changes in atomic data have not been certified by these tests.
 
-## Bstar3502 validation and automatic remedies
+## Line-Jacobian validation and automatic population/radiation remedies
 
 The final line routine passes **8250 physical derivative comparisons** across
 Lambda, weak/strong branches and both shared-level pointer layouts, with maximum
@@ -250,13 +219,13 @@ new LTE charge/element reconstruction case with inconsistent starting Ne (level 
 Matched model tests and subsequent isolated recovery establish the importance
 of fixes 14–17. Enabling **`INCL_dSLdT=T`**, an existing native option, removes the
 remaining outer thermal cycle. Refining **`VFRAC_FG=0.1`** removes the reproduced
-negative-luminosity ray-transport collapse on the original moment grid. The
+negative-luminosity ray-transport collapse while retaining the configured moment grid. The
 successful recovery includes fresh-process continuation and full variable-T,
 fresh-BA steps with positive populations and conservation near machine precision.
-The Ng guard fix was tested separately: its effect on actual Ng93 is small and
-it is not claimed as the cause of the recovery. The installed binary has been
-rebuilt; a new full atmosphere run with that installed binary was not required
-or performed during installation.
+The Ng guard fix was tested separately: its effect on the retained native
+acceleration proposal was small, so it is not claimed as the cause of that
+recovery. Rebuilding and installing the executable does not itself demonstrate
+convergence of a new atmosphere.
 
 The automatic workflow now registers these additional remedies, also exposed
 as read-only recommendations outside auto mode:
@@ -309,54 +278,50 @@ diagnostic-only instrumentation remain excluded.
 
 ## Reproduce and rebuild
 
-To restore the captured changes, start with a separate clean copy of the CMFGEN
-website release **version 18jun25**. Use the extracted release contents as the
-baseline; the Git tree included in the archive omits some documentation changes
-present in the release files. From that source directory, run
-(adjust the viewer repository path if needed):
+Use the bundled updater from the viewer checkout with CMFGEN **version 18jun25**
+sources or a recognized previously patched installation:
 
 ```sh
-git apply --check --exclude=Makefile_definitions ~/cmfgen_viewer/doc/developer/patches/cmfgen-current.patch
-git apply --exclude=Makefile_definitions ~/cmfgen_viewer/doc/developer/patches/cmfgen-current.patch
+python3 cmfgen_patch.py /path/to/cur_cmf --check
+python3 cmfgen_patch.py /path/to/cur_cmf
 ```
 
-The patch includes the initialization module and groups 1–33; no second patch
-is required. `Makefile_definitions` is excluded above to preserve the receiving
-checkout's local build configuration. Its original patch hunks remain available
-for reference. Directory aliases also reflect the captured local environment;
-review them before building on another machine. When refreshing this snapshot, include newly added
-source files as well as tracked changes, and refresh the manifest hashes together
-with the patch.
+The cumulative patch includes all listed groups and added modules. The updater
+preserves `Makefile_definitions` and `com/aliases_for_cmfgen.sh`, validates source
+hashes, and backs up changed files. See [source updates and versioning](cmfgen-versioning.md)
+for conflict handling, rollback, and release maintenance. When publishing a new
+patch set, include newly added source files and refresh the manifest hashes
+alongside the patch.
 
 Additional investigation regressions:
 
 ```sh
-python3 doc/developer/cmfgen-review-tests/check_convergence_repairs.py ~/CMFGEN2023/cur_cmf.25/ --optimization O0
-python3 doc/developer/cmfgen-review-tests/check_convergence_repairs.py ~/CMFGEN2023/cur_cmf.25/ --optimization O2
+python3 doc/developer/cmfgen-review-tests/check_convergence_repairs.py /path/to/cur_cmf/ --optimization O0
+python3 doc/developer/cmfgen-review-tests/check_convergence_repairs.py /path/to/cur_cmf/ --optimization O2
 ```
 
 Run the source-level regressions:
 
 ```sh
-python doc/developer/cmfgen-review-tests/run_review.py ~/CMFGEN2023/cur_cmf/
+python doc/developer/cmfgen-review-tests/run_review.py /path/to/cur_cmf/
 python doc/developer/cmfgen-review-tests/check_line_jacobian_branches.py --shared-check physical
 python doc/developer/cmfgen-review-tests/check_ba_restart_flags.py
 python doc/developer/cmfgen-review-tests/check_ng_temperature_guard.py
-python doc/developer/cmfgen-review-tests/check_moment_grid_jacobian.py
-python doc/developer/cmfgen-review-tests/check_moment_grid_jacobian.py --optimization O2 --threads 5
-python doc/developer/cmfgen-review-tests/check_moment_families.py
-python doc/developer/cmfgen-review-tests/check_moment_families.py --optimization O2 --threads 5
-python3 doc/developer/cmfgen-review-tests/check_moment_limits.py --cmfgen-root ~/CMFGEN2023/cur_cmf.25/
-python3 doc/developer/cmfgen-review-tests/check_moment_limits.py --cmfgen-root ~/CMFGEN2023/cur_cmf.25/ --optimization O2 --threads 5
-python3 doc/developer/cmfgen-review-tests/check_moment_limit_grids.py --cmfgen-root ~/CMFGEN2023/cur_cmf.25/
-python3 doc/developer/cmfgen-review-tests/check_moment_limit_grids.py --cmfgen-root ~/CMFGEN2023/cur_cmf.25/ --optimization O2 --threads 5
-python doc/developer/cmfgen-review-tests/run_review.py ~/CMFGEN2023/cur_cmf/ \
-  --optimization O2 --threads 5 --atomic-data ~/CMFGEN2023/atomic/
+python doc/developer/cmfgen-review-tests/check_moment_grid_jacobian.py --cmfgen-root /path/to/cur_cmf
+python doc/developer/cmfgen-review-tests/check_moment_grid_jacobian.py --cmfgen-root /path/to/cur_cmf --optimization O2 --threads 5
+python doc/developer/cmfgen-review-tests/check_moment_families.py --cmfgen-root /path/to/cur_cmf
+python doc/developer/cmfgen-review-tests/check_moment_families.py --cmfgen-root /path/to/cur_cmf --optimization O2 --threads 5
+python3 doc/developer/cmfgen-review-tests/check_moment_limits.py --cmfgen-root /path/to/cur_cmf/
+python3 doc/developer/cmfgen-review-tests/check_moment_limits.py --cmfgen-root /path/to/cur_cmf/ --optimization O2 --threads 5
+python3 doc/developer/cmfgen-review-tests/check_moment_limit_grids.py --cmfgen-root /path/to/cur_cmf/
+python3 doc/developer/cmfgen-review-tests/check_moment_limit_grids.py --cmfgen-root /path/to/cur_cmf/ --optimization O2 --threads 5
+python doc/developer/cmfgen-review-tests/run_review.py /path/to/cur_cmf/ \
+  --optimization O2 --threads 5 --atomic-data /path/to/atomic/
 ```
 
 The optional photo test needs compatible existing `mod/` and `lib/` products;
 it compiles the edited reader explicitly ahead of the library copy. Core tests
-compile the affected source directly. The Bstar model driver is
+compile the affected source directly. The saved-atmosphere initialization driver is
 `doc/developer/cmfgen-review-tests/run_bstar_initialization_checks.py`; its
 `--help` lists the required prepared templates and reference arrays from the
 reconstruction investigation. It needs NumPy and invokes the native program
@@ -365,7 +330,7 @@ only in fresh temporary model directories.
 For production use, rebuild serially in the external checkout:
 
 ```sh
-cd ~/CMFGEN2023/cur_cmf.25/
+cd /path/to/cur_cmf/
 make -j1 clean all
 ./exe/cmfgen_dev.exe --version
 ```
@@ -389,18 +354,16 @@ The helper performs the three final links after both recursive builds have
 finished updating shared archives; it then checks source hashes and executable
 ordering before writing optional audit metadata. Rebuild other affected executables if used. The latest installation preserved source, library, module and executable backups in the build record's `build_evidence` directory under `installed-before/`. Keep pre-fix executables and binary checkpoints separate
 for comparisons. Do not run a parallel make: the archives and module directories
-are shared by recursive targets. No source fixes from this work were committed
-to the external Git repository.
+are shared by recursive targets. The updater changes source contents without changing the receiving checkout's
+Git history.
 
-The work directories `/private/tmp/cmfgen-fixes-20261020/` and
-`/private/tmp/cmfgen-initialization-fixes-20261020/` contain pre-fix source copies,
-file hashes, build/test logs, the isolated build, and additional native test
-artifacts. Each regression invocation also prints its own temporary output
-location. The older investigation documents are historical background, not
-additional instructions required to use these fixes.
+Regression invocations report their own isolated output locations, including
+source hashes, commands and logs. Historical installation and investigation
+records preserve the original artifact locations. They are background evidence,
+not additional instructions required to use these fixes.
 
 
-## Bstar3513 source-opacity diagnostic (30 October 2026)
+## Nonpositive source-opacity diagnostic and recovery
 
 The added diagnostic guard does not change a valid opacity or Jacobian. It turns
 an invalid `SRCE_CHK` floor into a nonzero native stop with measurements before
@@ -413,15 +376,15 @@ it is already included in the consolidated patch.
 Run the extracted-native-limiter regression after applying/rebuilding:
 
 ```bash
-python3 doc/developer/cmfgen-review-tests/check_source_opacity_guard.py ~/CMFGEN2023/cur_cmf --optimization O0
-python3 doc/developer/cmfgen-review-tests/check_source_opacity_guard.py ~/CMFGEN2023/cur_cmf --optimization O2
+python3 doc/developer/cmfgen-review-tests/check_source_opacity_guard.py /path/to/cur_cmf --optimization O0
+python3 doc/developer/cmfgen-review-tests/check_source_opacity_guard.py /path/to/cur_cmf --optimization O2
 ```
 
 Both optimizations pass seven cases, including the reproduced invalid floor,
 a zero source floor, positive ordinary source limiting, unchanged positive
 opacity, the native scattering floor, and its existing derivative-control flags.
 The historical Linux build described above predates this additive diagnostic.
-See the investigation record for current local installation and model-run evidence.
+See the linked investigation record for captured installation and native-run evidence.
 
 The runner also adds a narrowly scoped fresh-POP/LTE radiation-seed recipe. If a
 negative-luminosity safeguard remains before the first population solve, it can
@@ -432,7 +395,7 @@ already consolidated LTE-charge/line/BA repairs. The entire recipe remains
 provisional and retains strict conservation checks. See
 [main computation](../main-computation.md#fresh-pop-radiation-initialization) for
 eligibility, temporary controls and rollback, and
-[Bstar3513 investigation](bstar3513-opacity-investigation.md) for native evidence.
+[source-opacity investigation](bstar3513-opacity-investigation.md) for native evidence.
 
 
 The current dated revision and build workflow are documented in

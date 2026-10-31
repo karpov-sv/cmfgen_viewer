@@ -1,4 +1,4 @@
-# CMFGEN convergence repairs from the Bstar3010 investigation
+# CMFGEN interpolation, collision and X-ray convergence repairs
 
 The 29 October 2026 integration adds three numerical repairs, two performance
 optimizations and an opt-in fixed-state output feature to the consolidated
@@ -15,9 +15,10 @@ orders of magnitude. A subsequent N/J evaluation can then fail although every
 stored J is positive. Return exact stored nodes, reevaluate cancellation-prone
 intervals as the same cubic in stable Bezier form, and enforce interval bounds
 for finite results. Ordinary interior arithmetic remains unchanged; nonfinite
-arithmetic remains visible to caller diagnostics. The actual investigation
-failure occurred at frequency 1177. Repaired full radiation sweeps completed
-152,174 frequencies; that count describes the tested model, not a new limit.
+arithmetic remains visible to caller diagnostics. A retained native reproducer
+failed at frequency 1177 before repair. Repaired
+full radiation sweeps completed 152,174 frequencies in that fixture; these
+values describe validation coverage, not applicability conditions or limits.
 
 **27 — Bidirectional X-ray normalization.** Eligible `SCL_XLUM` iterations now
 reduce excessive emission as well as increase deficient emission. Apply the
@@ -64,8 +65,8 @@ edits repair their spelling without adding a duplicate row.
 mode using three complete printed raw solution arrays. Every coordinate must
 be finite; missing/truncated arrays cannot authorize it. It applies only to the
 small-correction tail (all raw requests at most 1%), with fresh full/free-T solves,
-a fixed structure, native `SCALE_OPT=MAJOR`, physical guards and an authenticated
-repaired executable. Existing caller damping and narrower correction scopes are
+a fixed structure, native `SCALE_OPT=MAJOR`, physical guards and a supported
+dated patched executable. Existing caller damping and narrower correction scopes are
 preserved. The trial writes all-depth `RELAX=0.5` in `ADJUST_CORRECTIONS` and
 requires improved full fresh solves plus conserved geometry/elements/charge,
 positive guarded luminosity and nonincreasing correction counts. Diagnostic
@@ -73,7 +74,8 @@ thresholds do not remove weak populations from the stopping criterion.
 
 `stalled_transfer_refinement` recognizes an otherwise unhandled small stall
 across three comparable fresh-matrix batches. With the complete moment,
-interpolation, collision and X-ray repairs authenticated, it may refine coarse
+interpolation, collision and X-ray repairs present in the supported dated
+revision, it may refine coarse
 `VFRAC_FG` and `VFRAC_MOM` to `0.1` on the existing atmosphere grid. Finer settings
 are retained. This recipe is restricted to ordinary steady-state transport and
 uses the same physical/improvement follow-up guards. It retires stale BA and
@@ -85,13 +87,14 @@ and controls. Passing a remedy only permits continued iteration; independent
 fresh convergence verification remains the sole successful automatic main result.
 See the [registered policies](../main-computation.md#automatic-convergence-and-recovery-rules).
 
-The successful Bstar3010 continuation also used compatible neighboring estimates,
-temporary initialization stages and bounded history acceleration in relative
-coordinates. These remain controlled investigation procedures: their safe native
-state/RHS interface and general acceptance policy are not established sufficiently
-to install arbitrary fitted vectors automatically. Neither the two remedies nor
-`RELAX=0.5` alone is claimed to reproduce that entire route from checkpoint 97.
-The original `EPS_TERM=0.02` means **0.02 percent** and remains unchanged.
+Additional isolated continuation experiments used compatible neighboring
+estimates, temporary initialization stages and bounded history acceleration in
+relative coordinates. Their native state/RHS interface and general acceptance
+policy are not established sufficiently to install arbitrary fitted vectors
+automatically. The two registered remedies, including `RELAX=0.5`, are therefore
+not a universal recipe for reproducing every successful experimental recovery.
+`EPS_TERM` remains the caller's tolerance and is expressed in percent: a value of
+`0.02` means **0.02 percent**.
 
 ## 31 — Complete output at a fixed checkpoint
 
@@ -140,12 +143,11 @@ to `F`, and `FLUX_CAL_ONLY=F`, before ordinary solver restarts.
 
 ## Installation and validation
 
-The live checkout is `~/CMFGEN2023/cur_cmf.25/`. Its older initialization module
-was also aligned with the already captured LTE charge-consistency fix 12.
-All installed scientific source hashes match the consolidated snapshot. Local
-`Makefile_definitions` and directory aliases remain byte-identical. Serial builds
-and final atomic links produced atmosphere, CMF_FLUX and observer executables.
-Backups and build/hash records are described in the
+Integration validation included the LTE charge-consistency fix, source hashes
+matching the consolidated snapshot, preserved compiler settings and directory
+aliases, and serial builds of atmosphere, CMF_FLUX and observer executables.
+Use the [source updater and build procedure](cmfgen-versioning.md) for an
+installation; captured historical build evidence is linked from the
 [consolidated summary](cmfgen-source-fixes.md).
 
 The following checks passed against the integrated sources:
@@ -169,7 +171,7 @@ The native regression driver is repeatable without modifying its source checkout
 
 ```sh
 python3 doc/developer/cmfgen-review-tests/check_convergence_repairs.py \
-  ~/CMFGEN2023/cur_cmf.25/ --optimization O2
+  /path/to/cur_cmf/ --optimization O2
 ```
 
 It needs compatible built precision modules/libraries. Use
@@ -177,8 +179,8 @@ It needs compatible built precision modules/libraries. Use
 byte comparison. Build provenance and capability authentication do not certify
 scientific convergence of other models.
 
-The complete fixed-state output check finished in **29.02 minutes** at saved
-checkpoint 111. All checkpoint/control hashes remained unchanged. All 119,342
+A complete fixed-state output regression finished in **29.02 minutes** from
+a saved checkpoint. All checkpoint/control hashes remained unchanged. All 119,342
 printed spectral intensities match the verified reference exactly; the ordinary
 inner gradient, energy/luminosity profiles and mean opacities also match. Complete
 rate/atmosphere outputs were generated. This is output consistency, not another

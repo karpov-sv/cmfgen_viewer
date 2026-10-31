@@ -1,26 +1,20 @@
 # Cancellation in CMFGEN line population Jacobians
 
-**Installation update — 24 October 2026:** the final scientific line/BA repairs
-and the separately validated Ng temperature safeguard are now installed in
-`~/CMFGEN2023/cur_cmf`, with serially rebuilt atmosphere/spectrum executables.
-The main model remains unchanged. Earlier statements below about isolated or
-unapplied candidates are historical; see the
-[current consolidated record](cmfgen-source-fixes.md) and patch manifest for
-the installed state. Diagnostic instrumentation and alternative Q integration
-remain excluded.
+The scientific line/BA repairs and separately validated Ng temperature safeguard
+are included in the [cumulative source patch](cmfgen-source-fixes.md). Diagnostic
+instrumentation and experimental alternative Q integration are excluded. The
+chronological comparisons below record isolated reproductions and validation;
+they are evidence for the repair, not a required sequence of model adjustments.
 
-Status: **Original Bstar3502 instability reproduced, source defects attributed,
-and stable recovery demonstrated in the isolated repaired runtime** (2026-10-24).
-Matched tests and fresh-process continuation establish the recovery without
-requiring the model to reach its final EPS threshold. At accepted101, raw
-maximum .2530594%, T .000378099%, and11818 variables>.02%; all are decreasing,
-with positivity, original geometry and conservation checks passing. The stable
-native luminosity offset is approximately+.455%; no final convergence or exact
-transport certificate is claimed. No further convergence-only runs are planned.
-The existing bounded confirmation run remains active. Installed CMFGEN source,
-executables and the actual main model have not been changed. See the
-[investigation report](bstar3502-lambda-investigation.md) for current scope and
-all supporting provenance.
+Matched saved-checkpoint tests reproduced a tiny-population instability and
+demonstrated stable recovery with the repaired runtime, including fresh-process
+continuation. In a retained later state, the raw maximum request was 0.2530594%,
+the temperature request was 0.000378099%, and 11,818 variables exceeded 0.02%;
+these measures were decreasing while positivity, original geometry and
+conservation checks passed. The luminosity offset was approximately +0.455%.
+This demonstrates progress, not final convergence or exact transport accuracy.
+See the [archived investigation](bstar3502-lambda-investigation.md) for the
+matched inputs, original artifact locations and supporting provenance.
 
 ## Defect and repair
 
@@ -75,7 +69,7 @@ From the viewer repository, using the built source tree read-only:
 ```bash
 OPENBLAS_NUM_THREADS=1 python \
   doc/developer/cmfgen-review-tests/check_lambda_line_jacobian.py \
-  --cmfgen-root ~/CMFGEN2023/cur_cmf \
+  --cmfgen-root /path/to/cur_cmf \
   --compiler /opt/local/bin/gfortran
 ```
 
@@ -96,7 +90,7 @@ Observed results:
 The test is independent of a CMFGEN model run and does not modify the source
 tree. The test's deliberate failure on the old source is the defect reproducer.
 
-## Matched original Bstar3502 checkpoint
+## Matched saved-checkpoint comparison
 
 Two isolated runs start from exactly the same original physical checkpoint68,
 without LTE reseeding. They share `VFRAC_FG=.1`, `MAX_LAM=1e12`, all other
@@ -155,13 +149,11 @@ not establish that the original machine followed the same tiny-population path.
 - [Native fixture](cmfgen-review-tests/fixtures/lambda_line_jacobian.f90).
 - [Complete investigation and subsequent validation](bstar3502-lambda-investigation.md).
 
-Large matched-run evidence is retained under ignored local diagnostics:
-`models/test/.model_Bstar3502-diagnostics/root-cause-v1/`. In particular,
-`original68-ray01-lambda-stable-line/matched-stable-line-comparison.json` records
-the paired measurements. `figures/bstar3502-line-cancellation.{svg,png}` plots
-the same N V SL22 coefficient versus all 90 depth indices; CSV and generator
-are retained beside it. These files are evidence, not a model-independent
-claim that every large correction has this cause.
+The [archived investigation](bstar3502-lambda-investigation.md) records the
+matched measurements and coefficient-versus-depth plots, including CSV data
+and their generators. The plots compare the same N V SL22 coefficient across
+90 depth indices. This is evidence for the diagnosed cancellation, not a claim
+that every large correction has this cause.
 
 
 ## Experimental strong-line repair
@@ -199,7 +191,7 @@ only the full strong-line scenarios exercise the temperature-ratio derivative.
 ```bash
 OPENBLAS_NUM_THREADS=1 python \
   doc/developer/cmfgen-review-tests/check_line_jacobian_branches.py \
-  --cmfgen-root ~/CMFGEN2023/cur_cmf \
+  --cmfgen-root /path/to/cur_cmf \
   --compiler /opt/local/bin/gfortran \
   --source /absolute/path/to/isolated/update_ba_for_line.f
 ```
@@ -273,7 +265,7 @@ remain required. Large paired evidence is retained in
 `root-cause-v1/matched-full75-source-comparison.json`.
 Bootstrap evidence and the rendered trajectory figure are retained in
 `original76-guarded-line-lambda-bootstrap3/reconciled-batch-analysis.json` and
-`figures/bstar3502-guarded-bootstrap.{svg,png}` under the same diagnostics root.
+the guarded-bootstrap trajectory plots referenced in the archived investigation.
 
 
 Additional standalone options are covered by `--variant cooling` and
@@ -362,7 +354,7 @@ shared-level error. This remains kernel coverage, not whole-model attribution.
 ```bash
 OPENBLAS_NUM_THREADS=1 python \
   doc/developer/cmfgen-review-tests/check_shared_line_jacobian.py \
-  --cmfgen-root ~/CMFGEN2023/cur_cmf \
+  --cmfgen-root /path/to/cur_cmf \
   --compiler /opt/local/bin/gfortran \
   --source /absolute/path/to/isolated/update_ba_for_line.f
 ```
@@ -421,7 +413,7 @@ above `1e-6 Ne` still exceed10%, versus twenty at full82. All trace variables
 remain in the convergence counts; 147,333 variables still exceed0.02%, so this
 is further progress rather than a convergence certificate. Exact evidence is in
 `continuation-observations/through083/`; the updated trajectory and reproducible
-CSV/plot generator are `figures/bstar3502-sl-temperature-recovery.*`.
+CSV data and plot generators are referenced in the archived investigation.
 
 Full84 continues the improvement: temperature maximum `0.0424533%` at depth4,
 electron-density maximum `0.120092%`, and all-variable maximum `33.4069%`.
@@ -460,8 +452,8 @@ from `+1.994e-7` to `-7.788e-5`, and at depth3 from `+2.447e-7` to `-6.740e-5`.
 These are assembled, scaled Jacobian coefficients. This is evidence for the
 intended coupling change, not an independent finite-difference certification
 of the complete transport Jacobian. The original-solution comparison plot and
-CSV are retained as `figures/bstar3502-superlevel-temperature-option.*` under
-the diagnostics root; its second panel explicitly compares evolved inputs.
+CSV are referenced in the archived investigation; the second plot panel
+explicitly compares evolved inputs.
 
 The original temperature-enabled first80 radiation was overwritten before its
 external observer was attached; its matrices and saved state are intact. An
@@ -570,8 +562,8 @@ continued unchanged. `DO_NG_BAND_ACCEL_V4` appends R, V and Sigma+1 to the
 physical population vector and calls its inner fitting helper with NT+3.
 The helper's temperature-direction check still indexes NT, which now selects
 Sigma+1. Constant geometry bypasses the intended temperature-sign safeguard.
-This is separate from the three line-Jacobian defects; no actual Bstar3502
-wrong-sign Ng event has yet been established. The original failures preceded Ng.
+This is separate from the three line-Jacobian defects; no wrong-sign Ng event on the retained
+instability reproducer was established. The original failures preceded Ng.
 
 For a positive synthetic history with current T=1, previous=.98, older=.97/.965,
 the extrapolated T=.96 opposes the latest increase. The actual original V4

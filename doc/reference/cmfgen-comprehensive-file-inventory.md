@@ -561,10 +561,10 @@ Derived from `CMFGEN_comprehensive_file_inventory_2026-02-09.txt` (technical con
 
 These names are critical for workflow discovery but are not native core writer names.
 
-### Observed in model_Bstar1060 scripts
+### Observer workflow script aliases
 Source scripts:
-- /home/karpov/CMFGEN2023/models/ostar/model_Bstar1060/obs/bat_ins.sh
-- /home/karpov/CMFGEN2023/models/ostar/model_Bstar1060/obs/batobs.sh
+- /path/to/model/obs/bat_ins.sh
+- /path/to/model/obs/batobs.sh
 
 1. obs_fin_15 / obs_fin_10 / obs_fin_20
     - UPDATE from OBSFRAME via mv
@@ -686,9 +686,9 @@ Outputs:
 
 ### cpmod/out2in style setup
 Source:
-- /home/karpov/CMFGEN2023/models/ostar/cpmod.sh
-- /home/karpov/CMFGEN2023/models/ostar/out2in.sh
-- /home/karpov/CMFGEN2023/cur_cmf/com/*.sh related helpers
+- /path/to/model-templates/cpmod.sh
+- /path/to/model-templates/out2in.sh
+- /path/to/cur_cmf/com/*.sh related helpers
 
 Common actions:
 1. Copy control/bootstrap files:
@@ -764,10 +764,10 @@ Lower priority / internal:
 
 1. obs_fin_* and obs_cont
     - Not core writer names in cmf_flux code; they are script renames of OBSFRAME.
-    - Confirmed in model_Bstar1060/obs scripts.
+    - Confirmed in the captured observer workflow scripts; aliases depend on those scripts.
 
 2. hydro_cont
-    - Also script rename (HYDRO -> hydro_cont) in this model’s batobs.sh.
+    - Also script rename (HYDRO -> hydro_cont) in the captured observer `batobs.sh`.
     - Therefore it exists when that script path is used, not as a hardcoded code writer name.
 
 3. Additional "files like that"

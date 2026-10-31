@@ -434,12 +434,15 @@ link stops automatic execution, even if the new target has identical contents.
 
 
 A hydro structure is considered fixed for population and ray remedies when
-`DO_HYDRO=F`, or when an explicit schedule has completed (`N_ITS=0`, integer
-`ITS_DONE>=1`). A copied zero schedule with no completed revisions does not
-qualify. This permits the existing population bootstrap to take over after a
-verified hydro recovery without disabling the user's hydro configuration.
-`startup_hydro` addresses the Bstar3512 startup guard; it does not require manually
-converging the atmosphere or adding another population-recovery algorithm.
+`DO_HYDRO=F` or an explicit hydro schedule has no remaining revisions. Completed
+schedules require integer `ITS_DONE>=1`; an unperformed schedule with
+`N_ITS=ITS_DONE=0` requires valid positive `STRT_ITS` and `FREQ_ITS`. Pending native
+radial-grid revisions also exclude fixed-geometry remedies. The separate
+`startup_hydro` rule can rearm an unperformed hydro schedule when a diagnosed
+positive startup luminosity deficit establishes the need for a structure update.
+After that guarded procedure passes, the existing population bootstrap can
+handle extreme corrections without disabling the caller's hydro configuration.
+
 
 
 ### Native fallback during population verification
@@ -561,5 +564,5 @@ at revision `2026-10-31.1` or later. Future remedies can require a later revisio
 Official/foreign build dates and stamps in older model outputs do not qualify
 a different executable. A JSON build record is not required. Unidentified older
 executables can still run normally and use remedies independent of these
-repairs. See [native versioning](developer/cmfgen-versioning.md) for the release
-stamp and clean serial build/final-link procedure.
+repairs. The repository file `doc/developer/cmfgen-versioning.md` documents the
+release stamp and clean serial build/final-link procedure.

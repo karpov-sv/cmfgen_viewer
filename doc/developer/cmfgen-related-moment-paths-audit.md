@@ -1,6 +1,6 @@
 # Audit of related CMFGEN moment and variation paths
 
-24 October 2026. Audited the installed `~/CMFGEN2023/cur_cmf/` after commit
+24 October 2026. Audited the patched source snapshot after commit
 `4d85f58`, following the [inserted-grid repair](cmfgen-inserted-moment-grid.md).
 The findings below describe that audited source snapshot. Their subsequent
 repairs and validation are recorded in [related moment repairs](cmfgen-related-moment-repairs.md);
@@ -61,9 +61,9 @@ Source locations in the installed checkout:
 
 The separate refined entries contain the tested corrections. A follow-up should
 validate and extend those corrections to the ordinary path, retaining its
-forward transport. The unrefined `LOGMON` case is particularly relevant to
-Bstar3502's chosen method; the above error has not been measured on its actual
-atmosphere. Its steady convergence is not contradicted by this synthetic test.
+forward transport. The unrefined `LOGMON` case affects a commonly used transport method. This
+synthetic error measurement does not establish the error on a particular
+atmosphere or contradict an independently observed convergence trend.
 
 ## 2. Relativistic grid handoff
 
@@ -160,18 +160,19 @@ private-history initialization first, then repair and test the relativistic
 helper and grid handoff, followed by the two-level extended-grid path. Test DDT
 with its own temporal and boundary terms rather than extrapolating formulas.
 
-Bstar3502 currently has `INC_GRID=F`, `VFRAC_MOM=20000`, a diffusion inner boundary
-and `METHOD=LOGMON`; its input does not enable `USE_J_REL` or an alternate outer
-boundary. No model adjustment is warranted solely from this audit.
+Assess reachability from the selected transport family, sampling and boundary
+controls. For example, `INC_GRID=F`, `VFRAC_MOM=20000`, a diffusion inner boundary
+and ordinary `METHOD=LOGMON` do not exercise relativistic or alternate-boundary
+paths. An audit finding on an unused path alone does not warrant model changes.
 
 ## Reproduce
 
 ```sh
-python doc/developer/cmfgen-review-tests/check_related_moment_paths.py
+python doc/developer/cmfgen-review-tests/check_related_moment_paths.py --cmfgen-root /path/to/cur_cmf
 ```
 
 The driver reports observations, not success of a source repair. It builds only
 in a temporary directory and requires NumPy, the installed moment-grid repair,
 and compiler-compatible native modules/libraries. It emits source hashes, build
-commands, bounds/trap logs and finite-difference results. Local evidence is in
-`models/test/.model_Bstar3502-diagnostics/moment-grid-audit-v1/reproducible/`.
+commands, bounds/trap logs and finite-difference results. Historical artifact
+locations are retained in the [patch manifest](patches/cmfgen-current.json).

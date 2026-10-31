@@ -172,7 +172,7 @@ Once per automatic invocation, it requests 2 iterations using the existing tempo
 
 ### Automatic recovery before a scheduled hydrostatic revision
 
-The Bstar3500 investigation of 21 October 2026 identified a luminosity stop **before** a scheduled hydrostatic/grey-temperature revision could execute. One iteration with `STOP_IF_MW=F` allowed that revision; subsequent radiation iterations improved the luminosity consistency. This is a tested startup workaround, not a source patch or a demonstration of convergence. The report did not run the subsequent restored-guard test. The controller therefore requires an actual guarded follow-up before retaining the revised state.
+A luminosity safeguard can stop a continuation **before** a scheduled hydrostatic/grey-temperature revision executes. For the narrowly diagnosed case below, one iteration with temporary `STOP_IF_MW=F` can allow that revision to complete. The revised structure must then pass a follow-up with the safeguard restored before the controller retains it. Completing the revision establishes usable continuation, not convergence; an unguarded improvement alone does not validate the workaround.
 
 ```bash
 python3 cmfgen_run.py /path/to/model --stage main --auto --plan

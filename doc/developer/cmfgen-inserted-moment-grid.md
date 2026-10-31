@@ -1,6 +1,6 @@
 # Inserted moment grids: transport and Jacobian repair
 
-The repair is installed in `~/CMFGEN2023/cur_cmf/` and included in
+The repair is included in
 [cmfgen-current.patch](patches/cmfgen-current.patch). It corrects the
 nonrelativistic spherical continuum-velocity path when `MOM_J_CMF_V11` inserts
 points between the model depths. Models without inserted moment points retain
@@ -16,8 +16,8 @@ original atmosphere radii and depth count, so the latter read the *prefix* of
 the refined arrays as if it belonged to the atmosphere. The radii did not
 match. The same indexing defect was found in the mid-2023 source.
 
-On the original Bstar3502 geometry, a 90-point atmosphere produced 178 moment
-points. Reading the first 90 angular factors gave a maximum K/J mismatch of
+In a retained nonuniform-grid fixture, a 90-point atmosphere produced 178
+moment points. Reading the first 90 angular factors gave a maximum K/J mismatch of
 about 0.478. Disabling insertion with `VFRAC_MOM=20000` avoided this error.
 
 Simply recomputing the factors on the atmosphere grid is insufficient: the
@@ -110,8 +110,8 @@ The experimental log-radius `QFROMF` integration remains excluded.
 Reproduce on an installed, built checkout:
 
 ```sh
-python doc/developer/cmfgen-review-tests/check_moment_grid_jacobian.py
-python doc/developer/cmfgen-review-tests/check_moment_grid_jacobian.py --optimization O2 --threads 5
+python doc/developer/cmfgen-review-tests/check_moment_grid_jacobian.py --cmfgen-root /path/to/cur_cmf
+python doc/developer/cmfgen-review-tests/check_moment_grid_jacobian.py --cmfgen-root /path/to/cur_cmf --optimization O2 --threads 5
 ```
 
 NumPy and a compatible Fortran compiler, installed modules and libraries are
@@ -119,23 +119,23 @@ required. `--source-root` accepts an isolated edited source tree;
 `--baseline-root` additionally enables the bit-for-bit comparisons. Every run
 uses its own build directory and writes a JSON report and build commands.
 
-Local evidence and rollback products are in
-`models/test/.model_Bstar3502-diagnostics/moment-grid-fix-v1/`:
-`validation-workflow/report.json`, `validation-o2-five/report.json`,
-`installation.json`, and `installed-before/`. The consolidated patch was applied
+Archived evidence includes kernel/workflow reports, installation metadata and
+pre-installation rollback products. Their original locations are retained in
+the [patch manifest](patches/cmfgen-current.json). The consolidated patch was applied
 in a fresh directory outside the viewer Git worktree and all 35 resulting source
 files matched the installed checkout byte for byte.
 
 ## Workflow behavior
 
-The authenticated build capability is `moment-grid-jacobian-v1`. Automatic
-formal-ray refinement can now preserve an already inserted moment grid when the
-executable hash and this capability match its build record. Unpatched or
+Automatic formal-ray refinement can preserve an already inserted moment grid
+when the selected executable reports a supported cumulative patch revision.
+Runtime eligibility uses the dated revision, not historical build-capability
+labels or a JSON record; see [versioning](cmfgen-versioning.md). Unpatched or
 unidentified executables remain declined for that case. Recovery still requires
 its existing luminosity, structure and continuation checks and never changes
 `VFRAC_MOM` itself.
 
-The main `model_Bstar3502` checkpoint, controls and `VFRAC_MOM=20000` are unchanged.
+Installing this repair does not change model checkpoints or sampling controls.
 There is no reason to refine a steadily converging model solely because the
 option is repaired. If a scientific comparison is wanted, use an independent
 copy, change only `VFRAC_MOM`, recompute BA and radiation caches, and compare

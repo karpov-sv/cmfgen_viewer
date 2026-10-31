@@ -103,7 +103,7 @@ announces the reset, and no unrelated HYDRO_DEFAULTS edit accompanies it.
 If native hydro revisions follow, their counter deltas are measured from zero.
 
 The evidence and bounded native comparison behind the remedy are recorded in
-[the Bstar3100 investigation](bstar3100-failure-investigation.md). Passing that
+[the nonfinite-radiation-cache investigation](bstar3100-failure-investigation.md). Passing that
 startup check does not establish later convergence of an individual model.
 
 ## Multi-step remedies
@@ -171,7 +171,7 @@ run the user's scientific model as a test.
 recipe without modifying the controller, rejecting false convergence, restoring
 failed provisional edits, composing cache and hydro recovery, and invalidating
 a preview when policy versions change. `tests/test_auto_hydro.py` tests the
-Bstar3500 eligibility and guard-restoration checks. `tests/test_runner_auto.py`
+scheduled-hydro eligibility and guard-restoration checks. `tests/test_runner_auto.py`
 checks the shared controller lifecycle and numerical acceptance.
 `tests/test_auto_lte.py` covers confirmed initialization failures, compatibility
 refusals, temporary LTE restoration, normal-continuation verification, and
@@ -191,12 +191,12 @@ Ordinary main runs reuse each registered evaluator through `main_recommendations
 
 Automatic main followed by flux is represented by an ordinary sequence whose initial plan is automatic and whose `stage_options.automatic_main` retains the reviewed policy manifest and work budgets. Main is rebuilt and its manifest rechecked before execution. The sequence holds the model reservation across the transition and starts flux only if main returns independently verified success. UI and CLI share this configuration path.
 
-## Bstar3502 recovery additions
+## Population and radiation recovery
 
 The new policies and their exact eligibility, control changes and limits are
 listed in [Main computation](../main-computation.md#automatic-convergence-and-recovery-rules).
-The fixed-T Lambda primitive is `population_recovery_probe=True`: exactly three
-continuation solves, authenticated repaired executable, fixed structure, temporary
+The fixed-T Lambda primitive is `population_recovery_probe=True`: three requested
+continuation solves, a supported dated executable revision, fixed structure, temporary
 `FIX_T=T`, `MAX_LAM=1e12`, fresh BA, Ng off, and Lambda/automatic-T switches held
 explicitly. Every override is restored on success, failure or interruption. The
 follow-up must contain two actual full variable-T/fresh-BA solves. Independent

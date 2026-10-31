@@ -1,6 +1,6 @@
 # CMFGEN End-to-End Processing Pipeline and File I/O Map
 Date: 2026-02-08
-Repository snapshot: /home/karpov/CMFGEN2023/cur_cmf
+Source references are relative to the CMFGEN source checkout.
 
 Purpose
 -------

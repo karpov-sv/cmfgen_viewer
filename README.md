@@ -223,8 +223,8 @@ Configure installation and atomic-data roots in `~/.cmfgenrc` or a `.cmfgenrc`
 in the invoking current directory:
 
 ```ini
-cmfgen_root = ~/CMFGEN2023/cur_cmf
-atomic_root = ~/CMFGEN2023/atomic
+cmfgen_root = /path/to/cur_cmf
+atomic_root = /path/to/atomic
 ```
 
 You can also supply `--cmfgen-root` and `--atomic-root`, or set `CMFDIST` and

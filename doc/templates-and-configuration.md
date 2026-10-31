@@ -22,8 +22,8 @@ Installation and thread defaults are resolved individually, highest priority fir
 A `.cmfgenrc` uses plain entries without a section header:
 
 ```ini
-cmfgen_root = ~/CMFGEN2023/cur_cmf
-atomic_root = ~/CMFGEN2023/atomic
+cmfgen_root = /path/to/cur_cmf
+atomic_root = /path/to/atomic
 # Optional positive thread count:
 nthreads = 1
 # Optional viewer defaults:

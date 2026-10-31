@@ -1,13 +1,12 @@
 # Ordinary moment transport: derivatives of J repair and H limits
 
-Fix 25 is installed in `~/CMFGEN2023/cur_cmf.25/` on 25 October 2026. It corrects
-`VAR_MOM_J_CMF_V12` and its rectangular inserted-grid counterpart. The forward
-radiation solver and model controls are unchanged. The main Bstar3010 model
-remains stopped at checkpoint 87; no full-atmosphere convergence result is claimed.
+Fix 25 corrects `VAR_MOM_J_CMF_V12` and its rectangular inserted-grid
+counterpart. The forward radiation solver and model controls are unchanged.
+Kernel and workflow validation do not establish full-atmosphere convergence.
 
 The [consolidated source patch](patches/cmfgen-current.patch) now includes this
-repair together with fixes 1–24. For a clean release, apply that patch once;
-use `--exclude=Makefile_definitions` to preserve local build settings. The
+repair together with fixes 1–24. Use the [source updater](cmfgen-versioning.md#apply-or-update-the-source-patch-set)
+to apply or update it while preserving local build settings and aliases. The
 [incremental source patch](patches/cmfgen-moment-limits.patch) is retained only
 for upgrading a checkout already containing fixes 1–24. Do not apply it after
 the current consolidated patch.
@@ -61,7 +60,7 @@ factors, as required by this approximate Newton operator.
 
 ## Actual-model counterexamples
 
-Retained Bstar3010 coefficients provide two independent checks:
+Retained native coefficients provide two independent reproductions:
 
 | Case / response to current ETA(33) | Before | Repaired | Forward finite difference |
 | --- | ---: | ---: | ---: |
@@ -112,9 +111,9 @@ Commands (use a fresh `--work-dir` for each run):
 
 ```sh
 python3 doc/developer/cmfgen-review-tests/check_moment_limits.py \
-  --cmfgen-root ~/CMFGEN2023/cur_cmf.25
+  --cmfgen-root /path/to/cur_cmf
 python3 doc/developer/cmfgen-review-tests/check_moment_limit_grids.py \
-  --cmfgen-root ~/CMFGEN2023/cur_cmf.25
+  --cmfgen-root /path/to/cur_cmf
 ```
 
 Add `--optimization O2 --threads 5` for the optimized configuration. Both accept

@@ -2,9 +2,10 @@
 
 25 October 2026. Follow-up to the [related-path audit](cmfgen-related-moment-paths-audit.md)
 and [inserted nonrelativistic grid repair](cmfgen-inserted-moment-grid.md).
-All fixes described here are installed; all three executables were rebuilt
-serially and the final links installed atomically. The running Bstar3100 process
-retains its original executable. Bstar3502 controls and checkpoint are unchanged.
+The fixes are included in the cumulative source patch. Validation included
+serial rebuilds and atomic final links of the atmosphere and spectrum
+executables. Installation does not change model controls or checkpoints;
+existing mapped processes retain their original executable.
 
 ## Corrected paths
 
@@ -125,33 +126,32 @@ that the forward dispatcher does not select. Noncoherent `MIX_COH` variations
 remain explicitly refused on these grid paths.
 
 ```sh
-python doc/developer/cmfgen-review-tests/check_moment_families.py
-python doc/developer/cmfgen-review-tests/check_moment_families.py --optimization O2 --threads 5
-python doc/developer/cmfgen-review-tests/check_moment_grid_jacobian.py
+python doc/developer/cmfgen-review-tests/check_moment_families.py --cmfgen-root /path/to/cur_cmf
+python doc/developer/cmfgen-review-tests/check_moment_families.py --cmfgen-root /path/to/cur_cmf --optimization O2 --threads 5
+python doc/developer/cmfgen-review-tests/check_moment_grid_jacobian.py --cmfgen-root /path/to/cur_cmf
 ```
 
 The scripts require NumPy and compatible installed native libraries/modules;
 `--source-root` selects an isolated candidate tree and `--work-dir` selects
 fresh evidence storage. Source/fixture hashes, commands, logs and results are
-recorded. Local evidence and installation rollback are under
-`models/test/.model_Bstar3502-diagnostics/related-moment-fixes-v1/`.
+recorded. Historical evidence and rollback locations are retained in the
+[patch manifest](patches/cmfgen-current.json).
 
 ## Automatic recovery
 
-The authenticated capability `moment-grid-family-v1` covers these related
-families; `moment-grid-jacobian-v1` alone certifies the earlier ordinary
-nonrelativistic inserted path. Ray recovery requires the family capability for
-`USE_J_REL`, `USE_DJDT_RTE` or `INC_GRID`, even when `VFRAC_MOM=20000`, and verifies
-the executable hash. It still requires the established luminosity/continuation
+Ray recovery with `USE_J_REL`, `USE_DJDT_RTE` or `INC_GRID` requires a supported
+cumulative patch revision, even when `VFRAC_MOM=20000`. The selected executable
+reports its revision directly; historical capability labels and build records
+are not runtime eligibility checks. See [versioning](cmfgen-versioning.md).
+Recovery still requires the established luminosity/continuation
 checks and never changes `VFRAC_MOM` or enables an optional solver automatically.
 
 The consolidated [patch](patches/cmfgen-current.patch) and
 [manifest](patches/cmfgen-current.json) cover 45 files and were verified by
 applying to the extracted release baseline outside the viewer Git worktree and
-comparing every resulting file byte for byte. The installed build record is
-`~/CMFGEN2023/cur_cmf/cmfgen-local-build.json`; rollback sources, libraries,
-modules, executables and the previous build record are in
-`related-moment-fixes-v1/installed-before/`. Final builds use a separate executable
+comparing every resulting file byte for byte. Historical build records retain
+the source, library, module and executable hashes and their rollback locations.
+Final builds use a separate executable
 output directory and atomic final links so an existing model run is not modified.
 
 The subsequent [ordinary limiting-branch repair](cmfgen-moment-limits.md)

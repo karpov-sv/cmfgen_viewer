@@ -63,8 +63,8 @@ Run the standalone updater from the viewer checkout (Python standard library
 and `git` only; no viewer dependencies are required):
 
 ```sh
-python3 cmfgen_patch.py ~/CMFGEN2023/cur_cmf --check
-python3 cmfgen_patch.py ~/CMFGEN2023/cur_cmf
+python3 cmfgen_patch.py /path/to/cur_cmf --check
+python3 cmfgen_patch.py /path/to/cur_cmf
 ```
 
 After updating the viewer repository, run the same command again to update the
@@ -137,12 +137,12 @@ Existing automatic jobs pin their executable. Install a new release between
 jobs, after the current automatic loop stops, to avoid interrupting it.
 
 
-## Local activation and validation (31 October 2026)
+## Release validation (31 October 2026)
 
-Revision `2026-10-31.1` is installed in `~/CMFGEN2023/cur_cmf`. The requested
-model_Bstar3513.2 automatic run was stopped through its normal Ctrl-C handler
-first; it reported cancellation with stable-state restoration. The model was
-not restarted. Its subsequent automatic preflight passes in fresh-start mode.
+Revision `2026-10-31.1` was validated after stopping an active automatic loop
+through its normal cancellation handler. The loop reported stable-state
+restoration, and a subsequent fresh-start preflight passed. This checks the
+activation/cancellation handoff; it does not establish model convergence.
 
 Validation includes a clean serial build of all 80 executables, current final
 links, a no-output --version query, native zero-iteration initialization with
@@ -151,6 +151,7 @@ previous validated seed. The full consolidated patch applies and reverses with
 all 52 file hashes checked. Runtime eligibility succeeds with no JSON build
 record. The old record was retired to the rollback backup.
 
-The installation preserves local compiler settings and aliases. Source,
-libraries, modules, main/spectrum executables and link objects are backed up in
-`~/CMFGEN2023/cur_cmf/.cmfgen-backups/20261031T013718Z-dated-version/`.
+Installations preserve local compiler settings and aliases. Keep the source,
+libraries, modules, executables and link objects needed for rollback together
+under the installation's `.cmfgen-backups/` directory. Historical installation
+locations and hashes remain in the patch manifest.
