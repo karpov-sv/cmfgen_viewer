@@ -483,6 +483,7 @@ from .auto_recovery import (temperature_coupling, population_bootstrap, populati
 from .auto_performance import ba_reuse_trial, relaxation_release
 from .opacity_recovery import source_opacity_recovery, opacity_lte_seed
 from .auto_convergence_remedies import population_relaxation, stalled_transfer_refinement
+from .population_projection import localized_population_projection
 
 POLICIES = (
     Policy('nonfinite_radiation_cache', 1, 'prepare', 'Preserve nonfinite EDDFACTOR and recompute radiation before execution', _nonfinite_cache, 1),
@@ -499,6 +500,7 @@ POLICIES = (
     Policy('verified_convergence', 3, 'success', 'Independent fresh-Jacobian acceptance with a stable source and restoration of starting BA reuse', _verified),
     Policy('verify_candidate', 2, 'success', 'Fresh-Jacobian verification of a numerical candidate', _candidate),
     Policy('superlevel_temperature', 2, 'success', 'Superlevel temperature coupling before oscillation damping', temperature_coupling, 1),
+    Policy('localized_population_projection', 1, 'success', 'Conservative repair of a diagnosed isolated ionization spike with full native verification', localized_population_projection, 1),
     Policy('population_bootstrap', 7, 'success', 'Bounded fixed-T Lambda population recovery and full verification', population_bootstrap, 1),
     Policy('ng_cadence', 1, 'success', 'Contiguous batches permitting the first native Ng acceleration', ng_cadence, 1),
     Policy('population_relaxation', 4, 'success', 'Guarded half-relaxation for measured small population cycles', population_relaxation, 1),

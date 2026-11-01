@@ -12,6 +12,8 @@ after investigation, the validated remedy becomes another registered policy.
 - `pop_initialization.py`: executable capability and original saved-source grid/level checks for the bounded POP trial.
 - `auto_recovery.py`: refined formal rays, superlevel T derivatives, physical Lambda bootstrap and first-Ng batch cadence.
 - `checkpoint_physics.py`: recognized binary/ion metadata, charge, element sums, geometry and fixed-T recovery checks.
+- `population_projection.py`: checksum-bound conservative repair of a diagnosed isolated ionization spike and full native response verification.
+- `moment_diagnostics.py`: fresh, complete compact negative-intensity evidence on the native transfer grid.
 - `auto_hydro.py`: native hydro handoff evidence and profile/scheduling checks.
 - `radiation_cache.py`: bounded inspection of supported native EDDFACTOR layouts.
 - `auto_policies.py`: ordered, versioned `POLICIES` and read-only decision functions.
@@ -66,7 +68,12 @@ The registry assigns `policy_id`; actions and decision events retain it.
 All actions use the engine's locks, input/executable checks, action backups,
 and application/work limits. Existing mutation primitives support value-only
 VADAT and ADJUST_CORRECTIONS patches and a short whitelist of regenerable
-BA/radiation caches. A remedy requiring a new mutation class must first add a
+BA/radiation caches. The localized-population policy additionally permits a
+checksum-bound, conservative one-depth checkpoint projection, exclusively
+inside a provisional procedure with whole-procedure rollback and two full
+native response checks. See the [Bstar3514 investigation](bstar3514-instability-investigation.md)
+for its recognition signature and acceptance boundaries.
+A remedy requiring a new mutation class must first add a
 reviewed, guarded execution primitive and its recovery support; arbitrary
 scripts and source/executable edits are not policy actions.
 

@@ -62,7 +62,7 @@ def configure_auto(plan, *, cmfgen_root, atomic_root,
                                           if str(model/n) not in reviewed)]
     result['kind'] = 'auto'
     registry = policies.manifest()
-    result['auto'] = {'version': 10, 'batch_iterations': batch,
+    result['auto'] = {'version': 11, 'batch_iterations': batch,
                       'max_attempts': max_attempts, 'max_iterations': max_iterations,
                       'policies': registry,
                       'cmfgen_root': str(Path(cmfgen_root).resolve()),
@@ -202,6 +202,10 @@ def _action(model, journal, actions, kind, reason, changes=None, caches=(), *, p
                     digest.update(block)
             if digest.hexdigest() != (evidence or {}).get(key):
                 raise RunnerError('Radiation cache changed after diagnosis; preserving current files for review')
+    if kind == 'localized_population_projection':
+        from .population_projection import apply_projection
+        record['checkpoint_projection'] = apply_projection(model, (evidence or {})['projection'])
+        _json(folder/'action.json', record)
     for name in caches:
         path = model/name
         if path.exists():
@@ -327,6 +331,9 @@ def run_auto_plan(plan, emit=None, *, stop_requested=None):
             nonlocal recovery
             with model_mutation_guard(model, RunnerError):
                 check_inputs()
+                if decision.action == 'localized_population_projection' and (
+                        pending is not decision or not decision.steps):
+                    raise RunnerError('Localized population projection must be a provisional recovery procedure')
                 record = _action(model, journal, result['actions'], decision.action, decision.reason,
                                  decision.changes, decision.caches, policy_id=decision.policy_id,
                                  evidence=decision.evidence, preserve_caches=decision.preserve_caches)
@@ -422,7 +429,8 @@ def run_auto_plan(plan, emit=None, *, stop_requested=None):
                         native['hydro_seed_probe'] = True
                     if step_options.get('population_recovery_probe'):
                         native['population_recovery_probe'] = True
-                    before = {name: snapshot(model/name) for name in ('OUTGEN','CORRECTION_SUM','RVTJ','OBSFLUX','MEANOPAC')}
+                    from .main_recommendations import EVIDENCE_FILES
+                    before = {name: snapshot(model/name) for name in EVIDENCE_FILES}
                     if pending and pending.policy_id == 'population_bootstrap':
                         from .checkpoint_physics import checkpoint_physics
                         before['checkpoint_physics'] = checkpoint_physics(model)

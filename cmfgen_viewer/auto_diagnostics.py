@@ -230,10 +230,11 @@ def assess(model, run, before, solution_offset, requested, *, hydro_revisions=()
             raise RunnerError(f'{name} was not refreshed by this attempt')
     from datetime import datetime
     started = datetime.fromisoformat(run['started_at']).timestamp()
-    return _assess_outputs(model, solution_offset, requested, hydro_revisions, started, checkpoint_events=checkpoint_events)
+    return _assess_outputs(model, solution_offset, requested, hydro_revisions, started,
+                           checkpoint_events=checkpoint_events, before=before)
 
 
-def _assess_outputs(model, solution_offset, requested, hydro_revisions, started, *, checkpoint_events=()):
+def _assess_outputs(model, solution_offset, requested, hydro_revisions, started, *, checkpoint_events=(), before=None):
     from .runner import _tail
     validate_rvtj_core(model / 'RVTJ', model / 'MODEL_SPEC', finite_all=True)
     restart = inspect_restart(model)
@@ -281,6 +282,9 @@ def _assess_outputs(model, solution_offset, requested, hydro_revisions, started,
                                       for r in records[-2:])
     quality = inspect_quality(model, records, text, started, requested,
                               _correction_summary(model, started))
+    from .moment_diagnostics import negative_moment_intensities
+    moment_repairs = negative_moment_intensities(
+        model, before or {}, started, records[-1]['global_iteration'])
     return {'records': records, 'full_iterations': len(full), 'iterations': len(records),
             'checkpoint': restart['pointer']['iterations'], 'hydro_revisions': list(hydro_revisions),
             'ng_accelerations': ng, 'checkpoint_updates': list(checkpoint_events),
@@ -290,6 +294,8 @@ def _assess_outputs(model, solution_offset, requested, hydro_revisions, started,
                                  if solution_offset is not None and len(records) >= 3 and
                                  all(r in full for r in records[-3:]) and not adjusted_counters else None),
             'counts': counts, 'raw_temperature_steps': thermal, 'temperatures': temperatures(model),
+            'solution_start_offset': solution_offset,
+            'moment_intensity_repairs': moment_repairs,
             'quality': quality}
 
 

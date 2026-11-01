@@ -1,0 +1,270 @@
+"""Real native records: conservative local guesses and refusal boundaries."""
+import struct
+from copy import deepcopy
+from dataclasses import replace
+
+import numpy as np
+import pytest
+
+from cmfgen_viewer.checkpoint_health import RECORD_BYTES, _words
+from cmfgen_viewer.checkpoint_physics import checkpoint_physics, compare_physics
+from cmfgen_viewer.population_projection import apply_projection, propose_projection, projected_raw_requests
+from cmfgen_viewer.population_projection import localized_population_projection
+from cmfgen_viewer.auto_policies import Context, Declined
+from cmfgen_viewer.runner_recipe import RunnerError
+
+
+@pytest.fixture
+def projection_model(tmp_path):
+    tmp_path = tmp_path/'projection-source'
+    tmp_path.mkdir()
+    (tmp_path/'VADAT').write_text('F [DO_HYDRO]\n')
+    (tmp_path/'MODEL_SPEC').write_text('5 [ND]\n1,1,1 [HI_ISF]\n1,1,1 [HeI_ISF]\n')
+    (tmp_path/'MODEL').write_text(
+        '5 !Number of depth points\n6 !Total number of variables\n\f\n'
+        'HI 1 1 1.0 1.0 1.0 1.0 1 1 1 1 ground\n'
+        'HeI 1 1 1.0 1.0 1.0 2.0 1 3 2 2 ground\n')
+    pointer = '28-Feb-2004 !Format date\n1 1 1 -1000 T\n'
+    for name in ['POINT1', 'POINT2']:
+        (tmp_path/name).write_text(pointer)
+    geo = [6., 5., 4., 3., 2.]+[20.]*5+[0.]*5
+    populations = []
+    for i in range(5):
+        neutral = .9 if i == 2 else .001
+        h0, h1 = 1e10*neutral, 1e10*(1-neutral)
+        populations.extend([h0, h1, 5e8, 5e8, h1+5e8, 1.])
+    def pack(values):
+        payload = struct.pack('<'+str(len(values))+'d', *values)
+        return payload+bytes(RECORD_BYTES-len(payload))
+    # An unselected future record must also be byte-preserved.
+    (tmp_path/'SCRTEMP').write_bytes(pack(geo)*3+pack(populations)+pack(geo)+pack(populations))
+    return tmp_path
+
+
+def _pops(model):
+    with (model/'SCRTEMP').open('rb') as stream:
+        return np.fromiter(_words(stream, 3, 30, '<'), float).reshape(5, 6)
+
+
+def test_proposal_is_read_only_and_atomic_application_preserves_other_state(projection_model):
+    model = projection_model
+    original = (model/'SCRTEMP').read_bytes()
+    before, pops = checkpoint_physics(model), _pops(model)
+    plan = propose_projection(model, 3)
+    assert (model/'SCRTEMP').read_bytes() == original
+    assert plan['reference_ion'] == 'HI' and plan['contrast'] == pytest.approx(900)
+    assert plan['variables'] == [1, 2]
+    pointers = [(model/name).read_bytes() for name in ['POINT1', 'POINT2']]
+    result = apply_projection(model, plan)
+    after = _pops(model)
+    assert set(map(tuple, np.argwhere(after != pops))) == {(2, 0), (2, 1), (2, 4)}
+    assert after[2, 0] == pytest.approx(1e7)
+    assert after[2, 4] == pytest.approx(1.049e10)
+    assert (model/'SCRTEMP').read_bytes()[4*RECORD_BYTES:] == original[4*RECORD_BYTES:]
+    assert [(model/name).read_bytes() for name in ['POINT1', 'POINT2']] == pointers
+    assert result['restart_counter_unchanged']
+    checks = compare_physics(before, checkpoint_physics(model), fixed_temperature=True)
+    assert checks['element_density_max_relative_change'] < 1e-14
+    assert checks['charge_relative_error'] < 1e-14
+    assert propose_projection(model, 3) is None
+
+
+@pytest.mark.parametrize('depth', [1, 2, 4, 5, 0, 6])
+def test_boundary_or_nonisolated_depth_does_not_authorize_projection(projection_model, depth):
+    assert propose_projection(projection_model, depth) is None
+
+
+@pytest.mark.parametrize('name', ['SCRTEMP', 'MODEL', 'MODEL_SPEC', 'POINT1'])
+def test_changed_baseline_is_refused_without_a_checkpoint_write(projection_model, name):
+    model = projection_model
+    plan = propose_projection(model, 3)
+    path = model/name
+    if name == 'SCRTEMP':
+        data = bytearray(path.read_bytes());data[-1] = 1;path.write_bytes(data)
+    elif name == 'POINT1':
+        path.write_text(path.read_text().replace('1 1 1', '2 2 1'))
+    else:
+        path.write_text(path.read_text()+'\n')
+    preserved = (model/'SCRTEMP').read_bytes()
+    with pytest.raises(RunnerError):
+        apply_projection(model, plan)
+    assert (model/'SCRTEMP').read_bytes() == preserved
+
+
+def test_projection_does_not_accept_caller_supplied_population_vectors(projection_model):
+    model = projection_model
+    plan = propose_projection(model, 3)
+    plan.update(populations=[0]*30, variables=[5, 6])
+    result = apply_projection(model, plan)
+    assert result['variables'] == [1, 2]
+    assert _pops(model)[2, 5] == 1.
+
+
+def test_representable_tiny_levels_survive_normalized_fraction_underflow(projection_model):
+    model = projection_model
+    old = _pops(model)
+    # Add an extremely faint neutral H level, whose normalized fraction
+    # underflows even though its absolute population is representable.
+    values = np.insert(old, 1, 1e-320, axis=1)
+    (model/'MODEL_SPEC').write_text('5 [ND]\n2,2,2 [HI_ISF]\n1,1,1 [HeI_ISF]\n')
+    (model/'MODEL').write_text(
+        '5 !Number of depth points\n7 !Total number of variables\n\f\n'
+        'HI 2 2 1.0 1.0 1.0 1.0 1 1 1 1 faint\n'
+        'HeI 1 1 1.0 1.0 1.0 2.0 1 4 2 2 ground\n')
+    with (model/'SCRTEMP').open('r+b') as stream:
+        stream.seek(3*RECORD_BYTES);stream.write(values.astype('<f8').tobytes())
+    plan = propose_projection(model, 3)
+    apply_projection(model, plan)
+    with (model/'SCRTEMP').open('rb') as stream:
+        after = np.fromiter(_words(stream, 3, 35, '<'), float).reshape(5, 7)
+    assert after[2, 1] > 0
+    assert after[2, 1] == pytest.approx(1e-320, rel=.001, abs=0)
+
+
+@pytest.mark.parametrize('change', ['thermal', 'density', 'multiple_species', 'charge'])
+def test_physical_discontinuities_ambiguous_spikes_and_bad_charge_are_refused(projection_model, change):
+    model = projection_model
+    values = _pops(model)
+    if change == 'thermal':
+        values[2, -1] *= 2
+    elif change == 'density':
+        values[2, :2] *= 10;values[2, -2] = values[2, 1]+values[2, 3]
+    elif change == 'multiple_species':
+        values[:, 2:4] = [1e6, 999e6]
+        values[2, 2:4] = [9e8, 1e8]
+        values[:, -2] = values[:, 1]+values[:, 3]
+    else:
+        values[2, -2] *= 2
+    with (model/'SCRTEMP').open('r+b') as stream:
+        stream.seek(3*RECORD_BYTES);stream.write(values.astype('<f8').tobytes())
+    if change == 'charge':
+        with pytest.raises(RunnerError, match='charge'):
+            propose_projection(model, 3)
+    else:
+        assert propose_projection(model, 3) is None
+
+
+def _solution(raw):
+    text = ' STEQ SOLUTION ARRAY\n'
+    for variable in range(1, 7):
+        values = [0.001]*5
+        if variable == 1:
+            values[2] = raw
+        text += f'{variable}( 1)# '+' '.join(map(str, values))+'\n'
+    return text
+
+
+def test_repaired_raw_coordinates_use_only_complete_new_native_solutions(tmp_path):
+    path = tmp_path/'STEQ_VALS'
+    path.write_text(_solution(1e6))
+    offset = path.stat().st_size
+    with path.open('a') as stream:
+        stream.write(_solution(.01)+_solution(-.02))
+    evidence = {'solution_start_offset': offset, 'counts': {'nt': 6, 'nd': 5},
+                'records': [{}, {}]}
+    rows = projected_raw_requests(tmp_path, evidence, [1, 2], 3)
+    assert [r['nonpositive_unlimited_targets'] for r in rows] == [0, 0]
+    assert rows[0]['maximum_decrease_percent'] == 1
+    assert rows[1]['maximum_increase_percent'] == 2
+
+
+@pytest.mark.parametrize('contents', [_solution(1e6)[:-10], _solution(.01).replace('6( 1)#', '5( 1)#'),
+                                     _solution(.01).replace('0.01', 'nan'),
+                                     _solution(.01)+_solution(.01)])
+def test_invalid_truncated_or_unmatched_raw_arrays_cannot_validate_projection(tmp_path, contents):
+    (tmp_path/'STEQ_VALS').write_text(contents)
+    evidence = {'solution_start_offset': 0, 'counts': {'nt': 6, 'nd': 5}, 'records': [{}]}
+    with pytest.raises(RunnerError):
+        projected_raw_requests(tmp_path, evidence, [1, 2], 3)
+
+
+def test_unlimited_negative_population_target_is_reported(tmp_path):
+    (tmp_path/'STEQ_VALS').write_text(_solution(1.01))
+    evidence = {'solution_start_offset': 0, 'counts': {'nt': 6, 'nd': 5}, 'records': [{}]}
+    assert projected_raw_requests(tmp_path, evidence, [1, 2], 3)[0]['nonpositive_unlimited_targets'] == 1
+
+
+@pytest.fixture
+def projection_context(projection_model, monkeypatch):
+    from cmfgen_viewer import auto_recovery
+    monkeypatch.setattr(auto_recovery, 'repaired_runtime', lambda plan: True)
+    (projection_model/'VADAT').write_text('F [DO_HYDRO]\nMAJOR [SCALE_OPT]\nT [INCL_dSLdT]\n0 [N_FIX_BA]\n0 [FIX_BA]\n')
+    full = {'ba_computed': True, 'maximum_decrease_percent': 7e7,
+            'major_species_minimum_scale': .001, 'maximum_decrease_depth': 3,
+            'lambda_iteration': False, 'temperature_fixed': False, 'grey_solution': False}
+    evidence = {'solution_start_offset': 0, 'counts': {'nt': 6, 'nd': 5}, 'records': [dict(full, global_iteration=11),
+                 dict(full, global_iteration=12, lambda_iteration=True, temperature_fixed=True),
+                 dict(full, global_iteration=13)]}
+    (projection_model/'STEQ_VALS').write_text(_solution(7e5)+_solution(.01)+_solution(7e5))
+    return Context(projection_model, 'success', {'restart': {'mode': 'continuation'}},
+                   {}, {}, evidence, [evidence], 'iterate', [], '')
+
+
+def test_recognized_projection_is_read_only_and_requires_full_followup(projection_context):
+    ctx = projection_context
+    before = (ctx.model/'SCRTEMP').read_bytes()
+    decision = localized_population_projection(ctx)
+    assert decision.action == 'localized_population_projection'
+    assert decision.evidence['projection']['reference_ion'] == 'HI'
+    assert decision.steps[0].iterations == 2 and decision.steps[0].repeat_on_native_fallback
+    assert (ctx.model/'SCRTEMP').read_bytes() == before
+
+
+@pytest.mark.parametrize('field,value', [('maximum_decrease_percent', None),
+    ('maximum_decrease_percent', float('nan')), ('maximum_decrease_percent', 1e5),
+    ('major_species_minimum_scale', None), ('major_species_minimum_scale', float('inf')),
+    ('major_species_minimum_scale', 0), ('major_species_minimum_scale', .1),
+    ('ba_computed', False), ('maximum_decrease_depth', 2),
+    ('temperature_fixed', True), ('lambda_iteration', True)])
+def test_incomplete_or_different_full_step_signature_cannot_authorize_projection(projection_context, field, value):
+    ctx = projection_context
+    evidence = deepcopy(ctx.evidence)
+    evidence['records'][-1][field] = value
+    assert localized_population_projection(replace(ctx, evidence=evidence, history=[evidence])) is None
+
+
+@pytest.mark.parametrize('flag', ['source_changed','hydro_revisions','ng_accelerations','checkpoint_updates'])
+def test_native_transitions_cannot_authorize_a_stale_projection(projection_context, flag):
+    ctx = projection_context
+    evidence = {**ctx.evidence, flag: True}
+    assert localized_population_projection(replace(ctx, evidence=evidence, history=[evidence])) is None
+
+
+@pytest.mark.parametrize('control', ['FIX_T','FIX_NE','FIX_IMP','USE_FIXED_J','INC_GRID','SN_MODEL','USE_J_REL'])
+def test_explicit_constraints_and_unvalidated_solver_families_are_preserved(projection_context, control):
+    ctx = projection_context
+    with (ctx.model/'VADAT').open('a') as stream:
+        stream.write(f'T [{control}]\n')
+    assert localized_population_projection(ctx) is None
+
+
+def test_unknown_executable_and_mismatched_grid_decline_projection(projection_context, monkeypatch):
+    from cmfgen_viewer import auto_recovery
+    ctx = projection_context
+    monkeypatch.setattr(auto_recovery, 'repaired_runtime', lambda plan: False)
+    with pytest.raises(Declined, match='runtime'):
+        localized_population_projection(ctx)
+    monkeypatch.setattr(auto_recovery, 'repaired_runtime', lambda plan: True)
+    evidence = {**ctx.evidence, 'counts': {'nt': 7, 'nd': 5}}
+    with pytest.raises(Declined, match='dimensions'):
+        localized_population_projection(replace(ctx, evidence=evidence, history=[evidence]))
+
+
+def test_grey_output_diagnostic_does_not_replace_an_ordinary_full_solve(projection_context):
+    ctx = projection_context
+    evidence = deepcopy(ctx.evidence)
+    evidence['records'][-1]['grey_solution'] = True
+    assert localized_population_projection(replace(ctx, evidence=evidence, history=[evidence])) is not None
+
+
+def test_peak_in_one_ion_cannot_repair_unrelated_negative_target(projection_context):
+    ctx = projection_context
+    (ctx.model/'STEQ_VALS').write_text((_solution(7e5)*3).replace('1( 1)#', '2( 1)#'))
+    with pytest.raises(Declined):
+        localized_population_projection(ctx)
+    (ctx.model/'STEQ_VALS').write_text(_solution(.001)*3)
+    assert localized_population_projection(ctx) is None
+    line = '2( 1)# '+' '.join(['0.001']*5)
+    wrong_ion = _solution(.001).replace(line, '2( 1)# 0.001 0.001 700000 0.001 0.001')
+    (ctx.model/'STEQ_VALS').write_text(wrong_ion*3)
+    assert localized_population_projection(ctx) is None
