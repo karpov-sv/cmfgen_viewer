@@ -280,3 +280,23 @@ def test_longer_native_batch_still_requires_fresh_coherent_outputs(auto_workspac
     assert result['status'] == 'needs_review', result
     assert result['attempts'][0]['checkpoint_restored']
     assert all((model/name).read_bytes() == data for name, data in baseline.items())
+
+
+@pytest.mark.parametrize('edited', [False, True])
+def test_deferred_xray_normalization_cannot_authorize_source_edits(tmp_path, edited):
+    path = tmp_path/'VADAT'
+    original = ('T [INC_XRAYS]\nT [SCL_XLUM]\nF [XSLOW]\n'
+                '1 [FIL_FAC_1]\n2 [FIL_FAC_2]\n')
+    path.write_text(original)
+    before = capture_controls(tmp_path)
+    text = ('Current great iteration count is 116\nLAMBDA iteration used\n'
+            'Temperature held fixed at all depths.\n'
+            'Maximm changes as returned by SOLVEBA_V13 is 97.50728\n'
+            'XRAY_NORMALIZATION_DEFERRED: require fresh full variable-T solve\n')
+    if edited:
+        path.write_text(original.replace('1 [FIL_FAC_1]', '1.47624 [FIL_FAC_1]'))
+        with pytest.raises(RunnerError, match='VADAT|normalization evidence'):
+            native_updates(tmp_path, text, before)
+    else:
+        assert native_updates(tmp_path, text, before) == {}
+        assert path.read_text() == original

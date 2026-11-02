@@ -105,6 +105,15 @@ A batch that changes the source cannot certify convergence, including during
 verification; another invocation with a stable source is required. Unrelated
 input edits still stop the run.
 
+From native patch revision `2026-11-02.1`, ordinary automatic Lambda steps
+cannot authorize X-ray normalization. A fresh full solve with temperature free,
+no partial temperature fixing and no concurrent Ng acceleration must pass the
+existing `MAXCH<100` check. Ineligible small steps report
+`XRAY_NORMALIZATION_DEFERRED`; the target luminosity and filling factors stay
+unchanged. Deliberately requested Lambda bootstrap retains its existing source
+normalization behavior. This prevents a small fixed-T correction from changing
+the source while the coupled full solve is still unsettled.
+
 `NUM_ITS` is a requested batch size. CMFGEN may extend its native schedule,
 including to perform follow-up solves after X-ray normalization or Ng
 acceleration, or to finish output after a structure revision. A longer batch

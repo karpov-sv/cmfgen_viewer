@@ -2,7 +2,8 @@
 
 The consolidated patch contains numerical fix groups **1–28**, performance changes
 **29–30**, the optional fixed-state output feature **31**, and the opacity diagnostic
-safeguard **32**, and dated version/build support **33**, based on CMFGEN
+safeguard **32**, dated version/build support **33**, and X-ray scheduling
+repair **34**, based on CMFGEN
 website release **version 18jun25**. Groups 26–31 cover positive interpolation,
 bidirectional X-ray normalization, collision derivatives, two optimizations
 and a fixed-state output feature. See [validation and scope](cmfgen-convergence-repairs.md).
@@ -86,6 +87,7 @@ This output pass receives no solved-iteration or convergence credit.
 | 31 | Native flux-only output omits `MOD_SUM`/`RVTJ`; a zero-iteration writer gives zero mean opacities. Flux-only uses a different inner temperature gradient from an ordinary solve. | Add default-off `FINAL_OUTPUT_ONLY` in `IN_ITS` for coherent stationary continuation: use the existing ordinary luminosity boundary, bypass population updates and write standard complete outputs. Reject unsupported modes and label summaries as output-only. | `new_main/cmfgen_sub.f` |
 | 32 | `SRCE_CHK` can choose a nonpositive opacity floor when continuum absorption is negative; the formal solver then takes `LOG(CHI)`, trapping or propagating NaNs. | Stop before transfer with an explicit frequency/depth/opacity diagnostic. The runner can select the existing positive `ESEC_CHK` limiter once, without reseeding or bypassing safeguards. | `new_main/cmfgen_sub.f`; [investigation](bstar3513-opacity-investigation.md) |
 | 33 | Source release identity was absent from patched binaries; local module leftovers and a missing partial-build module export could mask build problems. | Add a shared dated patch revision and fast --version query, stamp outputs, clean source-local modules and export the variation module during partial builds. Runtime remedies use minimum dated revisions; build audits remain separate. | `new_main/cmfgen_version.inc`, `cmfgen.f`, `cmfgen_sub.f`, Makefiles; [versioning](cmfgen-versioning.md) |
+| 34 | A small automatic fixed-T Lambda correction can trigger X-ray normalization while recent full solves still request negative populations, interrupting recovery. | Snapshot the actual solve mode before the solver schedules its next mode. For ordinary continuation, require a fresh full variable-T solve without partial T fixing or concurrent Ng before applying the existing normalization threshold. Preserve explicit Lambda bootstrap, target and multiplier arithmetic. | `new_main/cmfgen_sub.f`; [investigation](bstar3514-xray-normalization-investigation.md) |
 
 
 The complete diff for all groups is

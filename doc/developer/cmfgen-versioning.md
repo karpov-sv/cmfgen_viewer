@@ -1,7 +1,7 @@
 # CMFGEN dated patch revisions
 
 The maintained cumulative patch stream identifies itself as
-`CMFGEN_VIEWER_PATCH 2026-10-31.1`. The date is the source release date; the final
+`CMFGEN_VIEWER_PATCH 2026-11-02.1`. The date is the source release date; the final
 number distinguishes releases made on the same day. It is not a compilation
 timestamp. Every later revision must contain all earlier fixes in this stream.
 A newer upstream CMFGEN date alone does not imply any local repairs.
@@ -41,6 +41,12 @@ versioning changes 33. Existing remedies that previously required authenticated
 capabilities now require this minimum dated revision. Their measured-evidence,
 conservation, guard and rollback checks are unchanged. Generic remedies that
 never required patched numerical code retain their existing eligibility.
+
+Revision `2026-11-02.1` adds group 34: ordinary automatic Lambda steps cannot
+authorize X-ray normalization while the full variable-temperature solve is
+unsettled. This source scheduling repair applies during normal and automatic
+runs; it preserves the existing target and scaling formula and deliberately
+requested Lambda bootstrap. See the [Bstar3514 investigation](bstar3514-xray-normalization-investigation.md).
 
 New remedies can specify a later minimum explicitly:
 

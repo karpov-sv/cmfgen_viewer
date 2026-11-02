@@ -4,6 +4,9 @@
       IMPLICIT NONE
       LOGICAL XRAYS,ADD_XRAYS_SLOWLY,SCALE_XRAY_LUM
       LOGICAL XRAY_SOURCE_CHANGED,XRAY_SCALE_CHANGED,XRAY_SCALE_VALID,BA,EDD
+      LOGICAL XRAY_NORMALIZATION_READY,RD_LAMBDA,LAMBDA_ITERATION
+      LOGICAL FIXED_T,RD_FIX_T,COMPUTE_BA,MOD_FIXED_T
+      INTEGER LAST_NG,MAIN_COUNTER
       LOGICAL,PARAMETER :: L_TRUE=.TRUE.,L_FALSE=.FALSE.
       INTEGER LUER,LUIN,K,NUM_WRITES,NLEFT,BEGIN_CASE,END_CASE
       CHARACTER(LEN=12) ARG
@@ -11,19 +14,23 @@
       REAL(KIND=LDP) DESIRED_XRAY_LUM,ALLOWED_XRAY_FLUX_ERROR,T1
       REAL(KIND=LDP) FILL_FAC_XRAYS_1,FILL_FAC_XRAYS_2,EXPECT
       COMMON /WRITES/ NUM_WRITES
-      BEGIN_CASE=1; END_CASE=10
+      BEGIN_CASE=1; END_CASE=22
       CALL GET_COMMAND_ARGUMENT(1,ARG)
       IF(LEN_TRIM(ARG).GT.0)THEN
         READ(ARG,*)BEGIN_CASE
         END_CASE=BEGIN_CASE
       END IF
       DO K=BEGIN_CASE,END_CASE
+        IF(BEGIN_CASE.NE.END_CASE.AND.(K.EQ.11.OR.K.EQ.12))CYCLE
         XRAYS=.TRUE.; ADD_XRAYS_SLOWLY=.FALSE.; SCALE_XRAY_LUM=.TRUE.
         XRAY_SOURCE_CHANGED=.FALSE.; NUM_WRITES=0; MAXCH=0.001_LDP
         OBS_XRAY_LUM_0P1=17.2138_LDP; XRAY_LUM_0P1=20.0_LDP
         LUM=1.0_LDP; DESIRED_XRAY_LUM=1.0_LDP; ALLOWED_XRAY_FLUX_ERROR=0.1_LDP
         LUER=6; LUIN=98; FILL_FAC_XRAYS_1=1.12457582_LDP; FILL_FAC_XRAYS_2=2.0_LDP
         EXPECT=1.0_LDP
+        RD_LAMBDA=.FALSE.; LAMBDA_ITERATION=.FALSE.; FIXED_T=.FALSE.
+        RD_FIX_T=.FALSE.; COMPUTE_BA=.TRUE.; MOD_FIXED_T=.FALSE.
+        MAIN_COUNTER=116; LAST_NG=-1000
         SELECT CASE(K)
         CASE(1)
           EXPECT=SQRT(1.0_LDP/17.2138_LDP)
@@ -49,7 +56,48 @@
           OBS_XRAY_LUM_0P1=IEEE_VALUE(1.0_LDP,IEEE_QUIET_NAN)
         CASE(12)
           DESIRED_XRAY_LUM=0.0_LDP
+        CASE(13)
+! Recorded Bstar3514 iteration 116: a small automatic Lambda update.
+          LAMBDA_ITERATION=.TRUE.; FIXED_T=.TRUE.
+          MAXCH=97.50728033892867_LDP
+          OBS_XRAY_LUM_0P1=1.0_LDP/(1.4762399868465603_LDP**2)
+        CASE(14)
+          FIXED_T=.TRUE.
+        CASE(15)
+          COMPUTE_BA=.FALSE.
+        CASE(16)
+          MOD_FIXED_T=.TRUE.
+        CASE(17)
+! Deliberately requested Lambda bootstrap retains its normalization behavior.
+          RD_LAMBDA=.TRUE.; LAMBDA_ITERATION=.TRUE.; FIXED_T=.TRUE.
+          MOD_FIXED_T=.TRUE.; EXPECT=SQRT(1.0_LDP/17.2138_LDP)
+        CASE(18)
+          LAST_NG=MAIN_COUNTER
+        CASE(19)
+! The next mode may be Lambda, without changing the kind just solved.
+          EXPECT=SQRT(1.0_LDP/17.2138_LDP)
+        CASE(20)
+! The next mode may be full, without making this Lambda solve eligible.
+          LAMBDA_ITERATION=.TRUE.; FIXED_T=.TRUE.
+        CASE(21)
+! A fresh full solve can schedule matrix reuse (the model's N_FIX_BA=1).
+          EXPECT=SQRT(1.0_LDP/17.2138_LDP)
+        CASE(22)
+! A reused full solve can schedule a fresh next matrix without qualifying now.
+          COMPUTE_BA=.FALSE.
         END SELECT
+        INCLUDE 'actual_xray_before_solve.inc'
+! Emulate the mode scheduling performed inside SOLVE_FOR_POPS.
+        IF(K.EQ.19)THEN
+          LAMBDA_ITERATION=.TRUE.; FIXED_T=.TRUE.
+        ELSE IF(K.EQ.13.OR.K.EQ.20)THEN
+          LAMBDA_ITERATION=.FALSE.; FIXED_T=.FALSE.
+        ELSE IF(K.EQ.21)THEN
+          COMPUTE_BA=.FALSE.
+        ELSE IF(K.EQ.22)THEN
+          COMPUTE_BA=.TRUE.
+        END IF
+        INCLUDE 'actual_xray_after_solve.inc'
         INCLUDE 'actual_xray_block.inc'
         IF(ABS(FILL_FAC_XRAYS_1/1.12457582_LDP-EXPECT)>1.E-14_LDP)STOP 31
         IF(ABS(FILL_FAC_XRAYS_2/2.0_LDP-EXPECT)>1.E-14_LDP)STOP 32
@@ -64,7 +112,7 @@
           IF(BA.OR.EDD.OR.NLEFT.NE.1)STOP 36
         END IF
       END DO
-      PRINT *, 'PASS: 10 actual native normalization branches and post-cycle continuation'
+      PRINT *, 'PASS: 20 actual native branches, solve-mode snapshot and post-cycle continuation'
       END
       SUBROUTINE UPDATE_KEYWORD(VALUE,KEY,FILE,FIRST,LAST,LU)
       USE SET_KIND_MODULE

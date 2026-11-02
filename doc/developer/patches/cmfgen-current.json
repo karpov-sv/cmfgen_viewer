@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
-  "captured_at_utc": "2026-10-31T01:44:09.475984+00:00",
+  "captured_at_utc": "2026-11-02T12:05:43.269851+00:00",
   "source_checkout": "~/CMFGEN2023/cur_cmf/",
   "baseline_release": "18jun25",
   "baseline_description": "CMFGEN website release as of 18 Jun 2025; extracted release contents, including documentation changes absent from the archive's Git tree",
   "patch_file": "cmfgen-current.patch",
-  "patch_sha256": "0b082b8a299895252fef4ba48cfc726d069bacff8524c04d3b77b2c6fbf18672",
+  "patch_sha256": "fc00a076e704fe874e85fe0b6bc78d4a6481133c54b44cde3f8fb824308b624e",
   "files": [
     {
       "path": "Makefile_definitions",
@@ -22,7 +22,7 @@
     {
       "path": "new_main/cmfgen_sub.f",
       "status": "modified",
-      "sha256": "04cfa9b534d7fe24c582ec2a2167bab7aedd418467cfcbaad3158a15eac316a8",
+      "sha256": "1b5d4b2698ac8d065ea712cbdf838d9a3bc8081e19524ed95459eb521fb2ac8f",
       "baseline_sha256": "092f8526661b1f9a5eaeb7a875f07f55623f427ad07c383f2659f2fb67143374"
     },
     {
@@ -310,7 +310,7 @@
     {
       "path": "new_main/cmfgen_version.inc",
       "status": "added",
-      "sha256": "1fcec7ef5f502a52a94805d84b68c807b23cb6cba934905f508d87395a730a6b"
+      "sha256": "83dd75477972fca852f496145dde6c5bf56a13cfa3f17cb3cd96065d54f1efc0"
     },
     {
       "path": "obs/Makefile",
@@ -366,7 +366,8 @@
     25,
     26,
     27,
-    28
+    28,
+    34
   ],
   "build_settings_preservation": {
     "patch_section_unchanged": true,
@@ -1382,6 +1383,23 @@
         "new_main/mod_subs/Makefile": "b200efa22bf879a492ca8c2341c795918d90513124c32221249bd0f71e937ac0",
         "plane/Makefile": "d8a48239d0a3273f3ecdcfc8cfb14e9745ef072bea05af60623eea46941d58a0"
       }
+    },
+    {
+      "patch_revision": "2026-10-31.1",
+      "source_checkout": "/Users/karpov/CMFGEN2023/cur_cmf",
+      "source_patch_sha256": "0b082b8a299895252fef4ba48cfc726d069bacff8524c04d3b77b2c6fbf18672",
+      "version_query": "CMFGEN_VIEWER_PATCH 2026-10-31.1; CMFGEN_UPSTREAM 18-Jun-2025",
+      "backup": "/Users/karpov/CMFGEN2023/cur_cmf/.cmfgen-backups/20261031T013718Z-dated-version",
+      "runtime_build_record_required": false,
+      "validation": {
+        "clean_serial_build_executables": 80,
+        "patch_roundtrip_files": 52,
+        "native_zero_iteration_checkpoint_identical": true,
+        "final_links_current": true,
+        "local_settings_preserved": true
+      },
+      "rvtj_native_reader_verified": true,
+      "rvtj_compatibility_backup": "/Users/karpov/CMFGEN2023/cur_cmf/.cmfgen-backups/20261031T014500Z-dated-rvtj-compatibility"
     }
   ],
   "performance_groups": [
@@ -1414,21 +1432,42 @@
     "31": "FINAL_OUTPUT_ONLY in IN_ITS: complete fixed-state output with ordinary luminosity boundary; default false, stationary coherent continuation only; no solve or convergence credit."
   },
   "installed_build": {
-    "patch_revision": "2026-10-31.1",
+    "patch_revision": "2026-11-02.1",
     "source_checkout": "/Users/karpov/CMFGEN2023/cur_cmf",
-    "source_patch_sha256": "0b082b8a299895252fef4ba48cfc726d069bacff8524c04d3b77b2c6fbf18672",
-    "version_query": "CMFGEN_VIEWER_PATCH 2026-10-31.1; CMFGEN_UPSTREAM 18-Jun-2025",
-    "backup": "/Users/karpov/CMFGEN2023/cur_cmf/.cmfgen-backups/20261031T013718Z-dated-version",
+    "source_patch_sha256": "fc00a076e704fe874e85fe0b6bc78d4a6481133c54b44cde3f8fb824308b624e",
+    "version_query": "CMFGEN_VIEWER_PATCH 2026-11-02.1; CMFGEN_UPSTREAM 18-Jun-2025",
+    "backup": "/Users/karpov/CMFGEN2023/cur_cmf/.cmfgen-backups/bstar3514-xray-normalization-20261102T125511Z",
+    "source_updater_backup": "/Users/karpov/CMFGEN2023/cur_cmf/.cmfgen-backups/20261102T125511Z-source-patch-4a66742b",
     "runtime_build_record_required": false,
+    "executable_sha256": "a6ef087765f7c2fd2987d736ed72e425c4d8b5a4cdd20adfa5a6fedca51de265",
     "validation": {
-      "clean_serial_build_executables": 80,
-      "patch_roundtrip_files": 52,
-      "native_zero_iteration_checkpoint_identical": true,
-      "final_links_current": true,
-      "local_settings_preserved": true
-    },
-    "rvtj_native_reader_verified": true,
-    "rvtj_compatibility_backup": "/Users/karpov/CMFGEN2023/cur_cmf/.cmfgen-backups/20261031T014500Z-dated-rvtj-compatibility"
+      "serial_incremental_main_rebuild": true,
+      "installed_binary_byte_identical_to_trial": true,
+      "native_actual_branches_O0_O2": 20,
+      "invalid_input_exits_per_optimization": 2,
+      "old_automatic_lambda_source_change_reproduced": true,
+      "patch_roundtrip_controlled_files": 50,
+      "local_settings_preserved": true,
+      "native_model_response": {
+        "status": "verified",
+        "model": "model_Bstar3514",
+        "run_id": "20261102T120219Z-f5866f95",
+        "iterations": [
+          120,
+          121,
+          122
+        ],
+        "full_free_temperature_fresh_BA": [
+          120,
+          122
+        ],
+        "final_nonpositive_unlimited_population_or_Ne_targets": 0,
+        "element_density_max_relative_change": 3.1086244689504383e-15,
+        "charge_relative_error": 1.3322676295501878e-15,
+        "handoff_checkpoint": 122,
+        "convergence_claimed": false
+      }
+    }
   },
   "clean_build_dependency_fix": {
     "date": "2026-10-30",
@@ -1545,10 +1584,16 @@
     32
   ],
   "dated_patch_version": {
-    "revision": "2026-10-31.1",
+    "revision": "2026-11-02.1",
     "stream": "CMFGEN_VIEWER_PATCH",
     "upstream": "18-Jun-2025",
-    "group": 33,
-    "description": "Cumulative dated binary revision, fast --version query, output stamps, clean module removal and portable partial-build module export."
+    "group": 34,
+    "description": "Defer automatic-Lambda X-ray normalization until a fresh full variable-temperature solve; preserve explicit Lambda bootstrap and existing target/scaling."
+  },
+  "xray_normalization_gate": {
+    "group": 34,
+    "patch": "cmfgen-xray-normalization-gate.patch",
+    "investigation": "../bstar3514-xray-normalization-investigation.md",
+    "validation_status": "Passed O0/O2 native production branches, baseline replay, 50-file roundtrip, 129 Python tests and isolated native responses; installed and handed off checkpoint 122."
   }
 }

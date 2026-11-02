@@ -120,16 +120,17 @@ diff --git a/com/aliases_for_cmfgen.sh b/com/aliases_for_cmfgen.sh
 diff --git a/new_main/cmfgen_sub.f b/new_main/cmfgen_sub.f
 --- a/new_main/cmfgen_sub.f
 +++ b/new_main/cmfgen_sub.f
-@@ -40,6 +40,8 @@
+@@ -40,6 +40,9 @@
  	USE VAR_RAD_MOD
  	USE EDDFAC_REC_DEFS_MOD
  	IMPLICIT NONE
 +        LOGICAL XRAY_SOURCE_CHANGED,XRAY_SCALE_CHANGED,XRAY_SCALE_VALID
++        LOGICAL XRAY_NORMALIZATION_READY
 +        LOGICAL FINAL_OUTPUT_ONLY
  !
  ! Altered 11-Aug-2024 : Fixed bug with Copper - species abbreviation incorrect (24-Jan-2025)
  ! Altered 02-Aug-2024 : Minor cleaning. Changed minimum valuer for RLUMST & warning output.
-@@ -86,7 +88,7 @@
+@@ -86,7 +89,7 @@
  	INTEGER NCF
  	LOGICAL, PARAMETER :: IMPURITY_CODE=.FALSE.
  !
@@ -138,7 +139,7 @@ diff --git a/new_main/cmfgen_sub.f b/new_main/cmfgen_sub.f
  !
  ! 
  !
-@@ -556,6 +558,9 @@
+@@ -556,6 +559,9 @@
  	  CALL RD_OPTIONS_INTO_STORE(LUIN,LUSCR)
  	  CALL RD_STORE_INT(NUM_ITS_TO_DO,'NUM_ITS',L_TRUE,'Number of iterations to perform')
  	  CALL RD_STORE_LOG(RD_LAMBDA,'DO_LAM_IT',L_TRUE,'Do LAMBDA iterations ?')
@@ -148,7 +149,7 @@ diff --git a/new_main/cmfgen_sub.f b/new_main/cmfgen_sub.f
  	  DO_LAMBDA_AUTO=.TRUE.
  	  CALL RD_STORE_LOG(DO_LAMBDA_AUTO,'DO_LAM_AUTO',L_FALSE,
  	1                      'Start non-lambda iterations automatically?')
-@@ -588,6 +593,18 @@
+@@ -588,6 +594,18 @@
  ! point to the input data record (Note : Single Record)
  !
  	CALL RD_CONTROL_VARIABLES(LUIN,LUSCR,LUER,NUM_BNDS)
@@ -167,7 +168,7 @@ diff --git a/new_main/cmfgen_sub.f b/new_main/cmfgen_sub.f
  !
  ! Get the Solar abundance scale that will be used when MOD_SUM is
  ! created.
-@@ -815,6 +832,8 @@
+@@ -815,6 +833,8 @@
  	  WRITE(LUMOD,'(//,'' Model Started on:'',15X,(A))')TIME
  	  WRITE(LUMOD,
  	1       '('' Main program last changed on:'',3X,(A))')PRODATE
@@ -176,7 +177,7 @@ diff --git a/new_main/cmfgen_sub.f b/new_main/cmfgen_sub.f
  	  WRITE(LUMOD,'()')
  	  FMT='(5X,I8,5X,''!Number of depth points'')'
  	  WRITE(LUMOD,FMT)ND
-@@ -1152,6 +1171,10 @@
+@@ -1152,6 +1172,10 @@
  ! Useful for assisting convergence when the model is experiencing
  ! difficulty converging.
  !
@@ -187,7 +188,7 @@ diff --git a/new_main/cmfgen_sub.f b/new_main/cmfgen_sub.f
  	IF(NUM_ITS_TO_DO .EQ. 0)THEN
  	  IF(RDINSOL)THEN
  !
-@@ -1209,7 +1232,7 @@
+@@ -1209,7 +1233,7 @@
  ! Read in BA and STEQ arrays. We only attempt this if we have an existing
  ! model.
  !
@@ -196,7 +197,7 @@ diff --git a/new_main/cmfgen_sub.f b/new_main/cmfgen_sub.f
  	IF(.NOT. NEWMOD)THEN
            CALL READ_BA_DATA_V3(LU_BA,NION,NUM_BNDS,ND,CHK,FIXED_T,SUCCESS,'BAMAT')
  	END IF
-@@ -1292,6 +1315,7 @@
+@@ -1292,6 +1316,7 @@
  	NEXT_AV=0
  !
  20000	CONTINUE
@@ -204,7 +205,7 @@ diff --git a/new_main/cmfgen_sub.f b/new_main/cmfgen_sub.f
  	CALL TUNE(IONE,'GIT')
  	NUM_ITS_TO_DO=NUM_ITS_TO_DO-1
  	IF(NUM_ITS_TO_DO .EQ. 0)LST_ITERATION=.TRUE.
-@@ -1443,7 +1467,8 @@
+@@ -1443,7 +1468,8 @@
  	CALL TUNE(IONE,'DTDR')
  	DTDR=0.0_LDP
  	SECTION='DTDR'
@@ -214,7 +215,7 @@ diff --git a/new_main/cmfgen_sub.f b/new_main/cmfgen_sub.f
  	  DTDR=(T(ND)-T(ND-1))/(R(ND-1)-R(ND))
  	  DIFFW(1:NT)=0.0_LDP
  	ELSE
-@@ -2232,6 +2257,16 @@
+@@ -2232,6 +2258,16 @@
  	        IF(CHI(I) .LT. CHI_CONT(I) .AND.
  	1            CHI(I) .LT. 0.1_LDP*ETA(I)*CHI_NOSCAT(I)/ETA_CONT(I) )THEN
  	          CHI(I)=0.1_LDP*ETA(I)*CHI_NOSCAT(I)/ETA_CONT(I)
@@ -231,7 +232,7 @@ diff --git a/new_main/cmfgen_sub.f b/new_main/cmfgen_sub.f
  	          NEG_OPACITY(I)=.TRUE.
  	          NEG_OPAC_FAC(I)=0.0_LDP
  	          AT_LEAST_ONE_NEG_OPAC=.TRUE.
-@@ -2269,7 +2304,7 @@
+@@ -2269,7 +2305,7 @@
  	       IF(NEG_OPACITY(I) .AND. K .EQ. 0)K=I
  	       IF(NEG_OPACITY(I))J=I
  	      END DO
@@ -240,7 +241,7 @@ diff --git a/new_main/cmfgen_sub.f b/new_main/cmfgen_sub.f
  	1        ' 1st depth',K,'Last depth',J
  	    END IF
  !
-@@ -3939,6 +3974,10 @@
+@@ -3939,6 +3975,10 @@
  ! quickly by setting FLUX_CAL_ONLY=.FALSE. and putting N_ITS=0.
  !
  	IF(FLUX_CAL_ONLY .AND. RD_COHERENT_ES)THEN
@@ -251,7 +252,26 @@ diff --git a/new_main/cmfgen_sub.f b/new_main/cmfgen_sub.f
  	   WRITE(LUER,*)'Stopping CMFGEN as finished FLUX calculation.'
  	   WRITE(LUER,*)'For a FLUX calculation we do 1 iteration only'
  	   STOP
-@@ -4172,6 +4211,7 @@
+@@ -3998,9 +4038,18 @@
+ 	  END IF
+ 	END IF
+ !
++! Snapshot the solve being performed: SOLVE_FOR_POPS schedules the NEXT mode.
++! An automatic fixed-T Lambda step cannot certify a settled variable-T source.
++! Preserve deliberate RD_LAMBDA normalization used during explicit bootstrap.
++      XRAY_NORMALIZATION_READY=RD_LAMBDA .OR.
++     1 (.NOT.LAMBDA_ITERATION .AND. .NOT.FIXED_T .AND.
++     1  .NOT.RD_FIX_T .AND. COMPUTE_BA)
+ 	CALL TUNE(IONE,'SOLVE_FOR_POPS')
+ 	CALL SOLVE_FOR_POPS(POPS,NT,NION,ND,NC,NP,NUM_BNDS,DIAG_INDX,
+ 	1      MAXCH,MAIN_COUNTER,IREC,LU_SE,LUSCR,LST_ITERATION)
++! MOD_FIXED_T describes the actual solved equations, including partial T fixing.
++      XRAY_NORMALIZATION_READY=XRAY_NORMALIZATION_READY .AND.
++     1 (RD_LAMBDA .OR. (.NOT.MOD_FIXED_T .AND. LAST_NG.NE.MAIN_COUNTER))
+ 	IF(LAST_NG .EQ. MAIN_COUNTER)NUM_ITS_TO_DO=MAX(2,NUM_ITS_TO_DO)
+ 	CALL TUNE(ITWO,'SOLVE_FOR_POPS')
+ !
+@@ -4172,6 +4221,7 @@
  ! Output brief summary of the model. This is to facilate the creation
  ! of compact model logs.
  !
@@ -259,7 +279,7 @@ diff --git a/new_main/cmfgen_sub.f b/new_main/cmfgen_sub.f
  	IF(LST_ITERATION)THEN
  !
  	  CALL GEN_ASCI_OPEN(LUMOD,'MOD_SUM','UNKNOWN',' ',' ',IZERO,IOS)
-@@ -4180,6 +4220,8 @@
+@@ -4180,6 +4230,8 @@
  	  CALL DATE_TIME(TIME)
  	  WRITE(LUMOD,'(''Model Finalized on:'',13X,(A))')TIME
  	  WRITE(LUMOD,'(''Main program last changed on:'',3X,(A))')PRODATE
@@ -268,7 +288,7 @@ diff --git a/new_main/cmfgen_sub.f b/new_main/cmfgen_sub.f
  	  WRITE(LUMOD,'()')
  !
  	  STRING=' '
-@@ -4359,8 +4401,12 @@
+@@ -4359,8 +4411,12 @@
  	    WRITE(LUMOD,'(A)')' '
  	  END IF
  !
@@ -281,7 +301,7 @@ diff --git a/new_main/cmfgen_sub.f b/new_main/cmfgen_sub.f
  	  CLOSE(LUMOD)
  !
  	END IF
-@@ -4399,7 +4445,8 @@
+@@ -4399,7 +4455,8 @@
  	    FORMAT_DATE='15-Aug-2019'
  	    WRITE(LU_POP,'(1X,A,T30,A)')'Output format date:',FORMAT_DATE
  	    WRITE(LU_POP,'(1X,A,T30,A)')'Completion of Model:',TIME
@@ -291,7 +311,7 @@ diff --git a/new_main/cmfgen_sub.f b/new_main/cmfgen_sub.f
  !
  	    WRITE(LU_POP,'(1X,A,T30,I5)')'ND:',ND
  	    WRITE(LU_POP,'(1X,A,T30,I5)')'NC:',NC
-@@ -4618,7 +4665,7 @@
+@@ -4618,7 +4675,7 @@
  	  CLOSE(UNIT=LU_SE)
  	  CALL GEN_ASCI_OPEN(LU_SE,'STEQ_VALS','OLD','APPEND',' ',IZERO,IOS)
  !
@@ -300,7 +320,7 @@ diff --git a/new_main/cmfgen_sub.f b/new_main/cmfgen_sub.f
  ! We adjust MAXCH to ensure that NUM_ITS_TO_DO is not set to 1.
  !
  	  IF(XRAYS .AND. ADD_XRAYS_SLOWLY .AND. RD_LAMBDA .AND. MAXCH .LT. 100)THEN
-@@ -4646,18 +4693,24 @@
+@@ -4646,18 +4703,26 @@
  ! We do not do the scaling if there is intrinsic X-ray emssion from the star.
  ! DESIRED_XRAY_LUM should be in units of LSTAR.
  !
@@ -316,7 +336,7 @@ diff --git a/new_main/cmfgen_sub.f b/new_main/cmfgen_sub.f
 -	        WRITE(6,*)'Adjusted filling factors to match desired X-ray luminosity'
 -	        WRITE(6,*)'Adjustment factor is',T1
 -	      END IF
-+	    IF(SCALE_XRAY_LUM)THEN
++	    IF(SCALE_XRAY_LUM .AND. XRAY_NORMALIZATION_READY)THEN
 +          CALL CMFGEN_XRAY_SCALE(OBS_XRAY_LUM_0P1,LUM*DESIRED_XRAY_LUM,
 +     1          ALLOWED_XRAY_FLUX_ERROR,T1,XRAY_SCALE_CHANGED,XRAY_SCALE_VALID)
 +          IF(.NOT. XRAY_SCALE_VALID)THEN
@@ -334,10 +354,12 @@ diff --git a/new_main/cmfgen_sub.f b/new_main/cmfgen_sub.f
 +            XRAY_SOURCE_CHANGED=.TRUE.
 +            MAXCH=MAX(MAXCH,100.0_LDP)
 +          END IF
++            ELSE IF(SCALE_XRAY_LUM)THEN
++              WRITE(LUER,'(A)')'XRAY_NORMALIZATION_DEFERRED: require fresh full variable-T solve'
  	    END IF
  	  END IF
  	  IF(INCL_ADVECTION .AND. ADVEC_RELAX_PARAM .LT. 1.0_LDP .AND. MAXCH .LT. 100)THEN
-@@ -4775,6 +4828,8 @@
+@@ -4775,6 +4840,8 @@
  	         WRITE(LUER,*)'Error opening IN_ITS or MODEL_SCR in CMFGEN, IOS=',IOS
  	         WRITE(LUER,*)'Error occurs at the end of CMFGEN_SUB.'
  	         WRITE(LUER,*)'Error will be ignored.'
@@ -346,7 +368,7 @@ diff --git a/new_main/cmfgen_sub.f b/new_main/cmfgen_sub.f
  	         GOTO 20000
  	      END IF
  	      CALL RD_OPTIONS_INTO_STORE(LUIN,LUSCR)
-@@ -4813,7 +4868,58 @@
+@@ -4813,7 +4880,58 @@
  !	  WRITE(6,*)'Inserted temporary fudge for FIXED_T'
  !	  FIXED_T=.TRUE.
  !	  IF(MAXCH .LT. 50.0D0 .AND. LAST_LAMBDA .NE. MAIN_COUNTER)FIXED_T=RD_FIX_T
@@ -6559,9 +6581,9 @@ new file mode 100644
 +++ b/new_main/cmfgen_version.inc
 @@ -0,0 +1,4 @@
 +! Maintained cumulative patch stream. Bump date/revision for every release.
-+      CHARACTER(LEN=*), PARAMETER :: PRODATE='31-Oct-2026'
++      CHARACTER(LEN=*), PARAMETER :: PRODATE='02-Nov-2026'
 +      CHARACTER(LEN=*), PARAMETER :: UPSTREAM_DATE='18-Jun-2025'
-+      CHARACTER(LEN=*), PARAMETER :: PATCH_REVISION='2026-10-31.1'
++      CHARACTER(LEN=*), PARAMETER :: PATCH_REVISION='2026-11-02.1'
 diff --git a/obs/Makefile b/obs/Makefile
 --- a/obs/Makefile
 +++ b/obs/Makefile

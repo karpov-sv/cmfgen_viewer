@@ -35,6 +35,15 @@ candidate evidence for that batch. Even a change during fresh verification
 requires another stable-source invocation before automatic success is possible.
 Other native control edits retain their existing checks.
 
+The later group-34 repair (`2026-11-02.1`) narrows ordinary normalization
+eligibility to a fresh full variable-temperature solve. Automatic fixed-T
+Lambda steps, reused matrices, partially fixed T and concurrent Ng cannot
+authorize an adjustment. The mode is captured before `SOLVE_FOR_POPS` changes
+the flags for its next step. Deliberately requested Lambda bootstrap remains
+supported. The native branch test now also replays the Bstar3514 iteration-116
+failure and checks both directions of the mode transition; see the
+[investigation](bstar3514-xray-normalization-investigation.md).
+
 **28 — Collision temperature Jacobian.** Dissolution contributions to a diagonal
 collision derivative must accumulate over transitions. Replacing assignment
 with accumulation preserves the forward rate. In the regression fixture the

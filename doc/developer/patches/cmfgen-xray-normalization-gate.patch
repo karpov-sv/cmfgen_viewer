@@ -1,0 +1,58 @@
+diff --git a/new_main/cmfgen_sub.f b/new_main/cmfgen_sub.f
+--- a/new_main/cmfgen_sub.f
++++ b/new_main/cmfgen_sub.f
+@@ -41,6 +41,7 @@
+ 	USE EDDFAC_REC_DEFS_MOD
+ 	IMPLICIT NONE
+         LOGICAL XRAY_SOURCE_CHANGED,XRAY_SCALE_CHANGED,XRAY_SCALE_VALID
++        LOGICAL XRAY_NORMALIZATION_READY
+         LOGICAL FINAL_OUTPUT_ONLY
+ !
+ ! Altered 11-Aug-2024 : Fixed bug with Copper - species abbreviation incorrect (24-Jan-2025)
+@@ -4037,9 +4038,18 @@
+ 	  END IF
+ 	END IF
+ !
++! Snapshot the solve being performed: SOLVE_FOR_POPS schedules the NEXT mode.
++! An automatic fixed-T Lambda step cannot certify a settled variable-T source.
++! Preserve deliberate RD_LAMBDA normalization used during explicit bootstrap.
++      XRAY_NORMALIZATION_READY=RD_LAMBDA .OR.
++     1 (.NOT.LAMBDA_ITERATION .AND. .NOT.FIXED_T .AND.
++     1  .NOT.RD_FIX_T .AND. COMPUTE_BA)
+ 	CALL TUNE(IONE,'SOLVE_FOR_POPS')
+ 	CALL SOLVE_FOR_POPS(POPS,NT,NION,ND,NC,NP,NUM_BNDS,DIAG_INDX,
+ 	1      MAXCH,MAIN_COUNTER,IREC,LU_SE,LUSCR,LST_ITERATION)
++! MOD_FIXED_T describes the actual solved equations, including partial T fixing.
++      XRAY_NORMALIZATION_READY=XRAY_NORMALIZATION_READY .AND.
++     1 (RD_LAMBDA .OR. (.NOT.MOD_FIXED_T .AND. LAST_NG.NE.MAIN_COUNTER))
+ 	IF(LAST_NG .EQ. MAIN_COUNTER)NUM_ITS_TO_DO=MAX(2,NUM_ITS_TO_DO)
+ 	CALL TUNE(ITWO,'SOLVE_FOR_POPS')
+ !
+@@ -4693,7 +4703,7 @@
+ ! We do not do the scaling if there is intrinsic X-ray emssion from the star.
+ ! DESIRED_XRAY_LUM should be in units of LSTAR.
+ !
+-	    IF(SCALE_XRAY_LUM)THEN
++	    IF(SCALE_XRAY_LUM .AND. XRAY_NORMALIZATION_READY)THEN
+           CALL CMFGEN_XRAY_SCALE(OBS_XRAY_LUM_0P1,LUM*DESIRED_XRAY_LUM,
+      1          ALLOWED_XRAY_FLUX_ERROR,T1,XRAY_SCALE_CHANGED,XRAY_SCALE_VALID)
+           IF(.NOT. XRAY_SCALE_VALID)THEN
+@@ -4711,6 +4721,8 @@
+             XRAY_SOURCE_CHANGED=.TRUE.
+             MAXCH=MAX(MAXCH,100.0_LDP)
+           END IF
++            ELSE IF(SCALE_XRAY_LUM)THEN
++              WRITE(LUER,'(A)')'XRAY_NORMALIZATION_DEFERRED: require fresh full variable-T solve'
+ 	    END IF
+ 	  END IF
+ 	  IF(INCL_ADVECTION .AND. ADVEC_RELAX_PARAM .LT. 1.0_LDP .AND. MAXCH .LT. 100)THEN
+diff --git a/new_main/cmfgen_version.inc b/new_main/cmfgen_version.inc
+--- a/new_main/cmfgen_version.inc
++++ b/new_main/cmfgen_version.inc
+@@ -1,4 +1,4 @@
+ ! Maintained cumulative patch stream. Bump date/revision for every release.
+-      CHARACTER(LEN=*), PARAMETER :: PRODATE='31-Oct-2026'
++      CHARACTER(LEN=*), PARAMETER :: PRODATE='02-Nov-2026'
+       CHARACTER(LEN=*), PARAMETER :: UPSTREAM_DATE='18-Jun-2025'
+-      CHARACTER(LEN=*), PARAMETER :: PATCH_REVISION='2026-10-31.1'
++      CHARACTER(LEN=*), PARAMETER :: PATCH_REVISION='2026-11-02.1'
