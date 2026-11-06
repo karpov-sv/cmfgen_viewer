@@ -383,7 +383,7 @@ def _progress(ctx, *, full_only=True):
     grids = [(h.get('counts', {}).get('nt'), h.get('counts', {}).get('nd')) for h in window]
     if any(None in grid for grid in grids) or len(set(grids)) != 1:
         return None
-    records = [next((r for r in reversed(h['records'])
+    records = [next((r for r in reversed(h.get('records', []))
                      if not full_only or (not r.get('lambda_iteration') and not r.get('temperature_fixed'))), {})
                for h in window]
 
@@ -450,7 +450,8 @@ def _stall(ctx):
 def _fixed(ctx):
     if len(ctx.history) >= 3 and all(h['full_iterations'] == 0 for h in ctx.history[-3:]):
         progress = _progress(ctx, full_only=False)
-        needs_lambda_release = any(r.get('lambda_iteration') for h in ctx.history[-3:] for r in h['records'])
+        needs_lambda_release = any(r.get('lambda_iteration') for h in ctx.history[-3:]
+                                   for r in h.get('records', []))
         automatic = (not needs_lambda_release or
                      control_value(ctx.model, 'IN_ITS', 'DO_LAM_AUTO', 'T').upper().strip('.') in {'T', 'TRUE'})
         thermal_release = (not enabled(ctx.model, 'FIX_T') or
@@ -481,6 +482,7 @@ def pending_verification_check(ctx):
 from .auto_recovery import (temperature_coupling, population_bootstrap, population_guard,
                             ray_refinement, ng_cadence)
 from .auto_performance import ba_reuse_trial, relaxation_release
+from .auto_ng import bounded_ng_trial
 from .opacity_recovery import source_opacity_recovery, opacity_lte_seed
 from .auto_convergence_remedies import population_relaxation, stalled_transfer_refinement
 from .population_projection import localized_population_projection
@@ -503,13 +505,14 @@ POLICIES = (
     Policy('localized_population_projection', 1, 'success', 'Conservative repair of a diagnosed isolated ionization spike with full native verification', localized_population_projection, 1),
     Policy('population_bootstrap', 7, 'success', 'Bounded fixed-T Lambda population recovery and full verification', population_bootstrap, 1),
     Policy('ng_cadence', 1, 'success', 'Contiguous batches permitting the first native Ng acceleration', ng_cadence, 1),
+    Policy('bounded_ng', 1, 'success', 'One bounded rejected-Ng fallback with six full solves and provisional rollback', bounded_ng_trial, 1),
     Policy('population_relaxation', 4, 'success', 'Guarded half-relaxation for measured small population cycles', population_relaxation, 1),
     Policy('local_relaxation', 2, 'success', 'Measured localized temperature oscillation damping', _oscillation, 2),
     Policy('relaxation_release', 2, 'success', 'Gradually release automatic damping through guarded trials', relaxation_release, 3),
     Policy('ba_reuse_trial', 3, 'success', 'Guarded one-iteration BA reuse after sustained healthy progress', ba_reuse_trial, 1),
     Policy('stalled_transfer_refinement', 4, 'success', 'Guarded formal and moment refinement for a small fresh-matrix stall', stalled_transfer_refinement, 1),
     Policy('stalled_corrections', 3, 'success', 'Fresh-matrix test for a stalled correction sequence', _stall, 1),
-    Policy('fixed_temperature', 2, 'success', 'Detect absence of temperature-varying full steps', _fixed),
+    Policy('fixed_temperature', 3, 'success', 'Detect absence of temperature-varying full steps', _fixed),
 )
 
 
@@ -544,8 +547,10 @@ def choose(ctx):
                                             decision.batch_iterations is not None or decision.retain_failed_checkpoint)) or
                 decision.next_phase not in {'iterate', 'verify'} or
                 (decision.steps and decision.kind != 'action') or
-                (decision.reversible_trial and (policy.id not in {'ba_reuse_trial', 'relaxation_release'} or
-                                               len(decision.steps) != 1 or decision.kind != 'action')) or
+                (decision.reversible_trial and (
+                    policy.id not in {'ba_reuse_trial', 'relaxation_release', 'bounded_ng'} or
+                    len(decision.steps) != (3 if policy.id == 'bounded_ng' else 1) or
+                    decision.kind != 'action')) or
                 (decision.retain_failed_checkpoint and (not decision.steps or policy.id != 'population_guard')) or
                 (decision.batch_iterations is not None and
                  (decision.kind != 'action' or type(decision.batch_iterations) is not int or

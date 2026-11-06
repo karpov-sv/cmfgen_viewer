@@ -62,7 +62,7 @@ def configure_auto(plan, *, cmfgen_root, atomic_root,
                                           if str(model/n) not in reviewed)]
     result['kind'] = 'auto'
     registry = policies.manifest()
-    result['auto'] = {'version': 11, 'batch_iterations': batch,
+    result['auto'] = {'version': 12, 'batch_iterations': batch,
                       'max_attempts': max_attempts, 'max_iterations': max_iterations,
                       'policies': registry,
                       'cmfgen_root': str(Path(cmfgen_root).resolve()),
@@ -150,7 +150,7 @@ def _restore(model, recovery, *, report_directory=None):
 
 
 def _action(model, journal, actions, kind, reason, changes=None, caches=(), *, policy_id='',
-            evidence=None, preserve_caches=False):
+            evidence=None, preserve_caches=False, reversible_trial=False):
     """One journaled, reversible control action. Cache removals are whitelisted."""
     from .runner import _json, _write_control
     folder = journal / f'action-{len(actions)+1:03d}'
@@ -158,6 +158,10 @@ def _action(model, journal, actions, kind, reason, changes=None, caches=(), *, p
     record = {'kind': kind, 'policy_id': policy_id, 'reason': reason, 'changes': changes or {},
               'retired_caches': [], 'status': 'planned', 'directory': str(folder)}
     record['evidence'] = evidence or {}
+    if reversible_trial:
+        # Record provisional ownership before any staging/receipt/control write
+        # can fail, so final rollback can also journal an aborted action.
+        record['reversible_trial'] = True
     if preserve_caches and set(caches) - {'EDDFACTOR', 'EDDFACTOR_INFO'}:
         raise RunnerError('Only diagnosed radiation caches may be preserved by an automatic action')
     actions.append(record)
@@ -205,6 +209,13 @@ def _action(model, journal, actions, kind, reason, changes=None, caches=(), *, p
     if kind == 'localized_population_projection':
         from .population_projection import apply_projection
         record['checkpoint_projection'] = apply_projection(model, (evidence or {})['projection'])
+        _json(folder/'action.json', record)
+    if kind == 'bounded_ng':
+        from .auto_ng import mark_attempt
+        from .bounded_ng import apply
+        proposal = (evidence or {})['proposal']
+        mark_attempt(model, proposal, folder)
+        record['checkpoint_ng'] = apply(model, proposal)
         _json(folder/'action.json', record)
     for name in caches:
         path = model/name
@@ -331,15 +342,13 @@ def run_auto_plan(plan, emit=None, *, stop_requested=None):
             nonlocal recovery
             with model_mutation_guard(model, RunnerError):
                 check_inputs()
-                if decision.action == 'localized_population_projection' and (
+                if decision.action in {'localized_population_projection', 'bounded_ng'} and (
                         pending is not decision or not decision.steps):
-                    raise RunnerError('Localized population projection must be a provisional recovery procedure')
+                    raise RunnerError('Checkpoint mutation must be a provisional recovery procedure')
                 record = _action(model, journal, result['actions'], decision.action, decision.reason,
                                  decision.changes, decision.caches, policy_id=decision.policy_id,
-                                 evidence=decision.evidence, preserve_caches=decision.preserve_caches)
-                if decision.reversible_trial:
-                    record['reversible_trial'] = True
-                    _json(Path(record['directory'])/'action.json', record)
+                                 evidence=decision.evidence, preserve_caches=decision.preserve_caches,
+                                 reversible_trial=decision.reversible_trial)
                 if not decision.steps and pending is None:
                     recovery = _capture(model, journal, recovery)
                 for path in expected:
@@ -353,8 +362,10 @@ def run_auto_plan(plan, emit=None, *, stop_requested=None):
                 expected[model/name] = _signature(model/name)
 
         def finish_trial(decision, outcome, reason=''):
-            record = next(a for a in reversed(result['actions'])
-                          if a.get('policy_id') == decision.policy_id and a.get('reversible_trial'))
+            record = next((a for a in reversed(result['actions'])
+                           if a.get('policy_id') == decision.policy_id and a.get('reversible_trial')), None)
+            if record is None:
+                return  # Even creating the action directory may have failed.
             record.update(trial_outcome=outcome, trial_reason=reason)
             _json(Path(record['directory'])/'action.json', record)
 

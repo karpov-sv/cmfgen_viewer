@@ -621,3 +621,15 @@ authenticated repaired executable and physical follow-up checks; unproductive
 trials restore the accepted checkpoint and inputs. They retain the requested
 `EPS_TERM` and all population coordinates. Native X-ray source changes require
 another stable-source invocation before verification can succeed.
+
+For a slow fixed-structure tail with rejected native Ng proposals, automatic
+mode can also test a bounded affine Ng fallback. It waits for six consecutive
+fresh-BA/free-T solves with small, slowly declining corrections and complete
+physical and thermal diagnostics. One common fraction limits changes to 12.5%
+for populations/Ne and 0.1% for temperature, preserving trace coordinates and
+native counters. Three pairs of full solves must demonstrate settling corrections
+and a retained thermal benefit before the provisional state is accepted.
+Unhelpful trials roll back and resume ordinary iteration. The rule requires
+patch revision ≥2026-11-02.1, nine remaining iterations and four attempts;
+it runs once per invocation and never repeats a previously attempted checkpoint.
+See [eligibility, acceptance and rollback](/documentation/main-computation#bounded-ng-fallback-for-a-slow-tail).
