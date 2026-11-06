@@ -294,12 +294,15 @@ class TerminalOutput:
             entries = list(plan.get("entries", []))
             symlink_count = sum(entry.get("kind") == "Symlink" for entry in entries)
             file_count = len(entries) - symlink_count
-            self.line(
-                "INFO",
-                f"{plan['entry_count']} candidate(s), {plan['human_size']}; "
-                f"{file_count} file(s), {symlink_count} symlink(s); "
-                "entries will be retired under the selected recovery policy",
-            )
+            summary = f"{plan['entry_count']} candidate(s), {plan['human_size']}; "
+            if not entries:
+                summary += "model already clean; nothing to remove"
+            elif plan.get("full"):
+                summary += "entries will be permanently deleted without a recovery archive"
+            else:
+                summary += (f"{file_count} file(s), {symlink_count} symlink(s); "
+                            "entries will be retired under the selected recovery policy")
+            self.line("INFO", summary)
             display_entries = sorted(
                 entries,
                 key=lambda entry: (entry.get("kind") == "Symlink", str(entry.get("name", "")).lower()),
@@ -529,11 +532,17 @@ class TerminalOutput:
                       else "HYDRO_PARAMS retains template values; review before running hydro")
         if result.get("cleanup"):
             cleanup = result["cleanup"]
+            if result.get("full"):
+                verb = "Permanently deleted"
+            else:
+                verb = "Cleaned" if cleanup.get("recovery", {}).get("discarded_files") else "Archived"
             self.line(
                 "OK" if status == "succeeded" else "WARN",
-                f"{'Cleaned' if cleanup.get('recovery', {}).get('discarded_files') else 'Archived'} {cleanup['removed_count']} cleanup candidate(s)",
+                "Model already clean; nothing changed" if result.get("unchanged") else
+                f"{verb} {cleanup['removed_count']} cleanup candidate(s)",
             )
-            self.line("INFO", f"Recovery archive: {cleanup['archive_path']}")
+            if cleanup.get("archive_path"):
+                self.line("INFO", f"Recovery archive: {cleanup['archive_path']}")
         if result.get("error"):
             self.line("ERROR", result["error"])
         self.details("ERROR", result.get("restore_errors", []))

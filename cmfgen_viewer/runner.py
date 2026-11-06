@@ -229,6 +229,7 @@ def _build_requested_stage_plan(
     iterations: int | None,
     fresh_start: bool,
     cleanup_files: list[str] | None,
+    full: bool = False,
     no_core_dumps: bool = False,
     template_root: Path | None = None,
     lte_initialization: bool = False,
@@ -242,7 +243,7 @@ def _build_requested_stage_plan(
         plan = build_promotion_plan(model)
         sources = {}
     elif stage == "cleanup":
-        plan = build_cleanup_plan(model, selected_names=cleanup_files)
+        plan = build_cleanup_plan(model, selected_names=cleanup_files, full=full)
         sources = {}
     else:
         plan = build_run_plan(
@@ -932,6 +933,8 @@ def _run_cleanup_plan(plan: dict, emit=None) -> dict:
     """Archive canonical cleanup candidates through the shared model guard."""
     if not plan["ready"]:
         raise RunnerError("Preflight failed: " + "; ".join(plan["errors"]))
+    if plan.get("full") or not plan["entry_count"]:
+        return _run_unarchived_cleanup_plan(plan, emit)
     model = Path(plan["model"])
     root = model / ".cmfgen-runs"
     if root.is_symlink():
@@ -1011,6 +1014,40 @@ def _run_cleanup_plan(plan: dict, emit=None) -> dict:
         problems=record["problems"],
     )
     event("run_finished", stage="cleanup", status=result["status"], journal=str(journal))
+    return result
+
+
+def _run_unarchived_cleanup_plan(plan: dict, emit=None) -> dict:
+    """Full cleanup and empty cleanup must not create a replacement journal."""
+    from .model_full_cleanup import FullCleanupError, run_full_cleanup
+
+    started = datetime.now(timezone.utc).isoformat()
+    if emit:
+        emit({"event": "stage_started", "stage": "cleanup", "time": started})
+    failures = []
+    removed = []
+    try:
+        if plan["entry_count"]:
+            cleanup = run_full_cleanup(plan)
+            failures = cleanup["failures"]
+            removed = cleanup["removed"]
+    except (FullCleanupError, OSError) as exc:
+        failures = [{"name": "cleanup", "error": str(exc)}]
+    status = "failed" if failures else "succeeded"
+    problems = [f"{item['name']}: {item['error']}" for item in failures]
+    finished = datetime.now(timezone.utc).isoformat()
+    result = {"stage": "cleanup", "status": status, "full": bool(plan.get("full")),
+              "unchanged": not removed and not failures,
+              "started_at": started, "finished_at": finished,
+              "scientific_acceptance": "not applicable", "planned_passes": 1,
+              "passes": [{"id": "cleanup", "status": status, "problems": problems}],
+              "cleanup": {"removed_count": len(removed), "removed_files": removed,
+                          "failures": failures, "archive_path": None}}
+    if emit:
+        emit({"event": "stage_finished", "stage": "cleanup", "status": status,
+              "problems": problems, "time": finished})
+        emit({"event": "run_finished", "stage": "cleanup", "status": status,
+              "time": finished})
     return result
 
 
@@ -1280,6 +1317,7 @@ def main(argv=None):
         action="append",
         help="Restrict cleanup by model-relative candidate path, e.g. lte/POPHYD (repeatable; default: all workspaces)",
     )
+    parser.add_argument("--full", action="store_true", help="With standalone --stage cleanup: permanently remove temporary files, recovery archives, run/job history, metadata, and locks; no new archive")
     parser.add_argument("--json", action="store_true", help="Emit the full JSON status/plan/result on stdout (default: readable terminal summary)")
     parser.add_argument("--diagnose", action="store_true", help="Recompute read-only diagnostics from existing outputs; no stage may be specified")
     parser.add_argument("--verbose", action="store_true", help="Show all reported warnings and captured diagnostic tails")
@@ -1299,6 +1337,10 @@ def main(argv=None):
             live.event(item)
     old_handler = signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
     try:
+        if args.full and args.stage != ["cleanup"]:
+            raise RunnerError("--full requires standalone --stage cleanup; full cleanup removes sequence journals")
+        if args.full and args.cleanup_file:
+            raise RunnerError("--full cannot be combined with --cleanup-file")
         if args.auto and args.stage not in (["main"], ["main", "flux"]):
             raise RunnerError("--auto requires --stage main, optionally followed by --stage flux")
         if not args.auto and (args.auto_max_attempts is not None or args.auto_max_iterations is not None):
@@ -1380,6 +1422,7 @@ def main(argv=None):
                 lte_initialization=args.lte_initialization,
                 t_exc=args.t_exc if args.t_exc is not None else 1.0,
                 cleanup_files=args.cleanup_file,
+                full=args.full,
                 template_root=args.template_root,
             )
         else:

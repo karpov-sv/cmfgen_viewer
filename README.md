@@ -259,7 +259,15 @@ temporarily overrides the main-stage iteration count. Memory, time, and thread
 controls are opt-in through `--memory-mib`, `--timeout`, and `--threads` (or
 configured thread settings); host limits still apply. Terminal progress bars
 appear when an estimate is available. `--json` returns structured status,
-plans, or results, and executed actions retain logs under `.cmfgen-runs/`.
+plans, or results, and executed actions retain logs under `.cmfgen-runs/`,
+except full cleanup and cleanup with no candidates.
+
+Cleanup succeeds without creating a journal when the model is already clean.
+Use `--stage cleanup --full --plan` to review permanent cleanup of temporary
+files, recovery archives, run/job history, metadata, and locks; omit `--plan`
+to execute. Full cleanup uses the same policy as `cmfgen_model.py cleanup --full`
+and creates no replacement archive. It requires a standalone cleanup stage and
+cannot be combined with `--cleanup-file`.
 
 Optional `--auto` applies to the main stage, optionally followed by spectra (`--stage main --stage flux --auto`). The UI exposes the same loop through the **Automatic mode** checkbox on Main Computation or **Automatic main convergence** in Model runner. It runs batches of 5
 iterations (override with `--iterations`), with defaults of 100 attempts and 500

@@ -152,8 +152,6 @@ def _cleanup(args):
              expected_entries=cleanup['entries'])
         return {**plan, 'status': 'succeeded', 'result': result}, 0
     plan = build_cleanup_plan(model, selected_names=args.file)
-    # Empty cleanup is an idempotent no-op, provided no other preflight failed.
-    plan['errors'] = [error for error in plan['errors'] if error != 'No model cleanup candidates were found.']
     plan.update(command='cleanup', workspace='all',
                 ready=not plan['errors'])
     if args.plan or not plan['ready']:

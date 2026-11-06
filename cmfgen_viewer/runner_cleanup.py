@@ -22,11 +22,22 @@ def build_cleanup_plan(
     model: Path,
     *,
     selected_names: list[str] | None = None,
+    full: bool = False,
 ) -> dict[str, object]:
     """Return canonical cleanup candidates, across main, LTE, and observer workspaces, optionally narrowed by relative path."""
     model = model.expanduser().resolve()
     if not model.is_dir():
         raise RunnerError("Not a model workspace")
+    if full:
+        if selected_names:
+            raise RunnerError("--full cannot be combined with --cleanup-file")
+        from .model_full_cleanup import build_full_cleanup_plan
+
+        cleanup = build_full_cleanup_plan(model)
+        return {**cleanup, "schema_version": 1, "profile": "ostar-v1",
+                "kind": "filesystem", "stage": "cleanup", "cwd": str(model),
+                "timeout": None, "passes": [{"id": "cleanup", "overrides": {}}],
+                "scientific_acceptance": "not applicable", "launches_legacy_scripts": False}
     try:
         cleanup = plan_model_cleanup(str(model.parent), model_relpath=model.name)
     except ModelStagingError as exc:
@@ -51,9 +62,6 @@ def build_cleanup_plan(
         entries = [available[name] for name in names if name in available]
     else:
         entries = list(cleanup["entries"])
-    if not entries:
-        errors.append("No model cleanup candidates were found.")
-
     total_size = sum(int(item["size"]) for item in entries)
     return {
         "schema_version": 1,
@@ -73,7 +81,7 @@ def build_cleanup_plan(
         "warnings": [
             "Runner cleanup archives candidates in its run journal; inspect the plan's "
             "file and symlink list across the main, LTE, and observer workspaces before running it."
-        ],
+        ] if entries else [],
         "errors": errors,
         "ready": not errors,
         "scientific_acceptance": "not applicable",

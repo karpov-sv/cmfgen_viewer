@@ -58,6 +58,24 @@ def _stage_result(stage: str, status: str = "succeeded") -> dict[str, object]:
     }
 
 
+def test_empty_cleanup_advances_sequence(tmp_path, monkeypatch):
+    from cmfgen_viewer.runner_cleanup import build_cleanup_plan
+
+    (tmp_path / 'VADAT').write_text('1 [RSTAR]\n')
+    (tmp_path / 'MODEL_SPEC').write_text('2 [ND]\n')
+    sequence = _sequence(tmp_path, ['cleanup', 'promote-hydro'])
+    monkeypatch.setattr(runner, '_sequence_stage_plan',
+        lambda plan, stage, **kwargs: build_cleanup_plan(tmp_path)
+        if stage == 'cleanup' else _ready_stage(stage))
+    monkeypatch.setattr(runner, '_run_promotion_plan',
+        lambda plan, emit=None: _stage_result('promote-hydro'))
+    result = runner.run_plan(sequence)
+    assert result['status'] == 'succeeded'
+    assert result['completed_stages'] == ['cleanup', 'promote-hydro']
+    assert result['stage_results'][0]['unchanged']
+    assert 'journal' not in result['stage_results'][0]
+
+
 def test_sequence_build_is_serializable_and_only_preflights_first_stage(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

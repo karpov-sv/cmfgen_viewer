@@ -83,8 +83,15 @@ def test_cleanup_run_archives_files_and_symlink_without_touching_target(
     assert report["status"] == "succeeded"
 
     repeated = build_cleanup_plan(model)
-    assert repeated["ready"] is False
-    assert repeated["errors"] == ["No model cleanup candidates were found."]
+    assert repeated["ready"] is True
+    assert repeated["errors"] == []
+    before = set((model / ".cmfgen-runs").iterdir())
+    result = run_plan(repeated)
+    assert result["status"] == "succeeded"
+    assert result["unchanged"] is True
+    assert result["cleanup"]["removed_count"] == 0
+    assert "journal" not in result
+    assert set((model / ".cmfgen-runs").iterdir()) == before
 
 
 def test_cleanup_can_be_restricted_to_named_candidates(
@@ -166,3 +173,86 @@ def test_cleanup_rejects_execution_only_options(
     ) == 2
 
     assert "do not apply to cleanup" in capsys.readouterr().err
+
+
+def test_full_cleanup_cli_previews_then_removes_history_without_new_journal(cleanup_model, capsys):
+    model, external = cleanup_model
+    for workspace in (model, model / 'lte', model / 'obs'):
+        workspace.mkdir(exist_ok=True)
+        (workspace / 'BAMAT').write_text('scratch')
+        archive = workspace / '.cmfgen-runs' / 'old'
+        archive.mkdir(parents=True)
+        (archive / 'result.json').write_text('{}')
+    args = [str(model), '--stage', 'cleanup', '--full']
+    assert runner.main([*args, '--plan', '--json']) == 0
+    plan = json.loads(capsys.readouterr().out)
+    assert plan['full'] and plan['ready']
+    assert {'.cmfgen-runs', 'lte/.cmfgen-runs', 'obs/.cmfgen-runs'} <= {
+        entry['name'] for entry in plan['entries']}
+    assert (model / 'BAMAT').exists()
+    assert runner.main([*args, '--progress', 'none']) == 0
+    output = capsys.readouterr().out
+    assert 'Permanently deleted' in output
+    assert 'Recovery archive:' not in output
+    assert 'Run report:' not in output
+    for workspace in (model, model / 'lte', model / 'obs'):
+        assert not (workspace / 'BAMAT').exists()
+        assert not (workspace / '.cmfgen-runs').exists()
+    assert not (model / '.cmfgen-viewer-write.lock').exists()
+    assert (model / 'VADAT').exists() and (model / 'SCRTEMP').exists()
+    assert external.read_text() == 'must remain untouched\n'
+    assert runner.main([*args, '--json']) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result['status'] == 'succeeded' and result['unchanged']
+    assert not (model / '.cmfgen-runs').exists()
+
+
+def test_full_cleanup_rechecks_inventory_without_creating_journal(cleanup_model):
+    model, _ = cleanup_model
+    plan = build_cleanup_plan(model, full=True)
+    (model / 'BAMAT').write_text('changed since review')
+    result = run_plan(plan)
+    assert result['status'] == 'failed'
+    assert 'changed after planning' in result['passes'][0]['problems'][0]
+    assert (model / 'BAMAT').exists()
+    assert not (model / '.cmfgen-runs').exists()
+
+
+@pytest.mark.parametrize('args', [
+    ['--full'],
+    ['--stage', 'main', '--full'],
+    ['--stage', 'prepare-lte', '--stage', 'cleanup', '--full'],
+    ['--stage', 'cleanup', '--full', '--cleanup-file', 'BAMAT'],
+])
+def test_full_cleanup_rejects_incompatible_options(cleanup_model, capsys, args):
+    model, _ = cleanup_model
+    assert runner.main([str(model), *args, '--plan']) == 2
+    assert '--full' in capsys.readouterr().err
+    assert (model / 'BAMAT').exists()
+    assert not (model / '.cmfgen-runs').exists()
+
+
+@pytest.mark.parametrize('full', [False, True])
+def test_empty_cleanup_still_requires_idle_model(tmp_path, monkeypatch, full):
+    from cmfgen_viewer import model_activity
+
+    (tmp_path / 'VADAT').write_text('1 [RSTAR]\n')
+    (tmp_path / 'MODEL_SPEC').write_text('2 [ND]\n')
+    monkeypatch.setattr(model_activity, 'inspect_model_activity', lambda *args, **kwargs: {
+        'safe_to_modify': False, 'reason': 'Model is busy'})
+    monkeypatch.setattr('cmfgen_viewer.runner_cleanup.inspect_model_activity',
+                        model_activity.inspect_model_activity)
+    monkeypatch.setattr('cmfgen_viewer.model_full_cleanup.inspect_model_activity',
+                        model_activity.inspect_model_activity)
+    plan = build_cleanup_plan(tmp_path, full=full)
+    assert not plan['ready']
+    with pytest.raises(RunnerError, match='Model is busy'):
+        run_plan(plan)
+
+
+def test_empty_cleanup_cli_succeeds_without_journal(tmp_path, capsys):
+    (tmp_path / 'VADAT').write_text('1 [RSTAR]\n')
+    (tmp_path / 'MODEL_SPEC').write_text('2 [ND]\n')
+    assert runner.main([str(tmp_path), '--stage', 'cleanup', '--progress', 'none']) == 0
+    assert 'already clean; nothing changed' in capsys.readouterr().out
+    assert {entry.name for entry in tmp_path.iterdir()} == {'VADAT', 'MODEL_SPEC'}
