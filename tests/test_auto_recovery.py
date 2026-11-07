@@ -152,7 +152,8 @@ def test_ng_cadence_extends_contiguous_batch_and_honors_budget(auto_workspace):
     result=run_plan(plan('stall',max_iterations=7))
     assert result['status']=='limit_reached'
     assert result['iterations_used']==6
-    assert not result['actions']
+    assert [a['kind'] for a in result['actions']]==['fresh_jacobian']
+    assert result['startup_diagnosis']['decision']['policy_id']=='verify_candidate'
 
 
 def ray_context(model, minimum=-1):

@@ -157,7 +157,8 @@ def test_failed_cache_attempt_restores_checkpoint_before_one_retry(auto_workspac
     result=run_plan(plan('cache'))
     assert result['status']=='succeeded',result
     assert result['attempts'][0]['checkpoint_restored']
-    assert result['actions'][0]['kind']=='radiation_cache'
+    assert result['startup_diagnosis']['decision']['policy_id']=='verify_candidate'
+    assert any(a['kind']=='radiation_cache' for a in result['actions'])
     assert not (model/'EDDFACTOR').exists()
     assert before!=b'broken'
 
@@ -169,7 +170,10 @@ def test_unknown_failure_stops_without_speculative_changes(auto_workspace):
     result=run_plan(plan('unknown'))
     assert result['status']=='needs_review'
     assert (model/'SCRTEMP').read_bytes()==before
-    assert not result['actions']
+    # The accepted candidate justifies startup verification; the unknown
+    # subsequent failure must not invent another adjustment.
+    assert [a['kind'] for a in result['actions']]==['fresh_jacobian']
+    assert result['startup_diagnosis']['decision']['policy_id']=='verify_candidate'
 
 
 @pytest.mark.parametrize('returncode', [0, 2])

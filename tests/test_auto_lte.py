@@ -145,7 +145,8 @@ def test_continuation_failure_never_reseeds_a_healthy_checkpoint(lte_workspace):
     pointer=(model/'POINT1').read_bytes()
     result=run_plan(plan('lte_existing'))
     assert result['status']=='needs_review'
-    assert not result['actions']
+    assert [a['kind'] for a in result['actions']]==['fresh_jacobian']
+    assert result['startup_diagnosis']['decision']['policy_id']=='verify_candidate'
     assert 'preserving the continuation checkpoint' in result['reason']
     assert (model/'SCRTEMP').read_bytes()==checkpoint
     assert (model/'POINT1').read_bytes()==pointer

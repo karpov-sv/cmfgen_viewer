@@ -83,6 +83,7 @@ The following table lists every registered rule and the two fallback decisions. 
 | Isolated ionization spike — `localized_population_projection` | Two fresh full variable-T solves predict extreme negative targets in the same ion at one interior depth; a positive conserved checkpoint independently shows one isolated ion-stage peak with consistent neighbors. Supported fixed-structure continuation and MAJOR scaling are required. | Conservatively interpolate that element's normalized populations at that depth, recompute local Ne, and retire BA/radiation caches. Preserve T, geometry, element totals and all other populations. Require two full variable-T/fresh-BA responses with positive targets for the diagnosed ion/Ne, removal of the spike, and physical guards; otherwise restore the complete baseline. | One provisional procedure; at most two verification batches. |
 | Extreme populations — `population_bootstrap` | Fresh-BA solves have finite extreme population increases (two successive increases≥1e7%, or one≥1e12%). A fixed-structure continuation with `SCALE_OPT=MAJOR` must have an independently auditable positive, charge-conserving checkpoint and a CMFGEN viewer executable at patch revision ≥2026-10-31.1. Native automatic Lambda steps also qualify. | Three fixed-T Lambda solves with temporary `MAX_LAM=1e12`, fresh BA and Ng disabled; require declining uncapped extrema, unchanged T/geometry and conserved elements/charge. Restore normal controls, then require two consecutive full variable-T/fresh-BA solves with the same physical checks. Native Lambda/fixed-T fallback defers verification and repeats the full-step batch within the shared budgets. No floors or LTE reseeding. | One provisional procedure. |
 | First Ng cadence — `ng_cadence` | Two short (2–5 solve) full batches stay below `BEG_NG`, past `IBEG_NG`, with native Ng enabled and `LAST_NG=-1000`. No hydro revision or successful Ng occurs. | Increase subsequent batches to eight contiguous physical solves, allowing the native first-Ng delay and final-step suppression to operate normally. Keep all native Ng validity checks; never force an acceleration. | One adjustment, only if the next eight-solve batch fits the remaining budget. |
+| Positive global thermal trial — `global_ng` | Six observed fresh-BA/free-T solves retain a large slow thermal imbalance, with fixed structure and a severely bounded native affine proposal. Requires patch revision ≥2026-11-02.1 and complete history/physical evidence. | Provisionally extrapolate all populations/T in positive coordinates with species/charge conservation. Require six ordinary full solves, settled significant corrections and at least 10% improvement in both absolute RE residual and normalized luminosity deviation; otherwise restore and resume ordinary iteration. | At most 3 trials per invocation, separated by 8 newly observed ordinary full solves. Persistent receipts prevent same-checkpoint retries. Nine iterations and four attempts must remain. |
 | Bounded Ng fallback — `bounded_ng` | Six consecutive fresh-BA/free-T solves have slowly declining 1–10% corrections, fixed structure and a significant energy imbalance. Native Ng is enabled but its current proposal would fail the core validity checks. Requires patch revision ≥2026-11-02.1 and complete physical evidence. | Provisionally shorten that proposal with one common affine fraction, then test six full solves in three pairs. Require settled corrections, no worse significant counts and a retained thermal benefit; otherwise restore the conservative checkpoint and continue ordinary iteration. | Once per automatic invocation; the same checkpoint is never retried after rollback. Nine iterations and four attempts must remain. |
 | Small population cycles — `population_relaxation` | Three complete printed raw solution arrays show repeated, nondecaying population sign reversals, with the last request at least `EPS_TERM`. All requests are ≤1%. Requires a CMFGEN viewer patch revision ≥2026-10-31.1, fresh full/free-temperature solves, a fixed structure, conserved charge/elements, fresh luminosity/optical-depth guards, `SCALE_OPT=MAJOR` and no existing damping or narrower correction scope. | Provisionally set native `RELAX=0.5` across the atmosphere in `ADJUST_CORRECTIONS`, retaining every variable in the stopping test. Request 3 iterations and require at least two full/fresh solves, a lower raw maximum, nonincreasing correction counts, conserved geometry/elements/charge and guarded luminosities. Restore the accepted checkpoint and controls on failure; independent convergence verification remains mandatory. | One provisional procedure. |
 | Local oscillation damping — `local_relaxation` | Persistent sign reversals in raw temperature requests, or sufficient completed-batch temperature profiles, with nondecaying amplitude. The affected interval spans at most one third of the depth grid. Requires `SCALE_OPT=MAJOR` and supported simple correction controls. | Set depth-local `RELAX=0.25`, then `0.125` if necessary; set local `T_LIM=0.2` so a tighter cap does not suppress the native RELAX branch. Preserve/extend the existing simple depth interval within the supported width. | At most 2 adjustments; a persistent cycle at the minimum RELAX stops for review. |
@@ -374,6 +375,82 @@ attempts reserve the six solves plus independent convergence verification.
 before mutation and survives rollback, preventing repeated attempts at the same
 checkpoint across automatic invocations. One application per invocation prevents
 an automatic retry loop. Passing this trial does not declare convergence.
+
+### Diagnosis when restarting an automatic run
+
+A restart can select a remedy before its first new batch. Accepted trend history
+is saved in `.cmfgen-runs/auto-history.json` with content fingerprints of the
+selected checkpoint, model/iteration controls, source/population inputs,
+executable and atomic roles/data. Both ordinary successful main runs and
+accepted automatic batches contribute evidence. Partial or provisional solves
+do not contribute. Copied model files are compared by contents, and changes
+to physics, data or executable invalidate reuse. Missing, unsafe or malformed
+history falls back to ordinary observations.
+
+Older automatic journals need a matching rolling recovery, accepted consecutive
+batches and the original saved input/dependency identities. Large historical
+dependencies without stored hashes must retain their exact filesystem identity;
+unknown or moved/rebuilt dependencies require fresh evidence. Historical source,
+hydro, grid and Ng transitions remain boundaries. Old raw logs with discarded
+appends cannot supply population-projection corrections.
+
+When matching accepted state has stale radiation diagnostics, the runner can
+refresh them using native `FINAL_OUTPUT_ONLY`/`FLUX_CAL_ONLY` on a supported
+fixed-structure continuation. It verifies fresh finite diagnostics, no population
+solve and byte-identical restart files, restoring temporary switches on every
+exit. A failed refresh restores the conservative state and collects ordinary
+evidence. It uses one native attempt, the shared timeout and **zero** full
+iterations. A clean stop after diagnosis applies no remedy.
+
+Startup diagnosis uses the same ordered policy registry and remaining budgets
+as normal batch-end diagnosis. Saved convergence flags never certify a new run:
+a historical candidate starts independent fresh-Jacobian verification. Every
+provisional remedy still needs its complete native follow-up. Global-Ng
+cooldowns carry over independently of each invocation's application budget;
+checkpoint attempt receipts continue to prevent retry loops after rollback.
+
+### Positive global Ng trial for a deep thermal stall
+
+`global_ng` precedes the smaller affine fallback when a fixed-structure model
+retains a large, slowly changing thermal imbalance. It requires six consecutive
+observed fresh-BA/free-T solves without source, hydro, grid or native Ng
+transitions. The surface flux error must keep its sign and exceed 2%, with no
+more than 5% relative reduction across the window; the normalized luminosity
+profile must deviate by at least 5% and inner τRoss must be at least 50.
+Corrections must be small and nearly stationary, with complete temperature
+vectors and no temperature cycling. The executable must authenticate patch
+revision ≥2026-11-02.1. Unsupported checkpoint/solver regimes skip the rule.
+
+The native affine proposal must fail its core checks and require a fraction
+no larger than 1/16 under the existing conservative bounds. The alternative
+uses four saved states and one global coefficient fit, reconstructing all
+populations and temperature in logarithmic coordinates. Species totals and
+charge are conserved. Common backoff keeps population/Ne ratios within 0.1–10
+and T changes within 1%. No trace population is removed or floored. Geometry,
+other checkpoint records and native counters remain unchanged: this is a
+provisional restart guess, with no solved-iteration or convergence credit. The
+global T step must follow the observed direction; it is checked independently
+of the banded native proposal.
+
+Three pairs of ordinary full solves temporarily disable native Ng and automatic
+Lambda/temperature switches, require free T and fresh BA/radiation, and restore
+temporary switches on every exit. All pairs must pass conservation and luminosity guards.
+The final pair must settle below the starting correction maximum, without worse
+significant correction counts, and retain at least 10% improvement in **both**
+absolute RE residual and maximum normalized luminosity deviation. A rejected
+trial restores the conservative checkpoint and coupled inputs, then resumes
+ordinary iteration. Interruption restores it too; unknown failures stop for
+review. Independent convergence verification remains mandatory.
+
+At least eight newly observed healthy ordinary full solves separate trials;
+trial solves do not count, and the affine fallback cannot interrupt this
+cooldown. Six healthy post-trial observations can authorize ordinary continuation
+through the remaining cooldown when all slow-tail conditions still hold.
+`global-ng-trials.json` records attempted checkpoint fingerprints before mutation
+and survives rollback, preventing same-checkpoint retries across invocations.
+At most three trials run per invocation; each needs nine remaining iterations
+and four attempts. This bypasses a measured slow mode; it does not repair the
+native Jacobian or guarantee eventual convergence.
 
 ### Guarded performance trials during automatic iteration
 

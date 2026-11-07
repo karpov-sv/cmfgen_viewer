@@ -86,7 +86,7 @@ def _history(model, plan, result, key, before):
     return history
 
 
-def analyze_main_end(model, plan, result, before, solution_offset):
+def analyze_main_end(model, plan, result, before, solution_offset, *, accepted_history=None):
     from .runner import _tail
     model = Path(model)
     report = {'mode': 'advisory', 'findings': [], 'policies': policies.manifest(),
@@ -110,6 +110,25 @@ def analyze_main_end(model, plan, result, before, solution_offset):
             report['convergence'] = convergence_status(evidence)
             key = _history_key(model, plan)
             history = [] if evidence['hydro_revisions'] else _history(model, plan, result, key, before) + [evidence]
+            from . import auto_history
+            authenticated = []
+            if (accepted_history or {}).get('usable'):
+                if accepted_history.get('regime') == auto_history.regime(auto_history.identity(model, plan)):
+                    authenticated = accepted_history['history']
+                    history = authenticated+[evidence]
+            if any(evidence.get(k) for k in ('hydro_revisions', 'ng_accelerations', 'checkpoint_updates', 'source_changed')):
+                authenticated = []
+                history = []
+            try:
+                stable_inputs = auto_history.inputs_unchanged(model, plan, result['journal'])
+            except (OSError, ValueError, KeyError, TypeError):
+                stable_inputs = False
+            if not stable_inputs:
+                authenticated = []
+                if not any(evidence.get(k) for k in ('hydro_revisions', 'ng_accelerations',
+                                                    'checkpoint_updates', 'source_changed')):
+                    history = [evidence]
+                report['restart_history_warning'] = 'Run-start inputs or dependencies changed; restart trends reset'
             # Only bounded summaries needed for cross-batch trend/profile rules.
             report.update(evidence_status='validated', history_key=key,
                           starting_checkpoint=(plan.get('restart', {}).get('pointer') or {}).get('iterations'),
@@ -119,6 +138,11 @@ def analyze_main_end(model, plan, result, before, solution_offset):
             report['evidence']['raw_temperature_steps'] = evidence['raw_temperature_steps'][-1:]
             report['batches_assessed'] = len(history)
             when = 'success'
+            try:
+                auto_history.save(model, plan, authenticated+[evidence] if history and stable_inputs else [],
+                                  (accepted_history or {}).get('actions', []), result['journal'])
+            except (OSError, ValueError, KeyError, TypeError) as exc:
+                report['restart_history_warning'] = str(exc)
         except (OSError, ValueError, KeyError) as exc:
             report['evidence_error'] = str(exc)
             report['summary'] = 'Execution completed, but numerical evidence is incomplete. Review outputs before continuing.'

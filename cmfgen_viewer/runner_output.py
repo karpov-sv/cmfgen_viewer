@@ -390,8 +390,18 @@ class TerminalOutput:
     def event(self, item):
         kind = item["event"]
         stage = item.get("stage", "")
+        if kind == 'restart_history_refresh':
+            self.line('INFO', item['message'])
+            return
         if kind.startswith('auto_'):
-            if kind == 'auto_initialized':
+            if kind == 'auto_restart_history':
+                self.line('INFO', (f"Reusing accepted history at checkpoint {item['checkpoint']}" +
+                          ('; refresh radiation diagnostics first' if item.get('refresh_required') else '')
+                          if item.get('usable') else 'Using fresh iteration evidence: '+item.get('reason', 'history unavailable')))
+            elif kind == 'auto_startup_diagnosis':
+                decision = item['decision']
+                self.line('INFO', f"Restart diagnosis: {decision['policy_id']} — {decision['reason']}")
+            elif kind == 'auto_initialized':
                 self.line('INFO', item['reason'])
             elif kind == 'auto_attempt' and item.get('initialization_only'):
                 self.line('RUN', f"Automatic attempt {item['attempt']}: {item['phase']}, initialize populations only")

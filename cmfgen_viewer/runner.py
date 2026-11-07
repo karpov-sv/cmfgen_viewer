@@ -446,7 +446,12 @@ def run_plan(plan: dict, emit=None, *, diagnose_main=True, stop_requested=None) 
         process = None
         main_before = None
         solution_offset = 0
+        history_refresh_before = None
+        prior_main_history = None
         try:
+            if stage == 'main' and diagnose_main:
+                from .auto_history import load
+                prior_main_history = load(model, plan, exclude=journal)
             if plan.get("restart"):
                 event("startup", **plan["restart"])
             # Preserve all small startup controls/restart files used by the run.
@@ -571,6 +576,55 @@ def run_plan(plan: dict, emit=None, *, diagnose_main=True, stop_requested=None) 
                 result['population_recovery_probe'] = True
                 event('population_guard_override', stage='main',
                       message='Three fixed-T Lambda solves, MAX_LAM=1e12; normal controls restored on every exit')
+            if plan.get('global_ng_probe'):
+                from .auto_recovery import repaired_runtime
+                from .auto_hydro import structure_fixed, enabled
+                if (plan['global_ng_probe'] is not True or stage != 'main' or
+                        len(plan['passes']) != 1 or
+                        str(plan['passes'][0]['overrides'].get('NUM_ITS')) != '2' or
+                        plan.get('restart', {}).get('mode') != 'continuation' or
+                        plan.get('initialization') or plan.get('hydro_recovery_probe') or
+                        plan.get('population_recovery_probe') or
+                        enabled(model, 'FIX_T') or not structure_fixed(model) or
+                        not repaired_runtime(plan, minimum='2026-11-02.1')):
+                    raise RunnerError('Invalid ordinary full-solve global Ng probe')
+                overrides = {
+                    'VADAT': {'FIX_T': 'F', 'COMP_F': 'T', 'COMP_BA': 'T', 'N_FIX_BA': '0',
+                              'FIX_BA': '0.0', 'DO_NG': 'F'},
+                }
+                effective = journal/'effective'
+                mkdir_readable(effective, exist_ok=True)
+                for name, values in overrides.items():
+                    path = cwd/name
+                    if path not in controls:
+                        controls[path] = TemporaryControl(path, _write_control)
+                    controls[path].apply(values)
+                    copy_readable(path, effective/name)
+                result['global_ng_probe'] = True
+                event('global_ng_override', stage='main',
+                      message='Two ordinary free-T fresh-BA solves with native Ng disabled; controls restored on every exit')
+            if plan.get('restart_history_probe'):
+                from .auto_recovery import repaired_runtime
+                from .auto_hydro import structure_fixed, enabled
+                from .auto_history import digest
+                if (plan['restart_history_probe'] is not True or stage != 'main' or
+                        len(plan['passes']) != 1 or
+                        str(plan['passes'][0]['overrides'].get('NUM_ITS')) != '1' or
+                        plan.get('restart', {}).get('mode') != 'continuation' or
+                        plan.get('initialization') or
+                        any(plan.get(k) for k in ('global_ng_probe', 'population_recovery_probe',
+                                                 'hydro_recovery_probe', 'hydro_seed_probe')) or
+                        any(enabled(model, k) for k in ('SN_MODEL', 'USE_FIXED_J', 'IMPURITY_CODE',
+                                                        'USE_J_REL', 'USE_DJDT_RTE')) or
+                        not structure_fixed(model) or not repaired_runtime(plan, minimum='2026-11-02.1')):
+                    raise RunnerError('Invalid output-only restart-history probe')
+                history_refresh_before = {n: digest(model/n) for n in RESTART_FILES}
+                path = cwd/'VADAT'
+                if path not in controls:
+                    controls[path] = TemporaryControl(path, _write_control)
+                controls[path].apply({'FLUX_CAL_ONLY': 'T', 'COMP_F': 'T', 'COMP_EHB': 'T', 'DO_NG': 'F'})
+                result.update(restart_history_probe=True, solved_iterations=0)
+                event('restart_history_refresh', message='Refresh radiation diagnostics at the saved checkpoint; no population solve')
             flux_template = ((cwd / "CMF_FLUX_PARAM_INIT").read_bytes()
                              if stage == "flux" else None)
             _json(journal / "links-before.json", {link["name"]: os.readlink(cwd / link["name"]) if (cwd / link["name"]).is_symlink() else None for link in plan["links"]})
@@ -638,6 +692,8 @@ def run_plan(plan: dict, emit=None, *, diagnose_main=True, stop_requested=None) 
                         else:
                             copy_recovery(path, previous / name)
                 before = {name: snapshot(cwd / name) for name in products}
+                if history_refresh_before is not None:
+                    before.update({name: snapshot(cwd/name) for name in ('OBSFLUX', 'MEANOPAC')})
                 if step["overrides"] or stage == "flux" or (
                         cwd / control_name in controls and controls[cwd / control_name].owned):
                     control = controls[cwd / control_name]
@@ -665,7 +721,15 @@ def run_plan(plan: dict, emit=None, *, diagnose_main=True, stop_requested=None) 
                     if plan.get('population_recovery_probe'):
                         values.update({'DO_LAM_IT': 'T', 'DO_LAM_AUTO': 'F',
                                        'DO_T_AUTO': 'F', 'DO_GT_AUTO': 'F'})
+                    if plan.get('global_ng_probe'):
+                        values.update({'DO_LAM_IT': 'F', 'DO_LAM_AUTO': 'F',
+                                       'DO_T_AUTO': 'F', 'DO_GT_AUTO': 'F'})
+                    if plan.get('restart_history_probe'):
+                        values.update({'FINAL_OUTPUT_ONLY': 'T', 'DO_LAM_IT': 'F',
+                                       'DO_LAM_AUTO': 'F', 'DO_T_AUTO': 'F', 'DO_GT_AUTO': 'F'})
                     rendered = control.apply(values, seed=flux_template).decode()
+                    if plan.get('global_ng_probe'):
+                        copy_readable(cwd/control_name, journal/'effective'/control_name)
                     with open_readable(pass_dir / control_name, "w") as handle:
                         handle.write(rendered)
                 record = {"id": step["id"], "status": "running", "log": str(pass_dir / "process.log")}
@@ -725,7 +789,11 @@ def run_plan(plan: dict, emit=None, *, diagnose_main=True, stop_requested=None) 
                         input_handle.close()
                 if stage == "hydro":
                     _publish(pass_dir / "process.log", cwd / "WIND_HYD")
-                problems = _validate(stage, cwd, before)
+                if history_refresh_before is not None:
+                    from .auto_history import validate_refresh
+                    problems = validate_refresh(model, before, history_refresh_before)
+                else:
+                    problems = _validate(stage, cwd, before)
                 diagnostic_sources = {name: _tail(cwd / name, 64*1024) for name in logs}
                 diagnostic_sources["process.log"] = _tail(pass_dir / "process.log", 64*1024)
                 if stage in {"main", "test"} and record["returncode"] < 0:
@@ -834,7 +902,8 @@ def run_plan(plan: dict, emit=None, *, diagnose_main=True, stop_requested=None) 
             if stage == "main" and diagnose_main and main_before is not None:
                 from .main_recommendations import analyze_main_end
                 try:
-                    result["main_diagnostics"] = analyze_main_end(model, plan, result, main_before, solution_offset)
+                    result["main_diagnostics"] = analyze_main_end(model, plan, result, main_before, solution_offset,
+                                                                  accepted_history=prior_main_history)
                 except Exception as exc:  # Advice must never change native execution status.
                     result["main_diagnostics"] = {
                         "mode": "advisory", "evidence_status": "unavailable", "findings": [],

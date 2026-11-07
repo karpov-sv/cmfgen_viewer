@@ -633,3 +633,29 @@ Unhelpful trials roll back and resume ordinary iteration. The rule requires
 patch revision ≥2026-11-02.1, nine remaining iterations and four attempts;
 it runs once per invocation and never repeats a previously attempted checkpoint.
 See [eligibility, acceptance and rollback](/documentation/main-computation#bounded-ng-fallback-for-a-slow-tail).
+
+For a large deep thermal stall, the guarded `global_ng` policy can precede the
+smaller affine fallback. It uses a positive, species/charge-conserving global
+extrapolation, then requires six ordinary full solves and at least 10% retained
+improvement in both energy residual and luminosity-profile error. Unhelpful
+trials restore the accepted checkpoint and inputs. At most three trials run
+per invocation, separated by eight newly observed ordinary full solves; native
+counters and `EPS_TERM` remain unchanged. See
+[conditions and rollback](/documentation/main-computation#positive-global-ng-trial-for-a-deep-thermal-stall).
+
+Automatic restarts now diagnose remedies before requesting another full batch
+when accepted history can be authenticated. `.cmfgen-runs/auto-history.json`
+records bounded trend evidence and hashes of the checkpoint, controls, source
+inputs, executable and declared atomic data. Copied models use content hashes;
+changed or incomplete provenance falls back to fresh observations. Existing
+automatic journals can also be reused when their rolling recovery and saved
+input/dependency records still match.
+
+If only radiation diagnostics are stale, a guarded native output-only pass
+refreshes them without updating populations or earning iteration/convergence
+credit. This spends one native attempt and shares the execution timeout. Its
+restart files must remain byte-identical; failed refreshes restore the accepted
+state and fall back to ordinary observations. Unsupported native regimes also
+use the ordinary path. Remedy follow-up, rollback and independent convergence
+verification remain required. Restart logs identify reused history and the
+startup policy decision.

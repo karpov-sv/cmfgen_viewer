@@ -93,7 +93,8 @@ def kernel(history):
         result = x[0] + a * (x[1] - x[0]) + b * (x[2] - x[0])
     return result.reshape(history.shape[1:])
 
-def _compute(model, maximum_fraction=0.125, maximum_T_percent=0.1):
+def _compute(model, maximum_fraction=0.125, maximum_T_percent=0.1, *,
+             temperature_direction_required=True):
     if not 0 < maximum_fraction <= 0.125 or not 0 < maximum_T_percent <= 0.1:
         raise RunnerError('Untested Ng bounds')
     unsupported = ('FIX_T', 'SN_MODEL', 'USE_FIXED_J', 'IMPURITY_CODE',
@@ -155,7 +156,7 @@ def _compute(model, maximum_fraction=0.125, maximum_T_percent=0.1):
     if int(native_bad.sum()) <= 3:
         return None
     # A positive backoff cannot repair a temperature direction reversal.
-    if wrong.any():
+    if wrong.any() and temperature_direction_required:
         return None
     alpha = 1.0
     while alpha >= 1 / 1024:
@@ -174,6 +175,10 @@ def _compute(model, maximum_fraction=0.125, maximum_T_percent=0.1):
                 ratio_min=float(r.min()), ratio_max=float(r.max()),
                 maximum_temperature_change_percent=float(temperature_change),
                 physical_checks=checks)
+            if not temperature_direction_required:
+                # Diagnostic only. The independent geometric operator checks
+                # its own direction; affine publication always uses the default.
+                description['native_temperature_reversal_depths'] = int(wrong.sum())
             return state, new, description
         alpha *= 0.5
     return None

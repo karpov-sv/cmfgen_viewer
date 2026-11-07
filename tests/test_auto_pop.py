@@ -148,8 +148,11 @@ def test_pop_does_not_replace_existing_continuation(pop_workspace):
     saved={n:(model/n).read_bytes() for n in ('POINT1','POINT2','SCRTEMP','VADAT')}
     result=run_plan(make('pop_always_bad'))
     assert result['status']=='needs_review'
-    assert not result['actions']
+    assert [a['kind'] for a in result['actions']]==['fresh_jacobian']
     for name, content in saved.items():
+        if name=='VADAT':
+            from cmfgen_viewer.runner_controls import _patch
+            content=_patch(content.decode(),{'COMP_BA':'T','N_FIX_BA':'0','FIX_BA':'0.0'}).encode()
         assert (model/name).read_bytes()==content
     assert 'fresh startup' in result['reason']
 

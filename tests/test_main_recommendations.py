@@ -219,12 +219,12 @@ def test_local_oscillation_suggests_depth_scoped_relaxation_without_applying_it(
     assert not (model/'ADJUST_CORRECTIONS').exists()
 
 
-def test_intervening_output_changes_break_batch_history(auto_workspace):
+def test_log_edits_cannot_replace_content_authenticated_accepted_history(auto_workspace):
     model, make = auto_workspace
     run_plan(ordinary(make('stall')))
     (model/'OUTGEN').write_text((model/'OUTGEN').read_text()+'! external run\n')
     report = run_plan(ordinary(make('stall')))['main_diagnostics']
-    assert report['batches_assessed'] == 1
+    assert report['batches_assessed'] == 2
 
 
 def test_unknown_advisory_error_cannot_change_execution_success(auto_workspace,monkeypatch):

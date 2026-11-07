@@ -62,7 +62,7 @@ def configure_auto(plan, *, cmfgen_root, atomic_root,
                                           if str(model/n) not in reviewed)]
     result['kind'] = 'auto'
     registry = policies.manifest()
-    result['auto'] = {'version': 12, 'batch_iterations': batch,
+    result['auto'] = {'version': 13, 'batch_iterations': batch,
                       'max_attempts': max_attempts, 'max_iterations': max_iterations,
                       'policies': registry,
                       'cmfgen_root': str(Path(cmfgen_root).resolve()),
@@ -210,11 +210,17 @@ def _action(model, journal, actions, kind, reason, changes=None, caches=(), *, p
         from .population_projection import apply_projection
         record['checkpoint_projection'] = apply_projection(model, (evidence or {})['projection'])
         _json(folder/'action.json', record)
-    if kind == 'bounded_ng':
+    if kind in {'bounded_ng', 'global_ng'}:
         from .auto_ng import mark_attempt
-        from .bounded_ng import apply
+        if kind == 'global_ng':
+            from .global_ng import apply
+        else:
+            from .bounded_ng import apply
         proposal = (evidence or {})['proposal']
-        mark_attempt(model, proposal, folder)
+        if kind == 'global_ng':
+            mark_attempt(model, proposal, folder, global_trial=True)
+        else:
+            mark_attempt(model, proposal, folder)
         record['checkpoint_ng'] = apply(model, proposal)
         _json(folder/'action.json', record)
     for name in caches:
@@ -280,6 +286,8 @@ def run_auto_plan(plan, emit=None, *, stop_requested=None):
     from .runner import run_plan, _json, _tail
     if not plan['ready']:
         raise RunnerError('Automatic preflight failed: ' + '; '.join(plan['errors']))
+    if plan['auto'].get('version') != 13:
+        raise RunnerError('Automatic restart protocol changed since preview; prepare a new plan')
     if plan['auto'].get('policies') != policies.manifest():
         raise RunnerError('Automatic policies changed since preview; prepare a new plan')
     model = Path(plan['model'])
@@ -342,7 +350,7 @@ def run_auto_plan(plan, emit=None, *, stop_requested=None):
             nonlocal recovery
             with model_mutation_guard(model, RunnerError):
                 check_inputs()
-                if decision.action in {'localized_population_projection', 'bounded_ng'} and (
+                if decision.action in {'localized_population_projection', 'bounded_ng', 'global_ng'} and (
                         pending is not decision or not decision.steps):
                     raise RunnerError('Checkpoint mutation must be a provisional recovery procedure')
                 record = _action(model, journal, result['actions'], decision.action, decision.reason,
@@ -370,6 +378,8 @@ def run_auto_plan(plan, emit=None, *, stop_requested=None):
             _json(Path(record['directory'])/'action.json', record)
 
         history = []
+        prior_actions = []
+        attempt_start = 1
         initializing = True
         base_phase = 'iterate'
         pending = None
@@ -380,6 +390,20 @@ def run_auto_plan(plan, emit=None, *, stop_requested=None):
         working = None
         working_root = journal/'provisional'
         deadline = time.monotonic()+plan['timeout'] if plan.get('timeout') is not None else None
+        def remember(native, *, locked=False):
+            from . import auto_history
+            from contextlib import nullcontext
+            try:
+                with nullcontext() if locked else model_mutation_guard(model, RunnerError):
+                    check_inputs()
+                    if (history and native_result is not None and
+                            not auto_history.inputs_unchanged(model, native, native_result['journal'],
+                                ignore=('VADAT', 'IN_ITS'), require_complete=False)):
+                        raise RunnerError('Run-start source inputs or dependencies changed; history not promoted')
+                    auto_history.save(model, native, history, prior_actions+result['actions'], journal)
+            except (OSError, ValueError, KeyError, TypeError) as exc:
+                event('auto_history_unavailable', reason=str(exc))
+
         _json(journal/'result.json', result)
         try:
             event('auto_started', policy=options)
@@ -395,7 +419,68 @@ def run_auto_plan(plan, emit=None, *, stop_requested=None):
                 action(preparation)
             elif preparation.kind != 'continue':
                 raise RunnerError('Unsupported automatic preparation decision')
-            for attempt in range(1, options['max_attempts']+1):
+            if not (stop_requested is not None and stop_requested()):
+                from . import auto_history
+                with model_mutation_guard(model, RunnerError):
+                    check_inputs()
+                    resumed = auto_history.load(model, plan, exclude=journal)
+                result['restart_history'] = {k: v for k, v in resumed.items() if k not in {'history', 'actions'}}
+                event('auto_restart_history', **result['restart_history'])
+                if resumed['usable']:
+                    history, prior_actions = resumed['history'], resumed['actions']
+                    if history and resumed.get('refresh_required'):
+                        refresh = build_run_plan(model, stage='main',
+                            cmfgen_root=Path(options['cmfgen_root']), atomic_root=Path(options['atomic_root']),
+                            iterations=1, threads=plan.get('threads'), memory_mib=plan.get('memory_mib'),
+                            no_core_dumps=plan.get('no_core_dumps', False),
+                            timeout=max(.001, deadline-time.monotonic()) if deadline else None)
+                        refresh['restart_history_probe'] = True
+                        attempt_start = 2  # Radiation-only work still spends one native attempt.
+                        refreshed = run_plan(refresh, emit, diagnose_main=False, stop_requested=stop_requested)
+                        result['restart_history']['refresh'] = refreshed
+                        with model_mutation_guard(model, RunnerError):
+                            check_inputs()
+                            if (refreshed['status'] != 'succeeded' or
+                                    refreshed.get('startup_observed', {}).get('mode') != 'continuation'):
+                                restore()
+                                history = []
+                                result['restart_history'].update(usable=False, reason='Radiation refresh failed; use fresh ordinary evidence')
+                                if refreshed['status'] in {'cancelled', 'timeout', 'stopped'}:
+                                    result.update(status=refreshed['status'],
+                                                  reason='Restart diagnostic refresh interrupted; accepted checkpoint restored')
+                            else:
+                                recovery = _capture(model, journal, recovery)
+                                remember(plan, locked=True)
+                    if history and result['status'] == 'running':
+                        with model_mutation_guard(model, RunnerError):
+                            check_inputs()
+                            startup_ctx = policies.Context(model, 'success', plan, {}, {}, history[-1], history,
+                                'iterate', result['actions'], _tail(model/'OUTGEN', 32*1024**2), original_controls,
+                                options['max_iterations'], options['max_attempts']-(attempt_start-1), prior_actions)
+                            decision, trail = policies.choose(startup_ctx)
+                        result['startup_diagnosis'] = {'decision': decision.summary(), 'policy_evaluations': trail}
+                        event('auto_startup_diagnosis', **result['startup_diagnosis'])
+                        if stop_requested is not None and stop_requested():
+                            result.update(status='stopped', reason='Clean stop after restart diagnosis; no remedy applied')
+                        elif decision.kind == 'stop':
+                            result.update(status='needs_review', reason=decision.reason)
+                        elif decision.kind == 'action':
+                            if (sum(s.iterations for s in decision.steps) > options['max_iterations'] or
+                                    len(decision.steps) > options['max_attempts']-(attempt_start-1)):
+                                raise RunnerError('Insufficient restart budget for the selected remedy')
+                            if decision.steps:
+                                pending, step_index = decision, 0
+                            action(decision)
+                            if decision.batch_iterations is not None:
+                                batch_iterations = decision.batch_iterations
+                            history = []
+                            if not decision.steps:
+                                base_phase = decision.next_phase
+                        elif decision.kind != 'continue':
+                            raise RunnerError('Historical evidence cannot certify convergence')
+            for attempt in range(attempt_start, options['max_attempts']+1):
+                if result['status'] != 'running':
+                    break
                 if stop_requested is not None and stop_requested():
                     result.update(status='stopped', reason='Clean stop requested; no further automatic attempts')
                     break
@@ -416,7 +501,7 @@ def run_auto_plan(plan, emit=None, *, stop_requested=None):
                 with model_mutation_guard(model, RunnerError):
                     check_inputs()
                     step_options = step.native_options if step else {}
-                    if set(step_options) - {'hydro_recovery_probe', 'hydro_seed_probe', 'lte_initialization', 't_exc', 'pop_initialization', 'population_recovery_probe', 'opacity_lte_seed', 'lte_structure_seed'}:
+                    if set(step_options) - {'hydro_recovery_probe', 'hydro_seed_probe', 'lte_initialization', 't_exc', 'pop_initialization', 'population_recovery_probe', 'opacity_lte_seed', 'lte_structure_seed', 'global_ng_probe'}:
                         raise RunnerError('Recovery step requested unsupported native options')
                     kwargs = {key: plan.get(key) for key in ('threads', 'memory_mib', 'no_core_dumps')}
                     native = build_run_plan(model, stage='test' if initializing_only else 'main', cmfgen_root=Path(options['cmfgen_root']),
@@ -440,6 +525,8 @@ def run_auto_plan(plan, emit=None, *, stop_requested=None):
                         native['hydro_seed_probe'] = True
                     if step_options.get('population_recovery_probe'):
                         native['population_recovery_probe'] = True
+                    if step_options.get('global_ng_probe'):
+                        native['global_ng_probe'] = step_options['global_ng_probe']
                     from .main_recommendations import EVIDENCE_FILES
                     before = {name: snapshot(model/name) for name in EVIDENCE_FILES}
                     if pending and pending.policy_id == 'population_bootstrap':
@@ -510,6 +597,8 @@ def run_auto_plan(plan, emit=None, *, stop_requested=None):
                     iteration_overrides = dict(native['passes'][0]['overrides'])
                     if native.get('population_recovery_probe'):
                         iteration_overrides.update(DO_LAM_IT='T', DO_LAM_AUTO='F', DO_T_AUTO='F', DO_GT_AUTO='F')
+                    if native.get('global_ng_probe'):
+                        iteration_overrides.update(DO_LAM_IT='F', DO_LAM_AUTO='F', DO_T_AUTO='F', DO_GT_AUTO='F')
                     adopted = native_updates(model, text, controls_before, process_text=process_text,
                         iteration_overrides=iteration_overrides,
                         fresh_start=native['restart']['mode'] == 'fresh' and observed.get('mode') == 'fresh')
@@ -533,7 +622,7 @@ def run_auto_plan(plan, emit=None, *, stop_requested=None):
                         return policies.Context(model, when, native, outcome, before, evidence,
                             history, phase if pending else base_phase, result['actions'], text,
                             original_controls, options['max_iterations']-result['iterations_used'],
-                            options['max_attempts']-attempt)
+                            options['max_attempts']-attempt, prior_actions)
 
                     if failure is None:
                         try:
@@ -590,6 +679,7 @@ def run_auto_plan(plan, emit=None, *, stop_requested=None):
                             pending = None
                             base_phase = 'iterate'
                             history = []
+                            remember(native, locked=True)
                             _json(journal/'result.json', result)
                             event('auto_performance_trial', outcome='rejected', attempt=attempt, reason=str(exc))
                             continue
@@ -633,6 +723,11 @@ def run_auto_plan(plan, emit=None, *, stop_requested=None):
                         initializing = False
                 if failure is None:
                     if clean_stop:
+                        if not any(evidence.get(k) for k in ('hydro_revisions', 'ng_accelerations', 'checkpoint_updates', 'source_changed')):
+                            history.append(evidence)
+                        else:
+                            history = []
+                        remember(native)
                         result.update(status='stopped', reason='Clean stop requested; completed checkpoint retained',
                                       final_checkpoint=evidence['checkpoint'])
                         break
@@ -652,11 +747,13 @@ def run_auto_plan(plan, emit=None, *, stop_requested=None):
                         event('auto_verification_pending', attempt=attempt, phase=phase,
                               checkpoint=evidence['checkpoint'], reason=entry['verification_reason'])
                         continue
+                    completed_global_trial = False
                     if pending:
                         verification_anchor = None
                         verification_history = []
                         step_index += 1
                         if step_index == len(pending.steps):
+                            completed_global_trial = pending.policy_id == 'global_ng'
                             entry['recovery_verified'] = pending.policy_id
                             if pending.reversible_trial:
                                 finish_trial(pending, 'accepted')
@@ -672,7 +769,9 @@ def run_auto_plan(plan, emit=None, *, stop_requested=None):
                               checkpoint=evidence['checkpoint'],
                               reason='Initialized a positive, charge-conserving checkpoint; no radiation iterations performed')
                         continue
-                    if evidence.get('checkpoint_updates') or evidence.get('ng_accelerations'):
+                    if completed_global_trial:
+                        history = []  # Global trial solves are not post-trial ordinary observations.
+                    elif evidence.get('checkpoint_updates') or evidence.get('ng_accelerations'):
                         history = []
                         event('auto_history_reset', attempt=attempt, checkpoint_updates=evidence.get('checkpoint_updates', []),
                               reason='Native checkpoint update; correction trends restart with subsequent batches')
@@ -692,6 +791,7 @@ def run_auto_plan(plan, emit=None, *, stop_requested=None):
                           solver_maximum_changes=[r.get('solver_maximum_change') for r in evidence['records']])
                     if pending:
                         continue
+                    remember(native)
                     decision, trail = policies.choose(context('success'))
                     entry['decision'] = decision.summary()
                     entry['policy_evaluations'] = trail
@@ -726,6 +826,7 @@ def run_auto_plan(plan, emit=None, *, stop_requested=None):
                     result.update(status='succeeded', numerical_convergence='verified with fresh Jacobians',
                                   scientific_acceptance='requires separate quality review', quality=evidence['quality'],
                                   final_checkpoint=evidence['checkpoint'])
+                    remember(native)
                     break
                 if decision.kind == 'stop':
                     result.update(status='needs_review', reason=decision.reason)
@@ -790,6 +891,8 @@ def run_auto_plan(plan, emit=None, *, stop_requested=None):
                         entry['provisional_checkpoint_discarded'] = True
                     if pending.reversible_trial:
                         finish_trial(pending, 'aborted', result.get('reason', result['status']))
+                    history = []
+                    remember(plan, locked=True)
                 except (OSError, ValueError) as exc:
                     result['recovery_error'] = str(exc)
             result['finished_at'] = datetime.now(timezone.utc).isoformat()
