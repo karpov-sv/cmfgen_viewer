@@ -452,6 +452,41 @@ At most three trials run per invocation; each needs nine remaining iterations
 and four attempts. This bypasses a measured slow mode; it does not repair the
 native Jacobian or guarantee eventual convergence.
 
+### Resuming an interrupted global-Ng trial
+
+For `global_ng`, each completely validated pair of two full solves is saved
+separately under the run journal's `trial-resume/` directory. It remains
+provisional. Cancellation, timeout or a clean stop still restores the original
+conservative checkpoint and its luminosity/opacity diagnostics. The completed
+pairs can be resumed on a later automatic restart, before ordinary history
+diagnosis and the cooldown for a new extrapolation.
+
+Resumption requires an exact content match to the original rollback state,
+controls, source inputs, executable and atomic data. It also authenticates the
+saved checkpoint/diagnostics, original baseline, policy version and source
+journal's completed-pair checks. Only a confirmed interruption with successful
+rollback qualifies. Numerical rejection, changed inputs, damaged or missing
+archives, and newer accepted model progress refuse resumption. Newer progress
+is never rewound to an older trial.
+
+With four verified follow-up solves retained, only the final two are rerun.
+With two retained, four remain. An incomplete pair is repeated. The extrapolation
+is **not applied again**, its checkpoint-attempt receipt remains unchanged, and
+only newly executed solves spend the new invocation's iteration budget. All
+six original verification solves must still pass the original thermal,
+correction-count and conservation criteria; independent convergence verification
+remains separate. Failed remaining checks restore the original conservative
+state and discard the offer.
+
+At most two resumptions are allowed per trial. The remaining solves plus three
+iterations and one additional native attempt must fit the budget. Storage needs
+one additional coupled checkpoint snapshot and small diagnostic copies; each
+new saved pair replaces its predecessor, and acceptance/rejection retires the
+offer. If snapshot storage is unavailable, the existing rollback behavior
+remains available. Logs identify retained provisional solves and remaining work.
+This applies to trials started with the updated runner; previously discarded
+snapshots cannot be reconstructed. It does not repair a native thread deadlock.
+
 ### Guarded performance trials during automatic iteration
 
 Automatic mode can provisionally reduce numerical overhead after comparable full,

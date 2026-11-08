@@ -394,7 +394,16 @@ class TerminalOutput:
             self.line('INFO', item['message'])
             return
         if kind.startswith('auto_'):
-            if kind == 'auto_restart_history':
+            if kind == 'auto_trial_resumed':
+                self.line('INFO', f"Resuming provisional {item['policy_id']}: "
+                          f"{2*item['completed_pairs']} of 6 verification solves retained; "
+                          f"{item['remaining_full_solves']} still required")
+            elif kind == 'auto_trial_pair_saved':
+                self.line('INFO', f"Checkpoint {item['checkpoint']}: saved "
+                          f"{2*item['completed_pairs']} provisional verification solves for restart")
+            elif kind == 'auto_trial_resume_unavailable':
+                self.line('INFO', 'Provisional trial resume unavailable: '+item['reason'])
+            elif kind == 'auto_restart_history':
                 self.line('INFO', (f"Reusing accepted history at checkpoint {item['checkpoint']}" +
                           ('; refresh radiation diagnostics first' if item.get('refresh_required') else '')
                           if item.get('usable') else 'Using fresh iteration evidence: '+item.get('reason', 'history unavailable')))

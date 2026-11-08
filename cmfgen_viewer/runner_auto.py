@@ -62,7 +62,7 @@ def configure_auto(plan, *, cmfgen_root, atomic_root,
                                           if str(model/n) not in reviewed)]
     result['kind'] = 'auto'
     registry = policies.manifest()
-    result['auto'] = {'version': 13, 'batch_iterations': batch,
+    result['auto'] = {'version': 14, 'batch_iterations': batch,
                       'max_attempts': max_attempts, 'max_iterations': max_iterations,
                       'policies': registry,
                       'cmfgen_root': str(Path(cmfgen_root).resolve()),
@@ -286,7 +286,7 @@ def run_auto_plan(plan, emit=None, *, stop_requested=None):
     from .runner import run_plan, _json, _tail
     if not plan['ready']:
         raise RunnerError('Automatic preflight failed: ' + '; '.join(plan['errors']))
-    if plan['auto'].get('version') != 13:
+    if plan['auto'].get('version') != 14:
         raise RunnerError('Automatic restart protocol changed since preview; prepare a new plan')
     if plan['auto'].get('policies') != policies.manifest():
         raise RunnerError('Automatic policies changed since preview; prepare a new plan')
@@ -347,9 +347,15 @@ def run_auto_plan(plan, emit=None, *, stop_requested=None):
                     raise RunnerError(f'Input changed during automatic execution: {path}; preserving the edit')
 
         def action(decision):
-            nonlocal recovery
+            nonlocal recovery, trial_resume_state
             with model_mutation_guard(model, RunnerError):
                 check_inputs()
+                if decision.action == 'global_ng' and decision.reversible_trial:
+                    from . import auto_trial_resume
+                    try:
+                        trial_resume_state = auto_trial_resume.begin(model, plan, decision, recovery, journal)
+                    except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
+                        event('auto_trial_resume_unavailable', reason=str(exc))
                 if decision.action in {'localized_population_projection', 'bounded_ng', 'global_ng'} and (
                         pending is not decision or not decision.steps):
                     raise RunnerError('Checkpoint mutation must be a provisional recovery procedure')
@@ -383,6 +389,7 @@ def run_auto_plan(plan, emit=None, *, stop_requested=None):
         initializing = True
         base_phase = 'iterate'
         pending = None
+        trial_resume_state = None
         step_index = 0
         verification_anchor = None
         verification_history = []
@@ -404,6 +411,13 @@ def run_auto_plan(plan, emit=None, *, stop_requested=None):
             except (OSError, ValueError, KeyError, TypeError) as exc:
                 event('auto_history_unavailable', reason=str(exc))
 
+        def retire_trial_resume():
+            from .auto_trial_resume import retire
+            try:
+                retire(model)
+            except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
+                event('auto_trial_resume_unavailable', reason=str(exc))
+
         _json(journal/'result.json', result)
         try:
             event('auto_started', policy=options)
@@ -420,6 +434,45 @@ def run_auto_plan(plan, emit=None, *, stop_requested=None):
             elif preparation.kind != 'continue':
                 raise RunnerError('Unsupported automatic preparation decision')
             if not (stop_requested is not None and stop_requested()):
+                from . import auto_trial_resume
+                with model_mutation_guard(model, RunnerError):
+                    check_inputs()
+                    offer = auto_trial_resume.load(model, plan)
+                    if offer['usable']:
+                        from .auto_ng import trial_decision
+                        value = offer['state']
+                        pending = replace(trial_decision(value['baseline'], global_trial=True), policy_id='global_ng')
+                        step_index = value['completed_pairs']
+                        trial_resume_state = value
+                        # Own rollback before restoring even the first byte.
+                        record = {'kind': 'global_ng', 'policy_id': 'global_ng', 'reversible_trial': True,
+                                  'directory': str(journal/f'action-{len(result["actions"])+1:03d}'), 'evidence': value['baseline'],
+                                  'reason': 'Resume completed provisional verification pairs'}
+                        result['actions'].append(record)
+                        _json(journal/'result.json', result)
+                        try:
+                            decision, applied, trial_resume_state = auto_trial_resume.activate(model, plan, value, journal,
+                                action_directory=record['directory'])
+                        except BaseException:
+                            from .auto_history import digest
+                            for path in expected:
+                                if (path.name in RECOVERY_NAMES and
+                                        digest(path) == value['candidate_hashes'].get(path.name)):
+                                    expected[path] = _signature(path)
+                            raise
+                        record.update(applied)
+                        for path in expected:
+                            expected[path] = _signature(path)
+                        initializing = False
+                        result['resumed_trial'] = {'policy_id': 'global_ng', 'completed_pairs': step_index,
+                                                  'remaining_full_solves': 6-2*step_index,
+                                                  'source': value['owner']}
+                        _json(journal/'result.json', result)
+                        event('auto_trial_resumed', **result['resumed_trial'])
+                        event('auto_action', action=record)
+                    elif (model/'.cmfgen-runs'/auto_trial_resume.NAME).exists():
+                        event('auto_trial_resume_unavailable', reason=offer['reason'])
+            if pending is None and not (stop_requested is not None and stop_requested()):
                 from . import auto_history
                 with model_mutation_guard(model, RunnerError):
                     check_inputs()
@@ -673,6 +726,11 @@ def run_auto_plan(plan, emit=None, *, stop_requested=None):
                                 raise
                             restore()
                             finish_trial(pending, 'rejected', str(exc))
+                            if pending.policy_id == 'global_ng':
+                                if trial_resume_state is not None:
+                                    from .auto_trial_resume import restore_diagnostics
+                                    restore_diagnostics(model, trial_resume_state)
+                                retire_trial_resume()
                             entry.update(evidence=evidence, optimization_rejected=str(exc), checkpoint_restored=True,
                                 decision=policies.Decision('continue', 'Performance trial rejected; conservative checkpoint restored',
                                                           policy_id=pending.policy_id).summary())
@@ -716,6 +774,15 @@ def run_auto_plan(plan, emit=None, *, stop_requested=None):
                         entry['checkpoint_restored'] = not entry.get('checkpoint_provisional', False)
                     else:
                         entry['evidence'] = evidence
+                        if pending and pending.policy_id == 'global_ng' and trial_resume_state is not None and step_index < 2:
+                            from . import auto_trial_resume
+                            try:
+                                trial_resume_state = auto_trial_resume.save_pair(model, plan, trial_resume_state,
+                                    step_index+1, evidence, journal, result['actions'][-1])
+                                event('auto_trial_pair_saved', completed_pairs=step_index+1,
+                                      checkpoint=evidence['checkpoint'])
+                            except (OSError, ValueError) as exc:
+                                event('auto_trial_resume_unavailable', reason=str(exc))
                         # A multi-step remedy remains provisional until ALL
                         # validators pass. One baseline covers the entire recipe.
                         if not pending or (step_index == len(pending.steps)-1 and not verification_waiting):
@@ -757,6 +824,8 @@ def run_auto_plan(plan, emit=None, *, stop_requested=None):
                             entry['recovery_verified'] = pending.policy_id
                             if pending.reversible_trial:
                                 finish_trial(pending, 'accepted')
+                                if pending.policy_id == 'global_ng':
+                                    retire_trial_resume()
                                 event('auto_performance_trial', outcome='accepted', attempt=attempt,
                                       reason='Guarded performance adjustment passed')
                             pending = None
@@ -891,8 +960,15 @@ def run_auto_plan(plan, emit=None, *, stop_requested=None):
                         entry['provisional_checkpoint_discarded'] = True
                     if pending.reversible_trial:
                         finish_trial(pending, 'aborted', result.get('reason', result['status']))
+                        if pending.policy_id == 'global_ng' and trial_resume_state is not None:
+                            from . import auto_trial_resume
+                            with model_mutation_guard(model, RunnerError):
+                                check_inputs()
+                                auto_trial_resume.restore_diagnostics(model, trial_resume_state)
+                                if result['status'] not in {'cancelled', 'timeout', 'stopped'}:
+                                    retire_trial_resume()
                     history = []
-                    remember(plan, locked=True)
+                    remember(plan)
                 except (OSError, ValueError) as exc:
                     result['recovery_error'] = str(exc)
             result['finished_at'] = datetime.now(timezone.utc).isoformat()

@@ -474,3 +474,41 @@ test remains separately excluded. Compilation, viewer/parser/public-documentatio
 smoke checks and diff checks pass. `validation.json` and `original-preservation.json`
 in the restart audit directory retain the final records. Original model 246 is
 unchanged; no native source/executable modification or full solve was needed.
+
+## Retaining provisional verification across interruption
+
+The interrupted production-style trial demonstrated an avoidable loss of work:
+its four fully checked follow-up solves were discarded when the sixth solve
+stalled. The runner now stores the last completely checked `global_ng` pair
+separately from its conservative rollback snapshot. The model still rolls back
+on interruption, and matching baseline diagnostics are restored too. A later
+restart may restore the saved provisional pair and execute only the remaining
+checks. Four retained full solves require two more; an unfinished pair is repeated.
+No extrapolation is applied again and no prior solve spends the new invocation's
+iteration budget or certifies convergence.
+
+Resumption requires the original conservative checkpoint and controls to match
+exactly, unchanged source/executable/atomic identities, intact snapshot hashes,
+the same policy version, confirmed completed-pair checks in the source journal,
+and a cleanly interrupted owner with successful rollback. It refuses newer
+accepted progress, changed inputs, numerical rejection, incomplete archives and
+insufficient verification budgets. There are at most two resumptions per trial.
+Final rejection still restores the original conservative state. Full acceptance
+and independent convergence verification retain their original criteria.
+
+This change is prospective: the earlier interrupted run did not record these
+snapshots, so its discarded provisional state cannot be reconstructed by the
+new mechanism. The active ordinary run is left untouched. Saving checked pairs
+does not diagnose or repair the native OpenMP synchronization stall itself.
+
+Validation: 306 affected regression tests and 105 final integrity/restart tests
+pass. They cover one- and two-pair resumption, repeated interruption, unchanged
+attempt receipts, remaining-work budgets, exact rollback after final rejection,
+refusal of newer progress or changed data, policy/source-journal checks, path
+and manifest corruption, snapshot ENOSPC and failure after provisional state
+publication. One earlier broad-run macOS process-inspection error passed in an
+isolated rerun; activity guards were unchanged. Compilation, diff checks and
+viewer/parser/documentation smoke checks pass. Records are retained under
+`model_Bstar3514_energy_audit_246/reproduction/trial-resume-validation/`.
+These controller tests use isolated native-layout fixtures; no additional full
+CMFGEN solve or modification of the active model was performed for this change.

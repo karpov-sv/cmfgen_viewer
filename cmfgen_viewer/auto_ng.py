@@ -277,6 +277,13 @@ def _trial(ctx, *, global_trial=False):
             return None
     except (ImportError, OSError, ValueError) as exc:
         raise Declined(('Global Ng' if global_trial else 'Bounded Ng')+' prerequisites unavailable: '+str(exc)) from exc
+    return trial_decision(baseline, global_trial=global_trial)
+
+
+def trial_decision(baseline, *, global_trial=False):
+    """Rebuild the same validators when continuing a saved provisional trial."""
+    from .auto_policies import Decision, RecoveryStep
+    policy = 'global_ng' if global_trial else 'bounded_ng'
     reason = ('Slow deep thermal mode with a severely bounded native Ng proposal; '
               'test a positive global extrapolation over six ordinary full solves'
               if global_trial else 'Slow full-solve tail with a rejected native Ng proposal; '

@@ -207,9 +207,10 @@ def test_legacy_journal_requires_matching_recovery_and_input_dependencies(auto_w
     assert not auto_history.load(model,plan)['usable']
 
 
-def test_previous_controller_preview_requires_new_review(auto_workspace):
+@pytest.mark.parametrize("version", [12,13])
+def test_previous_controller_preview_requires_new_review(auto_workspace,version):
     from cmfgen_viewer.runner_recipe import RunnerError
-    model,make=auto_workspace;plan=make();plan['auto']['version']=12
+    model,make=auto_workspace;plan=make();plan['auto']['version']=version
     with pytest.raises(RunnerError,match='prepare a new plan'):run_plan(plan)
     assert not (model/'POINT1').exists()
 

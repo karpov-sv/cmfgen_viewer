@@ -659,3 +659,12 @@ state and fall back to ordinary observations. Unsupported native regimes also
 use the ordinary path. Remedy follow-up, rollback and independent convergence
 verification remain required. Restart logs identify reused history and the
 startup policy decision.
+
+Interrupted `global_ng` verification can now resume completed checked pairs.
+The active model is still rolled back on interruption; a separately authenticated
+provisional snapshot retains two or four verified solves. A subsequent automatic
+restart can finish the remaining four or two solves without another extrapolation
+or a new-trial cooldown. Exact original-state/input/data identity is required;
+newer accepted progress is never rewound. Numerical rejection still rolls back
+and discards the offer, and independent convergence verification is mandatory.
+See [resumption limits and storage](/documentation/main-computation#resuming-an-interrupted-global-ng-trial).
