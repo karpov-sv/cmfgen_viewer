@@ -239,8 +239,13 @@ def _load_tlusty_npz_arrays(npz_path: Path) -> dict[str, object] | None:
     try:
         with np.load(npz_path, allow_pickle=False) as payload:
             arrays: dict[str, object] = {}
-            for key in payload.files:
-                arrays[key] = np.asarray(payload[key], dtype=np.float64).reshape(-1)
+            # Load only arrays consumed by fitting, including legacy flux names.
+            for key in (
+                "wavelength_angstrom", "flux_lambda_cgs", "hnu_cgs", "y_col_1",
+                "continuum_lambda_cgs", "normalized_flux_candidate",
+            ):
+                if key in payload:
+                    arrays[key] = np.asarray(payload[key], dtype=np.float64).reshape(-1)
             return arrays
     except Exception:
         return None
@@ -392,11 +397,20 @@ def _fit_single_tlusty_candidate(
 
     spectrum_path = Path(spectrum_path_str)
     continuum_path = Path(continuum_path_str) if continuum_path_str else None
+    # Deliberately sampled caches and band-integrated photometry must retain
+    # line areas. Index-based thinning can discard sparsely sampled IR points.
+    metadata = candidate.get("grid_metadata") or {}
+    controlled_sampling = metadata.get("resolving_power") or metadata.get("sed_binning_power")
+    photometry = str(observed.get("observation_type", "")).lower() == "photometry"
+    point_limit = (
+        TLUSTY_FIT_MAX_MODEL_POINTS
+        if fit_source == GRID_FIT_SOURCE_TLUSTY and not controlled_sampling and not photometry else 0
+    )
     model_x, model_y, build_error = _build_tlusty_model_series(
         mode=mode,
         spectrum_path=spectrum_path,
         continuum_path=continuum_path,
-        max_points=TLUSTY_FIT_MAX_MODEL_POINTS if fit_source == GRID_FIT_SOURCE_TLUSTY else 0,
+        max_points=point_limit,
         as_arrays=True,
     )
     if build_error or model_x is None or model_y is None:

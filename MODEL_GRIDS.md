@@ -30,12 +30,175 @@ Useful options:
 - `--archive-pattern "<glob>"` limit archive names using shell-style patterns.
 - `--crawl-depth <n>` set HTML link crawl depth (default: `2`).
 - `--force-download` and `--force-process` refresh cached archives / processed `.npz` outputs.
+- `--local-only` use only existing archives under `data/tlusty/raw/`, without network requests.
+- `--workers 4` convert independent archives in four processes (1–32; default 1).
+- `--resolving-power 50000` add Gaussian instrumental broadening and resample detailed `.7` spectra at R=50,000.
+- `--samples-per-resolution 3` set output samples per Gaussian FWHM (default 3, minimum 2).
+- `--sed-binning-power 3000` rebin broad `.flux` SEDs into flux-conserving log-wavelength bins at lambda/bin-width=3,000 (default: native SEDs).
 
 By default, output is written under `data/tlusty/`:
 
 - `data/tlusty/models.csv`: model index used by viewer-side TLUSTY discovery.
 - `data/tlusty/manifest.json`: run metadata and archive-level processing summary.
 - `data/tlusty/spectra/.../*.npz`: processed spectrum arrays used during fitting/overlay.
+
+By default, converted files retain the full wavelength coverage, sampling, and
+float64 precision of the processed spectra. They store wavelength and per-Angstrom flux,
+plus continuum/normalized flux when available, and small source-axis metadata.
+Unused original columns and frequency-space copies are omitted; the original
+downloaded archives remain under `raw/`.
+
+To compact an existing cache without downloading or parsing the archives again:
+
+```bash
+python scripts/compact_tlusty_spectra.py
+# Optional: --root /path/to/tlusty --workers 4
+```
+
+The command preserves every fitting array exactly, verifies each replacement
+before installing it, and updates both indexes. It can be rerun after an
+interruption. The viewer reads both the older and compact formats.
+
+To rebuild the detailed spectra at a chosen instrumental resolution from the
+existing raw archives:
+
+```bash
+python scripts/download_tlusty_spectra.py --local-only \
+  --resolving-power 50000 --samples-per-resolution 3
+```
+
+R means `wavelength / instrumental FWHM`. Conversion adds a Gaussian in log
+wavelength to the native stellar profiles, using an oversampled working grid
+before resampling at constant velocity spacing. It retains the wavelength
+endpoints and float64 precision. This broadening is additional to the physical
+line widths already present in the model. Edges use constant extension for the
+convolution, so avoid relying on features within a few instrumental widths of
+the spectrum boundaries.
+
+The Gaussian resolution setting applies to detailed `.7` spectra. Continua
+retain their native sampling. Broad `.flux` SEDs use the separate binning option
+described below; all settings retain complete wavelength coverage.
+
+Changing R or samples per resolution element automatically rebuilds affected
+spectra from raw archives; matching files are reused. To restore native detailed
+spectra, omit `--resolving-power`:
+
+```bash
+python scripts/download_tlusty_spectra.py --local-only
+```
+
+Resolution and sampling settings are recorded per spectrum and in both indexes.
+Resolution-controlled spectra bypass the viewer's legacy 20,000-point fitting
+limit, retaining the chosen sampling; this can increase fit time compared with
+the legacy limit. Fitted Gaussian broadening is additional to the stored
+instrumental broadening. A reduced grid cannot fit narrower instrumental
+profiles by sharpening itself. Native spectral fits retain the existing
+20,000-point limit. All TLUSTY photometric fits now use every stored sample,
+including native SEDs: index-based thinning can discard sparsely sampled IR
+points and bias band-integrated fluxes.
+
+Disk savings depend on compressed values as well as the number of points.
+Smoothed float64 fluxes can compress less efficiently than the original
+tabulated values, so reducing point counts by half need not halve file sizes.
+Higher R or denser sampling can even increase file sizes.
+
+#### Rebin broad SEDs for photometry
+
+After any currently running conversion finishes, this command keeps detailed
+spectra at R=50,000 and also rebins broad SEDs:
+
+```bash
+python scripts/download_tlusty_spectra.py --local-only \
+  --resolving-power 50000 --samples-per-resolution 3 \
+  --sed-binning-power 3000
+```
+
+Matching detailed spectra are reused. SEDs are rebuilt from raw archives when
+the binning setting changes. Binning integrates the native piecewise-linear
+F-lambda spectrum over logarithmic wavelength bins and stores bin means at their
+centers, with the original endpoints retained. Float64 precision and the entire
+wavelength range are preserved. Already-sparse models keep their native samples
+when binning would not reduce the number of stored points.
+
+SED binning power is `lambda / bin width`, not Gaussian instrumental resolving
+power; `--samples-per-resolution` applies only to detailed spectra. The binning
+power, method, and whether rebinning was applied are recorded in each NPZ and
+both model indexes. The lossless compaction command preserves this metadata.
+
+Rebinned SEDs are selected for **photometric fits only**, and bypass the legacy
+20,000-point limit. Detailed spectra remain available for spectral fits. SEDs
+whose native sampling was retained remain ordinary candidates.
+
+The full-cache investigation measured a reduction from 6.24 to 0.92 GiB at
+binning power 3,000. In the tested broadband passbands, the 73-model reddening
+and redshift study found maximum flux errors below 0.05%. Narrow bands near
+strong UV edges showed percent-level errors, so this option is intended for
+broadband photometry. See the [investigation and limitations](doc/developer/tlusty-sed-rebinning.md).
+
+To restore native SEDs while keeping detailed spectra at R=50,000, omit the SED
+option but retain the detailed-spectrum settings:
+
+```bash
+python scripts/download_tlusty_spectra.py --local-only \
+  --resolving-power 50000 --samples-per-resolution 3
+```
+
+Omitting both resolution/binning options restores both products to native
+sampling. Keep all desired conversion settings in each command; no
+`--force-process` is needed when they change. Do not run two conversions against
+the same output directory concurrently.
+
+#### Parallel conversion
+
+The converter's Python text parsing uses most of a single CPU core. Separate
+processes can convert different archives concurrently:
+
+```bash
+python scripts/download_tlusty_spectra.py --local-only \
+  --resolving-power 50000 --samples-per-resolution 3 \
+  --sed-binning-power 3000 --workers 4
+```
+
+Four workers are a useful starting point on a multicore machine; each worker
+needs its own parsing memory. The default remains one worker. Downloads and
+final index writing happen in the parent process; each worker owns a separate
+archive output directory. If archive names would produce overlapping output
+directories, the converter falls back to serial processing. Only metadata is
+returned from workers, not full spectrum arrays.
+
+An interrupted serial conversion can be resumed with `--workers 4`: stop the
+old process first, keep the same conversion settings, and omit `--force-process`.
+Completed files are reused after checking their stored settings. Conversion
+errors leave the previous indexes in place, and individual NPZ replacements
+are atomic. Changing worker count does not change spectrum values or index order.
+
+On 2026-11-10, a 16-spectrum BSTAR UV benchmark at R=50,000 took 14.47 s serially,
+16.66 s with four threads, and 4.23 s with four processes (3.4x faster). A live
+single-process run used 99.8% of one core while the 16-logical-CPU machine was
+90.3% idle with 0.1% I/O wait. One representative conversion spent about 0.71 s
+parsing, 0.13 s compressing, 0.035 s decompressing, 0.030 s resampling, and 0.007 s
+reading the raw archive. This is a CPU bottleneck. Whole-grid speedup depends on
+archive sizes, remaining work, CPU availability, and memory; a single remaining
+archive cannot use multiple archive workers.
+
+Further reductions involve different tradeoffs:
+
+- Store flux as float32: potentially useful, but compare fitted parameters and
+  chi-square against float64 first. Keeping wavelength as float64 avoids reducing
+  wavelength precision for narrow lines and velocity fits. Very small SED fluxes
+  can underflow in float32; compressed size savings also depend on the source
+  precision and may be small.
+- Reduce sampling/resolution: use a separate cache matched to the observations,
+  with appropriate smoothing before resampling. Dropping every nth point can
+  distort line profiles and equivalent widths.
+- Restrict wavelength coverage: preserve the full filter passbands used for
+  photometry and margins for redshift and broadening around spectral fit ranges.
+  An optical-only cache cannot support UV/infrared photometry.
+- Restrict atmosphere parameters or archive products: useful for a specialized
+  grid, but may exclude the best-fitting model or a needed continuum counterpart.
+
+Lossless compaction applies none of these lossy reductions. Choosing an
+instrumental R or SED binning power is a separate, opt-in conversion step.
 
 ### 2. Run TLUSTY grid fitting in the upload viewer
 
@@ -50,6 +213,7 @@ Flux handling:
 
 - absolute observed spectra are fitted against TLUSTY UV/optical/SED spectra with a free multiplicative normalization (distance is ignored);
 - absolute photometry requires every enabled band to be covered, preventing partial UV/optical segments from competing with full-range TLUSTY SEDs;
+- rebinned broad SEDs participate only in photometric fits, which retain all stored samples;
 - normalized observed spectra are fitted against TLUSTY spectra normalized by matched continuum counterparts.
 
 ## Local BOSZ Import
@@ -198,4 +362,3 @@ the former zero seed, this lets absolute fits explore nonzero widths. Results
 and iteration counts can therefore change; not every free-parameter fit gets
 the same speedup. A narrow model-name pattern remains useful for exploratory
 searches before evaluating thousands of atmospheres.
-

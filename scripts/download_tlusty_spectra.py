@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import argparse
 import csv
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import fnmatch
@@ -10,14 +12,18 @@ import gzip
 from html.parser import HTMLParser
 import json
 import math
+import multiprocessing
+import os
 from pathlib import Path
 import re
 import tarfile
+import tempfile
 from typing import Iterable
 from urllib.parse import urljoin, urlparse
 from urllib.request import Request, urlopen
 
 import numpy as np
+from scipy.ndimage import gaussian_filter1d
 
 
 DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parents[1] / "data" / "tlusty"
@@ -62,6 +68,7 @@ BSTAR_METALLICITY_MAP = {
 }
 
 LIGHT_SPEED_ANGSTROM_PER_SECOND = 2.99792458e18
+SED_BINNING_METHOD = "flux_conserving_log_bins_v1"
 FORTRAN_FLOAT_RE = re.compile(r"^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[Ee][+-]?\d+)?$")
 FORTRAN_MISSING_E_RE = re.compile(r"^([+-]?(?:\d+(?:\.\d*)?|\.\d+))([+-]\d+)$")
 MODEL_NAME_RE = re.compile(
@@ -489,15 +496,10 @@ def _parse_spectrum_payload(
     arrays: dict[str, np.ndarray] = {
         "wavelength_angstrom": wavelength.astype(np.float64),
     }
-    for index in range(y_values.shape[1]):
-        arrays[f"y_col_{index + 1}"] = y_values[:, index].astype(np.float64)
-
     primary = y_values[:, 0].astype(np.float64)
     arrays["flux_lambda_cgs"] = primary
 
     if x_axis_kind == "frequency_hz":
-        arrays["frequency_hz"] = x_values.astype(np.float64)
-        arrays["hnu_cgs"] = primary
         arrays["flux_lambda_cgs"] = (primary * (LIGHT_SPEED_ANGSTROM_PER_SECOND / np.square(wavelength))).astype(
             np.float64
         )
@@ -508,8 +510,11 @@ def _parse_spectrum_payload(
     if y_values.shape[1] >= 2:
         normalized = _try_build_normalized_flux(y_values[:, 0], y_values[:, 1])
         if normalized is not None:
-            arrays["continuum_candidate_col2"] = y_values[:, 1].astype(np.float64)
             arrays["normalized_flux_candidate"] = normalized
+
+    arrays["input_columns"] = np.asarray(matrix.shape[1])
+    arrays["x_axis_kind"] = np.asarray(x_axis_kind)
+    arrays["x_unit_guess"] = np.asarray(x_unit_guess)
 
     return {
         "arrays": arrays,
@@ -530,6 +535,107 @@ def _decode_member_payload(member_name: str, payload: bytes) -> bytes | None:
         except OSError:
             return None
     return payload
+
+
+def _reduce_resolution(
+    parsed: dict[str, object], *, resolving_power: float, samples_per_resolution: float,
+) -> dict[str, object]:
+    """Add a Gaussian LSF in log wavelength, then sample at constant velocity.
+
+    R specifies the added instrumental FWHM (lambda / R), not the width of
+    intrinsically broadened stellar lines. Work at >=12 samples/FWHM before
+    resampling, and never on fewer points than the native spectrum.
+    """
+    arrays = parsed["arrays"]
+    wavelength = arrays["wavelength_angstrom"]
+    log_wave = np.log(wavelength)
+    span = log_wave[-1] - log_wave[0]
+    output_count = max(2, int(np.ceil(span * resolving_power * samples_per_resolution)) + 1)
+    work_count = max(len(wavelength), 4 * output_count, int(np.ceil(span * resolving_power * 12)) + 1)
+    if work_count > 10_000_000:
+        raise ValueError("Requested resolution requires more than 10 million working samples; lower R or sampling")
+    work_log = np.linspace(log_wave[0], log_wave[-1], work_count)
+    output_log = np.linspace(log_wave[0], log_wave[-1], output_count)
+    sigma = 1.0 / (resolving_power * np.sqrt(8 * np.log(2))) / (work_log[1] - work_log[0])
+    reduced = dict(arrays)
+    for key in ("flux_lambda_cgs", "continuum_lambda_cgs", "normalized_flux_candidate"):
+        if key not in arrays:
+            continue
+        values = arrays[key]
+        if not np.all(np.isfinite(values)):
+            raise ValueError(f"Cannot reduce resolution of nonfinite {key}")
+        fine = np.interp(work_log, log_wave, values)
+        smoothed = gaussian_filter1d(fine, sigma, mode="nearest", truncate=5.0)
+        reduced[key] = np.interp(output_log, work_log, smoothed)
+    reduced_wave = np.exp(output_log)
+    reduced_wave[[0, -1]] = wavelength[[0, -1]]
+    reduced["wavelength_angstrom"] = reduced_wave
+    reduced["resolving_power"] = np.asarray(resolving_power)
+    reduced["samples_per_resolution"] = np.asarray(samples_per_resolution)
+    return {**parsed, "arrays": reduced, "points": output_count}
+
+
+def _write_spectrum(destination: Path, arrays: dict) -> None:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary = tempfile.mkstemp(prefix=f".{destination.stem}-", suffix=".npz", dir=destination.parent)
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            np.savez_compressed(handle, **arrays)
+        if destination.exists():
+            os.chmod(temporary, destination.stat().st_mode & 0o777)
+        os.replace(temporary, destination)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+
+
+def _conservative_sed_bins(wavelength, flux, binning_power):
+    """Integrate native linear segments into bins of constant delta-lambda/lambda.
+
+    Bin means become center samples, plus original endpoints, for the viewer's
+    linear-interpolation representation. Sum local areas rather than subtracting
+    cumulative integrals, which loses faint IR flux to cancellation.
+    """
+    if not math.isfinite(binning_power) or binning_power <= 0:
+        raise ValueError("SED binning power must be finite and positive")
+    span = np.log(wavelength[-1] / wavelength[0])
+    if binning_power > 10_000_000 / span:
+        raise ValueError("Requested SED grid exceeds 10 million bins")
+    count = max(1, int(np.ceil(span * binning_power)))
+    edges = np.geomspace(wavelength[0], wavelength[-1], count + 1)
+    nodes = np.union1d(wavelength, edges)
+    values = np.interp(nodes, wavelength, flux)
+    mass = np.diff(nodes) * (values[:-1] + values[1:]) / 2
+    bins = np.clip(np.searchsorted(edges, (nodes[1:] + nodes[:-1]) / 2) - 1, 0, count - 1)
+    integrals = np.bincount(bins, weights=mass, minlength=count)
+    means = integrals / np.diff(edges)
+    centers = np.sqrt(edges[:-1] * edges[1:])
+    return np.r_[wavelength[0], centers, wavelength[-1]], np.r_[flux[0], means, flux[-1]], integrals
+
+
+def _rebin_sed(parsed: dict[str, object], *, binning_power: float) -> dict[str, object]:
+    if not math.isfinite(binning_power) or binning_power <= 0:
+        raise ValueError("SED binning power must be finite and positive")
+    arrays = parsed["arrays"]
+    wavelength = arrays["wavelength_angstrom"]
+    span = np.log(wavelength[-1] / wavelength[0])
+    # Record the request even if this atmosphere is already sparsely sampled,
+    # so subsequent runs reuse it rather than rebuilding it every time.
+    apply_rebin = binning_power < (len(wavelength) - 2) / span
+    if apply_rebin:
+        apply_rebin = int(np.ceil(span * binning_power)) + 2 < len(wavelength)
+    reduced = dict(arrays)
+    if apply_rebin:
+        for key in ("flux_lambda_cgs", "continuum_lambda_cgs", "normalized_flux_candidate"):
+            if key not in arrays:
+                continue
+            if not np.all(np.isfinite(arrays[key])):
+                raise ValueError(f"Cannot rebin nonfinite SED {key}")
+            new_wave, reduced[key], _ = _conservative_sed_bins(wavelength, arrays[key], binning_power)
+        reduced["wavelength_angstrom"] = new_wave
+    reduced["sed_binning_power"] = np.asarray(binning_power)
+    reduced["sed_binning_method"] = np.asarray(SED_BINNING_METHOD)
+    reduced["sed_rebin_applied"] = np.asarray(apply_rebin)
+    return {**parsed, "arrays": reduced, "points": len(reduced["wavelength_angstrom"])}
 
 
 def _archive_relpath(grid: str, archive_url: str) -> Path:
@@ -593,6 +699,23 @@ def _existing_npz_spectrum_metadata(npz_path: Path) -> dict[str, object] | None:
             if "wavelength_angstrom" not in arrays:
                 return None
             wavelength_raw = arrays["wavelength_angstrom"]
+            input_columns = (
+                int(arrays["input_columns"]) if "input_columns" in arrays
+                else _infer_input_columns_from_arrays(available_arrays)
+            )
+            x_axis_kind = (
+                str(arrays["x_axis_kind"]) if "x_axis_kind" in arrays
+                else ("frequency_hz" if "frequency_hz" in arrays else "wavelength_input")
+            )
+            x_unit_guess = (
+                str(arrays["x_unit_guess"]) if "x_unit_guess" in arrays
+                else ("hz" if x_axis_kind == "frequency_hz" else "angstrom")
+            )
+            resolving_power = float(arrays["resolving_power"]) if "resolving_power" in arrays else None
+            sampling = float(arrays["samples_per_resolution"]) if "samples_per_resolution" in arrays else None
+            sed_power = float(arrays["sed_binning_power"]) if "sed_binning_power" in arrays else None
+            sed_method = str(arrays["sed_binning_method"]) if "sed_binning_method" in arrays else ""
+            sed_applied = bool(arrays["sed_rebin_applied"]) if "sed_rebin_applied" in arrays else False
     except Exception:
         return None
 
@@ -611,17 +734,19 @@ def _existing_npz_spectrum_metadata(npz_path: Path) -> dict[str, object] | None:
     if wavelength.size < 2:
         return None
 
-    x_axis_kind = "frequency_hz" if "frequency_hz" in available_arrays else "wavelength_input"
-    x_unit_guess = "hz" if x_axis_kind == "frequency_hz" else "angstrom"
-
     return {
         "points": int(wavelength.size),
         "wavelength_min_angstrom": float(wavelength[0]),
         "wavelength_max_angstrom": float(wavelength[-1]),
         "x_axis_kind": x_axis_kind,
         "x_unit_guess": x_unit_guess,
-        "input_columns": _infer_input_columns_from_arrays(available_arrays),
+        "input_columns": input_columns,
         "available_arrays": available_arrays,
+        "resolving_power": resolving_power,
+        "samples_per_resolution": sampling,
+        "sed_binning_power": sed_power,
+        "sed_binning_method": sed_method,
+        "sed_rebin_applied": sed_applied,
     }
 
 
@@ -642,6 +767,11 @@ def _build_manifest_row(
     x_unit_guess: object,
     input_columns: object,
     available_arrays: object,
+    resolving_power: float | None = None,
+    samples_per_resolution: float | None = None,
+    sed_binning_power: float | None = None,
+    sed_binning_method: str = "",
+    sed_rebin_applied: bool = False,
 ) -> dict[str, object]:
     arrays_list = [str(item).strip() for item in (available_arrays or []) if str(item).strip()]
     return {
@@ -666,6 +796,11 @@ def _build_manifest_row(
         "x_unit_guess": str(x_unit_guess or ""),
         "input_columns": int(input_columns or 0),
         "available_arrays": sorted(arrays_list),
+        "resolving_power": resolving_power,
+        "samples_per_resolution": samples_per_resolution,
+        "sed_binning_power": sed_binning_power,
+        "sed_binning_method": sed_binning_method,
+        "sed_rebin_applied": sed_rebin_applied,
     }
 
 
@@ -678,6 +813,9 @@ def _extract_archive(
     output_dir: Path,
     force_process: bool,
     dry_run: bool,
+    resolving_power: float | None = None,
+    samples_per_resolution: float = 3.0,
+    sed_binning_power: float | None = None,
 ) -> tuple[ArchiveStats, list[dict[str, object]]]:
     archive_name = archive_path.name
     archive_stats = ArchiveStats(
@@ -698,15 +836,27 @@ def _extract_archive(
                 continue
 
             member_products = sorted(set(archive_products).union(_classify_archive_products(member_basename)))
+            if member_basename.lower().removesuffix(".gz").endswith(".17"):
+                member_products = sorted(set(member_products) | {"continuum"})
             relpath = _model_output_relpath(grid, archive_name, member_basename)
             destination = output_dir / relpath
             model_stem = _model_name_from_member(member_basename)
             metadata = _parse_model_metadata(model_stem, grid=grid)
+            detailed = member_basename.lower().removesuffix(".gz").endswith(".7")
+            target_resolution = resolving_power if detailed else None
+            sed = member_basename.lower().removesuffix(".gz").endswith(".flux")
+            target_sed_power = sed_binning_power if sed else None
+            target_sed_method = SED_BINNING_METHOD if target_sed_power is not None else ""
 
             destination_exists = destination.exists()
             if destination_exists and not force_process:
                 cached = _existing_npz_spectrum_metadata(destination)
-                if cached is not None:
+                if cached is not None and (
+                    cached.get("resolving_power") == target_resolution
+                    and (target_resolution is None or cached.get("samples_per_resolution") == samples_per_resolution)
+                    and cached.get("sed_binning_power") == target_sed_power
+                    and cached.get("sed_binning_method", "") == target_sed_method
+                ):
                     archive_stats.spectra_indexed += 1
                     manifest_entries.append(
                         _build_manifest_row(
@@ -725,6 +875,11 @@ def _extract_archive(
                             x_unit_guess=cached.get("x_unit_guess"),
                             input_columns=cached.get("input_columns"),
                             available_arrays=cached.get("available_arrays"),
+                            resolving_power=cached.get("resolving_power"),
+                            samples_per_resolution=cached.get("samples_per_resolution"),
+                            sed_binning_power=cached.get("sed_binning_power"),
+                            sed_binning_method=cached.get("sed_binning_method", ""),
+                            sed_rebin_applied=cached.get("sed_rebin_applied", False),
                         )
                     )
                     continue
@@ -748,6 +903,14 @@ def _extract_archive(
                 archive_stats.skipped_non_spectrum += 1
                 continue
 
+            if target_resolution is not None:
+                parsed = _reduce_resolution(
+                    parsed, resolving_power=target_resolution,
+                    samples_per_resolution=samples_per_resolution,
+                )
+            if target_sed_power is not None:
+                parsed = _rebin_sed(parsed, binning_power=target_sed_power)
+
             arrays = parsed.get("arrays")
             if not isinstance(arrays, dict):
                 archive_stats.skipped_invalid += 1
@@ -758,15 +921,11 @@ def _extract_archive(
                 continue
 
             archive_stats.spectra_indexed += 1
-            should_write = force_process or (not destination_exists)
-            if destination_exists and not force_process:
-                # Existing file is unreadable/missing required arrays; repair it.
-                should_write = True
-            if should_write:
-                if not dry_run:
-                    destination.parent.mkdir(parents=True, exist_ok=True)
-                    np.savez_compressed(destination, **arrays)
-                archive_stats.spectra_saved += 1
+            # Cached files with matching conversion settings already continued
+            # above; reaching here also covers a requested change in resolution.
+            if not dry_run:
+                _write_spectrum(destination, arrays)
+            archive_stats.spectra_saved += 1
 
             manifest_entries.append(
                 _build_manifest_row(
@@ -785,6 +944,11 @@ def _extract_archive(
                     x_unit_guess=parsed.get("x_unit_guess", ""),
                     input_columns=parsed.get("input_columns", 0),
                     available_arrays=arrays.keys(),
+                    resolving_power=target_resolution,
+                    samples_per_resolution=samples_per_resolution if target_resolution is not None else None,
+                    sed_binning_power=target_sed_power,
+                    sed_binning_method=target_sed_method,
+                    sed_rebin_applied=bool(arrays.get("sed_rebin_applied", False)),
                 )
             )
 
@@ -819,6 +983,11 @@ def _write_manifest(output_dir: Path, manifest: dict[str, object], rows: list[di
         "x_unit_guess",
         "input_columns",
         "available_arrays",
+        "resolving_power",
+        "samples_per_resolution",
+        "sed_binning_power",
+        "sed_binning_method",
+        "sed_rebin_applied",
         "archive_url",
     ]
 
@@ -888,6 +1057,26 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--resolving-power", type=float,
+        help="Add Gaussian instrumental broadening at R=lambda/FWHM and resample detailed .7 spectra. Default: native sampling. SEDs and continua are unchanged.",
+    )
+    parser.add_argument(
+        "--sed-binning-power", type=float,
+        help="Flux-conserving log-wavelength bins for broad .flux SEDs (lambda/bin width, e.g. 3000). Full coverage retained; rebinned SEDs are photometry-only fit products. Default: native sampling.",
+    )
+    parser.add_argument(
+        "--samples-per-resolution", type=float, default=3.0,
+        help="Samples per instrumental FWHM on the output log-wavelength grid (minimum 2; default 3).",
+    )
+    parser.add_argument(
+        "--workers", type=int, default=1,
+        help="Archive conversion processes (1-32; default 1). Separate processes accelerate Python parsing; try 4 on a multicore machine.",
+    )
+    parser.add_argument(
+        "--local-only", action="store_true",
+        help="Rebuild using archives under output-dir/raw without any network requests.",
+    )
+    parser.add_argument(
         "--force-download",
         action="store_true",
         help="Re-download archives even if already present under raw/.",
@@ -902,7 +1091,18 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Discover archives and parse metadata without writing files.",
     )
-    return parser.parse_args(list(argv) if argv is not None else None)
+    args = parser.parse_args(list(argv) if argv is not None else None)
+    if not 1 <= args.workers <= 32:
+        parser.error("--workers must be between 1 and 32")
+    if args.resolving_power is not None and (not math.isfinite(args.resolving_power) or args.resolving_power <= 0):
+        parser.error("--resolving-power must be finite and positive")
+    if not math.isfinite(args.samples_per_resolution) or args.samples_per_resolution < 2:
+        parser.error("--samples-per-resolution must be finite and at least 2")
+    if args.sed_binning_power is not None and (not math.isfinite(args.sed_binning_power) or args.sed_binning_power <= 0):
+        parser.error("--sed-binning-power must be finite and positive")
+    if args.local_only and args.force_download:
+        parser.error("--local-only cannot be combined with --force-download")
+    return args
 
 
 def main(argv: Iterable[str] | None = None) -> int:
@@ -926,11 +1126,13 @@ def main(argv: Iterable[str] | None = None) -> int:
     print(f"[info] crawl_depth={max_depth}")
     print(f"[info] products={', '.join(sorted(selected_products))}")
     print(f"[info] archive_patterns={archive_patterns}")
+    print(f"[info] detailed_spectra_resolution={args.resolving_power or 'native'} samples_per_resolution={args.samples_per_resolution}")
+    print(f"[info] sed_binning_power={args.sed_binning_power or 'native'}")
 
     discovered_archives: list[ArchiveSource] = []
     for grid, page_url in pages.items():
-        print(f"[info] discovering archives for grid={grid} from {page_url}")
-        archives = _discover_archive_urls(
+        print(f"[info] discovering archives for grid={grid}" + (" locally" if args.local_only else f" from {page_url}"))
+        archives = [] if args.local_only else _discover_archive_urls(
             page_url,
             timeout=timeout,
             max_depth=max_depth,
@@ -965,10 +1167,7 @@ def main(argv: Iterable[str] | None = None) -> int:
                         local_path=local_path,
                     )
                 )
-            print(
-                f"[warn] no remote archives discovered for grid={grid}; "
-                f"using {len(local_archives)} local archive(s) from {output_dir / 'raw' / grid}"
-            )
+            print(f"[info] using {len(local_archives)} local archive(s) from {output_dir / 'raw' / grid}")
             continue
 
         print(f"[warn] no archive links discovered for grid={grid}")
@@ -981,74 +1180,8 @@ def main(argv: Iterable[str] | None = None) -> int:
     model_rows: list[dict[str, object]] = []
     archives_summary: list[dict[str, object]] = []
 
-    for source in discovered_archives:
-        grid = source.grid
-        archive_url = source.archive_url
-        archive_products = source.archive_products
-        local_path = source.local_path
-
-        if local_path is not None:
-            archive_path = local_path
-            if not archive_path.is_file():
-                stats.failed_archives += 1
-                print(f"[error] Local archive is missing: {archive_path}")
-                continue
-            relpath = archive_path.relative_to(output_dir) if archive_path.is_relative_to(output_dir) else archive_path
-            stats.reused_local_archives += 1
-            print(f"[ok] using local archive: {archive_path}")
-        else:
-            relpath = _archive_relpath(grid, archive_url)
-            archive_path = output_dir / relpath
-            try:
-                changed = _download_file(
-                    archive_url,
-                    archive_path,
-                    timeout=timeout,
-                    force_download=bool(args.force_download),
-                    dry_run=bool(args.dry_run),
-                )
-                if changed:
-                    stats.downloaded_archives += 1
-                    action = "would download" if args.dry_run else "downloaded"
-                    print(f"[ok] {action}: {archive_path}")
-                else:
-                    stats.skipped_existing_archives += 1
-                    print(f"[skip] exists: {archive_path}")
-            except Exception as exc:  # pragma: no cover - runtime network variability
-                stats.failed_archives += 1
-                print(f"[error] Failed to download {archive_url}: {exc}")
-                continue
-
-        if args.dry_run:
-            archives_summary.append(
-                {
-                    "grid": grid,
-                    "archive_url": archive_url,
-                    "archive_products": archive_products,
-                    "archive_relpath": str(relpath.as_posix()),
-                    "spectra_indexed": 0,
-                    "spectra_saved": 0,
-                    "skipped_non_spectrum": 0,
-                    "skipped_invalid": 0,
-                }
-            )
-            continue
-
-        try:
-            archive_stats, entries = _extract_archive(
-                archive_path,
-                grid=grid,
-                archive_url=archive_url,
-                archive_products=archive_products,
-                output_dir=output_dir,
-                force_process=bool(args.force_process),
-                dry_run=bool(args.dry_run),
-            )
-        except Exception as exc:  # pragma: no cover - tar/data corruption is runtime-dependent
-            stats.failed_archives += 1
-            print(f"[error] Failed to process archive {archive_path}: {exc}")
-            continue
-
+    def record_result(archive_path, relpath, result):
+        archive_stats, entries = result
         stats.processed_archives += 1
         stats.indexed_spectra += archive_stats.spectra_indexed
         stats.saved_spectra += archive_stats.spectra_saved
@@ -1074,12 +1207,131 @@ def main(argv: Iterable[str] | None = None) -> int:
                 archive_stats.spectra_saved,
                 archive_stats.skipped_non_spectrum,
                 archive_stats.skipped_invalid,
-            )
+            ), flush=True,
         )
+
+    workers = args.workers
+    if workers > 1:
+        output_folders = set()
+        for source in discovered_archives:
+            archive_name = source.local_path.name if source.local_path is not None else Path(urlparse(source.archive_url).path).name
+            folder = (source.grid, _sanitize_name(Path(archive_name).stem))
+            if folder in output_folders:
+                print("[warn] Archives share an output directory; using one worker to avoid overlapping writes.")
+                workers = 1
+                break
+            output_folders.add(folder)
+    print(f"[info] conversion_workers={workers}", flush=True)
+
+    # Each archive has its own output subdirectory. Only small model metadata
+    # crosses process boundaries; spectrum arrays stay within each worker.
+    executor = (
+        ProcessPoolExecutor(max_workers=workers, mp_context=multiprocessing.get_context("spawn"))
+        if workers > 1 and not args.dry_run else nullcontext(None)
+    )
+    with executor as pool:
+        pending = {}
+        try:
+            for source in discovered_archives:
+                grid = source.grid
+                archive_url = source.archive_url
+                archive_products = source.archive_products
+                local_path = source.local_path
+
+                if local_path is not None:
+                    archive_path = local_path
+                    if not archive_path.is_file():
+                        stats.failed_archives += 1
+                        print(f"[error] Local archive is missing: {archive_path}")
+                        continue
+                    relpath = archive_path.relative_to(output_dir) if archive_path.is_relative_to(output_dir) else archive_path
+                    stats.reused_local_archives += 1
+                    print(f"[ok] using local archive: {archive_path}")
+                else:
+                    relpath = _archive_relpath(grid, archive_url)
+                    archive_path = output_dir / relpath
+                    try:
+                        changed = _download_file(
+                            archive_url,
+                            archive_path,
+                            timeout=timeout,
+                            force_download=bool(args.force_download),
+                            dry_run=bool(args.dry_run),
+                        )
+                        if changed:
+                            stats.downloaded_archives += 1
+                            action = "would download" if args.dry_run else "downloaded"
+                            print(f"[ok] {action}: {archive_path}")
+                        else:
+                            stats.skipped_existing_archives += 1
+                            print(f"[skip] exists: {archive_path}")
+                    except Exception as exc:  # pragma: no cover - runtime network variability
+                        stats.failed_archives += 1
+                        print(f"[error] Failed to download {archive_url}: {exc}")
+                        continue
+
+                if args.dry_run:
+                    archives_summary.append(
+                        {
+                            "grid": grid,
+                            "archive_url": archive_url,
+                            "archive_products": archive_products,
+                            "archive_relpath": str(relpath.as_posix()),
+                            "spectra_indexed": 0,
+                            "spectra_saved": 0,
+                            "skipped_non_spectrum": 0,
+                            "skipped_invalid": 0,
+                        }
+                    )
+                    continue
+
+                options = dict(
+                    grid=grid, archive_url=archive_url, archive_products=archive_products,
+                    output_dir=output_dir, force_process=bool(args.force_process),
+                    dry_run=bool(args.dry_run), resolving_power=args.resolving_power,
+                    samples_per_resolution=args.samples_per_resolution,
+                    sed_binning_power=args.sed_binning_power,
+                )
+                if pool is not None:
+                    try:
+                        future = pool.submit(_extract_archive, archive_path, **options)
+                    except Exception as exc:
+                        stats.failed_archives += 1
+                        print(f"[error] Failed to queue archive {archive_path}: {exc}", flush=True)
+                        continue
+                    pending[future] = (archive_path, relpath)
+                    print(f"[info] queued conversion: {archive_path.name}", flush=True)
+                    continue
+                try:
+                    result = _extract_archive(archive_path, **options)
+                except Exception as exc:  # pragma: no cover - tar/data corruption is runtime-dependent
+                    stats.failed_archives += 1
+                    print(f"[error] Failed to process archive {archive_path}: {exc}")
+                    continue
+                record_result(archive_path, relpath, result)
+
+            for future in as_completed(pending):
+                archive_path, relpath = pending[future]
+                try:
+                    result = future.result()
+                except Exception as exc:
+                    stats.failed_archives += 1
+                    print(f"[error] Failed to process archive {archive_path}: {exc}", flush=True)
+                    continue
+                record_result(archive_path, relpath, result)
+        finally:
+            # Cancel queued work before pool shutdown if the parent is interrupted.
+            for future in pending:
+                future.cancel()
+
+    if stats.failed_archives:
+        print("[error] Conversion incomplete; existing indexes were not replaced. Fix the errors and rerun the same command.")
+        return 2
 
     if not args.dry_run:
         now = datetime.now(timezone.utc).isoformat()
-        model_rows.sort(key=lambda row: (str(row.get("grid", "")), str(row.get("model_name", ""))))
+        model_rows.sort(key=lambda row: (str(row.get("grid", "")), str(row.get("model_name", "")), str(row.get("spectrum_relpath", ""))))
+        archives_summary.sort(key=lambda row: (str(row.get("grid", "")), str(row.get("archive_relpath", ""))))
         manifest = {
             "generated_at_utc": now,
             "source_pages": pages,
@@ -1088,16 +1340,28 @@ def main(argv: Iterable[str] | None = None) -> int:
             "archives": archives_summary,
             "total_models": len(model_rows),
             "models": model_rows,
+            "conversion": {
+                "detailed_resolving_power": args.resolving_power,
+                "samples_per_resolution": args.samples_per_resolution,
+                "broadening": "Gaussian in log wavelength; native stellar profiles retained",
+                "sed_binning_power": args.sed_binning_power,
+                "sed_binning_method": SED_BINNING_METHOD if args.sed_binning_power is not None else "native",
+                "continuum": "native",
+            },
             "format": {
                 "spectrum_file_type": "npz",
                 "required_arrays": ["wavelength_angstrom", "flux_lambda_cgs"],
                 "optional_arrays": [
-                    "hnu_cgs",
-                    "frequency_hz",
                     "continuum_lambda_cgs",
                     "normalized_flux_candidate",
-                    "continuum_candidate_col2",
-                    "y_col_*",
+                    "input_columns",
+                    "x_axis_kind",
+                    "x_unit_guess",
+                    "resolving_power",
+                    "samples_per_resolution",
+                    "sed_binning_power",
+                    "sed_binning_method",
+                    "sed_rebin_applied",
                 ],
             },
         }
@@ -1120,8 +1384,6 @@ def main(argv: Iterable[str] | None = None) -> int:
             stats.failed_archives,
         )
     )
-    if stats.failed_archives > 0:
-        return 2
     return 0
 
 

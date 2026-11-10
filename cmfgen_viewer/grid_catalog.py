@@ -585,6 +585,9 @@ def _load_tlusty_models_csv_cached(path_str: str, mtime_ns: int, size: int) -> l
                     "z_over_zsun": z_over_zsun,
                     "atmosphere_family": str(raw.get("atmosphere_family", "")),
                     "resolving_power": _parse_float_or_none(raw.get("resolving_power")),
+                    "sed_binning_power": _parse_float_or_none(raw.get("sed_binning_power")),
+                    "sed_binning_method": str(raw.get("sed_binning_method", "")),
+                    "sed_rebin_applied": str(raw.get("sed_rebin_applied", "false")).lower() == "true",
                     "metallicity_dex": _parse_float_or_none(raw.get("metallicity_dex")),
                     "alpha_dex": _parse_float_or_none(raw.get("alpha_dex")),
                     "carbon_dex": _parse_float_or_none(raw.get("carbon_dex")),
@@ -855,6 +858,10 @@ def _discover_tlusty_grid_models(
             continue
 
         products = _tlusty_row_products(row)
+        # Binned SEDs are validated for broadband photometry, not line fitting.
+        observation_type = str((observed or {}).get("observation_type", "")).lower()
+        if row.get("sed_rebin_applied") and observation_type != "photometry":
+            continue
         available_arrays_raw = row.get("available_arrays")
         available_arrays: set[str] = set()
         if isinstance(available_arrays_raw, list):
@@ -897,6 +904,10 @@ def _discover_tlusty_grid_models(
             if "normalized_flux_candidate" not in available_arrays:
                 key = _tlusty_pair_key(grid, model_name)
                 continuum_options = list(continuum_by_key.get(key, []))
+                if not continuum_options and key[2] == "7":
+                    # SYNSPEC .7 line spectra use their .17 continua even when
+                    # resolution reduction makes the line spectrum shorter.
+                    continuum_options = list(continuum_by_key.get((key[0], key[1], "17"), []))
                 if not continuum_options and key[2]:
                     continuum_options = list(continuum_by_key.get((key[0], key[1], ""), []))
                 paired_from_family = False
@@ -941,6 +952,9 @@ def _discover_tlusty_grid_models(
                 "continuum_relpath": continuum_relpath,
                 "continuum_path_str": continuum_path,
                 "tlusty_params": tlusty_params,
+                "grid_metadata": {key: row[key] for key in (
+                    "resolving_power", "sed_binning_power", "sed_binning_method", "sed_rebin_applied",
+                ) if row.get(key)},
             }
         )
 
