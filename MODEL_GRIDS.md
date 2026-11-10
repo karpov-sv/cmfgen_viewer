@@ -11,6 +11,7 @@ see the [README](README.md).
 - [TLUSTY download and fitting workflow](#tlusty-grid-workflow)
 - [Local BOSZ import](#local-bosz-import)
 - [Local PHOENIX R10000 import](#local-phoenix-r10000-import)
+- [Lossless BOSZ and PHOENIX storage](#lossless-bosz-and-phoenix-storage)
 - [Fitting performance](#fitting-performance)
 
 ## TLUSTY Grid Workflow
@@ -231,9 +232,10 @@ The source must contain `bosz2024_wave_r2000.txt` and matching
 to change the default `data/bosz/` destination.
 Conversion uses four workers by default (`--workers N` to change this).
 
-The importer writes `models.csv`, `manifest.json`, and one compressed NPZ per
-model. It preserves both the flux and continuum columns, adds their ratio for
-normalized fitting, and retains the published wavelength samples. Flux and
+The importer writes `models.csv`, `manifest.json`, one compressed NPZ per
+model, and shared wavelength NPZs. It preserves both the flux and continuum
+columns and calculates their ratio on load for normalized fitting, using the
+original validity mask. Published wavelength samples are retained exactly. Flux and
 continuum remain Eddington H-lambda in erg/s/cm²/Å, matching the TLUSTY storage
 convention; multiply by 4π when a physical surface flux is required.
 Atmosphere family (`ap`, `mp`, `ms`), metallicity, alpha/carbon abundance,
@@ -247,7 +249,7 @@ than one resolution element. It is not a replacement for detailed TLUSTY line
 spectra. The imported catalogue remains separate from TLUSTY.
 
 In the upload viewer, click **Find Best BOSZ Model** to search the imported grid.
-Normalized spectra use the stored flux/continuum ratio; absolute spectra and
+Normalized spectra use the flux/continuum ratio; absolute spectra and
 photometry use a free normalization per model, with no distance parameter.
 Photometry candidates must cover every enabled band. Model-name patterns can
 select a subset, for example `*_ap_*` for ATLAS9 or `*_t8000_*` for 8000 K.
@@ -294,8 +296,11 @@ This product needs explicit convention handling, following
   one-based pixels and CRPIX1 = 1 when absent. The published **vacuum** convention
   overrides these archives' misleading `AWAV-LOG` header; no air-to-vacuum shift
   is applied. The source header and override are recorded in provenance.
-- Surface F-lambda per cm is multiplied by `1e-8 / (4*pi)` to store Eddington
-  H-lambda per Å, matching the existing TLUSTY/BOSZ convention.
+- Surface F-lambda per cm is multiplied by `1e-8 / (4*pi)` on load to obtain
+  Eddington H-lambda per Å, matching the existing TLUSTY/BOSZ convention.
+  Compact files retain original float32 source flux and an exact float64 scale.
+  This encoding is used only when it reproduces the previous float64 fitting
+  values exactly; other inputs retain their scaled float64 precision.
 - The 51 `INTERPOL` spectra remain available and are labelled in fit results.
   Missing BUNIT on these files uses the published product convention and is
   flagged. Fractional microturbulence is retained as a **derived property**,
@@ -315,9 +320,37 @@ The Gaussian broadening parameter adds to native broadening; use observed
 spectra at comparable or lower resolution and on a compatible vacuum axis.
 Progress, cancellation, confidence summaries, and best-fit overlays use the
 shared grid workflow. Model-name patterns such as `lte06000*` restrict searches.
-Full-grid fits use more CPU and storage than BOSZ; the installed NPZ grid is
-about 20.5 GB. Embedders can override
+Full-grid fits use more CPU and storage than BOSZ. Embedders can override
 `app.config["CMFGEN_VIEWER"]["phoenix_root"]`.
+
+## Lossless BOSZ and PHOENIX storage
+
+Both importers use compact storage by default, without changing resolution,
+sampling, wavelength coverage, fitting values, or quality flags. Wavelength
+axes are stored once as `spectra/_wavelength_<sha256>.npz`, with a content key
+in each model file. The reader verifies and caches shared axes in memory.
+BOSZ omits the redundant normalized array; PHOENIX retains source precision
+with the exact conversion described above. `available_arrays` in the indices
+describes logical arrays returned by the reader, including reconstructed ones.
+The manifest's `spectrum_storage` identifies `shared-wavelength-v1`.
+
+Keep the whole `spectra/` directory together when copying a grid. For scripts
+that read converted spectra directly, use
+`cmfgen_viewer.grid_storage.load_spectrum(path)` to obtain logical arrays.
+Legacy standalone NPZ files remain readable, including mixed caches during
+migration. Existing caches can be compacted in place:
+
+```bash
+python3 scripts/compact_imported_grids.py data/bosz data/phoenix --workers 4
+```
+
+Every logical array is compared exactly (including NaN masks and retained raw
+negative BOSZ flux) before its file is atomically replaced. An interruption
+leaves a readable mixed cache; rerunning completes it. Per-model metadata and
+`models.csv` are preserved. Raw source files and archives are untouched.
+The installed BOSZ cache occupies 1.16 GiB (previously 3.10 GiB), and PHOENIX
+4.80 GiB (previously 19.10 GiB), including shared axes. Restart an already
+running viewer before using compacted grids so it loads the updated reader.
 
 ## Fitting performance
 

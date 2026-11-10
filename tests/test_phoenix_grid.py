@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 
 from cmfgen_viewer.app import create_app
+from cmfgen_viewer.grid_storage import load_spectrum
 from cmfgen_viewer.grid_catalog import _discover_grid_fit_candidates
 from cmfgen_viewer.grid_config import _grid_fit_source_label
 from cmfgen_viewer.grid_fitting import _fit_single_grid_candidate
@@ -80,10 +81,14 @@ def test_import_preserves_sampling_flux_and_provenance(phoenix_case):
         assert row["source_member"] == name
         assert row["source_ctype1"] == "AWAV-LOG"
         assert len(row["source_sha256"]) == 64
-        with np.load(root / row["spectrum_relpath"]) as arrays:
-            assert set(arrays) == {"wavelength_angstrom", "flux_lambda_cgs"}
-            np.testing.assert_array_equal(arrays["wavelength_angstrom"], wave)
-            np.testing.assert_array_equal(arrays["flux_lambda_cgs"], expected)
+        with np.load(root / row["spectrum_relpath"]) as stored:
+            assert "wavelength_angstrom" not in stored
+            assert "flux_lambda_cgs" not in stored
+            assert stored["source_flux"].dtype == np.float32
+            assert stored["flux_scale"].item() == FLUX_FACTOR
+        arrays = load_spectrum(root / row["spectrum_relpath"])
+        np.testing.assert_array_equal(arrays["wavelength_angstrom"], wave)
+        np.testing.assert_array_equal(arrays["flux_lambda_cgs"], expected)
         assert row["points"] == 212027
         assert row["wavelength_max_angstrom"] == pytest.approx(24999.9224)
         assert row["negative_flux_points"] == int(row["teff_k"] == 6400)

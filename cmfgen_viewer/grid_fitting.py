@@ -237,16 +237,14 @@ def _load_tlusty_npz_arrays(npz_path: Path) -> dict[str, object] | None:
     if not npz_path.is_file():
         return None
     try:
-        with np.load(npz_path, allow_pickle=False) as payload:
-            arrays: dict[str, object] = {}
-            # Load only arrays consumed by fitting, including legacy flux names.
-            for key in (
-                "wavelength_angstrom", "flux_lambda_cgs", "hnu_cgs", "y_col_1",
-                "continuum_lambda_cgs", "normalized_flux_candidate",
-            ):
-                if key in payload:
-                    arrays[key] = np.asarray(payload[key], dtype=np.float64).reshape(-1)
-            return arrays
+        from .grid_storage import load_spectrum
+
+        keys = (
+            "wavelength_angstrom", "flux_lambda_cgs", "hnu_cgs", "y_col_1",
+            "continuum_lambda_cgs", "normalized_flux_candidate",
+        )
+        return {key: np.asarray(value, dtype=np.float64).reshape(-1)
+                for key, value in load_spectrum(npz_path, keys=keys).items()}
     except Exception:
         return None
 

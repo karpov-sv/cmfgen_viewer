@@ -18,8 +18,14 @@ from pathlib import Path
 import re
 import shutil
 import tempfile
+import sys
 
 import numpy as np
+
+
+# Support direct invocation as well as importing the converter in tests.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from cmfgen_viewer.grid_storage import STORAGE_FORMAT, write_compact_spectrum
 
 
 DEFAULT_OUTPUT = Path(__file__).resolve().parents[1] / "data" / "bosz"
@@ -97,7 +103,7 @@ def import_grid(source: Path, output: Path, *, resolution: int = 2000, workers: 
             arrays = read_spectrum(path, wavelength)
             name = path.name.removesuffix(".txt.gz")
             relative = Path("spectra") / f"{name}.npz"
-            np.savez_compressed(staging / relative, **arrays)
+            write_compact_spectrum(staging / relative, arrays, "bosz")
             usable = np.isfinite(arrays["normalized_flux_candidate"])
             return {
                 "grid": "bosz",
@@ -138,7 +144,7 @@ def import_grid(source: Path, output: Path, *, resolution: int = 2000, workers: 
             for row in rows:
                 writer.writerow({k: json.dumps(v) if isinstance(v, list) else v for k, v in row.items()})
         manifest = {
-            "schema_version": 1,
+            "schema_version": 1, "spectrum_storage": STORAGE_FORMAT,
             "generated_at_utc": datetime.now(timezone.utc).isoformat(),
             "source_directory": str(source),
             "reference": REFERENCE,

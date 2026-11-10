@@ -19,10 +19,16 @@ from pathlib import Path
 import re
 import shutil
 import tempfile
-from zipfile import ZIP_DEFLATED, ZipFile
+import sys
+from zipfile import ZipFile
 
 from astropy.io import fits
 import numpy as np
+
+
+# Support direct invocation as well as importing the converter in tests.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from cmfgen_viewer.grid_storage import STORAGE_FORMAT, write_compact_spectrum
 
 
 DEFAULT_OUTPUT = Path(__file__).resolve().parents[1] / "data" / "phoenix"
@@ -130,11 +136,7 @@ def import_grid(source: Path, output: Path, *, workers: int = 4, log=print) -> i
                     payload = handle.read(name)
                     arrays, row = read_spectrum(payload, name)
                     relative = f"spectra/{row['model_name']}.npz"
-                    # Standard NPZ, with fast compression for the large native vectors.
-                    with ZipFile(staging / relative, "w", ZIP_DEFLATED, compresslevel=1) as target:
-                        for key, array in arrays.items():
-                            with target.open(f"{key}.npy", "w") as member:
-                                np.lib.format.write_array(member, array, allow_pickle=False)
+                    write_compact_spectrum(staging / relative, arrays, "phoenix")
                     row.update(spectrum_relpath=relative, source_archive=archive.name,
                                source_member=name, source_sha256=hashlib.sha256(payload).hexdigest())
                     rows.append(row)
@@ -155,7 +157,7 @@ def import_grid(source: Path, output: Path, *, workers: int = 4, log=print) -> i
             for row in rows:
                 writer.writerow({k: json.dumps(v) if isinstance(v, (list, bool)) else v for k, v in row.items()})
         manifest = {
-            "schema_version": 1, "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+            "schema_version": 1, "spectrum_storage": STORAGE_FORMAT, "generated_at_utc": datetime.now(timezone.utc).isoformat(),
             "source_directory": str(source), "reference": REFERENCE,
             "source_release": PRODUCT, "archives": archive_metadata,
             "resolving_power": 10000, "wavelength_convention": "vacuum",

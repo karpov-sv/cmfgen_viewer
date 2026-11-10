@@ -1,0 +1,234 @@
+{
+  "date": "2026-11-10",
+  "code_baseline_commit": "3313d6d",
+  "input_caches_modified": true,
+  "notes": [
+    "Sizes are compressed bytes; GiB = bytes / 2**30.",
+    "PHOENIX candidate byte counts include source flux, scale, and wavelength reference; add one shared wavelength file.",
+    "BOSZ candidate size is estimated by removing redundant ZIP members; shared-axis and reference overhead is small.",
+    "Conversion benchmarks cover 64 real models per grid, excluding whole-archive checksums and final publication.",
+    "Sampling probe uses rectangular bands matching the viewer, not measured response curves.",
+    "Initial investigation was read-only. The follow-up implemented shared-wavelength-v1 and migrated both actual caches; lossless_compaction contains measured results."
+  ],
+  "storage_inventory": {
+    "bosz": {
+      "models": 6628,
+      "npz_bytes": 3327569753,
+      "array_compressed_bytes": {
+        "wavelength_angstrom.npy": 907830532,
+        "flux_lambda_cgs.npy": 618281156,
+        "continuum_lambda_cgs.npy": 584186187,
+        "normalized_flux_candidate.npy": 1209474999,
+        "raw_flux_lambda_cgs.npy": 3840059
+      },
+      "wavelength_signatures": [
+        {
+          "crc": 2854549590,
+          "bytes": 240128,
+          "models": 6628
+        }
+      ]
+    },
+    "phoenix": {
+      "models": 7559,
+      "npz_bytes": 20512135551,
+      "array_compressed_bytes": {
+        "wavelength_angstrom.npy": 9421431774,
+        "flux_lambda_cgs.npy": 11088753555
+      },
+      "wavelength_signatures": [
+        {
+          "crc": 37516200,
+          "bytes": 1696344,
+          "models": 7559
+        }
+      ]
+    }
+  },
+  "bosz_normalization_check": {
+    "models": 6628,
+    "mismatches": [],
+    "normalized_nan_samples": 120,
+    "nonpositive_continuum_samples": 0
+  },
+  "phoenix_flux_encoding_check": {
+    "models": 7559,
+    "mismatches": [],
+    "unscaled_source_cache_bytes": 5150239696,
+    "flux_factor": 7.957747154594768e-10
+  },
+  "conversion_kernel_benchmark": {
+    "bosz": {
+      "serial": {
+        "seconds": 3.282259745988995,
+        "models": 64
+      },
+      "threads4": {
+        "seconds": 1.5824886330083245,
+        "models": 64
+      },
+      "processes4": {
+        "seconds": 1.112295662998804,
+        "models": 64
+      }
+    },
+    "phoenix": {
+      "serial": {
+        "seconds": 5.651315527007682,
+        "models": 64
+      },
+      "threads4": {
+        "seconds": 1.5413224229996558,
+        "models": 64
+      },
+      "processes4": {
+        "seconds": 1.7443161410046741,
+        "models": 64
+      }
+    }
+  },
+  "sampling_probe": {
+    "bosz": {
+      "models_used": 31,
+      "skipped_models": 1,
+      "methods": {
+        "photometry_bins_1000": {
+          "worst": {
+            "error": 0.005421514273576511,
+            "model": "bosz2024_mp_t2900_g+5.5_m+0.25_a+0.00_c+0.00_v2_r2000_resam",
+            "band": "UV_2300",
+            "ebv": 3,
+            "z": -0.02
+          },
+          "points": 6464,
+          "max_broad_error": 0.005421514273576511,
+          "p95_broad_error": 0.0005174143978391721
+        },
+        "photometry_bins_3000": {
+          "worst": {
+            "error": 0.0009801087559750954,
+            "model": "bosz2024_ms_t8000_g+3.0_m+0.75_a+0.00_c+0.00_v2_r2000_resam",
+            "band": "UV_1500",
+            "ebv": 3,
+            "z": 0
+          },
+          "points": 19386,
+          "max_broad_error": 0.0009801087559750954,
+          "p95_broad_error": 7.39319700908403e-05
+        }
+      }
+    },
+    "phoenix": {
+      "models_used": 32,
+      "skipped_models": 0,
+      "methods": {
+        "photometry_bins_1000": {
+          "worst": {
+            "error": 0.006496665615565944,
+            "model": "lte02500-2.00-2.0.PHOENIX-ACES-AGSS-COND-2011-HiRes",
+            "band": "U_3531",
+            "ebv": 3,
+            "z": 0.02
+          },
+          "points": 2123,
+          "max_broad_error": 0.006496665615565944,
+          "p95_broad_error": 0.0003454894339212644
+        },
+        "photometry_bins_3000": {
+          "worst": {
+            "error": 0.0017233851439385495,
+            "model": "lte02300-0.00-4.0.PHOENIX-ACES-AGSS-COND-2011-HiRes",
+            "band": "U_3531",
+            "ebv": 3,
+            "z": 0.02
+          },
+          "points": 6363,
+          "max_broad_error": 0.0017233851439385495,
+          "p95_broad_error": 0.00012123873614711123
+        },
+        "native_R10000_3_samples": {
+          "worst": {
+            "error": 2.294606360464524e-05,
+            "model": "lte04600-1.00-0.0.PHOENIX-ACES-AGSS-COND-2011-HiRes",
+            "band": "U_3531",
+            "ebv": 3,
+            "z": 0.02
+          },
+          "points": 63609,
+          "max_broad_error": 2.294606360464524e-05,
+          "p95_broad_error": 3.987205177108377e-06,
+          "spectral_error_fraction_of_window_median": {
+            "p95": 0.009922204899124725,
+            "maximum": 0.26108384635894516
+          }
+        },
+        "native_R10000_5_samples": {
+          "worst": {
+            "error": 4.296347170140713e-06,
+            "model": "lte02300-0.00-4.0.PHOENIX-ACES-AGSS-COND-2011-HiRes",
+            "band": "U_3531",
+            "ebv": 3,
+            "z": 0.02
+          },
+          "points": 106014,
+          "max_broad_error": 4.296347170140713e-06,
+          "p95_broad_error": 5.832756383439275e-07,
+          "spectral_error_fraction_of_window_median": {
+            "p95": 0.003123088268445679,
+            "maximum": 0.09760876710226274
+          }
+        }
+      }
+    }
+  },
+  "lossless_compaction": [
+    {
+      "grid": "bosz",
+      "models": 6628,
+      "before_bytes": 3327569753,
+      "after_bytes": 1249172591,
+      "saved_fraction": 0.6245991267729858,
+      "seconds": 47.7104987299972,
+      "verification": "Every logical array compared exactly, including NaNs, before replacement"
+    },
+    {
+      "grid": "phoenix",
+      "models": 7559,
+      "before_bytes": 20512135551,
+      "after_bytes": 5155220372,
+      "saved_fraction": 0.7486746146356918,
+      "seconds": 133.6098935330083,
+      "verification": "Every logical array compared exactly, including NaNs, before replacement"
+    }
+  ],
+  "post_migration_validation": {
+    "bosz": {
+      "models": 6628,
+      "fit_eligible_absolute": 6628,
+      "fit_eligible_normalized": 6628,
+      "masked_flux_points": 120,
+      "masked_normalized_points": 120,
+      "raw_negative_flux_models": 46,
+      "metadata_identical": true
+    },
+    "phoenix": {
+      "grid": "phoenix",
+      "models": 7559,
+      "eligible": 7553,
+      "negative_models": 6,
+      "negative_samples": 144,
+      "interpolated": 51,
+      "metadata_identical": true
+    },
+    "models_csv_sha256": {
+      "bosz": "8c25171ec10b1af90dffe916d2bb17fbc41ea6c98eeff415f4f20070027c990f",
+      "phoenix": "9571dd57f3d5090fe79ebfc6528832b7ac50a9dfe24d4231f17d20383ddf54a9"
+    },
+    "tests": {
+      "grid_and_storage": 87,
+      "listing_parsers_documentation": 31,
+      "post_optimization_grid_and_storage_rerun": 38
+    },
+    "compileall_passed": true
+  }
+}

@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from scripts.import_bosz_spectra import import_grid
+from cmfgen_viewer.grid_storage import load_spectrum
 from cmfgen_viewer.grid_catalog import _discover_tlusty_grid_models
 from cmfgen_viewer.grid_fitting import _build_tlusty_model_series
 
@@ -31,10 +32,13 @@ def test_bosz_preserves_flux_continuum_and_distinct_atmospheres(tmp_path):
     for row in manifest["models"]:
         assert row["z_over_zsun"] == pytest.approx(10 ** -0.5)
         assert row["resolving_power"] == 2000
-        with np.load(output / row["spectrum_relpath"]) as arrays:
-            np.testing.assert_array_equal(arrays["flux_lambda_cgs"], [1, 3, 5])
-            np.testing.assert_array_equal(arrays["continuum_lambda_cgs"], [2, 4, 6])
-            np.testing.assert_allclose(arrays["normalized_flux_candidate"], [0.5, 0.75, 5/6])
+        with np.load(output / row["spectrum_relpath"]) as stored:
+            assert "wavelength_angstrom" not in stored
+            assert "normalized_flux_candidate" not in stored
+        arrays = load_spectrum(output / row["spectrum_relpath"])
+        np.testing.assert_array_equal(arrays["flux_lambda_cgs"], [1, 3, 5])
+        np.testing.assert_array_equal(arrays["continuum_lambda_cgs"], [2, 4, 6])
+        np.testing.assert_allclose(arrays["normalized_flux_candidate"], [0.5, 0.75, 5/6])
         x, y, error = _build_tlusty_model_series(
             mode="normalized", spectrum_path=output / row["spectrum_relpath"], continuum_path=None,
         )
@@ -88,8 +92,9 @@ def test_bosz_masks_undefined_normalization(tmp_path):
         handle.write("0 0\n3 4\n5 6\n")
     output = tmp_path / "output"
     import_grid(source, output)
-    with np.load(next((output / "spectra").glob("*.npz"))) as arrays:
-        assert np.isnan(arrays["normalized_flux_candidate"][0])
+    row = json.loads((output / "manifest.json").read_text())["models"][0]
+    arrays = load_spectrum(output / row["spectrum_relpath"])
+    assert np.isnan(arrays["normalized_flux_candidate"][0])
 
 
 def test_bosz_preserves_but_masks_negative_source_flux(tmp_path):
@@ -102,10 +107,10 @@ def test_bosz_preserves_but_masks_negative_source_flux(tmp_path):
     assert row["masked_flux_points"] == 1
     assert row["masked_normalized_points"] == 1
     assert row["wavelength_max_angstrom"] == 5000
-    with np.load(output / row["spectrum_relpath"]) as arrays:
-        assert arrays["raw_flux_lambda_cgs"][-1] == -0.8
-        assert np.isnan(arrays["flux_lambda_cgs"][-1])
-        assert np.isnan(arrays["normalized_flux_candidate"][-1])
+    arrays = load_spectrum(output / row["spectrum_relpath"])
+    assert arrays["raw_flux_lambda_cgs"][-1] == -0.8
+    assert np.isnan(arrays["flux_lambda_cgs"][-1])
+    assert np.isnan(arrays["normalized_flux_candidate"][-1])
 
 
 def test_bosz_rejects_duplicate_source_names(tmp_path):
