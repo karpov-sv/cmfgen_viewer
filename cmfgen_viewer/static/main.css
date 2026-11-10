@@ -615,8 +615,101 @@ a:focus {
     margin: 0 0 1rem;
 }
 
+.grid-fit-model-name {
+    overflow-wrap: anywhere;
+    font-size: 0.95rem;
+    font-weight: 600;
+}
+
+.grid-fit-summary-group {
+    min-width: 0;
+    margin-bottom: 0.75rem;
+    padding: 0.75rem;
+    border: 1px solid #dee2e6;
+    border-radius: 0.375rem;
+}
+
+.grid-fit-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+    gap: 0.5rem 1rem;
+    margin: 0;
+}
+
+.grid-fit-summary-item {
+    min-width: 0;
+}
+
+.grid-fit-summary-item dt {
+    color: #6c757d;
+    font-size: 0.8rem;
+    font-weight: 400;
+}
+
+.grid-fit-summary-item dd {
+    margin: 0;
+    overflow-wrap: anywhere;
+    font-variant-numeric: tabular-nums;
+}
+
+.grid-fit-parameter-groups {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0 1rem;
+}
+
+.grid-fit-parameter-groups .grid-fit-summary-grid {
+    grid-template-columns: repeat(auto-fit, minmax(6.5rem, 1fr));
+}
+
+.grid-fit-result-details {
+    margin: 0.5rem 0 0.75rem;
+}
+
+.grid-fit-result-details > summary {
+    cursor: pointer;
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+
+.grid-fit-result-details > .grid-fit-summary-group {
+    margin-top: 0.5rem;
+}
+
+.grid-fit-confidence-table,
+.grid-fit-diagnostic-table,
+.grid-fit-candidates {
+    font-size: 0.875rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.grid-fit-candidates > thead th,
+.grid-fit-candidates > tbody > tr > td:not(.grid-fit-model-cell):not(.grid-fit-candidate-details),
+.grid-fit-confidence-table td,
+.grid-fit-diagnostic-table td:not(:first-child),
+.grid-fit-diagnostic-table th:not(:first-child) {
+    white-space: nowrap;
+}
+
+.grid-fit-candidates .grid-fit-model-cell {
+    min-width: 12rem;
+    max-width: 24rem;
+    overflow-wrap: anywhere;
+}
+
+.grid-fit-diagnostic-toggle {
+    display: block;
+    font-size: 0.8rem;
+}
+
+.grid-fit-candidates .grid-fit-candidate-details {
+    padding: 0.75rem;
+    background: #f8f9fa;
+}
+
 @media (max-width: 575px) {
-    .grid-fit-selection {
+    .grid-fit-selection,
+    .grid-fit-parameter-groups {
         grid-template-columns: minmax(0, 1fr);
     }
 }

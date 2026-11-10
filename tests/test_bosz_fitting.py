@@ -55,7 +55,8 @@ def test_bosz_discovery_preserves_distinct_atmospheres_and_filters(bosz_case):
 
 
 @pytest.mark.parametrize("mode", ["normalized", "both"])
-def test_bosz_fit_and_overlay_api(bosz_case, tmp_path, monkeypatch, mode):
+@pytest.mark.parametrize("diagnostics", [False, True])
+def test_bosz_fit_and_overlay_api(bosz_case, tmp_path, monkeypatch, mode, diagnostics):
     root, wave, continuum, norm = bosz_case
     absolute = mode == "both"
     flux = continuum * norm * 2e-20 if absolute else norm
@@ -90,6 +91,14 @@ def test_bosz_fit_and_overlay_api(bosz_case, tmp_path, monkeypatch, mode):
     assert count.status_code == 200
     assert count.get_json()["total_models"] == 2
     form = {"fit_source": "bosz"}
+    if diagnostics:
+        assert 'name="fit_windows"' in page
+        invalid = client.post(f"/uploads/fit-grid/{token}", data={
+            "fit_source": "bosz", "fit_windows": "invalid, 5200, 4800",
+        })
+        assert invalid.status_code == 400
+        assert "min < max" in invalid.get_json()["error"]
+        form.update(fit_windows="line, 4800, 5200", fit_exclusions="core, 4990, 5010")
     for param in ("redshift", "broadening_km_s", "ebv"):
         form[f"fit_{param}_min"] = "0"
         form[f"fit_{param}_max"] = "0"
@@ -98,6 +107,11 @@ def test_bosz_fit_and_overlay_api(bosz_case, tmp_path, monkeypatch, mode):
     job_id = response.get_json()["job_id"]
     status = client.get(f"/uploads/fit-grid/status/{job_id}").get_json()
     assert status["status"] == "completed", status
+    if diagnostics:
+        best = status["result"]["best_model"]
+        assert best["window_scores"][0]["label"] == "line"
+        assert best["window_scores"][0]["points"] == best["points"]
+        assert best["fit_regions"] == status["fit_regions"] == status["result"]["fit_regions"]
     assert status["successful"] == 2
     assert status["fit_source"] == "bosz"
     result = status["result"]
@@ -121,6 +135,9 @@ def test_bosz_fit_and_overlay_api(bosz_case, tmp_path, monkeypatch, mode):
     app.extensions["cmfgen_jobs"]["grid"].update(job_id, status="running")
     reload = client.get(f"/uploads/view/{token}").get_data(as_text=True)
     assert '<option value="bosz" selected' in reload
+    if diagnostics:
+        assert "line, 4800, 5200" in reload
+        assert "core, 4990, 5010" in reload
 
 
 def test_bosz_bounds_and_cancel(bosz_case):

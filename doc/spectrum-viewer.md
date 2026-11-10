@@ -47,6 +47,52 @@ Expand **Model transformations** to adjust redshift or radial velocity, velocity
 
 Transformation and line/display settings remain available in expandable groups so the main controls stay compact. Display sampling changes the drawn curve; it does not change the data used for fitting or export.
 
+## Fit diagnostic regions in uploaded spectra
+
+Open **Grid Fit → Fit settings → Diagnostic regions** on an uploaded spectrum.
+Leave both fields blank for the existing full-spectrum fit, or enter one interval
+per line in **Diagnostic windows**, for example:
+
+```text
+He I 4471, 4455, 4485
+He II 4542, 4525, 4558
+```
+
+These are illustrative bounds; choose widths appropriate to the observed shift,
+line broadening, blends, and wavelength coverage. A label is optional:
+`4455, 4485` also works. Windows must not overlap or share endpoints. In
+**Exclude intervals**, use the same format to remove telluric absorption,
+nebular emission, unreliable pixels, or line cores. Exclusions override windows;
+with no windows, they remove samples from the full fit range.
+
+All bounds are inclusive, in **observed-frame Å**, using the upload's air/vacuum
+convention. Windows stay fixed as the model redshift is optimized. The overall
+wavelength range still applies. Plot zoom and display transformations do not
+shift these bounds or change the uploaded samples used for fitting. At least 30
+usable samples in total and two unmasked samples per window are required.
+Candidate models must cover every selected sample, ensuring the same comparison
+data for each candidate. The redshift search is intersected with the interval
+that gives complete coverage (and can become fixed at an edge). Selection happens before the existing fitting sample
+cap. Effective sample-size estimates do not correlate residuals across masked
+intervals or separate windows.
+
+The current and final best models show **Diagnostic scores** below the compact
+parameter summary. For a top candidate, use its **Diagnostic scores** button to
+expand a full-width row below the candidate without changing the main columns.
+The diagnostic table shows sample counts, sums of squared residuals, and mean
+squared residuals per window. These use the existing fit residual weighting
+(uploaded uncertainties when available); they are not independent reduced χ²
+measurements. The combined score retains pixel weighting, so larger windows
+usually contribute more. Inspect all windows for conflicting diagnostics.
+Grid confidence intervals are presented in a parameter table with 68%, 90%, and
+95% columns; **Fit statistics** and **Residual weighting** retain the detailed
+scoring information in collapsible sections.
+
+Diagnostic regions work with spectral uploads in the existing supported grid
+modes; they do not apply to photometry. Normalized spectra must already be
+continuum-normalized. Local continuum fitting, EW measurements, and EW ratios
+are not yet implemented.
+
 ## Spectral line overlay
 
 Enable **Spectral lines** above a single-model, bulk-model, or uploaded-spectrum

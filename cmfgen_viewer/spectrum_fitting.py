@@ -6,6 +6,7 @@ import math
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+from .fit_regions import fit_region_mask, validate_fit_region_samples
 from .spectrum_constants import (
     FIT_CANCELED_MESSAGE,
     FIT_DIFF_STEPS,
@@ -464,6 +465,30 @@ def fit_model_to_observed(
     observation_type = str(observed.get("observation_type", "")).strip().lower()
     is_photometry = observation_type == "photometry"
 
+    fit_regions = observed.get("fit_regions") or {}
+    use_regions = bool(fit_regions.get("windows") or fit_regions.get("exclusions"))
+    segment_ids = None
+    if use_regions:
+        if is_photometry:
+            return None, None, "Diagnostic regions are only supported for spectra."
+        try:
+            validate_fit_region_samples(observed_x, fit_regions)
+        except ValueError as exc:
+            return None, None, str(exc)
+        selected = fit_region_mask(observed_x, fit_regions)
+        indices = np.flatnonzero(selected)
+        window_ids = np.zeros(indices.size, dtype=int)
+        for index, window in enumerate(fit_regions.get("windows", [])):
+            window_ids[observed_x[selected] >= window["min"]] = index
+        # Never estimate correlations across excluded pixels or separate windows.
+        breaks = (np.diff(indices) > 1) | (np.diff(window_ids) != 0)
+        segment_ids = np.cumsum(np.r_[False, breaks])
+        observed_x, observed_y = observed_x[selected], observed_y[selected]
+        if observed_band_width is not None:
+            observed_band_width = observed_band_width[selected]
+        if observed_flux_err is not None:
+            observed_flux_err = observed_flux_err[selected]
+
     if observed_x.size > MAX_SERIES_POINTS:
         sample_idx = np.linspace(0, observed_x.size - 1, MAX_SERIES_POINTS, dtype=int)
         observed_x = observed_x[sample_idx]
@@ -472,6 +497,12 @@ def fit_model_to_observed(
             observed_band_width = observed_band_width[sample_idx]
         if observed_flux_err is not None:
             observed_flux_err = observed_flux_err[sample_idx]
+        if segment_ids is not None:
+            segment_ids = segment_ids[sample_idx]
+            try:
+                validate_fit_region_samples(observed_x, fit_regions)
+            except ValueError as exc:
+                return None, None, str(exc)
 
     obs_scale = 1.0
     norm_weights = np.ones_like(observed_y, dtype=np.float64)
@@ -537,6 +568,16 @@ def fit_model_to_observed(
     )
 
     bounds = _resolve_fit_bounds(normalized_mode, bounds_override)
+    if use_regions:
+        # Restrict the shift to complete coverage before choosing an initial
+        # point. Otherwise a missing edge makes the strict residual constant
+        # and the optimizer cannot move back into the usable interval.
+        lower_z, upper_z = bounds["redshift"]
+        lower_z = max(lower_z, float(observed_x[-1] / model_x[-1] - 1))
+        upper_z = min(upper_z, float(observed_x[0] / model_x[0] - 1))
+        if lower_z > upper_z:
+            return None, None, "Model does not cover every selected diagnostic sample within the redshift bounds."
+        bounds["redshift"] = (lower_z, upper_z)
     if use_free_normalization:
         bounds.pop("distance_kpc", None)
     model_x, model_y = _crop_model_for_fit(model_x, model_y, observed_x, observed_band_width, bounds)
@@ -596,10 +637,8 @@ def fit_model_to_observed(
     )
     name_to_index = {name: index for index, name in enumerate(names)}
 
-    if is_photometry:
-        # Comparing grid candidates on different subsets of sparse photometry
-        # biases the ranking toward short spectral segments. A valid
-        # photometric SED fit must cover every enabled point.
+    if is_photometry or use_regions:
+        # Grid candidates must use identical diagnostic samples or bands.
         min_valid_points = max(fit_param_count + 1, int(observed_x.size))
     else:
         min_valid_points = max(30, int(0.12 * observed_x.size))
@@ -804,6 +843,8 @@ def fit_model_to_observed(
     except _FitCanceledError:
         return None, None, FIT_CANCELED_MESSAGE
     if final_valid_count < min_valid_points:
+        if use_regions:
+            return None, None, "Model does not cover every selected diagnostic sample."
         if is_photometry and final_valid_count < int(observed_x.size):
             return None, None, "Model does not cover every enabled photometry point."
         return (
@@ -865,6 +906,16 @@ def fit_model_to_observed(
         autocorr_lags = 0
         dof_eff_value = dof_value
         dof_eff_method = "nominal_photometry"
+    elif segment_ids is not None:
+        estimates = [
+            _estimate_effective_sample_size_from_residuals(final_residual[segment_ids == segment])
+            for segment in np.unique(segment_ids)
+        ]
+        n_eff_points = min(float(final_valid_count), max(1.0, sum(item[0] for item in estimates)))
+        autocorr_positive_sum = sum(item[1] for item in estimates)
+        autocorr_lags = sum(item[2] for item in estimates)
+        dof_eff_value = min(dof_value, max(1, int(round(n_eff_points)) - int(fit_param_count)))
+        dof_eff_method = "autocorr_within_selected_segments"
     else:
         (
             n_eff_points,
@@ -875,6 +926,21 @@ def fit_model_to_observed(
         dof_eff_value = max(1, int(round(n_eff_points)) - int(fit_param_count))
         dof_eff_value = min(dof_value, dof_eff_value)
     metrics["chi2"] = chi2_value
+    if use_regions:
+        metrics["fit_regions"] = fit_regions
+        windows = fit_regions.get("windows") or [{
+            "label": "Selected spectrum", "min": float(observed_x[0]), "max": float(observed_x[-1]),
+        }]
+        metrics["window_scores"] = []
+        for window in windows:
+            inside = (observed_x >= window["min"]) & (observed_x <= window["max"])
+            residual = final_residual[inside]
+            metrics["window_scores"].append({
+                **window, "points": int(residual.size),
+                "chi2": float(np.sum(residual ** 2)),
+                "mean_square_residual": float(np.mean(residual ** 2)),
+                "rmse": float(np.sqrt(np.mean(residual ** 2))),
+            })
     metrics["dof"] = dof_value
     metrics["reduced_chi2"] = float(chi2_value / max(1, dof_value))
     metrics["dof_eff"] = int(dof_eff_value)

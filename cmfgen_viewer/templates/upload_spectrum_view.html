@@ -161,6 +161,23 @@
               <button id="grid-fit-use-plot-range" type="button" class="btn btn-sm btn-outline-secondary">Use plot range</button>
               <span class="small text-muted">Leave blank to use all {% if upload.observation_type == "photometry" %}enabled bands{% else %}available wavelengths{% endif %}.</span>
             </div>
+            {% if upload.observation_type != 'photometry' %}
+              <fieldset class="border rounded p-2 mb-3">
+                <legend class="float-none w-auto fs-6 px-1">Diagnostic regions (optional)</legend>
+                <p class="small text-muted mb-2">One interval per line: <code>label, min, max</code> or <code>min, max</code>, in observed-frame Å using the upload's air/vacuum convention. Windows stay fixed while the model is shifted. They are intersected with the wavelength range above; exclusions take precedence. Leave windows blank to fit all remaining samples.</p>
+                <div class="row g-2">
+                  <div class="col-md-6">
+                    <label for="grid-fit-windows" class="plot-control-label">Diagnostic windows</label>
+                    <textarea id="grid-fit-windows" name="fit_windows" rows="4" maxlength="16000" class="form-control form-control-sm" placeholder="He I 4471, 4455, 4485&#10;He II 4542, 4525, 4558">{{ fit_region_inputs.windows }}</textarea>
+                  </div>
+                  <div class="col-md-6">
+                    <label for="grid-fit-exclusions" class="plot-control-label">Exclude intervals</label>
+                    <textarea id="grid-fit-exclusions" name="fit_exclusions" rows="4" maxlength="16000" class="form-control form-control-sm" placeholder="Telluric, 6860, 6960">{{ fit_region_inputs.exclusions }}</textarea>
+                  </div>
+                </div>
+                <p class="small text-muted mt-2 mb-0">Use non-overlapping windows with at least two unmasked samples each and at least 30 samples in total. Models must cover every selected sample. Scores retain the current pixel/error weighting; normalized uploads should already be continuum-normalized.</p>
+              </fieldset>
+            {% endif %}
             <div class="grid-fit-bounds">
               {% set parameters = [('redshift', 'redshift', 'Redshift z', none), ('broadening', 'broadening_km_s', 'Velocity dispersion (km/s)', 0)] %}
               {% if mode == 'both' %}

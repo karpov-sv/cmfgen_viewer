@@ -10,6 +10,7 @@ from threading import Thread
 from flask import abort, jsonify, redirect, render_template, request, url_for
 
 from .browser import resolve_path
+from .fit_regions import format_fit_regions, parse_fit_regions, validate_fit_region_samples
 from .grid_catalog import _discover_grid_fit_candidates
 from .grid_config import (
     GRID_FIT_SOURCE_CMFGEN,
@@ -210,6 +211,11 @@ def upload_view(token: str):
     model_name_pattern = str(request.args.get("model_name_pattern", "")).strip()
     fit_source = _normalize_grid_fit_source(request.args.get("fit_source"))
     active_job = _grid_jobs().latest(upload_token=token, status="running")
+    active_regions = active_job.get("fit_regions", {}) if isinstance(active_job, dict) else {}
+    fit_region_inputs = {
+        key: str(request.args.get(f"fit_{key}", format_fit_regions(active_regions, key)))
+        for key in ("windows", "exclusions")
+    }
     if not model_name_pattern and isinstance(active_job, dict):
         model_name_pattern = str(active_job.get("model_name_pattern", "")).strip()
     if isinstance(active_job, dict) and fit_source == GRID_FIT_SOURCE_CMFGEN:
@@ -289,6 +295,7 @@ def upload_view(token: str):
         transform_params=transform_params,
         fit_bounds=fit_bounds,
         fit_wavelength_inputs=fit_wavelength_inputs,
+        fit_region_inputs=fit_region_inputs,
         fit_source=fit_source,
         model_name_pattern=model_name_pattern,
         active_grid_job=active_grid_job,
@@ -362,6 +369,19 @@ def upload_fit_grid(token: str):
         ), 400
     observed["name"] = str(entry.get("filename", source_path.name))
 
+    try:
+        fit_regions = parse_fit_regions(
+            str(request.form.get("fit_windows", "")),
+            str(request.form.get("fit_exclusions", "")),
+        )
+        if fit_regions["windows"] or fit_regions["exclusions"]:
+            if observed.get("observation_type") == "photometry":
+                raise ValueError("Diagnostic regions are only supported for spectra.")
+            validate_fit_region_samples(observed["wavelength"], fit_regions)
+            observed["fit_regions"] = fit_regions
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
     mode = (
         "both"
         if str(observed.get("flux_mode", "")).strip().lower() == "absolute"
@@ -403,6 +423,7 @@ def upload_fit_grid(token: str):
                     active_job.get("model_name_pattern", model_name_pattern)
                 ),
                 "existing_job": True,
+                "fit_regions": active_job.get("fit_regions", {}),
             }
         )
 
@@ -435,6 +456,7 @@ def upload_fit_grid(token: str):
         fit_wavelength_range=fit_wavelength_range,
         model_name_pattern=model_name_pattern,
         total_models=len(model_candidates),
+        fit_regions=fit_regions,
     )
 
     worker = Thread(
@@ -840,6 +862,7 @@ def upload_fit_grid_status(job_id: str):
         "cancel_requested": cancel_requested,
         "can_cancel": status == "running" and not cancel_requested,
         "fit_wavelength_range": snapshot.get("fit_wavelength_range", {}),
+        "fit_regions": snapshot.get("fit_regions", {}),
     }
 
     upload_token = str(snapshot.get("upload_token", ""))

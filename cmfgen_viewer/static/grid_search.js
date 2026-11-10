@@ -307,8 +307,10 @@
       return;
     }
 
-    var title = document.createElement("div");
-    title.className = "small text-muted mb-1 mt-2";
+    var table = document.createElement("table");
+    table.className = "table table-sm grid-fit-confidence-table caption-top mb-2";
+    var title = document.createElement("caption");
+    title.className = "small text-muted";
     var confidenceMethod = String(confidence.method || "").trim();
     if (confidenceMethod === "profile_delta_chi2_known_variance") {
       title.textContent = "Profile delta-chi2 confidence intervals (known photometric errors)";
@@ -317,7 +319,17 @@
     } else {
       title.textContent = "Profile delta-chi2 confidence intervals (unknown variance)";
     }
-    container.appendChild(title);
+    table.appendChild(title);
+    var head = document.createElement("thead");
+    head.innerHTML = '<tr><th scope="col">Parameter</th><th scope="col">68%</th><th scope="col">90%</th><th scope="col">95%</th></tr>';
+    table.appendChild(head);
+    var body = document.createElement("tbody");
+    var stats = document.createElement("details");
+    stats.className = "grid-fit-result-details";
+    var statsTitle = document.createElement("summary");
+    statsTitle.textContent = "Fit statistics";
+    stats.appendChild(statsTitle);
+    var statsBody = summaryGroup(stats);
 
     var chi2Info = confidence.chi2 && typeof confidence.chi2 === "object"
       ? confidence.chi2
@@ -333,31 +345,31 @@
       var sigma2Hat = formatParam(chi2Info.sigma2_hat);
       var sigma2HatNominal = formatParam(chi2Info.sigma2_hat_nominal);
       if (bestChi2) {
-        addSummaryLine(container, "Best RSS", bestChi2);
+        addSummaryLine(statsBody, "Best RSS", bestChi2);
       }
       if (bestDof) {
-        addSummaryLine(container, "DOF (nominal)", bestDof);
+        addSummaryLine(statsBody, "DOF (nominal)", bestDof);
       }
       if (bestDofEff) {
-        addSummaryLine(container, "DOF (effective)", bestDofEff);
+        addSummaryLine(statsBody, "DOF (effective)", bestDofEff);
       }
       if (bestDofEffMethod) {
-        addSummaryLine(container, "DOF (effective method)", bestDofEffMethod);
+        addSummaryLine(statsBody, "DOF (effective method)", bestDofEffMethod);
       }
       if (reducedChi2Eff) {
-        addSummaryLine(container, "Reduced chi2 (effective)", reducedChi2Eff);
+        addSummaryLine(statsBody, "Reduced chi2 (effective)", reducedChi2Eff);
       }
       if (chi2Weighting) {
-        addSummaryLine(container, "Chi2 weighting", chi2Weighting);
+        addSummaryLine(statsBody, "Chi2 weighting", chi2Weighting);
       }
       if (photometryErrorWeighting) {
-        addSummaryLine(container, "Photometry error model", photometryErrorWeighting);
+        addSummaryLine(statsBody, "Photometry error model", photometryErrorWeighting);
       }
       if (sigma2Hat) {
-        addSummaryLine(container, "sigma^2_hat (RSS/dof_eff)", sigma2Hat);
+        addSummaryLine(statsBody, "sigma^2_hat (RSS/dof_eff)", sigma2Hat);
       }
       if (sigma2HatNominal) {
-        addSummaryLine(container, "sigma^2_hat_nominal (RSS/dof)", sigma2HatNominal);
+        addSummaryLine(statsBody, "sigma^2_hat_nominal (RSS/dof)", sigma2HatNominal);
       }
     }
 
@@ -375,14 +387,27 @@
       if (!param || typeof param !== "object") {
         continue;
       }
+      var row = document.createElement("tr");
+      var label = document.createElement("th");
+      label.scope = "row";
+      label.textContent = labels[key] || key;
+      row.appendChild(label);
       for (var j = 0; j < levelOrder.length; j += 1) {
         var levelLabel = levelOrder[j];
         var rangeText = formatConfidenceInterval(param, levelLabel);
-        if (!rangeText) {
-          continue;
-        }
-        addSummaryLine(container, levelLabel + " " + (labels[key] || key) + " CI", rangeText);
+        var cell = document.createElement("td");
+        cell.textContent = rangeText || "—";
+        row.appendChild(cell);
       }
+      body.appendChild(row);
+    }
+    table.appendChild(body);
+    var wrap = document.createElement("div");
+    wrap.className = "table-responsive";
+    wrap.appendChild(table);
+    container.appendChild(wrap);
+    if (chi2Info) {
+      container.appendChild(stats);
     }
   }
 
@@ -662,18 +687,69 @@
   }
 
   function codeElement(text) {
-    var code = document.createElement("code");
+    var code = document.createElement("samp");
     code.textContent = text;
     return code;
   }
 
   function addSummaryLine(container, label, value) {
     var row = document.createElement("div");
-    row.className = "mb-1";
-    row.appendChild(codeElement(label));
-    row.appendChild(document.createTextNode(": "));
-    row.appendChild(codeElement(value));
+    row.className = "grid-fit-summary-item";
+    var term = document.createElement("dt");
+    term.textContent = label;
+    var description = document.createElement("dd");
+    description.textContent = value;
+    row.appendChild(term);
+    row.appendChild(description);
     container.appendChild(row);
+  }
+
+  function summaryGroup(container, title) {
+    var section = document.createElement("section");
+    section.className = "grid-fit-summary-group";
+    if (title) {
+      var heading = document.createElement("h5");
+      heading.className = "h6 mb-2";
+      heading.textContent = title;
+      section.appendChild(heading);
+    }
+    var list = document.createElement("dl");
+    list.className = "grid-fit-summary-grid";
+    section.appendChild(list);
+    container.appendChild(section);
+    return list;
+  }
+
+  function renderModelSummary(container, model, elapsed) {
+    var name = document.createElement("p");
+    name.className = "grid-fit-model-name font-monospace mb-2";
+    name.textContent = String(model.model_path || model.model_name || "");
+    container.appendChild(name);
+    var overview = summaryGroup(container, "Fit summary");
+    addSummaryLine(overview, "RMSE", formatRmse(model.rmse));
+    addSummaryLine(overview, "Fit samples", String(model.points || ""));
+    if (elapsed !== undefined) {
+      addSummaryLine(overview, "Elapsed (s)", elapsed.toFixed(2));
+    }
+    var groups = document.createElement("div");
+    groups.className = "grid-fit-parameter-groups";
+    container.appendChild(groups);
+    var atmosphere = summaryGroup(groups, "Model parameters");
+    addTlustySummaryLines(atmosphere, model);
+    addCmfgenSummaryLines(atmosphere, model);
+    var alignment = summaryGroup(groups, "Spectrum alignment");
+    var params = model.fit_params && typeof model.fit_params === "object" ? model.fit_params : {};
+    addSummaryLine(alignment, "Redshift z", formatParam(params.redshift));
+    addSummaryLine(alignment, "Velocity (km/s)", formatVelocityFromRedshift(params.redshift));
+    addSummaryLine(alignment, "Gaussian σ (km/s)", formatParam(params.broadening_km_s));
+    addAbsoluteScaleSummaryLines(alignment, model, params);
+    var weighting = document.createElement("details");
+    weighting.className = "grid-fit-result-details";
+    var summary = document.createElement("summary");
+    summary.textContent = "Residual weighting";
+    weighting.appendChild(summary);
+    addFitWeightingSummaryLines(summaryGroup(weighting), model);
+    container.appendChild(weighting);
   }
 
   function resetBestSoFar() {
@@ -683,6 +759,63 @@
     if (bestBody) {
       bestBody.innerHTML = "";
     }
+  }
+
+  function addDiagnosticScores(container, model, inline) {
+    var scores = Array.isArray(model.window_scores) ? model.window_scores : [];
+    if (!scores.length) {
+      return;
+    }
+    var details = document.createElement(inline ? "div" : "details");
+    details.className = "grid-fit-result-details";
+    if (!inline) {
+      details.open = true;
+      var summary = document.createElement("summary");
+      summary.textContent = "Diagnostic scores (" + scores.length + (scores.length === 1 ? " window)" : " windows)");
+      details.appendChild(summary);
+    }
+    var help = document.createElement("p");
+    help.className = "small text-muted mt-1 mb-1";
+    help.textContent = "Observed-frame Å; exclusions removed. Scores use the fit residual weighting. Mean squared residual is not reduced χ²; no degrees of freedom are assigned to individual windows.";
+    details.appendChild(help);
+    var exclusions = model.fit_regions && model.fit_regions.exclusions;
+    if (Array.isArray(exclusions) && exclusions.length) {
+      var excluded = document.createElement("p");
+      excluded.className = "small text-muted mb-1";
+      excluded.textContent = "Excluded: " + exclusions.map(function (row) {
+        return row.label + " (" + row.min + "–" + row.max + " Å)";
+      }).join("; ");
+      details.appendChild(excluded);
+    }
+    var wrap = document.createElement("div");
+    wrap.className = "table-responsive";
+    var table = document.createElement("table");
+    table.className = "table table-sm grid-fit-diagnostic-table mb-0";
+    var head = document.createElement("thead");
+    var heading = document.createElement("tr");
+    ["Window", "Min (Å)", "Max (Å)", "Samples", "Σ residual²", "Mean residual²"].forEach(function (label) {
+      var cell = document.createElement("th");
+      cell.scope = "col";
+      cell.textContent = label;
+      heading.appendChild(cell);
+    });
+    head.appendChild(heading);
+    table.appendChild(head);
+    var body = document.createElement("tbody");
+    scores.forEach(function (score) {
+      var row = document.createElement("tr");
+      [score.label, formatParam(score.min), formatParam(score.max), String(score.points),
+        formatRmse(score.chi2), formatRmse(score.mean_square_residual)].forEach(function (value) {
+        var cell = document.createElement("td");
+        cell.textContent = value;
+        row.appendChild(cell);
+      });
+      body.appendChild(row);
+    });
+    table.appendChild(body);
+    wrap.appendChild(table);
+    details.appendChild(wrap);
+    container.appendChild(details);
   }
 
   function renderBestSoFar(best) {
@@ -696,18 +829,8 @@
 
     bestBody.innerHTML = "";
     bestWrap.classList.remove("d-none");
-    addSummaryLine(bestBody, "Model", String(best.model_path || best.model_name || ""));
-    addSummaryLine(bestBody, "RMSE", formatRmse(best.rmse));
-    addSummaryLine(bestBody, "Fit points", String(best.points || ""));
-    addFitWeightingSummaryLines(bestBody, best);
-    addTlustySummaryLines(bestBody, best);
-    addCmfgenSummaryLines(bestBody, best);
-
-    var params = best.fit_params && typeof best.fit_params === "object" ? best.fit_params : {};
-    addSummaryLine(bestBody, "z", formatParam(params.redshift));
-    addSummaryLine(bestBody, "v(z) (km/s)", formatVelocityFromRedshift(params.redshift));
-    addSummaryLine(bestBody, "sigma (km/s)", formatParam(params.broadening_km_s));
-    addAbsoluteScaleSummaryLines(bestBody, best, params);
+    renderModelSummary(bestBody, best);
+    addDiagnosticScores(bestBody, best);
 
     var linksRow = document.createElement("div");
     linksRow.className = "d-flex flex-wrap gap-2 mt-2";
@@ -730,6 +853,33 @@
     }
   }
 
+  function addCandidateDiagnostics(tbody, modelCell, model, index, columnCount) {
+    if (!Array.isArray(model.window_scores) || !model.window_scores.length) {
+      return;
+    }
+    var row = document.createElement("tr");
+    row.hidden = true;
+    row.id = "grid-fit-candidate-diagnostics-" + index;
+    var cell = document.createElement("td");
+    cell.colSpan = columnCount;
+    cell.className = "grid-fit-candidate-details";
+    addDiagnosticScores(cell, model, true);
+    row.appendChild(cell);
+    tbody.appendChild(row);
+    var toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "btn btn-link btn-sm p-0 grid-fit-diagnostic-toggle";
+    toggle.textContent = "Diagnostic scores";
+    toggle.setAttribute("aria-label", "Diagnostic scores for " + String(model.model_path || model.model_name || "model"));
+    toggle.setAttribute("aria-expanded", "false");
+    toggle.setAttribute("aria-controls", row.id);
+    toggle.addEventListener("click", function () {
+      row.hidden = !row.hidden;
+      toggle.setAttribute("aria-expanded", String(!row.hidden));
+    });
+    modelCell.appendChild(toggle);
+  }
+
   function renderResult(result) {
     if (!resultWrap || !resultBody) {
       return;
@@ -738,7 +888,6 @@
     resultWrap.classList.remove("d-none");
 
     var elapsed = asFiniteNumber(result && result.elapsed_seconds, 0);
-    addSummaryLine(resultBody, "Elapsed (s)", elapsed.toFixed(2));
 
     var best = result && typeof result.best_model === "object" ? result.best_model : null;
     if (!best) {
@@ -749,18 +898,8 @@
       return;
     }
 
-    addSummaryLine(resultBody, "Best model", String(best.model_path || best.model_name || ""));
-    addSummaryLine(resultBody, "Best RMSE", formatRmse(best.rmse));
-    addSummaryLine(resultBody, "Fit points", String(best.points || ""));
-    addFitWeightingSummaryLines(resultBody, best);
-    addTlustySummaryLines(resultBody, best);
-    addCmfgenSummaryLines(resultBody, best);
-
-    var params = best.fit_params && typeof best.fit_params === "object" ? best.fit_params : {};
-    addSummaryLine(resultBody, "z", formatParam(params.redshift));
-    addSummaryLine(resultBody, "v(z) (km/s)", formatVelocityFromRedshift(params.redshift));
-    addSummaryLine(resultBody, "sigma (km/s)", formatParam(params.broadening_km_s));
-    addAbsoluteScaleSummaryLines(resultBody, best, params);
+    renderModelSummary(resultBody, best, elapsed);
+    addDiagnosticScores(resultBody, best);
     renderTlustyConfidenceSummary(resultBody, result, best);
 
     var linksRow = document.createElement("div");
@@ -796,7 +935,7 @@
     var tableWrap = document.createElement("div");
     tableWrap.className = "table-responsive";
     var table = document.createElement("table");
-    table.className = "table table-sm table-striped mb-0";
+    table.className = "table table-sm align-middle grid-fit-candidates mb-0";
     var thead = document.createElement("thead");
     var includeTlustyColumns = isNpzGrid(fitSourceFromModel(best));
     var includeCmfgenColumns = fitSourceFromModel(best) === "cmfgen";
@@ -813,8 +952,12 @@
     for (var i = 0; i < topModels.length; i += 1) {
       var item = topModels[i] || {};
       var tr = document.createElement("tr");
+      if (i % 2 === 0) {
+        tr.className = "table-light";
+      }
 
       var tdModel = document.createElement("td");
+      tdModel.className = "grid-fit-model-cell";
       tdModel.appendChild(codeElement(String(item.model_path || item.model_name || "")));
       tr.appendChild(tdModel);
 
@@ -861,6 +1004,7 @@
       }
 
       tbody.appendChild(tr);
+      addCandidateDiagnostics(tbody, tdModel, item, i, includeTlustyColumns ? 8 : (includeCmfgenColumns ? 7 : 4));
     }
     table.appendChild(tbody);
     tableWrap.appendChild(table);

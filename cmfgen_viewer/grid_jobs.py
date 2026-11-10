@@ -42,6 +42,7 @@ def _grid_search_job_create(
     fit_wavelength_range: tuple[float, float] | None,
     model_name_pattern: str,
     total_models: int,
+    fit_regions: dict | None = None,
 ) -> str:
     normalized_source = _normalize_grid_fit_source(fit_source)
     job_id = secrets.token_urlsafe(12)
@@ -56,6 +57,7 @@ def _grid_search_job_create(
         "model_name_pattern": str(model_name_pattern or "").strip(),
         "fit_bounds": _fit_bounds_payload(fit_bounds),
         "fit_wavelength_range": _fit_wavelength_range_payload(fit_wavelength_range),
+        "fit_regions": copy.deepcopy(fit_regions or {}),
         "total": int(total_models),
         "processed": 0,
         "successful": 0,
@@ -124,6 +126,7 @@ def _run_upload_grid_search_job(
                 mode=mode,
             )
             result_payload: dict[str, object] = {
+                "fit_regions": copy.deepcopy(observed.get("fit_regions", {})),
                 "fit_source": normalized_source,
                 "fit_source_label": fit_source_label,
                 "mode": mode,
@@ -327,6 +330,7 @@ def _run_upload_grid_search_job(
 
         elapsed_seconds = max(0.0, time.time() - started_at)
         result_payload: dict[str, object] = {
+            "fit_regions": copy.deepcopy(observed.get("fit_regions", {})),
             "fit_source": normalized_source,
             "fit_source_label": fit_source_label,
             "mode": mode,
