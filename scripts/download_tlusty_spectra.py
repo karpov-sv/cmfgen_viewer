@@ -20,7 +20,7 @@ from urllib.request import Request, urlopen
 import numpy as np
 
 
-DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parents[1] / "data" / "tlusly"
+DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parents[1] / "data" / "tlusty"
 DEFAULT_TIMEOUT_SECONDS = 60.0
 DEFAULT_CRAWL_DEPTH = 2
 DEFAULT_ARCHIVE_PATTERN = "*"
@@ -840,7 +840,7 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Download TLUSTY OSTAR2002/BSTAR2006 spectral-grid archives and build "
-            "preprocessed per-model spectra under data/tlusly/ for reuse in fitting."
+            "preprocessed per-model spectra under data/tlusty/ for reuse in fitting."
         )
     )
     parser.add_argument(

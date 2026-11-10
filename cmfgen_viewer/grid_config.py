@@ -20,7 +20,7 @@ PHOENIX_DEFAULT_ROOT = Path(__file__).resolve().parent.parent / "data" / "phoeni
 
 
 TLUSTY_DEFAULT_ROOT = (
-    Path(__file__).resolve().parent.parent / "data" / "tlusly"
+    Path(__file__).resolve().parent.parent / "data" / "tlusty"
 ).resolve()
 
 

@@ -31,11 +31,11 @@ Useful options:
 - `--crawl-depth <n>` set HTML link crawl depth (default: `2`).
 - `--force-download` and `--force-process` refresh cached archives / processed `.npz` outputs.
 
-By default, output is written under `data/tlusly/`:
+By default, output is written under `data/tlusty/`:
 
-- `data/tlusly/models.csv`: model index used by viewer-side TLUSTY discovery.
-- `data/tlusly/manifest.json`: run metadata and archive-level processing summary.
-- `data/tlusly/spectra/.../*.npz`: processed spectrum arrays used during fitting/overlay.
+- `data/tlusty/models.csv`: model index used by viewer-side TLUSTY discovery.
+- `data/tlusty/manifest.json`: run metadata and archive-level processing summary.
+- `data/tlusty/spectra/.../*.npz`: processed spectrum arrays used during fitting/overlay.
 
 ### 2. Run TLUSTY grid fitting in the upload viewer
 
