@@ -49,7 +49,7 @@ The viewer displays commands for execution in your terminal and offers **Model r
 
 ## Setup and reference
 
-Use [Templates and configuration](/documentation/templates-and-configuration) for installation roots, reusable workspace defaults, workflow previews, and write protection. **System** shows effective settings and filesystem details.
+Use [Templates and configuration](/documentation/templates-and-configuration) for installation roots, reusable workspace defaults, workflow previews, and write protection. **System** shows effective settings and filesystem details. Its **Model Grids** inventory lists imported TLUSTY, BOSZ, and PHOENIX paths, index status, candidates by fitting mode, wavelength coverage, and recorded resolution. Counts reflect accessible indexed spectra and quality checks; an upload's coverage and filters can reduce its matching count. CMFGEN fitting uses the **Model Summary Cache** shown on the same page.
 
 [File reference](/documentation/file-reference) explains model controls, outputs, restart files, and observer products. Successful execution, fresh files, and completed counters do not by themselves establish convergence or scientific acceptance.
 

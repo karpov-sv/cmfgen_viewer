@@ -1042,6 +1042,70 @@ def _discover_imported_grid_models(
     return candidates, None
 
 
+def _imported_grid_inventory(config: dict[str, object]) -> list[dict[str, object]]:
+    """Describe installed grids using the same index and eligibility rules as fits.
+
+    No spectra are decompressed. Candidate counts omit upload-specific filters,
+    so they describe the installation rather than a particular observation.
+    """
+    inventory = []
+    for source in (GRID_FIT_SOURCE_TLUSTY, GRID_FIT_SOURCE_BOSZ, GRID_FIT_SOURCE_PHOENIX):
+        root = _npz_grid_root(config, source)
+        index = root / "models.csv"
+        item = dict(source=source, label=source.upper(), root=str(root), indexed_spectra=0,
+                    absolute_candidates=0,
+                    normalized_candidates=None if source == GRID_FIT_SOURCE_PHOENIX else 0,
+                    coverage="Not recorded", resolution="Not recorded", sed_binning="",
+                    status="Not installed", detail="")
+        if not index.is_file():
+            item.update(status="Index missing" if root.is_dir() else "Not installed",
+                        detail=f"Model index not found: {index}")
+            inventory.append(item)
+            continue
+        try:
+            rows = _load_tlusty_models_csv_cached(str(index), *_file_signature(index))
+        except (OSError, ValueError, csv.Error) as exc:
+            item.update(status="Index unreadable", detail=str(exc))
+            inventory.append(item)
+            continue
+        if source != GRID_FIT_SOURCE_TLUSTY:
+            rows = [row for row in rows if row["grid"] == source]
+        item["indexed_spectra"] = len(rows)
+        minima = [row["wavelength_min_angstrom"] for row in rows if row["wavelength_min_angstrom"] is not None]
+        maxima = [row["wavelength_max_angstrom"] for row in rows if row["wavelength_max_angstrom"] is not None]
+        if minima and maxima:
+            item["coverage"] = "–".join(
+                f"{value:,.1f}".rstrip("0").rstrip(".") for value in (min(minima), max(maxima))
+            )
+        resolutions = sorted({row["resolving_power"] for row in rows if row["resolving_power"]})
+        if resolutions:
+            item["resolution"] = ", ".join(f"R={value:g}" for value in resolutions)
+        sed_powers = sorted({row["sed_binning_power"] for row in rows if row["sed_binning_power"]})
+        if sed_powers:
+            item["sed_binning"] = ", ".join(f"{value:g}" for value in sed_powers)
+        discover = _discover_tlusty_grid_models if source == GRID_FIT_SOURCE_TLUSTY else None
+        errors = []
+        for mode, field in (("both", "absolute_candidates"), ("normalized", "normalized_candidates")):
+            if source == GRID_FIT_SOURCE_PHOENIX and mode == "normalized":
+                item[field] = None
+                continue
+            if discover is not None:
+                candidates, error = discover(config, mode=mode, model_name_pattern="")
+            else:
+                candidates, error = _discover_imported_grid_models(
+                    config, source=source, mode=mode, model_name_pattern="",
+                )
+            item[field] = len(candidates)
+            if error:
+                errors.append(error)
+        if item["absolute_candidates"] or item["normalized_candidates"]:
+            item["status"] = "Available"
+        else:
+            item.update(status="No fitting candidates", detail=" ".join(dict.fromkeys(errors)))
+        inventory.append(item)
+    return inventory
+
+
 def _discover_grid_fit_candidates(
     config: dict[str, object],
     *,

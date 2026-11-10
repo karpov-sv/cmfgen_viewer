@@ -1,9 +1,71 @@
 from __future__ import annotations
 
 import csv
+import json
 from pathlib import Path
 
 from cmfgen_viewer import grid_catalog
+
+
+def _write_imported_index(root, rows):
+    root.mkdir(parents=True, exist_ok=True)
+    columns = list(dict.fromkeys(key for row in rows for key in row))
+    with (root / "models.csv").open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=columns)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({key: json.dumps(value) if isinstance(value, list) else value
+                             for key, value in row.items()})
+
+
+def test_grid_inventory_uses_fit_rules_and_updates_when_files_appear(tmp_path):
+    config = {f"{source}_root": str(tmp_path / source) for source in ("tlusty", "bosz", "phoenix")}
+    for source in ("bosz", "phoenix"):
+        root = Path(config[f"{source}_root"])
+        (root / "spectra").mkdir(parents=True)
+        rows = []
+        for name in ("good", "excluded", "missing"):
+            row = dict(grid=source, model_name=name, spectrum_relpath=f"spectra/{name}.npz",
+                       available_arrays=["wavelength_angstrom", "flux_lambda_cgs"],
+                       fit_eligible="false" if name == "excluded" else "true",
+                       negative_flux_points=1 if name == "excluded" else 0,
+                       resolving_power=2000 if source == "bosz" else 10000,
+                       wavelength_min_angstrom=3000, wavelength_max_angstrom=25000)
+            if source == "bosz":
+                row["available_arrays"].append("continuum_lambda_cgs")
+            rows.append(row)
+            if name != "missing":
+                # Inventory must inspect indices/file presence, never decompress spectra.
+                (root / row["spectrum_relpath"]).touch()
+        _write_imported_index(root, rows)
+    inventory = {item["source"]: item for item in grid_catalog._imported_grid_inventory(config)}
+    assert inventory["tlusty"]["status"] == "Not installed"
+    assert inventory["bosz"]["indexed_spectra"] == 3
+    assert inventory["bosz"]["absolute_candidates"] == 1
+    assert inventory["bosz"]["normalized_candidates"] == 1
+    assert inventory["bosz"]["coverage"] == "3,000–25,000"
+    assert inventory["bosz"]["resolution"] == "R=2000"
+    assert inventory["phoenix"]["absolute_candidates"] == 1
+    assert inventory["phoenix"]["normalized_candidates"] is None
+    assert inventory["phoenix"]["status"] == "Available"
+    (tmp_path / "bosz" / "spectra" / "missing.npz").touch()
+    updated = {item["source"]: item for item in grid_catalog._imported_grid_inventory(config)}
+    assert updated["bosz"]["absolute_candidates"] == 2
+    assert updated["bosz"]["normalized_candidates"] == 2
+
+
+def test_grid_inventory_reports_missing_empty_and_unreadable_indices(tmp_path):
+    config = {f"{source}_root": str(tmp_path / source) for source in ("tlusty", "bosz", "phoenix")}
+    (tmp_path / "tlusty").mkdir()
+    (tmp_path / "bosz").mkdir()
+    (tmp_path / "bosz" / "models.csv").write_text("grid,model_name,spectrum_relpath\n")
+    _write_imported_index(tmp_path / "phoenix", [dict(grid="phoenix", model_name="x" * 200000,
+                                                   spectrum_relpath="spectra/invalid.npz")])
+    inventory = {item["source"]: item for item in grid_catalog._imported_grid_inventory(config)}
+    assert inventory["tlusty"]["status"] == "Index missing"
+    assert inventory["bosz"]["status"] == "No fitting candidates"
+    assert inventory["phoenix"]["status"] == "Index unreadable"
+    assert inventory["phoenix"]["detail"]
 
 
 def _eight_band_photometry() -> dict[str, object]:
@@ -102,3 +164,12 @@ def test_tlusty_discovery_excludes_incomplete_photometry_segments(tmp_path: Path
 
     assert error is None
     assert [candidate["model_name"] for candidate in candidates] == ["BG25000g400v2.flux"]
+    inventory = grid_catalog._imported_grid_inventory({
+        "tlusty_root": str(tmp_path), "bosz_root": str(tmp_path / "absent-bosz"),
+        "phoenix_root": str(tmp_path / "absent-phoenix"),
+    })
+    assert inventory[0]["indexed_spectra"] == 2
+    # Inventory counts are independent of this particular observation's bands.
+    assert inventory[0]["absolute_candidates"] == 2
+    assert inventory[0]["normalized_candidates"] == 0
+    assert inventory[0]["status"] == "Available"

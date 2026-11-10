@@ -30,6 +30,41 @@
       </div>
     </div>
 
+    <div id="model-grids" class="card mb-4">
+      <div class="card-header fw-semibold">Model Grids</div>
+      <div class="card-body">
+        <p class="small text-muted mb-2">
+          CMFGEN fitting uses the <a href="#model-cache">Model Summary Cache</a>
+          ({{ current_entry_count }} cached model(s) for the current base).
+          Imported grids are discovered automatically at the paths below.
+        </p>
+        <p class="small text-muted mb-0">
+          Candidate counts include accessible indexed spectra and fitting quality checks.
+          An upload's wavelength coverage, flux mode, and filters can narrow the selection.
+          Coverage spans indexed products; individual spectra may cover less.
+          Resolution lists recorded instrumental R; SED binning is shown separately.
+        </p>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm table-striped mb-0">
+          <thead><tr><th>Grid / directory</th><th>Status</th><th>Indexed spectra</th><th>Absolute candidates</th><th>Normalized candidates</th><th>Coverage (Å)</th><th>Resolution</th></tr></thead>
+          <tbody>
+            {% for grid in imported_grids %}
+              <tr data-grid-source="{{ grid.source }}">
+                <td><strong>{{ grid.label }}</strong><br><code>{{ grid.root }}</code></td>
+                <td>{{ grid.status }}{% if grid.detail %}<div class="small text-muted">{{ grid.detail }}</div>{% endif %}</td>
+                <td>{{ "{:,}".format(grid.indexed_spectra) }}</td>
+                <td>{{ "{:,}".format(grid.absolute_candidates) }}</td>
+                <td>{% if grid.normalized_candidates is none %}Not supported (no continua){% else %}{{ "{:,}".format(grid.normalized_candidates) }}{% endif %}</td>
+                <td>{{ grid.coverage }}</td>
+                <td>{{ grid.resolution }}{% if grid.sed_binning %}<div class="small text-muted">SED binning target: λ/Δλ={{ grid.sed_binning }}</div>{% endif %}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
     <div class="row g-3 mb-4">
       <div class="col-lg-6">
         <div class="card h-100">

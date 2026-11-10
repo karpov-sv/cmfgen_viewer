@@ -24,7 +24,7 @@ from .cache_jobs import (
     cache_maintenance_job_create,
     run_cache_maintenance_job,
 )
-from .grid_config import _tlusty_root
+from .grid_catalog import _imported_grid_inventory
 from .observed_spectrum import list_upload_manifests
 from .spectrum_options import _spectrum_lambda_bounds
 from .summary_jobs import SUMMARY_JOB_DETAILS, SUMMARY_JOB_KIND
@@ -125,7 +125,6 @@ def system_status():
         ["Summary cache size", _format_size(cache_size)],
         ["Upload storage", str(upload_root)],
         ["Managed uploads", f"{len(uploads)} ({_format_size(upload_bytes)})"],
-        ["TLUSTY root", str(_tlusty_root(config))],
         ["Spectrum wavelength range", f"{lambda_min:g} .. {lambda_max:g} Å"],
         ["Fit worker limit", str(fit_pool_size) if fit_pool_size > 0 else "Automatic"],
         ["Show hidden files", "Yes" if bool(config.get("show_all", False)) else "No"],
@@ -140,6 +139,7 @@ def system_status():
 
     return render_template(
         "system.html",
+        imported_grids=_imported_grid_inventory(config),
         runtime_rows=runtime_rows,
         namespaces=namespaces,
         current_basepath=basepath,

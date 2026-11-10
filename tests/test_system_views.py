@@ -28,6 +28,8 @@ def _make_app(tmp_path: Path):
     app.config["CMFGEN_VIEWER"]["summary_cache_db"] = str(
         (tmp_path / "summary.sqlite").resolve()
     )
+    for source in ("tlusty", "bosz", "phoenix"):
+        app.config["CMFGEN_VIEWER"][f"{source}_root"] = str(tmp_path / "grids" / source)
     return app
 
 
@@ -69,6 +71,11 @@ def test_system_page_lists_runtime_cache_namespaces_and_guarded_cleanup(
     assert b"Upload Storage" in response.data
     assert b"Background Tasks" in response.data
     assert b"Model Summary Cache" in response.data
+    assert b'id="model-grids"' in response.data
+    for source in ("tlusty", "bosz", "phoenix"):
+        assert f'data-grid-source="{source}"'.encode() in response.data
+        assert str(tmp_path / "grids" / source).encode() in response.data
+    assert b"Not installed" in response.data
     assert b"Read-only mode is active" in response.data
     assert basepath.encode() in response.data
     assert old_base.encode() in response.data

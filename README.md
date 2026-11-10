@@ -355,6 +355,7 @@ and exit codes. Execution checks do not establish scientific convergence.
   - sequential fallback remains available when resolved worker count is 1.
 - System and maintenance view:
   - runtime configuration, upload-storage usage, and active background-task counts,
+  - imported TLUSTY/BOSZ/PHOENIX inventory with paths, index status, fitting candidates by mode, coverage, and recorded resolution,
   - explicit model-summary cache checks for missing, stale, or retargeted entries,
   - background refresh/removal actions plus guarded cleanup of current, unavailable, or non-current cache namespaces.
 - Read-write model operations:
