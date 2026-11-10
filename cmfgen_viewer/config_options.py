@@ -1,4 +1,4 @@
-"""Option names and typed values shared by viewer configuration formats."""
+"""Viewer option names and typed values for shared .cmfgenrc settings."""
 
 from __future__ import annotations
 

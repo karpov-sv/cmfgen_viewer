@@ -114,16 +114,18 @@ python -m cmfgen_viewer --dir /path/to/cmfgen/run
 python viewer.py --dir /path/to/cmfgen/run --lambda-min 1200 --lambda-max 9000
 ```
 
-### Example with config file
+### Shared configuration
 
-```bash
-python viewer.py --config viewer.toml
-```
+Use `~/.cmfgenrc` for user defaults or `.cmfgenrc` in the startup directory for
+local overrides. Both the viewer and `cmfgen_run.py` read these files
+automatically, so one file can hold the installation, runner, and viewer settings.
+A separate viewer configuration file is unnecessary.
 
-`viewer.toml` (equivalent to CLI options):
-
-```toml
-[cmfgen_viewer]
+```ini
+cmfgen_root = "/path/to/cur_cmf"
+atomic_root = "/path/to/atomic"
+nthreads = 1
+# Viewer defaults:
 dir = "/path/to/cmfgen/run"
 port = 5567
 host = "127.0.0.1"
@@ -141,9 +143,18 @@ debug = false
 # auth_realm = "CMFGEN Viewer"
 ```
 
+Entries use `key = value` without a section header. Quote values containing
+spaces; relative paths are resolved from the `.cmfgenrc` directory. With these
+defaults, start the viewer with `python viewer.py`; CLI flags can override them.
+Installation roots and native threads also honor `CMFDIST`, `ATOMIC`, and
+`OMP_NUM_THREADS`. See [configuration precedence](doc/templates-and-configuration.md#installation-and-configuration).
+
+The viewer-only JSON/TOML `--config` option has been removed. Move settings
+from an existing viewer file into `.cmfgenrc` without a section header, adjusting
+relative paths for the shared file's location.
+
 ### Useful flags
 
-- `--config <path>` load defaults from a JSON/TOML config file (`[cmfgen_viewer]` section is supported for TOML).
 - `--host 0.0.0.0` bind on all interfaces.
 - `--all` show hidden files/directories.
 - `--lambda-min 800` minimum wavelength (Angstroms) used for spectrum parsing/display.

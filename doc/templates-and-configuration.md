@@ -2,18 +2,23 @@
 
 ## Installation and configuration
 
-Supply the CMFGEN installation and atomic-data roots when starting the viewer:
+Use one `.cmfgenrc` for the viewer and `cmfgen_run.py`. Both read `~/.cmfgenrc`
+and then `.cmfgenrc` in the startup working directory automatically. The shared
+file accepts installation paths, native thread defaults, and every viewer
+setting listed below. A separate viewer configuration file is unnecessary.
+
+Explicit flags can override the shared defaults when starting the viewer:
 
 ```bash
 python viewer.py --dir /path/to/models --read-write \
   --cmfgen-root /path/to/cur_cmf --atomic-root /path/to/atomic
 ```
 
-The same root options are available to `cmfgen_run.py`. The viewer's JSON/TOML configuration uses `cmfgen_root`, `atomic_root`, and `template_root`. The **System** page shows effective installation settings and their sources.
+The same root options are available to `cmfgen_run.py`. The **System** page shows effective installation settings and their sources.
 
 Installation and thread defaults are resolved individually, highest priority first:
 
-1. Explicit command-line options (and viewer JSON/TOML settings).
+1. Explicit command-line options.
 2. Nonempty `CMFDIST`, `ATOMIC`, and `OMP_NUM_THREADS` environment variables.
 3. `.cmfgenrc` in the startup working directory.
 4. `~/.cmfgenrc`.
@@ -28,7 +33,6 @@ atomic_root = /path/to/atomic
 nthreads = 1
 # Optional viewer defaults:
 read_write = true
-# Opt in to full-size recovery files (default: false):
 dir = ~/models
 lambda_min = 800
 lambda_max = 250000
@@ -43,7 +47,13 @@ fit_pool_size = 0
 
 Keys are case-insensitive, and hyphens and underscores are interchangeable (`lambda-min` and `lambda_min`). `CMFDIST`, `ATOMIC`, and `threads` are also accepted configuration keys. Use `#` comments and quote paths containing spaces. `~` expands; relative configuration paths are resolved from the configuration file's directory. CLI/environment paths are relative to the startup directory. Configuration files are parsed, never sourced: shell commands, `export`, and `$VARIABLE` substitution are unsupported. Invalid or duplicate settings produce an error.
 
-Viewer options follow **CLI flags > viewer JSON/TOML configuration > startup-directory `.cmfgenrc` > `~/.cmfgenrc` > built-in defaults**. The supported viewer settings are:
+Viewer options follow **CLI flags > startup-directory `.cmfgenrc` >
+`~/.cmfgenrc` > built-in defaults**. The viewer-only JSON/TOML `--config` option
+has been removed. To migrate an existing viewer configuration, move its entries into
+`.cmfgenrc` without a `[viewer]` or `[cmfgen_viewer]` header. Adjust relative paths
+for the `.cmfgenrc` location, and quote values containing spaces.
+
+The supported viewer settings are:
 
 | Settings | Meaning |
 | --- | --- |
@@ -109,7 +119,7 @@ templates/
 ```
 
 Use `--template-root /path/to/templates` with either `viewer.py` or
-`cmfgen_run.py`. The viewer's JSON/TOML config also accepts `template_root`.
+`cmfgen_run.py`. The viewer also reads `template_root` from `.cmfgenrc`.
 The path names the collection root, not its `lte/` or `obs/` subdirectory.
 
 ## Resolution

@@ -1,103 +1,18 @@
 from __future__ import annotations
 
 import argparse
-import json
 import math
 from pathlib import Path
 
 from .app import create_app
-from .config_options import (
-    CONFIG_KEY_ALIASES,
-    _parse_bool_config_value,
-    _parse_int_config_value,
-    _parse_float_config_value,
-    normalize_config_value,
-)
 from .runner_config import resolve_viewer_defaults, resolve_runner_config
 from .runner_recipe import RunnerError
 
-try:
-    import tomllib
-except ModuleNotFoundError:  # pragma: no cover - Python 3.11+ provides tomllib
-    tomllib = None
-
-
-def _load_config_defaults(config_path: str) -> dict[str, object]:
-    path = Path(config_path).expanduser().resolve()
-    if not path.exists() or not path.is_file():
-        raise ValueError(f"--config must point to an existing file: {path}")
-
-    try:
-        text = path.read_text(encoding="utf-8")
-    except OSError as exc:
-        raise ValueError(f"Could not read config file '{path}': {exc}") from exc
-
-    suffix = path.suffix.lower()
-    parsed: object
-    if suffix == ".json":
-        try:
-            parsed = json.loads(text)
-        except json.JSONDecodeError as exc:
-            raise ValueError(f"Failed to parse JSON config '{path}': {exc}") from exc
-    elif suffix in {".toml", ".tml"}:
-        if tomllib is None:
-            raise ValueError("TOML config is not supported on this Python version.")
-        try:
-            parsed = tomllib.loads(text)
-        except Exception as exc:
-            raise ValueError(f"Failed to parse TOML config '{path}': {exc}") from exc
-    else:
-        parse_errors: list[str] = []
-        parsed = None
-        if tomllib is not None:
-            try:
-                parsed = tomllib.loads(text)
-            except Exception as exc:
-                parse_errors.append(f"TOML: {exc}")
-        try:
-            parsed = json.loads(text)
-        except json.JSONDecodeError as exc:
-            parse_errors.append(f"JSON: {exc}")
-        if parsed is None:
-            joined = "; ".join(parse_errors) if parse_errors else "unsupported format"
-            raise ValueError(
-                f"Could not parse config '{path}'. Use .json or .toml file extension. Details: {joined}"
-            )
-
-    if not isinstance(parsed, dict):
-        raise ValueError(f"Config file '{path}' must contain a JSON object or TOML table.")
-
-    section: dict[str, object] = parsed
-    for section_name in ("cmfgen_viewer", "viewer"):
-        candidate = parsed.get(section_name)
-        if isinstance(candidate, dict):
-            section = candidate
-            break
-
-    defaults: dict[str, object] = {}
-    unknown_keys: list[str] = []
-    for raw_key, raw_value in section.items():
-        normalized_key = str(raw_key).strip().lower().replace("-", "_")
-        dest = CONFIG_KEY_ALIASES.get(normalized_key)
-        if dest is None:
-            unknown_keys.append(str(raw_key))
-            continue
-        defaults[dest] = raw_value
-
-    if unknown_keys:
-        keys = ", ".join(sorted(unknown_keys))
-        raise ValueError(f"Unsupported config option(s): {keys}")
-
-    return {key: normalize_config_value(key, value) for key, value in defaults.items()}
-
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="CMFGEN model results viewer")
-    parser.add_argument(
-        "--config",
-        dest="config_path",
-        default=None,
-        help="Path to JSON/TOML config file with the same options as CLI flags",
+    parser = argparse.ArgumentParser(
+        description="CMFGEN model results viewer",
+        epilog="Defaults are read from ~/.cmfgenrc and ./.cmfgenrc; CLI flags override them.",
     )
     parser.add_argument(
         "-d",
@@ -165,7 +80,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--read-write",
         dest="read_write",
         action="store_true",
-        help="Allow operations that modify model directories (default: viewer config, .cmfgenrc read_write, or disabled)",
+        help="Allow operations that modify model directories (default: .cmfgenrc read_write, or disabled)",
     )
     access_group.add_argument(
         "--read-only",
@@ -221,31 +136,18 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> None:
     pre_parser = argparse.ArgumentParser(add_help=False)
-    pre_parser.add_argument("--config", dest="config_path", default=None)
     pre_access = pre_parser.add_mutually_exclusive_group()
     pre_access.add_argument("--read-write", dest="read_write", action="store_true")
     pre_access.add_argument("--read-only", dest="read_write", action="store_false")
     pre_parser.set_defaults(read_write=None)
     pre_args, _unknown_args = pre_parser.parse_known_args(argv)
 
-    config_defaults: dict[str, object] = {}
-    config_error = ""
-    if pre_args.config_path:
-        try:
-            config_defaults = _load_config_defaults(str(pre_args.config_path))
-        except ValueError as exc:
-            config_error = str(exc)
-
     parser = build_parser()
-    if config_error:
-        parser.error(config_error)
     try:
         rc_defaults, rc_sources = resolve_viewer_defaults()
     except (RunnerError, OSError, UnicodeError) as exc:
         parser.error(str(exc))
     parser.set_defaults(**rc_defaults)
-    if config_defaults:
-        parser.set_defaults(**config_defaults)
     args = parser.parse_args(argv)
 
     basepath = Path(args.basepath).expanduser().resolve()
@@ -293,12 +195,12 @@ def main(argv: list[str] | None = None) -> None:
     except RunnerError as exc:
         parser.error(str(exc))
     cmfgen_sources = {
-        key: "viewer CLI/config" if source == "cli" else source
+        key: "viewer CLI" if source == "cli" else source
         for key, source in cmfgen_sources.items()
     }
 
     cmfgen_sources["read_write"] = (
-        "viewer CLI/config" if pre_args.read_write is not None or "read_write" in config_defaults
+        "viewer CLI" if pre_args.read_write is not None
         else rc_sources.get("read_write", "default")
     )
 
