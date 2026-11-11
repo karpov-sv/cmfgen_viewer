@@ -56,7 +56,7 @@ async function main() {
   // stay native through zoom, redshift/broadening, visibility, and reset.
   const controls = {};
   const frames = [];
-  global.window = {requestAnimationFrame: callback => { frames.push(callback); return frames.length; }};
+  global.window = {addEventListener() {}, requestAnimationFrame: callback => { frames.push(callback); return frames.length; }};
   global.document = {getElementById: id => controls[id] || null};
   const handlers = {};
   const target = {id: 'spectrum', layout: {xaxis: {type: 'log', autorange: true}},

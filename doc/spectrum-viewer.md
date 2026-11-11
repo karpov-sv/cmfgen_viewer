@@ -144,6 +144,18 @@ Zoom the plot to a region and click **Add zoom range as window** or
 entries are preserved, and an optional label can be added afterward. Both buttons
 use uploaded wavelengths, including when the plot has a logarithmic axis.
 
+Diagnostic windows and exclusions are saved automatically in this browser,
+separately for each upload, and restored on your next visit. Manual edits and
+zoom-button additions both persist; clearing a field saves it empty. Explicit
+URL values and a restored running fit's regions take precedence over saved
+drafts. Browser storage does not change a running fit or its saved results.
+
+The **Zoom to → Diagnostic windows** group follows the windows in the form,
+including restored browser drafts and zoom-button additions. Each option uses
+the window's exact uploaded-wavelength bounds, independently of source redshift
+and the line-jump Width field. Incomplete or invalid rows are omitted while
+editing; windows outside the displayed spectra's coverage are disabled.
+
 All bounds are inclusive, in **observed-frame Å**, using the upload's air/vacuum
 convention. Windows stay fixed as the model redshift is optimized. The overall
 wavelength range still applies. Numeric fields and their plotted boundary markers

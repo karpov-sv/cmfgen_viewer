@@ -135,6 +135,9 @@
     var customStatus = document.getElementById(target.id + "-lines-custom-status");
     var catalog = commonCatalog.slice();
     var customOptgroup = null;
+    var diagnosticOptgroup = null;
+    var diagnosticWindows = [];
+    var diagnosticText = null;
     var zoomOptions = [];
     var coverageSnapshot = [];
     var coverage = null;
@@ -176,7 +179,49 @@
         if (option.textContent !== text) option.textContent = text;
         option.disabled = !range || !Number.isFinite(center) || center < range[0] || center > range[1];
       });
+      if (diagnosticOptgroup) {
+        diagnosticWindows.forEach(function (row, index) {
+          diagnosticOptgroup.children[index].disabled = !range || row.max < range[0] || row.min > range[1];
+        });
+      }
     }
+
+    function updateDiagnosticWindows(text) {
+      text = String(text || "");
+      if (text === diagnosticText) return;
+      diagnosticText = text;
+      if (diagnosticOptgroup) diagnosticOptgroup.remove();
+      diagnosticOptgroup = null;
+      diagnosticWindows = [];
+      text.split(/\r?\n/).forEach(function (row) {
+        var fields = row.split(",").map(function (field) { return field.trim(); });
+        if (fields.length !== 2 && fields.length !== 3) return;
+        if (!fields[fields.length - 2] || !fields[fields.length - 1]) return;
+        var lower = Number(fields[fields.length - 2]), upper = Number(fields[fields.length - 1]);
+        var label = fields.length === 3 ? fields[0] : "";
+        if (!Number.isFinite(lower) || !Number.isFinite(upper) || lower <= 0 || lower >= upper ||
+            (fields.length === 3 && (!label || label.length > 80)) || diagnosticWindows.length >= 64) return;
+        diagnosticWindows.push({ label: label, min: lower, max: upper });
+      });
+      if (diagnosticWindows.length) {
+        diagnosticOptgroup = document.createElement("optgroup");
+        diagnosticOptgroup.label = "Diagnostic windows";
+        diagnosticWindows.forEach(function (row, index) {
+          var option = document.createElement("option");
+          option.value = "diagnostic-" + index;
+          option.textContent = (row.label ? row.label + " · " : "") + row.min + "–" + row.max + " Å";
+          diagnosticOptgroup.appendChild(option);
+        });
+        zoom.appendChild(diagnosticOptgroup);
+      }
+      schedule();
+    }
+
+    window.addEventListener("cmfgen:diagnostic-windows-changed", function (event) {
+      if (event.detail && event.detail.plotId === target.id) updateDiagnosticWindows(event.detail.text);
+    });
+    var diagnosticInput = target.id === "upload-spectrum-plot" && document.getElementById("grid-fit-windows");
+    if (diagnosticInput) updateDiagnosticWindows(diagnosticInput.value);
 
     function fluxRangeInWindow(range) {
       var xIsLog = target._fullLayout.xaxis.type === "log";
@@ -337,6 +382,9 @@
         if (range) zoomToRange(range);
       } else if (selection === "optical") {
         zoomToRange([3800, 7500]);
+      } else if (selection.indexOf("diagnostic-") === 0) {
+        var diagnostic = diagnosticWindows[Number(selection.slice(11))];
+        if (diagnostic) zoomToRange([diagnostic.min, diagnostic.max]);
       } else if (selection.indexOf("line-") === 0) {
         var line = catalog[Number(selection.slice(5))];
         if (!line) return;

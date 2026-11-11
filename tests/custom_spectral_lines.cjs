@@ -62,6 +62,30 @@ function setup(id) {
 }
 function flush() { let count=0; while(frames.length) { frames.shift()(); assert(++count < 50, 'No refresh loop'); } }
 const first = setup('first'); flush();
+function updateWindows(text, plotId='first') {
+  window.dispatchEvent({type:'cmfgen:diagnostic-windows-changed',detail:{plotId,text}});
+  flush();
+}
+function diagnosticGroup() { return first.get('zoom').children.find(child => child.label === 'Diagnostic windows'); }
+updateWindows('He I, 4450, 4490\n4920, 4930\nOutside, 9000, 9100\nIncomplete, 4500\nBad, 5, 4\n, 5, 10');
+assert.equal(diagnosticGroup().children.length,3);
+assert.equal(diagnosticGroup().children[0].textContent,'He I · 4450–4490 Å');
+assert.equal(diagnosticGroup().children[2].disabled,true);
+first.get('zoom-width').value='10';
+first.target.__spectrumDisplayRedshift=.01;
+first.get('zoom').value='diagnostic-0'; first.get('zoom').handlers.change();
+assert.deepEqual(Array.from(first.target._fullLayout.xaxis.range),[4450,4490], 'Diagnostic bounds ignore line width and stellar redshift');
+first.target._fullLayout.xaxis.type='log';
+first.get('zoom').value='diagnostic-1'; first.get('zoom').handlers.change();
+assert.deepEqual(Array.from(first.target._fullLayout.xaxis.range),[Math.log10(4920),Math.log10(4930)]);
+updateWindows('Changed, 4500, 4550');
+assert.equal(diagnosticGroup().children.length,1);
+updateWindows('Other plot, 5000, 5100','other');
+assert.equal(diagnosticGroup().children[0].textContent,'Changed · 4500–4550 Å');
+updateWindows('');
+assert.equal(diagnosticGroup(),undefined);
+first.target._fullLayout.xaxis.type='linear'; first.target._fullLayout.xaxis.range=[4000,7000];
+first.target.__spectrumDisplayRedshift=0; first.get('zoom-width').value='';
 assert.equal(first.get('custom-medium').value, 'air', 'New custom lists default to air');
 first.get('custom-medium').value = 'vacuum'; first.get('custom-medium').handlers.change(); flush();
 first.get('custom').value = '5000 My line\n6000, <b>Custom</b>\n-1 invalid';

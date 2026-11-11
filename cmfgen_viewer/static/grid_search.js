@@ -1406,6 +1406,30 @@
     cancelButton.addEventListener("click", requestCancelActiveJob);
   }
   setCancelControl(false, false);
+  var diagnosticWindowsInput = document.getElementById("grid-fit-windows");
+  function notifyDiagnosticWindows() {
+    if (!diagnosticWindowsInput || !uploadPlot) return;
+    window.dispatchEvent(new CustomEvent("cmfgen:diagnostic-windows-changed", {
+      detail: { plotId: uploadPlot.id, text: diagnosticWindowsInput.value }
+    }));
+  }
+  if (diagnosticWindowsInput) {
+    diagnosticWindowsInput.addEventListener("input", notifyDiagnosticWindows);
+    diagnosticWindowsInput.addEventListener("change", notifyDiagnosticWindows);
+  }
+  if (window.CmfgenFitRegionStorage) {
+    var regionQuery = new URLSearchParams(window.location.search);
+    window.CmfgenFitRegionStorage.bind({
+      token: pageConfig.upload_token,
+      windows: document.getElementById("grid-fit-windows"),
+      exclusions: document.getElementById("grid-fit-exclusions"),
+      authoritative: ["windows", "exclusions"].filter(function (name) {
+        return !!initialActiveJob || regionQuery.has("fit_" + name);
+      }),
+      onChange: schedulePatternMatchCount
+    });
+  }
+  notifyDiagnosticWindows();
   fetchPatternMatchCount();
   syncFitRangeMarkers();
 

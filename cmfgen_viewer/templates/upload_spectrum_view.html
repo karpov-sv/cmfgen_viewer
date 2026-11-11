@@ -186,7 +186,7 @@
                     <button type="button" class="btn btn-sm btn-outline-secondary mt-2" data-fit-region-target="grid-fit-exclusions" title="Append the current zoom range as an excluded interval in uploaded wavelengths. Existing exclusions are kept.">Exclude zoom range</button>
                   </div>
                 </div>
-                <p class="small text-muted mt-2 mb-0">Use non-overlapping windows with at least two unmasked samples each and at least 30 samples in total. Models must cover every selected sample. Scores retain the current pixel/error weighting; normalized uploads should already be continuum-normalized.</p>
+                <p class="small text-muted mt-2 mb-0">Windows and exclusions are saved automatically in this browser for this upload, including edits made with the zoom buttons. Clear a field to save it empty. Use non-overlapping windows with at least two unmasked samples each and at least 30 samples in total. Models must cover every selected sample. Scores retain the current pixel/error weighting; normalized uploads should already be continuum-normalized.</p>
               </fieldset>
             {% endif %}
             <div class="grid-fit-bounds">
@@ -291,6 +291,7 @@
     </section>
   {% endif %}
   <script src="{{ url_for('static', filename='diagnostic_plots.js') }}"></script>
+  <script src="{{ url_for('static', filename='fit_region_storage.js') }}"></script>
   <script type="application/json">
 {
   "statusUrlTemplate": {{ url_for('viewer.upload_fit_grid_status', job_id='__JOB_ID__') | tojson }},
@@ -298,6 +299,7 @@
   "overlayUrlTemplate": {{ url_for('viewer.upload_fit_grid_overlay', job_id='__JOB_ID__') | tojson }},
   "matchCountUrl": {{ url_for('viewer.upload_fit_grid_match_count', token=upload.token) | tojson }},
   "active_grid_job": {{ active_grid_job | tojson if active_grid_job else "null" }},
+  "upload_token": {{ upload.token | tojson }},
   "mode": {{ mode | tojson }}
 }
 </script>
