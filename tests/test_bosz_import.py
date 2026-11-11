@@ -9,6 +9,7 @@ from scripts.import_bosz_spectra import import_grid
 from cmfgen_viewer.grid_storage import load_spectrum
 from cmfgen_viewer.grid_catalog import _discover_tlusty_grid_models
 from cmfgen_viewer.grid_fitting import _build_tlusty_model_series
+from cmfgen_viewer.wavelengths import air_to_vacuum
 
 
 def source_grid(tmp_path: Path, families=("ap",)) -> Path:
@@ -28,10 +29,12 @@ def test_bosz_preserves_flux_continuum_and_distinct_atmospheres(tmp_path):
     assert import_grid(source, output, log=lambda _: None) == 2
     manifest = json.loads((output / "manifest.json").read_text())
     assert manifest["surface_flux_factor"] == pytest.approx(4 * np.pi)
+    assert manifest["wavelength_convention"] == "air"
     assert {r["atmosphere_family"] for r in manifest["models"]} == {"ap", "mp"}
     for row in manifest["models"]:
         assert row["z_over_zsun"] == pytest.approx(10 ** -0.5)
         assert row["resolving_power"] == 2000
+        assert row["wavelength_convention"] == "air"
         with np.load(output / row["spectrum_relpath"]) as stored:
             assert "wavelength_angstrom" not in stored
             assert "normalized_flux_candidate" not in stored
@@ -43,7 +46,7 @@ def test_bosz_preserves_flux_continuum_and_distinct_atmospheres(tmp_path):
             mode="normalized", spectrum_path=output / row["spectrum_relpath"], continuum_path=None,
         )
         assert error is None
-        assert x == [4000, 5000, 6000]
+        np.testing.assert_allclose(x, air_to_vacuum([4000, 5000, 6000]))
         np.testing.assert_allclose(y, [0.5, 0.75, 5/6])
     # The CSV and normalized-array conventions are compatible with the current
     # external-grid reader, without changing or merging the TLUSTY catalogue.

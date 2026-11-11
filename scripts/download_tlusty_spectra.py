@@ -514,6 +514,9 @@ def _parse_spectrum_payload(
 
     arrays["input_columns"] = np.asarray(matrix.shape[1])
     arrays["x_axis_kind"] = np.asarray(x_axis_kind)
+    # SYNSPEC defaults to air above 2000 Å. Frequency-based TLUSTY SEDs
+    # remain vacuum; preserve source coordinates and declare their convention.
+    arrays["wavelength_medium"] = np.asarray("vacuum" if x_axis_kind == "frequency_hz" else "air")
     arrays["x_unit_guess"] = np.asarray(x_unit_guess)
 
     return {
@@ -711,6 +714,8 @@ def _existing_npz_spectrum_metadata(npz_path: Path) -> dict[str, object] | None:
                 str(arrays["x_unit_guess"]) if "x_unit_guess" in arrays
                 else ("hz" if x_axis_kind == "frequency_hz" else "angstrom")
             )
+            wavelength_medium = (str(arrays["wavelength_medium"]) if "wavelength_medium" in arrays
+                                 else ("vacuum" if x_axis_kind == "frequency_hz" else "air"))
             resolving_power = float(arrays["resolving_power"]) if "resolving_power" in arrays else None
             sampling = float(arrays["samples_per_resolution"]) if "samples_per_resolution" in arrays else None
             sed_power = float(arrays["sed_binning_power"]) if "sed_binning_power" in arrays else None
@@ -741,6 +746,7 @@ def _existing_npz_spectrum_metadata(npz_path: Path) -> dict[str, object] | None:
         "x_axis_kind": x_axis_kind,
         "x_unit_guess": x_unit_guess,
         "input_columns": input_columns,
+        "wavelength_medium": wavelength_medium,
         "available_arrays": available_arrays,
         "resolving_power": resolving_power,
         "samples_per_resolution": sampling,
@@ -767,6 +773,7 @@ def _build_manifest_row(
     x_unit_guess: object,
     input_columns: object,
     available_arrays: object,
+    wavelength_medium: object = None,
     resolving_power: float | None = None,
     samples_per_resolution: float | None = None,
     sed_binning_power: float | None = None,
@@ -793,6 +800,7 @@ def _build_manifest_row(
         "wavelength_min_angstrom": float(wavelength_min_angstrom or 0.0),
         "wavelength_max_angstrom": float(wavelength_max_angstrom or 0.0),
         "x_axis_kind": str(x_axis_kind or ""),
+        "wavelength_medium": str(wavelength_medium or ("vacuum" if x_axis_kind == "frequency_hz" else "air")),
         "x_unit_guess": str(x_unit_guess or ""),
         "input_columns": int(input_columns or 0),
         "available_arrays": sorted(arrays_list),
@@ -872,6 +880,7 @@ def _extract_archive(
                             wavelength_min_angstrom=cached.get("wavelength_min_angstrom"),
                             wavelength_max_angstrom=cached.get("wavelength_max_angstrom"),
                             x_axis_kind=cached.get("x_axis_kind"),
+                            wavelength_medium=cached.get("wavelength_medium"),
                             x_unit_guess=cached.get("x_unit_guess"),
                             input_columns=cached.get("input_columns"),
                             available_arrays=cached.get("available_arrays"),
@@ -980,6 +989,7 @@ def _write_manifest(output_dir: Path, manifest: dict[str, object], rows: list[di
         "wavelength_min_angstrom",
         "wavelength_max_angstrom",
         "x_axis_kind",
+        "wavelength_medium",
         "x_unit_guess",
         "input_columns",
         "available_arrays",
@@ -1356,6 +1366,7 @@ def main(argv: Iterable[str] | None = None) -> int:
                     "normalized_flux_candidate",
                     "input_columns",
                     "x_axis_kind",
+                    "wavelength_medium",
                     "x_unit_guess",
                     "resolving_power",
                     "samples_per_resolution",

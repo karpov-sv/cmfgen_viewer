@@ -41,6 +41,8 @@ def compact_spectrum(root: Path, row: dict) -> tuple[int, int, list[str]]:
         for key in RESOLUTION_METADATA:
             if key in source:
                 arrays[key] = source[key]
+        if "wavelength_medium" in source:
+            arrays["wavelength_medium"] = source["wavelength_medium"]
         if set(source.files) == set(arrays):
             return before, before, sorted(arrays)
 

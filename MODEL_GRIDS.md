@@ -60,6 +60,15 @@ The command preserves every fitting array exactly, verifies each replacement
 before installing it, and updates both indexes. It can be rerun after an
 interruption. The viewer reads both the older and compact formats.
 
+SYNSPEC detailed wavelength tables use **air above 2000 Å**, with vacuum below
+that threshold; frequency-based TLUSTY `.flux` SEDs use vacuum throughout.
+The importer preserves these source coordinates and records `wavelength_medium`.
+The viewer converts Air model coordinates to vacuum on loading, before applying
+source redshift and converting to the upload's convention. Older caches are
+recognized through `x_axis_kind=wavelength_input`, so redownloading is unnecessary.
+Explicit `wavelength_medium=vacuum` overrides the default for all-vacuum runs.
+See [SYNSPEC's wavelength convention](https://arxiv.org/pdf/1706.01859#page=20).
+
 To rebuild the detailed spectra at a chosen instrumental resolution from the
 existing raw archives:
 
@@ -244,6 +253,14 @@ in the catalogue. Full model names distinguish overlapping atmosphere families.
 Source checksums are retained, but filenames alone do not identify whether a
 download contains the publisher's corrected revision.
 
+BOSZ **2024** uses **air wavelengths above 2000 Å**, and vacuum below, as
+specified in [Mészáros et al. (2024), §3.3](https://arxiv.org/pdf/2407.10872#page=5).
+This differs from the older BOSZ 2017 vacuum grid. The viewer converts the
+2024 source axis to vacuum on loading, before redshift and the upload convention
+are applied. Existing imported caches are recognized by their `bosz2024_`
+filenames; reimporting is unnecessary. New imports record the native convention
+in both indexes. PHOENIX-ACES retains its published vacuum axis.
+
 An R=2000 import remains an R=2000 product, even though its sampling is finer
 than one resolution element. It is not a replacement for detailed TLUSTY line
 spectra. The imported catalogue remains separate from TLUSTY.
@@ -404,7 +421,7 @@ The property can be corrected later on the upload page without rewriting the
 source. Old uploads without a saved property also default to Air. Rerun fits
 after editing it. VizieR-generated photometry is recorded as Vacuum.
 
-Models remain natively vacuum. For Air observations the pipeline applies source
+Models use vacuum internally, including converted SYNSPEC air tables. For Air observations the pipeline applies source
 redshift in vacuum, broadens the native model, then converts to air and samples
 onto the unchanged observed pixels. Absolute F-lambda includes the coordinate
 Jacobian; normalized flux is unchanged by the medium conversion. Both fitting

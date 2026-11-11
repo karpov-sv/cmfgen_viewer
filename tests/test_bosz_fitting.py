@@ -11,6 +11,7 @@ from cmfgen_viewer.grid_fitting import _fit_single_grid_candidate
 from cmfgen_viewer.spectrum_options import _normalize_fit_bounds
 from cmfgen_viewer.spectrum_fitting import _sample_model_on_observed_grid
 from cmfgen_viewer.upload_service import create_upload_bundle
+from cmfgen_viewer.wavelengths import air_to_vacuum, vacuum_to_air
 from scripts.import_bosz_spectra import import_grid
 
 
@@ -29,7 +30,9 @@ def bosz_case(tmp_path):
             np.savetxt(handle, np.column_stack((flux, continuum)))
     root = tmp_path / "bosz"
     import_grid(source, root, log=lambda _: None)
-    return root, wave, continuum, norm
+    # Source BOSZ 2024 samples are air; the numerical fitting API uses vacuum.
+    vacuum = air_to_vacuum(wave)
+    return root, vacuum, continuum / vacuum_to_air(vacuum, flux_jacobian=True), norm
 
 
 def discover(root, **kwargs):
@@ -47,6 +50,7 @@ def test_bosz_discovery_preserves_distinct_atmospheres_and_filters(bosz_case):
     assert len(candidates) == 2
     assert {c["grid_metadata"]["atmosphere_family"] for c in candidates} == {"ap", "mp"}
     assert all(c["fit_source"] == "bosz" and c["grid_metadata"]["resolving_power"] == 2000 for c in candidates)
+    assert all(c["grid_metadata"]["wavelength_convention"] == "air" for c in candidates)
     assert all(c["model_path"].startswith("bosz/") for c in candidates)
     assert len(discover(root, model_name_pattern="*_ap_*")[0]) == 1
     observed = {"observation_type": "photometry", "wavelength": [5000, 9000], "band_width": [100, 100]}

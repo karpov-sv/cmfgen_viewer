@@ -29,6 +29,7 @@ from .grid_config import (
 )
 from .model_summary import ModelSummary, _parse_summary_float
 from .summary_cache import list_model_summaries
+from .wavelengths import imported_model_wavelength_medium
 
 
 def _tlusty_segment_label(products: set[str]) -> str:
@@ -595,6 +596,8 @@ def _load_tlusty_models_csv_cached(path_str: str, mtime_ns: int, size: int) -> l
                     "interpolated": str(raw.get("interpolated", "")).lower() == "true",
                     "source_unit_inferred": str(raw.get("source_unit_inferred", "")).lower() == "true",
                     "wavelength_convention": str(raw.get("wavelength_convention", "")),
+                    "x_axis_kind": str(raw.get("x_axis_kind", "")),
+                    "wavelength_medium": str(raw.get("wavelength_medium", "")),
                     "fit_eligible": str(raw.get("fit_eligible", "true")).lower() == "true",
                     "negative_flux_points": _parse_int_or_none(raw.get("negative_flux_points")),
                     "spectrum_relpath": spectrum_relpath,
@@ -707,6 +710,9 @@ def _tlusty_row_covers_observed_photometry(
     if model_bounds is None:
         return False
     model_min, model_max = model_bounds
+    from .wavelengths import air_to_vacuum
+    if imported_model_wavelength_medium(row) == "air":
+        model_min, model_max = map(float, air_to_vacuum([model_min, model_max]))
 
     z_min = 0.0
     z_max = 0.0
@@ -1033,6 +1039,7 @@ def _discover_imported_grid_models(
             "atmosphere_family", "resolving_power", "metallicity_dex", "alpha_dex", "carbon_dex",
             "derived_vturb_km_s", "interpolated", "source_unit_inferred", "wavelength_convention",
         )}
+        metadata["wavelength_convention"] = imported_model_wavelength_medium(row)
         candidates.append({
             "fit_source": source, "grid": source,
             "model_name": name, "model_path": label, "model_relpath": label,

@@ -83,6 +83,20 @@ An air-rest line-list entry is first converted to vacuum so markers follow the
 same order of operations as models. At z = 0, Air uploads still require the
 model vacuum-to-air conversion; the conversion must not be absorbed into velocity.
 
+Imported TLUSTY/SYNSPEC wavelength tables use air above 2000 Å by default.
+The viewer first converts those native model coordinates to vacuum; TLUSTY
+frequency-based SEDs already use vacuum. Existing caches with the importer's
+`x_axis_kind` metadata are handled automatically, without rewriting their files.
+Explicit `wavelength_medium` metadata takes precedence for all-vacuum SYNSPEC
+runs. Treating these optical tables as vacuum would introduce an approximately
+80 km/s velocity bias and displace reference markers even when the fit looks good.
+The convention follows the [SYNSPEC manual, §5.3.1](https://arxiv.org/pdf/1706.01859#page=20).
+
+BOSZ 2024 also uses air above 2000 Å and is converted to vacuum on loading,
+including existing `bosz2024_` caches. BOSZ 2017 and PHOENIX-ACES use vacuum.
+See [BOSZ 2024, §3.3](https://arxiv.org/pdf/2407.10872#page=5) and
+[PHOENIX-ACES, §2.4](https://arxiv.org/pdf/1303.5632#page=5).
+
 Model broadening uses the native model samples before conversion and before
 interpolation onto observed pixels. Models with inadequate native resolution
 cannot be sharpened. Both the Python fitting pipeline and browser display use

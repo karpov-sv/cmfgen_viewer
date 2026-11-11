@@ -13,6 +13,26 @@ def normalize_wavelength_medium(value: object = "air") -> str:
     return medium
 
 
+def imported_model_wavelength_medium(metadata: dict, *, filename: str = "") -> str:
+    """Native convention of imported products, including existing caches.
+
+    SYNSPEC wavelength tables default to air above 2000 Å; TLUSTY frequency
+    SEDs are vacuum. An explicit declaration supports all-vacuum SYNSPEC runs.
+    BOSZ 2024 uses the same air convention; older BOSZ releases and PHOENIX
+    use vacuum. Legacy BOSZ caches are recognized by their release filename.
+    """
+    declared = metadata.get("wavelength_medium")
+    if declared is not None and str(declared).strip():
+        return normalize_wavelength_medium(declared)
+    declared = metadata.get("wavelength_convention")
+    if declared is not None and str(declared).strip():
+        return normalize_wavelength_medium(declared)
+    name = str(metadata.get("model_name") or filename).lower()
+    if name.startswith("bosz2024_"):
+        return "air"
+    return "air" if str(metadata.get("x_axis_kind", "")) == "wavelength_input" else "vacuum"
+
+
 def vacuum_to_air(wavelength, *, flux_jacobian: bool = False):
     import numpy as np
 

@@ -55,7 +55,8 @@ def test_converter_omits_unused_arrays_and_preserves_source_metadata(tmp_path, f
     parsed = _parse_spectrum_payload(payload, product_tags=[])
     arrays = parsed["arrays"]
     assert set(arrays) == {"wavelength_angstrom", "flux_lambda_cgs", "normalized_flux_candidate",
-                           "input_columns", "x_axis_kind", "x_unit_guess"}
+                           "input_columns", "x_axis_kind", "x_unit_guess", "wavelength_medium"}
+    assert str(arrays["wavelength_medium"]) == ("vacuum" if frequency else "air")
     np.testing.assert_array_equal(arrays["normalized_flux_candidate"], np.full(100, 0.5))
     path = tmp_path / "spectrum.npz"
     np.savez_compressed(path, **arrays)

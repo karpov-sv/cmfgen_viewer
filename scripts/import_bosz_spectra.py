@@ -127,6 +127,7 @@ def import_grid(source: Path, output: Path, *, resolution: int = 2000, workers: 
                 "archive_products": ["optical", "uv", "flux"],
                 "available_arrays": list(arrays),
                 "flux_convention": "eddington_h_lambda",
+                "wavelength_convention": "air",
                 "flux_unit": "erg s-1 cm-2 Angstrom-1",
                 "source_relpath": path.relative_to(source).as_posix(),
                 "source_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
@@ -149,6 +150,9 @@ def import_grid(source: Path, output: Path, *, resolution: int = 2000, workers: 
             "source_directory": str(source),
             "reference": REFERENCE,
             "source_release": "BOSZ 2024; correction revision not identified by filenames",
+            "wavelength_convention": "air",
+            "wavelength_policy": "Source air wavelengths above 2000 Angstrom; vacuum below. "
+                                 "Source samples preserved; viewer converts to vacuum on loading.",
             "wavelength_source_sha256": hashlib.sha256(wavelength_path.read_bytes()).hexdigest(),
             "resolving_power": resolution,
             "flux_convention": "eddington_h_lambda",

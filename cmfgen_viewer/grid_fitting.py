@@ -243,10 +243,23 @@ def _load_tlusty_npz_arrays(npz_path: Path) -> dict[str, object] | None:
 
         keys = (
             "wavelength_angstrom", "flux_lambda_cgs", "hnu_cgs", "y_col_1",
-            "continuum_lambda_cgs", "normalized_flux_candidate",
+            "continuum_lambda_cgs", "normalized_flux_candidate", "x_axis_kind", "wavelength_medium",
         )
-        return {key: np.asarray(value, dtype=np.float64).reshape(-1)
-                for key, value in load_spectrum(npz_path, keys=keys).items()}
+        stored = load_spectrum(npz_path, keys=keys)
+        from .wavelengths import air_to_vacuum, imported_model_wavelength_medium, vacuum_to_air
+
+        arrays = {key: np.asarray(value, dtype=np.float64).reshape(-1)
+                  for key, value in stored.items() if key not in {"x_axis_kind", "wavelength_medium"}}
+        if imported_model_wavelength_medium(stored, filename=npz_path.name) == "air":
+            vacuum = air_to_vacuum(arrays["wavelength_angstrom"])
+            arrays["wavelength_angstrom"] = vacuum
+            # F_lambda transforms inversely to the wavelength differential.
+            # Dimensionless normalized profiles keep their original values.
+            jacobian = vacuum_to_air(vacuum, flux_jacobian=True)
+            for key in ("flux_lambda_cgs", "hnu_cgs", "y_col_1", "continuum_lambda_cgs"):
+                if key in arrays:
+                    arrays[key] = arrays[key] / jacobian
+        return arrays
     except Exception:
         return None
 
