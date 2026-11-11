@@ -129,6 +129,7 @@
     var medium = document.getElementById(target.id + "-lines-medium");
     var labels = document.getElementById(target.id + "-lines-labels");
     var zoom = document.getElementById(target.id + "-lines-zoom");
+    var zoomWidth = document.getElementById(target.id + "-lines-zoom-width");
     var customInput = document.getElementById(target.id + "-lines-custom");
     var customMedium = document.getElementById(target.id + "-lines-custom-medium");
     var customStatus = document.getElementById(target.id + "-lines-custom-status");
@@ -340,7 +341,12 @@
         var line = catalog[Number(selection.slice(5))];
         if (!line) return;
         var center = linePosition(line);
-        zoomToRange([Math.max(center - 150, 1), center + 150]);
+        var width = zoomWidth && zoomWidth.value.trim() ? Number(zoomWidth.value) : 300;
+        if (!Number.isFinite(width) || width <= 0 || (zoomWidth && zoomWidth.checkValidity && !zoomWidth.checkValidity())) {
+          if (zoomWidth && zoomWidth.reportValidity) zoomWidth.reportValidity();
+          return;
+        }
+        zoomToRange([Math.max(center - width / 2, 1), center + width / 2]);
       }
     });
 
@@ -450,5 +456,18 @@
     schedule();
   }
 
-  window.CmfgenSpectralLines = { bind: bind, parseCustomLines: parseCustomLines };
+  function referenceLines(medium, redshift) {
+    var lines = commonCatalog.slice();
+    try {
+      var settings = JSON.parse(window.localStorage.getItem(customStorageKey));
+      if (settings && settings.text) lines = lines.concat(parseCustomLines(settings.text, settings.medium).lines);
+    } catch (error) { /* Common lines remain available without browser storage. */ }
+    return lines.map(function (line) {
+      var wave = line.vacuum * (1 + redshift);
+      return { label: line.label, wavelength: medium === "air" ? vacuumToAir(wave) : wave,
+        color: colors[line.group] };
+    });
+  }
+
+  window.CmfgenSpectralLines = { bind: bind, parseCustomLines: parseCustomLines, referenceLines: referenceLines };
 })();

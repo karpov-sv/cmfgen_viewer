@@ -178,10 +178,12 @@
                   <div class="col-md-6">
                     <label for="grid-fit-windows" class="plot-control-label">Diagnostic windows</label>
                     <textarea id="grid-fit-windows" name="fit_windows" rows="4" maxlength="16000" class="form-control form-control-sm" placeholder="He I 4471, 4455, 4485&#10;He II 4542, 4525, 4558">{{ fit_region_inputs.windows }}</textarea>
+                    <button type="button" class="btn btn-sm btn-outline-secondary mt-2" data-fit-region-target="grid-fit-windows" title="Append the current zoom range as a diagnostic window in uploaded wavelengths. Existing windows are kept.">Add zoom range as window</button>
                   </div>
                   <div class="col-md-6">
                     <label for="grid-fit-exclusions" class="plot-control-label">Exclude intervals</label>
                     <textarea id="grid-fit-exclusions" name="fit_exclusions" rows="4" maxlength="16000" class="form-control form-control-sm" placeholder="Telluric, 6860, 6960">{{ fit_region_inputs.exclusions }}</textarea>
+                    <button type="button" class="btn btn-sm btn-outline-secondary mt-2" data-fit-region-target="grid-fit-exclusions" title="Append the current zoom range as an excluded interval in uploaded wavelengths. Existing exclusions are kept.">Exclude zoom range</button>
                   </div>
                 </div>
                 <p class="small text-muted mt-2 mb-0">Use non-overlapping windows with at least two unmasked samples each and at least 30 samples in total. Models must cover every selected sample. Scores retain the current pixel/error weighting; normalized uploads should already be continuum-normalized.</p>
@@ -288,6 +290,7 @@
       </div>
     </section>
   {% endif %}
+  <script src="{{ url_for('static', filename='diagnostic_plots.js') }}"></script>
   <script type="application/json">
 {
   "statusUrlTemplate": {{ url_for('viewer.upload_fit_grid_status', job_id='__JOB_ID__') | tojson }},

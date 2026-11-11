@@ -642,6 +642,29 @@
     setFeedback("Fit range copied from uploaded wavelengths: " + minText + " .. " + maxText + " Å.", false);
   }
 
+  function appendPlotRangeToRegion(button) {
+    var input = document.getElementById(button.getAttribute("data-fit-region-target"));
+    var range = readCurrentPlotXRange();
+    if (!input || !range) {
+      setFeedback("Could not read the current plot range. Zoom or pan the spectrum plot first.", true);
+      return;
+    }
+    var interval = formatRangeValue(range[0]) + ", " + formatRangeValue(range[1]);
+    var existing = input.value.trimEnd();
+    var next = existing + (existing ? "\n" : "") + interval;
+    if (input.maxLength > 0 && next.length > input.maxLength) {
+      setFeedback("The interval field is full. Remove an interval before adding another.", true);
+      return;
+    }
+    input.value = next;
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    input.focus({ preventScroll: true });
+    input.scrollTop = input.scrollHeight;
+    var kind = input.name === "fit_windows" ? "Diagnostic window" : "Excluded interval";
+    setFeedback(kind + " added from uploaded wavelengths: " + interval + " Å. You can add a label before the bounds.", false);
+  }
+
   function setProgress(percentage, text, isRunning, stateClass) {
     if (!progressWrap || !progressBar || !progressText) {
       return;
@@ -682,6 +705,7 @@
       resultWrap.classList.add("d-none");
     }
     if (resultBody) {
+      if (window.CmfgenDiagnosticPlots) window.CmfgenDiagnosticPlots.purge(resultBody);
       resultBody.innerHTML = "";
     }
   }
@@ -880,10 +904,11 @@
     modelCell.appendChild(toggle);
   }
 
-  function renderResult(result) {
+  function renderResult(result, jobId) {
     if (!resultWrap || !resultBody) {
       return;
     }
+    if (window.CmfgenDiagnosticPlots) window.CmfgenDiagnosticPlots.purge(resultBody);
     resultBody.innerHTML = "";
     resultWrap.classList.remove("d-none");
 
@@ -900,6 +925,12 @@
 
     renderModelSummary(resultBody, best, elapsed);
     addDiagnosticScores(resultBody, best);
+    if (window.CmfgenDiagnosticPlots && uploadPlot) {
+      window.CmfgenDiagnosticPlots.mount(resultBody, best, {
+        plot: uploadPlot, mode: spectrumMode,
+        url: overlayUrlTemplate.replace("__JOB_ID__", encodeURIComponent(jobId)) + "?which=final"
+      });
+    }
     renderTlustyConfidenceSummary(resultBody, result, best);
 
     var linksRow = document.createElement("div");
@@ -1189,7 +1220,7 @@
         }
 
         var completedResult = payload.result && typeof payload.result === "object" ? payload.result : {};
-        renderResult(completedResult);
+        renderResult(completedResult, jobId);
         var completedBest = completedResult.best_model && typeof completedResult.best_model === "object"
           ? completedResult.best_model
           : null;
@@ -1367,6 +1398,10 @@
       usePlotRangeButton.title = "Spectrum plot is not available.";
     }
   }
+  Array.prototype.forEach.call(form.querySelectorAll("[data-fit-region-target]"), function (button) {
+    button.disabled = !uploadPlot;
+    button.addEventListener("click", function () { appendPlotRangeToRegion(button); });
+  });
   if (cancelButton) {
     cancelButton.addEventListener("click", requestCancelActiveJob);
   }

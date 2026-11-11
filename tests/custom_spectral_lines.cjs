@@ -39,12 +39,14 @@ assert.deepEqual(Array.from(parsed.invalidRows), [5,6,7,8]);
 const air = api.parseCustomLines('6562.8 Halpha\n1215.67 Lyalpha', 'air').lines;
 assert(Math.abs(air[0].air - 6562.8) < 1e-8);
 assert(air[0].vacuum > 6564);
+const reference = api.referenceLines('air', 0.01).find(line => line.label === 'Hα');
+assert(reference.wavelength > 6628 && reference.wavelength < 6629);
 assert.equal(api.parseCustomLines('6562.8 Halpha').lines[0].vacuum, air[0].vacuum);
 assert.equal(air[1].vacuum, 1215.67); // UV input stays vacuum.
 assert.equal(api.parseCustomLines('1e309\n1e-999\nNaN\n1e3junk', 'air').lines.length, 0);
 
 function setup(id) {
-  for (const name of ['show','group','medium','labels','zoom','custom','custom-medium','custom-status']) elements[id + '-lines-' + name] = new Element();
+  for (const name of ['show','group','medium','labels','zoom','zoom-width','custom','custom-medium','custom-status']) elements[id + '-lines-' + name] = new Element();
   const get = name => elements[id + '-lines-' + name];
   elements[id + '-telluric-show'] = new Element();
   get('show').checked = get('labels').checked = true;
@@ -82,6 +84,22 @@ assert.equal(customGroup.children.length, 2);
 first.get('zoom').value = customGroup.children[0].value;
 first.get('zoom').handlers.change();
 assert.deepEqual(Array.from(first.target._fullLayout.xaxis.range), [4850,5150]);
+function jumpCustom() {
+  first.get('zoom').value = customGroup.children[0].value;
+  first.get('zoom').handlers.change();
+}
+first.get('zoom-width').value = '40'; jumpCustom();
+assert.deepEqual(Array.from(first.target._fullLayout.xaxis.range), [4980,5020]);
+first.target._fullLayout.xaxis.type = 'log'; jumpCustom();
+assert.deepEqual(Array.from(first.target._fullLayout.xaxis.range), [Math.log10(4980),Math.log10(5020)]);
+first.target._fullLayout.xaxis.type = 'linear';
+first.get('zoom-width').value = '-10'; jumpCustom();
+assert.deepEqual(Array.from(first.target._fullLayout.xaxis.range), [Math.log10(4980),Math.log10(5020)], 'Invalid width leaves range unchanged');
+first.get('zoom-width').value = ''; jumpCustom();
+assert.deepEqual(Array.from(first.target._fullLayout.xaxis.range), [4850,5150], 'Blank width uses 300 Å');
+first.get('zoom-width').value = '40';
+first.get('zoom').value = 'optical'; first.get('zoom').handlers.change();
+assert.deepEqual(Array.from(first.target._fullLayout.xaxis.range), [3800,7500], 'Width does not change range presets');
 first.target._fullLayout.xaxis.range = [4000,7000];
 first.get('group').value = 'hydrogen'; first.get('group').handlers.change(); flush();
 assert(!markers().some(shape => shape.x0 === 5000));

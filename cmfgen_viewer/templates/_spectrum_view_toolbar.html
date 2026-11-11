@@ -1,12 +1,18 @@
-  <div class="spectrum-field spectrum-zoom">
+  <div class="spectrum-zoom">
+    <div class="spectrum-field flex-grow-1">
     <label for="{{ plot_id }}-lines-zoom" class="plot-control-label">Zoom to</label>
-    <select id="{{ plot_id }}-lines-zoom" class="form-select form-select-sm" title="Line windows: ±150 Å about the redshifted line position in the displayed Air/Vacuum convention. Vertical scale fits the displayed region.">
+    <select id="{{ plot_id }}-lines-zoom" class="form-select form-select-sm" title="Line windows use the width beside this selector, centered on the redshifted line position in the displayed Air/Vacuum convention. Vertical scale fits the displayed region.">
       <option value="" selected>Choose a range or line…</option>
       <optgroup label="Spectrum views">
         <option value="full">Whole spectrum</option>
         <option value="optical">Optical (3800–7500 Å)</option>
       </optgroup>
     </select>
+    </div>
+    <div class="spectrum-field spectrum-zoom-width">
+      <label for="{{ plot_id }}-lines-zoom-width" class="plot-control-label">Width (Å)</label>
+      <input id="{{ plot_id }}-lines-zoom-width" type="number" min="0.000001" step="any" value="300" placeholder="300" class="form-control form-control-sm" title="Total wavelength span for line jumps, centered on the selected line (300 Å means ±150 Å). Blank uses 300 Å. Whole spectrum and Optical presets are unchanged.">
+    </div>
   </div>
   {% if show_axis_controls | default(true) %}
     {% include "_spectrum_axis_controls.html" %}

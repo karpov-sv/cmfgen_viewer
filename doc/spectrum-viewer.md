@@ -125,6 +125,11 @@ line broadening, blends, and wavelength coverage. A label is optional:
 nebular emission, unreliable pixels, or line cores. Exclusions override windows;
 with no windows, they remove samples from the full fit range.
 
+Zoom the plot to a region and click **Add zoom range as window** or
+**Exclude zoom range** to append its bounds to the corresponding field. Existing
+entries are preserved, and an optional label can be added afterward. Both buttons
+use uploaded wavelengths, including when the plot has a logarithmic axis.
+
 All bounds are inclusive, in **observed-frame Å**, using the upload's air/vacuum
 convention. Windows stay fixed as the model redshift is optimized. The overall
 wavelength range still applies. Numeric fields and their plotted boundary markers
@@ -152,6 +157,14 @@ usually contribute more. Inspect all windows for conflicting diagnostics.
 Grid confidence intervals are presented in a parameter table with 68%, 90%, and
 95% columns; **Fit statistics** and **Residual weighting** retain the detailed
 scoring information in collapsible sections.
+
+The final best-fit result also includes **Diagnostic window plots**: one plot per
+window with native uploaded samples, the fitted model, and common plus saved
+custom stellar line markers at the fitted redshift. Excluded intervals are shaded;
+their data are shown for context but remain excluded from the numeric scores.
+Plots use the upload's Air/Vacuum convention and the saved best-fit parameters,
+independently of later changes to the main plot's transformation controls. Each
+plot supports zooming and image export through its Plotly toolbar.
 
 Diagnostic regions work with spectral uploads in the existing supported grid
 modes; they do not apply to photometry. Normalized spectra must already be
@@ -192,8 +205,12 @@ zoom in to reveal them, or select a single line family. Hover over a label for i
 rest wavelength and convention. The overlay leaves the spectrum data, fit bounds,
 and exported tables unchanged.
 
-Use **Zoom to** to jump to a reference line with a window of **±150 Å**, the
-**optical range (3800–7500 Å)**, or the **whole spectrum**. The menu works with
+Use **Zoom to** to jump to a reference line, the **optical range (3800–7500 Å)**,
+or the **whole spectrum**. The adjacent **Width (Å)** input sets the total span
+around a selected line: the default **300 Å** means **±150 Å**, and **40 Å** means
+**±20 Å**. Set it before choosing a line; blank uses 300 Å. It applies to common
+and custom lines, on linear and logarithmic axes, without changing the Optical
+or Whole spectrum presets. The menu works with
 the line overlay on or off. Lines are grouped by family and show their current
 redshifted positions using the selected air/vacuum convention. Lines
 outside the displayed spectra's wavelength coverage are disabled. The whole

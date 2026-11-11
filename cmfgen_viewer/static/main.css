@@ -471,6 +471,14 @@ a:focus {
 
 .spectrum-zoom {
     flex: 1 1 12rem;
+    display: flex;
+    align-items: flex-end;
+    gap: 0.5rem;
+    min-width: 0;
+}
+
+.spectrum-zoom-width {
+    flex: 0 0 6rem;
 }
 
 .spectrum-axis {
@@ -648,6 +656,8 @@ a:focus {
 
 .grid-fit-summary-item dd {
     margin: 0;
+    font-size: 1.1rem;
+    font-weight: 600;
     overflow-wrap: anywhere;
     font-variant-numeric: tabular-nums;
 }
@@ -656,6 +666,30 @@ a:focus {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 0 1rem;
+}
+
+.diagnostic-window-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr));
+    gap: 1rem;
+    margin: 0.75rem 0;
+}
+
+.diagnostic-window-card {
+    min-width: 0;
+    padding: 0.75rem 0.5rem 0;
+    border: 1px solid #dee2e6;
+    border-radius: 0.375rem;
+}
+
+.diagnostic-window-card h5 {
+    padding: 0 0.25rem;
+    overflow-wrap: anywhere;
+}
+
+.diagnostic-window-plot {
+    width: 100%;
+    min-width: 0;
 }
 
 .grid-fit-parameter-groups .grid-fit-summary-grid {

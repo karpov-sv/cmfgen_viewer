@@ -30,7 +30,7 @@
         <input id="{{ plot_id }}-lines-labels" class="form-check-input me-1" type="checkbox" checked disabled> Line labels
       </label>
     </div>
-    <p class="small text-muted spectrum-help">Uploaded samples and fitting intervals stay fixed. Models and stellar markers are redshifted in vacuum, then converted to the upload's Air/Vacuum convention. Wavelengths is locked to the active upload property; edit it on the upload page. Without uploads, Air is the default for model comparisons. Line windows span ±150 Å about the displayed, redshifted line position.</p>
+    <p class="small text-muted spectrum-help">Uploaded samples and fitting intervals stay fixed. Models and stellar markers are redshifted in vacuum, then converted to the upload's Air/Vacuum convention. Wavelengths is locked to the active upload property; edit it on the upload page. Without uploads, Air is the default for model comparisons. Width (Å) sets the total span of a line jump about the displayed, redshifted line position; the default 300 Å gives ±150 Å.</p>
     <p id="{{ plot_id }}-telluric-help" class="small text-muted spectrum-help">Telluric bands shade approximate O₂ and H₂O absorption regions in the selected Air/Vacuum convention. They stay fixed as source velocity changes. Guides assume topocentric uploaded wavelengths; prior barycentric/heliocentric corrections are not inferred. They do not correct absorption or mask fitting samples.</p>
     <div class="row g-2 mt-1">
       <div class="col-md-8">
