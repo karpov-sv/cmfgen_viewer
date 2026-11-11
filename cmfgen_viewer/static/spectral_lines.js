@@ -4,6 +4,8 @@
   "use strict";
   var markerName = "cmfgen-spectral-line";
   var telluricName = "cmfgen-telluric-band";
+  var diagnosticName = "cmfgen-diagnostic-window";
+  var exclusionName = "cmfgen-excluded-interval";
   var colors = { hydrogen: "#a34747", helium: "#7054a2", metals: "#537787", custom: "#b06a18" };
   var customStorageKey = "cmfgen-custom-spectral-lines-v1";
 
@@ -120,11 +122,55 @@
     ["H₂O", 18000, 19400]
   ];
 
+  function parseRegionIntervals(text) {
+    var rows = [];
+    String(text || "").split(/\r?\n/).forEach(function (row) {
+      var fields = row.split(",").map(function (field) { return field.trim(); });
+      if (fields.length !== 2 && fields.length !== 3) return;
+      if (!fields[fields.length - 2] || !fields[fields.length - 1]) return;
+      var lower = Number(fields[fields.length - 2]), upper = Number(fields[fields.length - 1]);
+      var label = fields.length === 3 ? fields[0] : "";
+      if (!Number.isFinite(lower) || !Number.isFinite(upper) || lower <= 0 || lower >= upper ||
+          (fields.length === 3 && (!label || label.length > 80)) || rows.length >= 64) return;
+      rows.push({ label: label, min: lower, max: upper });
+    });
+    return rows;
+  }
+
+  function telluricIntervals(medium) {
+    return telluricBands.map(function (band) {
+      return { label: "Telluric " + band[0], min: medium === "vacuum" ? airToVacuum(band[1]) : band[1],
+        max: medium === "vacuum" ? airToVacuum(band[2]) : band[2] };
+    });
+  }
+
+  function appendTelluricExclusions(text, medium, coverage) {
+    var existing = parseRegionIntervals(text);
+    var bands = telluricIntervals(medium).filter(function (row) {
+      return row.max >= coverage[0] && row.min <= coverage[1];
+    });
+    var additions = bands.filter(function (row) {
+      return !existing.some(function (other) { return other.min <= row.min + 1e-9 && other.max >= row.max - 1e-9; });
+    });
+    if (!additions.length) return { text: String(text || ""), added: 0, matching: bands.length };
+    var original = String(text || "").trimEnd();
+    var lines = original.split(/\r?\n/).filter(function (row) { return row.trim(); }).length;
+    var next = original + (original && additions.length ? "\n" : "") + additions.map(function (row) {
+      return row.label + ", " + row.min + ", " + row.max;
+    }).join("\n");
+    if (lines + additions.length > 64 || next.length > 16000) {
+      throw new Error("Not enough room for telluric bands: use at most 64 intervals and 16000 characters.");
+    }
+    return { text: next, added: additions.length, matching: bands.length };
+  }
+
   function bind(target) {
     var show = document.getElementById(target.id + "-lines-show");
     if (!show || target.__spectralLinesBound) return;
     target.__spectralLinesBound = true;
     var telluricShow = document.getElementById(target.id + "-telluric-show");
+    var diagnosticShow = document.getElementById(target.id + "-diagnostic-show");
+    var exclusionShow = document.getElementById(target.id + "-exclusions-show");
     var group = document.getElementById(target.id + "-lines-group");
     var medium = document.getElementById(target.id + "-lines-medium");
     var labels = document.getElementById(target.id + "-lines-labels");
@@ -138,6 +184,8 @@
     var diagnosticOptgroup = null;
     var diagnosticWindows = [];
     var diagnosticText = null;
+    var exclusionIntervals = [];
+    var exclusionText = null;
     var zoomOptions = [];
     var coverageSnapshot = [];
     var coverage = null;
@@ -192,17 +240,7 @@
       diagnosticText = text;
       if (diagnosticOptgroup) diagnosticOptgroup.remove();
       diagnosticOptgroup = null;
-      diagnosticWindows = [];
-      text.split(/\r?\n/).forEach(function (row) {
-        var fields = row.split(",").map(function (field) { return field.trim(); });
-        if (fields.length !== 2 && fields.length !== 3) return;
-        if (!fields[fields.length - 2] || !fields[fields.length - 1]) return;
-        var lower = Number(fields[fields.length - 2]), upper = Number(fields[fields.length - 1]);
-        var label = fields.length === 3 ? fields[0] : "";
-        if (!Number.isFinite(lower) || !Number.isFinite(upper) || lower <= 0 || lower >= upper ||
-            (fields.length === 3 && (!label || label.length > 80)) || diagnosticWindows.length >= 64) return;
-        diagnosticWindows.push({ label: label, min: lower, max: upper });
-      });
+      diagnosticWindows = parseRegionIntervals(text);
       if (diagnosticWindows.length) {
         diagnosticOptgroup = document.createElement("optgroup");
         diagnosticOptgroup.label = "Diagnostic windows";
@@ -214,14 +252,29 @@
         });
         zoom.appendChild(diagnosticOptgroup);
       }
+      if (diagnosticShow) diagnosticShow.disabled = !diagnosticWindows.length;
+      schedule();
+    }
+
+    function updateExclusions(text) {
+      text = String(text || "");
+      if (text === exclusionText) return;
+      exclusionText = text;
+      exclusionIntervals = parseRegionIntervals(text);
+      if (exclusionShow) exclusionShow.disabled = !exclusionIntervals.length;
       schedule();
     }
 
     window.addEventListener("cmfgen:diagnostic-windows-changed", function (event) {
-      if (event.detail && event.detail.plotId === target.id) updateDiagnosticWindows(event.detail.text);
+      if (event.detail && event.detail.plotId === target.id) {
+        updateDiagnosticWindows(event.detail.text);
+        if (event.detail.exclusions !== undefined) updateExclusions(event.detail.exclusions);
+      }
     });
     var diagnosticInput = target.id === "upload-spectrum-plot" && document.getElementById("grid-fit-windows");
     if (diagnosticInput) updateDiagnosticWindows(diagnosticInput.value);
+    var exclusionInput = target.id === "upload-spectrum-plot" && document.getElementById("grid-fit-exclusions");
+    if (exclusionInput) updateExclusions(exclusionInput.value);
 
     function fluxRangeInWindow(range) {
       var xIsLog = target._fullLayout.xaxis.type === "log";
@@ -403,8 +456,9 @@
       if (!target.layout || !target._fullLayout) return;
       var shapes = target.layout.shapes || [];
       var annotations = target.layout.annotations || [];
-      var nextShapes = shapes.filter(function (item) { return item.name !== markerName && item.name !== telluricName; });
-      var nextAnnotations = annotations.filter(function (item) { return item.name !== markerName && item.name !== telluricName; });
+      var ownedNames = [markerName, telluricName, diagnosticName, exclusionName];
+      var nextShapes = shapes.filter(function (item) { return ownedNames.indexOf(item.name) < 0; });
+      var nextAnnotations = annotations.filter(function (item) { return ownedNames.indexOf(item.name) < 0; });
       var axis = target._fullLayout.xaxis;
       updateZoomOptions();
       if (show.checked && axis && Array.isArray(axis.range)) {
@@ -445,6 +499,46 @@
           });
         });
       }
+      function addRegionBands(rows, name, fill, color, prefix, labelY) {
+        if (!axis || !Array.isArray(axis.range)) return;
+        var diagnosticCoverage = spectrumCoverage();
+        var diagnosticLow = Math.min(axis.range[0], axis.range[1]);
+        var diagnosticHigh = Math.max(axis.range[0], axis.range[1]);
+        var visibleDiagnosticLow = axis.type === "log" ? Math.pow(10, diagnosticLow) : diagnosticLow;
+        var visibleDiagnosticHigh = axis.type === "log" ? Math.pow(10, diagnosticHigh) : diagnosticHigh;
+        var lastDiagnosticLabel = -Infinity;
+        rows.forEach(function (row) {
+          var left = Math.max(row.min, visibleDiagnosticLow, diagnosticCoverage ? diagnosticCoverage[0] : Infinity);
+          var right = Math.min(row.max, visibleDiagnosticHigh, diagnosticCoverage ? diagnosticCoverage[1] : -Infinity);
+          if (right <= left) return;
+          nextShapes.push({
+            name: name, type: "rect", xref: "x", yref: "paper",
+            x0: left, x1: right, y0: 0, y1: 1, layer: "below",
+            fillcolor: fill, line: { width: 0 }
+          });
+          var first = axis.type === "log" ? Math.log10(left) : left;
+          var last = axis.type === "log" ? Math.log10(right) : right;
+          var center = (first + last) / 2;
+          var pixel = (center - diagnosticLow) / (diagnosticHigh - diagnosticLow) * axis._length;
+          if ((last - first) / (diagnosticHigh - diagnosticLow) * axis._length < 65 ||
+              Math.abs(pixel - lastDiagnosticLabel) < 80) return;
+          lastDiagnosticLabel = pixel;
+          var label = row.label || row.min + "–" + row.max + " Å";
+          nextAnnotations.push({
+            name: name, xref: "x", yref: "paper", x: center, y: labelY,
+            text: escapePlotText(label), showarrow: false, xanchor: "center", yanchor: "bottom",
+            font: { size: 10, color: color }, bgcolor: "rgba(255,255,255,0.7)",
+            hovertext: prefix + ": " + escapePlotText(label) + "<br>" + row.min + "–" + row.max +
+              " Å (upload frame). Display toggles do not change fit selection."
+          });
+        });
+      }
+      if (diagnosticShow && diagnosticShow.checked) {
+        addRegionBands(diagnosticWindows, diagnosticName, "rgba(190, 139, 45, 0.065)", "#98732a", "Diagnostic window", 0.10);
+      }
+      if (exclusionShow && exclusionShow.checked) {
+        addRegionBands(exclusionIntervals, exclusionName, "rgba(185, 65, 75, 0.10)", "#a2414a", "Excluded interval", 0.18);
+      }
       if (telluricShow && telluricShow.checked && axis && Array.isArray(axis.range)) {
         var coverage = spectrumCoverage();
         var axisLow = Math.min(axis.range[0], axis.range[1]);
@@ -452,9 +546,9 @@
         var visibleLow = axis.type === "log" ? Math.pow(10, axisLow) : axisLow;
         var visibleHigh = axis.type === "log" ? Math.pow(10, axisHigh) : axisHigh;
         var lastLabelPixel = -Infinity;
-        telluricBands.forEach(function (band) {
-          var start = medium.value === "air" ? band[1] : airToVacuum(band[1]);
-          var end = medium.value === "air" ? band[2] : airToVacuum(band[2]);
+        telluricIntervals(medium.value).forEach(function (band) {
+          var start = band.min;
+          var end = band.max;
           // Keep guides inside both the viewport and the actual data coverage;
           // an atmospheric band must never extend the spectrum's autorange.
           var left = Math.max(start, visibleLow, coverage ? coverage[0] : Infinity);
@@ -473,9 +567,9 @@
           lastLabelPixel = pixel;
           nextAnnotations.push({
             name: telluricName, xref: "x", yref: "paper", x: center, y: 0.02,
-            text: band[0], showarrow: false, xanchor: "center", yanchor: "bottom",
+            text: band.label.slice(9), showarrow: false, xanchor: "center", yanchor: "bottom",
             font: { size: 10, color: "#246478" }, bgcolor: "rgba(255,255,255,0.8)",
-            hovertext: "Telluric " + band[0] + "<br>Approx. " + start.toFixed(0) + "–" + end.toFixed(0) +
+            hovertext: band.label + "<br>Approx. " + start.toFixed(0) + "–" + end.toFixed(0) +
               " Å (" + medium.value + ", upload frame)<br>Atmospheric guides do not follow stellar redshift. Strength varies with observing conditions."
           });
         });
@@ -498,6 +592,8 @@
     });
     [group, medium, labels].forEach(function (input) { input.addEventListener("change", schedule); });
     if (telluricShow) telluricShow.addEventListener("change", schedule);
+    if (diagnosticShow) diagnosticShow.addEventListener("change", schedule);
+    if (exclusionShow) exclusionShow.addEventListener("change", schedule);
     // afterplot covers zoom, scale, resize, fit bounds, and transformed/model
     // traces; no extra traces are added to legends or fitting/export data.
     target.on("plotly_afterplot", schedule);
@@ -517,5 +613,6 @@
     });
   }
 
-  window.CmfgenSpectralLines = { bind: bind, parseCustomLines: parseCustomLines, referenceLines: referenceLines };
+  window.CmfgenSpectralLines = { bind: bind, parseCustomLines: parseCustomLines, referenceLines: referenceLines,
+    telluricIntervals: telluricIntervals, appendTelluricExclusions: appendTelluricExclusions };
 })();

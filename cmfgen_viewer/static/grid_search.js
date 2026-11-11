@@ -665,6 +665,39 @@
     setFeedback(kind + " added from uploaded wavelengths: " + interval + " Å. You can add a label before the bounds.", false);
   }
 
+  function addTelluricExclusions() {
+    var input = document.getElementById("grid-fit-exclusions");
+    var api = window.CmfgenSpectralLines;
+    var sources = uploadPlot && uploadPlot.__spectrumSampling && uploadPlot.__spectrumSampling.getSources();
+    var observed = (sources || []).filter(function (trace) {
+      return trace.meta && trace.meta.transform_target === "observed";
+    });
+    if (!input || !api || !observed.length) {
+      setFeedback("Wait for the uploaded spectrum to load before adding telluric intervals.", true);
+      return;
+    }
+    var lower = Infinity, upper = -Infinity;
+    observed.forEach(function (trace) {
+      trace.x.forEach(function (x) {
+        if (Number.isFinite(x) && x > 0) { lower = Math.min(lower, x); upper = Math.max(upper, x); }
+      });
+    });
+    var medium = observed[0].meta.wavelength_medium || "air";
+    try {
+      var result = api.appendTelluricExclusions(input.value, medium, [lower, upper]);
+      if (result.added) {
+        input.value = result.text;
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+        setFeedback("Added " + result.added + " telluric exclusion(s) in uploaded " + medium +
+          " wavelengths. Existing exclusions are kept; edit the broad guide bands as needed.", false);
+      } else {
+        setFeedback(result.matching ? "Telluric bands overlapping this spectrum are already excluded."
+          : "No telluric guide bands overlap this spectrum.", false);
+      }
+    } catch (error) { setFeedback(error.message, true); }
+  }
+
   function setProgress(percentage, text, isRunning, stateClass) {
     if (!progressWrap || !progressBar || !progressText) {
       return;
@@ -1402,20 +1435,28 @@
     button.disabled = !uploadPlot;
     button.addEventListener("click", function () { appendPlotRangeToRegion(button); });
   });
+  var telluricExclusionButton = document.getElementById("grid-fit-add-tellurics");
+  if (telluricExclusionButton) telluricExclusionButton.addEventListener("click", addTelluricExclusions);
   if (cancelButton) {
     cancelButton.addEventListener("click", requestCancelActiveJob);
   }
   setCancelControl(false, false);
   var diagnosticWindowsInput = document.getElementById("grid-fit-windows");
+  var exclusionsInput = document.getElementById("grid-fit-exclusions");
   function notifyDiagnosticWindows() {
     if (!diagnosticWindowsInput || !uploadPlot) return;
     window.dispatchEvent(new CustomEvent("cmfgen:diagnostic-windows-changed", {
-      detail: { plotId: uploadPlot.id, text: diagnosticWindowsInput.value }
+      detail: { plotId: uploadPlot.id, text: diagnosticWindowsInput.value,
+        exclusions: exclusionsInput ? exclusionsInput.value : "" }
     }));
   }
   if (diagnosticWindowsInput) {
     diagnosticWindowsInput.addEventListener("input", notifyDiagnosticWindows);
     diagnosticWindowsInput.addEventListener("change", notifyDiagnosticWindows);
+  }
+  if (exclusionsInput) {
+    exclusionsInput.addEventListener("input", notifyDiagnosticWindows);
+    exclusionsInput.addEventListener("change", notifyDiagnosticWindows);
   }
   if (window.CmfgenFitRegionStorage) {
     var regionQuery = new URLSearchParams(window.location.search);

@@ -23,3 +23,11 @@
   <label class="form-check-label small spectrum-line-toggle" for="{{ plot_id }}-telluric-show">
     <input id="{{ plot_id }}-telluric-show" class="form-check-input me-1" type="checkbox" title="Approximate atmospheric absorption bands, fixed in the upload's Air/Vacuum convention and independent of stellar redshift. Prior observatory-frame corrections are not inferred." aria-describedby="{{ plot_id }}-telluric-help"> Telluric bands
   </label>
+  {% if plot_id == 'upload-spectrum-plot' and upload.observation_type != 'photometry' %}
+    <label class="form-check-label small spectrum-line-toggle" for="{{ plot_id }}-diagnostic-show">
+      <input id="{{ plot_id }}-diagnostic-show" class="form-check-input me-1" type="checkbox" checked title="Show faint amber bands for diagnostic windows entered in the form, at their fixed uploaded-wavelength bounds. Fit-range limits and exclusions still apply to scoring."> Diagnostic windows
+    </label>
+    <label class="form-check-label small spectrum-line-toggle" for="{{ plot_id }}-exclusions-show">
+      <input id="{{ plot_id }}-exclusions-show" class="form-check-input me-1" type="checkbox" checked title="Show pale red bands for intervals removed from the fit. Bounds stay fixed in uploaded wavelengths; this display toggle does not change which samples are excluded."> Excluded intervals
+    </label>
+  {% endif %}

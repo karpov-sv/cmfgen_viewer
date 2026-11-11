@@ -44,11 +44,30 @@ assert(reference.wavelength > 6628 && reference.wavelength < 6629);
 assert.equal(api.parseCustomLines('6562.8 Halpha').lines[0].vacuum, air[0].vacuum);
 assert.equal(air[1].vacuum, 1215.67); // UV input stays vacuum.
 assert.equal(api.parseCustomLines('1e309\n1e-999\nNaN\n1e3junk', 'air').lines.length, 0);
+const tellurics = api.telluricIntervals('air');
+assert.equal(tellurics.length,8);
+assert.deepEqual(Array.from(tellurics[1] ? [tellurics[1].min,tellurics[1].max] : []),[6860,6970]);
+const filled = api.appendTelluricExclusions('Manual core, 6300, 6310', 'air', [6200,7500]);
+assert.equal(filled.added,3);
+assert(filled.text.startsWith('Manual core, 6300, 6310\n'));
+assert(filled.text.includes('Telluric O₂ B, 6860, 6970'));
+assert.equal(api.appendTelluricExclusions(filled.text, 'air', [6200,7500]).text,filled.text);
+assert.equal(api.appendTelluricExclusions('Broad mask, 6200, 7000', 'air', [6200,7500]).added,1);
+assert.equal(api.appendTelluricExclusions('', 'air', [4400,4500]).added,0);
+const vacuumFill = api.appendTelluricExclusions('', 'vacuum', [6800,7000]);
+assert.equal(vacuumFill.added,1);
+assert.equal(Number(vacuumFill.text.split(',')[1]), api.parseCustomLines('6860', 'air').lines[0].vacuum);
+assert.equal(Number(vacuumFill.text.split(',')[2]), api.telluricIntervals('vacuum')[1].max);
+assert.throws(()=>api.appendTelluricExclusions(Array(64).fill('5000, 5001').join('\n'), 'air', [6200,7500]), /64 intervals/);
 
 function setup(id) {
   for (const name of ['show','group','medium','labels','zoom','zoom-width','custom','custom-medium','custom-status']) elements[id + '-lines-' + name] = new Element();
   const get = name => elements[id + '-lines-' + name];
   elements[id + '-telluric-show'] = new Element();
+  elements[id + '-diagnostic-show'] = new Element();
+  elements[id + '-diagnostic-show'].checked = true;
+  elements[id + '-exclusions-show'] = new Element();
+  elements[id + '-exclusions-show'].checked = true;
   get('show').checked = get('labels').checked = true;
   get('group').value = 'custom'; get('medium').value = 'vacuum'; get('custom-medium').value = 'vacuum';
   get('zoom').appendChild(new Element('full'));
@@ -62,15 +81,41 @@ function setup(id) {
 }
 function flush() { let count=0; while(frames.length) { frames.shift()(); assert(++count < 50, 'No refresh loop'); } }
 const first = setup('first'); flush();
-function updateWindows(text, plotId='first') {
-  window.dispatchEvent({type:'cmfgen:diagnostic-windows-changed',detail:{plotId,text}});
+function updateWindows(text, plotId='first', exclusions) {
+  window.dispatchEvent({type:'cmfgen:diagnostic-windows-changed',detail:{plotId,text,exclusions}});
   flush();
 }
 function diagnosticGroup() { return first.get('zoom').children.find(child => child.label === 'Diagnostic windows'); }
-updateWindows('He I, 4450, 4490\n4920, 4930\nOutside, 9000, 9100\nIncomplete, 4500\nBad, 5, 4\n, 5, 10');
+updateWindows('He I, 4450, 4490\n4920, 4930\nOutside, 9000, 9100\nIncomplete, 4500\nBad, 5, 4\n, 5, 10', 'first', 'Core, 4460, 4470');
 assert.equal(diagnosticGroup().children.length,3);
 assert.equal(diagnosticGroup().children[0].textContent,'He I · 4450–4490 Å');
 assert.equal(diagnosticGroup().children[2].disabled,true);
+const diagnosticBands = () => first.target.layout.shapes.filter(shape => shape.name === 'cmfgen-diagnostic-window');
+const excludedBands = () => first.target.layout.shapes.filter(shape => shape.name === 'cmfgen-excluded-interval');
+assert.deepEqual(excludedBands().map(shape => [shape.x0,shape.x1]),[[4460,4470]]);
+assert(excludedBands()[0].fillcolor.includes('185, 65, 75'));
+assert.deepEqual(diagnosticBands().map(shape => [shape.x0,shape.x1]),[[4450,4490],[4920,4930]]);
+assert(diagnosticBands().every(shape => shape.layer === 'below' && shape.fillcolor.includes('0.065')));
+const nativeBeforeBands = JSON.stringify(first.target.data);
+first.target.__spectrumDisplayRedshift=.03;
+first.target.handlers.plotly_afterplot(); flush();
+assert.deepEqual(diagnosticBands().map(shape => [shape.x0,shape.x1]),[[4450,4490],[4920,4930]], 'Window bands stay in upload coordinates');
+assert.deepEqual(excludedBands().map(shape => [shape.x0,shape.x1]),[[4460,4470]], 'Exclusions stay fixed as stellar velocity changes');
+elements['first-diagnostic-show'].checked=false;
+elements['first-diagnostic-show'].handlers.change(); flush();
+assert.equal(diagnosticBands().length,0);
+assert.equal(excludedBands().length,1, 'Diagnostic display toggle must leave exclusions visible');
+assert(first.target.layout.shapes.some(shape => shape.name === 'fit-bound'));
+elements['first-diagnostic-show'].checked=true;
+elements['first-diagnostic-show'].handlers.change(); flush();
+assert.equal(diagnosticBands().length,2);
+elements['first-exclusions-show'].checked=false;
+elements['first-exclusions-show'].handlers.change(); flush();
+assert.equal(excludedBands().length,0);
+assert.equal(diagnosticBands().length,2);
+elements['first-exclusions-show'].checked=true;
+elements['first-exclusions-show'].handlers.change(); flush();
+assert.equal(JSON.stringify(first.target.data),nativeBeforeBands);
 first.get('zoom-width').value='10';
 first.target.__spectrumDisplayRedshift=.01;
 first.get('zoom').value='diagnostic-0'; first.get('zoom').handlers.change();
@@ -78,12 +123,18 @@ assert.deepEqual(Array.from(first.target._fullLayout.xaxis.range),[4450,4490], '
 first.target._fullLayout.xaxis.type='log';
 first.get('zoom').value='diagnostic-1'; first.get('zoom').handlers.change();
 assert.deepEqual(Array.from(first.target._fullLayout.xaxis.range),[Math.log10(4920),Math.log10(4930)]);
+first.target.handlers.plotly_afterplot(); flush();
+assert.deepEqual(diagnosticBands().map(shape => [shape.x0,shape.x1]),[[4920,4930]], 'Bands clip to the logarithmic viewport');
 updateWindows('Changed, 4500, 4550');
 assert.equal(diagnosticGroup().children.length,1);
 updateWindows('Other plot, 5000, 5100','other');
 assert.equal(diagnosticGroup().children[0].textContent,'Changed · 4500–4550 Å');
-updateWindows('');
+updateWindows('', 'first', '');
 assert.equal(diagnosticGroup(),undefined);
+assert.equal(diagnosticBands().length,0);
+assert.equal(elements['first-diagnostic-show'].disabled,true);
+assert.equal(excludedBands().length,0);
+assert.equal(elements['first-exclusions-show'].disabled,true);
 first.target._fullLayout.xaxis.type='linear'; first.target._fullLayout.xaxis.range=[4000,7000];
 first.target.__spectrumDisplayRedshift=0; first.get('zoom-width').value='';
 assert.equal(first.get('custom-medium').value, 'air', 'New custom lists default to air');

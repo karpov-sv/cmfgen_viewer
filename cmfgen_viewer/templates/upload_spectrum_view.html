@@ -173,7 +173,7 @@
             {% if upload.observation_type != 'photometry' %}
               <fieldset class="border rounded p-2 mb-3">
                 <legend class="float-none w-auto fs-6 px-1">Diagnostic regions (optional)</legend>
-                <p class="small text-muted mb-2">One interval per line: <code>label, min, max</code> or <code>min, max</code>, in the upload's original wavelength frame (Å and its air/vacuum convention), without any display wavelength correction. These numeric bounds select stored upload samples; display redshift does not change them. They are intersected with the wavelength range above; exclusions take precedence. Leave windows blank to fit all remaining samples.</p>
+                <p class="small text-muted mb-2"><strong>Diagnostic windows select the wavelengths used for fitting and per-window diagnostics.</strong> The fit uses their union within the overall range above, with excluded intervals removed. Leave windows blank to fit the whole range minus exclusions. Enter one interval per line: <code>label, min, max</code> or <code>min, max</code>, in the upload's original wavelength frame (Å and its air/vacuum convention). Display redshift does not move these bounds. Edits apply to the next fit; rerun to update results.</p>
                 <div class="row g-2">
                   <div class="col-md-6">
                     <label for="grid-fit-windows" class="plot-control-label">Diagnostic windows</label>
@@ -184,6 +184,7 @@
                     <label for="grid-fit-exclusions" class="plot-control-label">Exclude intervals</label>
                     <textarea id="grid-fit-exclusions" name="fit_exclusions" rows="4" maxlength="16000" class="form-control form-control-sm" placeholder="Telluric, 6860, 6960">{{ fit_region_inputs.exclusions }}</textarea>
                     <button type="button" class="btn btn-sm btn-outline-secondary mt-2" data-fit-region-target="grid-fit-exclusions" title="Append the current zoom range as an excluded interval in uploaded wavelengths. Existing exclusions are kept.">Exclude zoom range</button>
+                    <button id="grid-fit-add-tellurics" type="button" class="btn btn-sm btn-outline-secondary mt-2" title="Append telluric overlay bands that overlap this upload, in its Air/Vacuum convention. Keeps existing exclusions and skips bands already covered. Uses full band bounds, independent of zoom and stellar velocity.">Add telluric bands</button>
                   </div>
                 </div>
                 <p class="small text-muted mt-2 mb-0">Windows and exclusions are saved automatically in this browser for this upload, including edits made with the zoom buttons. Clear a field to save it empty. Use non-overlapping windows with at least two unmasked samples each and at least 30 samples in total. Models must cover every selected sample. Scores retain the current pixel/error weighting; normalized uploads should already be continuum-normalized.</p>

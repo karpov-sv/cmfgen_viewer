@@ -139,6 +139,12 @@ line broadening, blends, and wavelength coverage. A label is optional:
 nebular emission, unreliable pixels, or line cores. Exclusions override windows;
 with no windows, they remove samples from the full fit range.
 
+Diagnostic windows restrict the actual fit as well as defining the reported
+diagnostics. The selected samples are the overall wavelength range intersected
+with the union of windows (or the whole range when windows are blank), minus
+exclusions. The display checkboxes affect only overlays. Editing either field
+requires rerunning the fit to update parameters and scores.
+
 Zoom the plot to a region and click **Add zoom range as window** or
 **Exclude zoom range** to append its bounds to the corresponding field. Existing
 entries are preserved, and an optional label can be added afterward. Both buttons
@@ -155,6 +161,23 @@ including restored browser drafts and zoom-button additions. Each option uses
 the window's exact uploaded-wavelength bounds, independently of source redshift
 and the line-jump Width field. Incomplete or invalid rows are omitted while
 editing; windows outside the displayed spectra's coverage are disabled.
+
+The main plot's separate **Diagnostic windows** checkbox shows faint amber bands
+for the windows currently in the form. They update with edits and restored drafts,
+stay fixed as source velocity changes, and are independent of the spectral-line
+and telluric toggles. These bands show the complete entered windows; fit-range
+limits and exclusions still apply to scoring. Labels appear when there is room.
+The display toggle does not enable or disable a window for fitting.
+
+**Excluded intervals** shows pale red bands, independently of the amber windows
+and blue telluric guides. **Add telluric bands** appends the same approximate
+bands used by the telluric overlay, converted to the upload's Air/Vacuum convention
+and fixed independently of stellar velocity. Only bands overlapping the native
+upload coverage are added, using their full bounds regardless of current zoom.
+Existing exclusions are preserved and bands already covered by an exclusion
+are skipped. The fields save automatically; edit these broad guide intervals
+to match your observations. Adding bands affects the next fit, while merely
+turning on the telluric display does not exclude any samples.
 
 All bounds are inclusive, in **observed-frame Å**, using the upload's air/vacuum
 convention. Windows stay fixed as the model redshift is optimized. The overall
