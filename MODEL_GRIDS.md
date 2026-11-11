@@ -317,7 +317,8 @@ the UI and rejected by the server. Absolute fits solve a free normalization;
 distance is not fitted. Photometry requires every enabled band to be covered,
 including any allowed redshift range (optical and JHKs can fit, UV/WISE cannot).
 The Gaussian broadening parameter adds to native broadening; use observed
-spectra at comparable or lower resolution and on a compatible vacuum axis.
+spectra at comparable or lower resolution. Declare the upload Air/Vacuum property;
+the fitting and display pipelines convert vacuum models to that convention.
 Progress, cancellation, confidence summaries, and best-fit overlays use the
 shared grid workflow. Model-name patterns such as `lte06000*` restrict searches.
 Full-grid fits use more CPU and storage than BOSZ. Embedders can override
@@ -395,3 +396,22 @@ the former zero seed, this lets absolute fits explore nonzero widths. Results
 and iteration counts can therefore change; not every free-parameter fit gets
 the same speedup. A narrow model-name pattern remains useful for exploratory
 searches before evaluating thousands of atmospheres.
+
+## Uploaded wavelength convention
+
+Uploads default to **Air**; choose Vacuum for vacuum-wavelength observations.
+The property can be corrected later on the upload page without rewriting the
+source. Old uploads without a saved property also default to Air. Rerun fits
+after editing it. VizieR-generated photometry is recorded as Vacuum.
+
+Models remain natively vacuum. For Air observations the pipeline applies source
+redshift in vacuum, broadens the native model, then converts to air and samples
+onto the unchanged observed pixels. Absolute F-lambda includes the coordinate
+Jacobian; normalized flux is unchanged by the medium conversion. Both fitting
+and plotting use this convention. The source velocity keeps the optical
+convention v = c z; positive velocity shifts predictions redward.
+
+Fit ranges, diagnostic windows, exclusions, observed noise and bad pixels all
+remain in the uploaded coordinate system. Stellar markers follow the model
+redshift and medium conversion; telluric guides remain fixed. See
+[spectrum-viewer.md](doc/spectrum-viewer.md) for controls and frame details.

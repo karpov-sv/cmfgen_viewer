@@ -411,6 +411,7 @@ def parse_uploaded_spectrum(
     lambda_min: float | None = None,
     lambda_max: float | None = None,
     observation_type: str | None = None,
+    wavelength_medium: str | None = None,
 ) -> dict[str, Any]:
     mode = flux_mode.strip().lower()
     if mode not in {"auto", "normalized", "absolute"}:
@@ -418,7 +419,7 @@ def parse_uploaded_spectrum(
     bound_min, bound_max = _normalize_wavelength_bounds(lambda_min, lambda_max)
 
     stat = path.stat()
-    return _parse_uploaded_spectrum_cached(
+    parsed = _parse_uploaded_spectrum_cached(
         str(path.resolve()),
         stat.st_mtime_ns,
         stat.st_size,
@@ -427,6 +428,15 @@ def parse_uploaded_spectrum(
         bound_max,
         str(observation_type or "").strip().lower(),
     )
+    from .wavelengths import normalize_wavelength_medium
+
+    if wavelength_medium is None:
+        manifest = read_upload_manifest(path.parent.parent, path.parent.name) or {}
+        wavelength_medium = manifest.get("wavelength_medium", "air")
+    # Convention edits must take effect without changing or invalidating the
+    # cached native arrays. Callers also attach per-request names and masks.
+    return {**parsed, "wavelength_medium": normalize_wavelength_medium(wavelength_medium),
+            "require_full_coverage": parsed.get("observation_type") != "photometry"}
 
 
 @lru_cache(maxsize=32)

@@ -737,8 +737,12 @@ def _tlusty_row_covers_observed_photometry(
                 if math.isfinite(width) and width > 0.0:
                     half_width = 0.5 * width
         usable_points += 1
-        coverage_z_min = max(coverage_z_min, ((center + half_width) / model_max) - 1.0)
-        coverage_z_max = min(coverage_z_max, ((center - half_width) / model_min) - 1.0)
+        low, high = center - half_width, center + half_width
+        if observed.get("wavelength_medium") == "air":
+            from .wavelengths import air_to_vacuum
+            low, high = map(float, air_to_vacuum([low, high]))
+        coverage_z_min = max(coverage_z_min, (high / model_max) - 1.0)
+        coverage_z_max = min(coverage_z_max, (low / model_min) - 1.0)
         if coverage_z_min > coverage_z_max:
             return False
     return usable_points > 0

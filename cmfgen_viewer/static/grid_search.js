@@ -499,7 +499,7 @@
     }
     overlayRequestId += 1;
     var requestId = overlayRequestId;
-    var overlayUrl = overlayUrlTemplate.replace("__JOB_ID__", encodeURIComponent(jobId)) + "?which=" + encodeURIComponent(which);
+    var overlayUrl = overlayUrlTemplate.replace("__JOB_ID__", encodeURIComponent(jobId)) + "?native=1&which=" + encodeURIComponent(which);
     fetch(overlayUrl, {
       method: "GET",
       headers: {
@@ -639,7 +639,7 @@
     lambdaMinInput.value = minText;
     lambdaMaxInput.value = maxText;
     syncFitRangeMarkers();
-    setFeedback("Fit wavelength range set from plot view: " + minText + " .. " + maxText + " Å.", false);
+    setFeedback("Fit range copied from uploaded wavelengths: " + minText + " .. " + maxText + " Å.", false);
   }
 
   function setProgress(percentage, text, isRunning, stateClass) {

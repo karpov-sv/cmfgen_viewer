@@ -198,7 +198,7 @@ def build_observed_overlay_trace(
             "hovertemplate": (
                 "Wavelength=%{x:.6g} Å<br>Observed Flux=%{y:.6e}<br>Band Width=%{customdata:.6g} Å%{text}<extra></extra>"
             ),
-            "meta": {"transform_target": "observed", "y_axis_name": "Flux"},
+            "meta": {"wavelength_medium": observed.get("wavelength_medium", "air"), "transform_target": "observed", "y_axis_name": "Flux"},
         }
         if any(value > 0.0 for value in widths):
             trace["error_x"] = {
@@ -248,7 +248,7 @@ def build_observed_overlay_trace(
         "y": y,
         "line": {"color": "#212529", "width": 1.2, "dash": "solid"},
         "hovertemplate": hover,
-        "meta": {"transform_target": "observed", "y_axis_name": y_axis_name},
+        "meta": {"wavelength_medium": observed.get("wavelength_medium", "air"), "transform_target": "observed", "y_axis_name": y_axis_name},
     }
     if errors is not None and any(
         isinstance(value, float) and value > 0.0 for value in errors
@@ -364,7 +364,8 @@ def build_uploaded_spectrum_plot(
             "marker": {"color": "#212529", "size": 8, "symbol": "circle-open"},
             "hovertemplate": "Wavelength=%{x:.6g} Å<br>Flux=%{y:.6e}<br>Band Width=%{customdata:.6g} Å%{text}<extra></extra>",
             "meta": {
-                "transform_target": "model",
+                "transform_target": "observed",
+                "wavelength_medium": observed.get("wavelength_medium", "air"),
                 "plot_role": "final",
                 "y_axis_name": "Flux",
             },
@@ -444,7 +445,8 @@ def build_uploaded_spectrum_plot(
         "line": {"color": "#212529", "width": 1.2},
         "hovertemplate": hover,
         "meta": {
-            "transform_target": "model",
+            "transform_target": "observed",
+                "wavelength_medium": observed.get("wavelength_medium", "air"),
             "plot_role": "final",
             "y_axis_name": y_axis_name,
         },

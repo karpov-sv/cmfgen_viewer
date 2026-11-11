@@ -3,6 +3,7 @@
 (function () {
   "use strict";
   var markerName = "cmfgen-spectral-line";
+  var telluricName = "cmfgen-telluric-band";
   var colors = { hydrogen: "#a34747", helium: "#7054a2", metals: "#537787", custom: "#b06a18" };
   var customStorageKey = "cmfgen-custom-spectral-lines-v1";
 
@@ -11,6 +12,7 @@
   }
 
   function parseCustomLines(text, medium) {
+    medium = medium === "vacuum" ? "vacuum" : "air";
     var lines = [];
     var invalidRows = [];
     String(text).split(/\r?\n/).forEach(function (row, index) {
@@ -104,11 +106,25 @@
     return { label: line[0], group: line[1], vacuum: vacuum, air: vacuumToAir(vacuum) };
   }).sort(function (a, b) { return a.vacuum - b.vacuum; });
 
-  function bind(target, options) {
+  // Approximate air intervals, rounded outwards from Buton et al. (2013),
+  // Table 1, with the strong NIR H2O regions from Davies et al. (2023),
+  // Table B2. These are band guides, not a transmission model or line atlas.
+  var telluricBands = [
+    ["O₂ γ + O₄", 6270, 6335],
+    ["O₂ B", 6860, 6970],
+    ["H₂O", 7140, 7400],
+    ["O₂ A", 7580, 7710],
+    ["H₂O", 8080, 8255],
+    ["H₂O", 8910, 9940],
+    ["H₂O", 13450, 14500],
+    ["H₂O", 18000, 19400]
+  ];
+
+  function bind(target) {
     var show = document.getElementById(target.id + "-lines-show");
     if (!show || target.__spectralLinesBound) return;
     target.__spectralLinesBound = true;
-    options = options || {};
+    var telluricShow = document.getElementById(target.id + "-telluric-show");
     var group = document.getElementById(target.id + "-lines-group");
     var medium = document.getElementById(target.id + "-lines-medium");
     var labels = document.getElementById(target.id + "-lines-labels");
@@ -144,16 +160,17 @@
       return coverage;
     }
 
-    function currentRedshift() {
-      return options.redshiftInput ? Number(options.redshiftInput.value) : 0;
+    function linePosition(line) {
+      var vacuum = line.vacuum * (1 + (target.__spectrumDisplayRedshift || 0));
+      return medium.value === "air" ? vacuumToAir(vacuum) : vacuum;
     }
 
-    function updateZoomOptions(redshift) {
+    function updateZoomOptions() {
       var range = spectrumCoverage();
       zoom.querySelector('[value="full"]').disabled = !range;
       zoomOptions.forEach(function (option, index) {
         var line = catalog[index];
-        var center = line[medium.value] * (1 + redshift);
+        var center = linePosition(line);
         var text = line.label + " · " + center.toFixed(1) + " Å";
         if (option.textContent !== text) option.textContent = text;
         option.disabled = !range || !Number.isFinite(center) || center < range[0] || center > range[1];
@@ -282,7 +299,7 @@
     function useCustomSettings(settings) {
       if (!customInput || !customMedium) return;
       customInput.value = settings && typeof settings.text === "string" ? settings.text : "";
-      customMedium.value = settings && settings.medium === "air" ? "air" : "vacuum";
+      customMedium.value = settings && settings.medium === "vacuum" ? "vacuum" : "air";
       updateCustomLines();
     }
 
@@ -321,9 +338,8 @@
         zoomToRange([3800, 7500]);
       } else if (selection.indexOf("line-") === 0) {
         var line = catalog[Number(selection.slice(5))];
-        var redshift = currentRedshift();
-        if (!line || !Number.isFinite(redshift) || redshift <= -1) return;
-        var center = line[medium.value] * (1 + redshift);
+        if (!line) return;
+        var center = linePosition(line);
         zoomToRange([Math.max(center - 150, 1), center + 150]);
       }
     });
@@ -333,14 +349,10 @@
       if (!target.layout || !target._fullLayout) return;
       var shapes = target.layout.shapes || [];
       var annotations = target.layout.annotations || [];
-      var nextShapes = shapes.filter(function (item) { return item.name !== markerName; });
-      var nextAnnotations = annotations.filter(function (item) { return item.name !== markerName; });
+      var nextShapes = shapes.filter(function (item) { return item.name !== markerName && item.name !== telluricName; });
+      var nextAnnotations = annotations.filter(function (item) { return item.name !== markerName && item.name !== telluricName; });
       var axis = target._fullLayout.xaxis;
-      var redshift = currentRedshift();
-      updateZoomOptions(redshift);
-      // Invalid transform inputs leave both the spectrum and its markers at
-      // their last valid positions, rather than drawing at invalid wavelengths.
-      if (show.checked && (!Number.isFinite(redshift) || redshift <= -1)) return;
+      updateZoomOptions();
       if (show.checked && axis && Array.isArray(axis.range)) {
         var low = Math.min(axis.range[0], axis.range[1]);
         var high = Math.max(axis.range[0], axis.range[1]);
@@ -348,7 +360,7 @@
         catalog.forEach(function (line) {
           if (group.value !== "all" && group.value !== line.group) return;
           var rest = line[medium.value];
-          var wavelength = rest * (1 + redshift);
+          var wavelength = linePosition(line);
           var axisPosition = axis.type === "log" ? Math.log10(wavelength) : wavelength;
           if (axisPosition < low || axisPosition > high) return;
           nextShapes.push({
@@ -375,8 +387,42 @@
             xanchor: "center", yanchor: "top", font: { size: 10, color: colors[line.group] },
             bgcolor: "rgba(255,255,255,0.75)", borderpad: 1,
             hovertext: escapePlotText(line.label) + "<br>Rest: " + candidate.rest.toFixed(2) + " Å (" +
-              (medium.value === "air" && line.vacuum >= 2000 ? "air" : "vacuum") +
-              ")<br>Shifted: " + candidate.wavelength.toFixed(2) + " Å"
+              (medium.value === "air" && line.vacuum >= 2000 ? "air" : "vacuum") + ")<br>Displayed: " + candidate.wavelength.toFixed(2) + " Å"
+          });
+        });
+      }
+      if (telluricShow && telluricShow.checked && axis && Array.isArray(axis.range)) {
+        var coverage = spectrumCoverage();
+        var axisLow = Math.min(axis.range[0], axis.range[1]);
+        var axisHigh = Math.max(axis.range[0], axis.range[1]);
+        var visibleLow = axis.type === "log" ? Math.pow(10, axisLow) : axisLow;
+        var visibleHigh = axis.type === "log" ? Math.pow(10, axisHigh) : axisHigh;
+        var lastLabelPixel = -Infinity;
+        telluricBands.forEach(function (band) {
+          var start = medium.value === "air" ? band[1] : airToVacuum(band[1]);
+          var end = medium.value === "air" ? band[2] : airToVacuum(band[2]);
+          // Keep guides inside both the viewport and the actual data coverage;
+          // an atmospheric band must never extend the spectrum's autorange.
+          var left = Math.max(start, visibleLow, coverage ? coverage[0] : Infinity);
+          var right = Math.min(end, visibleHigh, coverage ? coverage[1] : -Infinity);
+          if (right <= left) return;
+          nextShapes.push({
+            name: telluricName, type: "rect", xref: "x", yref: "paper",
+            x0: left, x1: right, y0: 0, y1: 1, layer: "below",
+            fillcolor: "rgba(47, 113, 130, 0.14)", line: { width: 0 }
+          });
+          var first = axis.type === "log" ? Math.log10(left) : left;
+          var last = axis.type === "log" ? Math.log10(right) : right;
+          var center = (first + last) / 2;
+          var pixel = (center - axisLow) / (axisHigh - axisLow) * axis._length;
+          if ((last - first) / (axisHigh - axisLow) * axis._length < 35 || pixel - lastLabelPixel < 55) return;
+          lastLabelPixel = pixel;
+          nextAnnotations.push({
+            name: telluricName, xref: "x", yref: "paper", x: center, y: 0.02,
+            text: band[0], showarrow: false, xanchor: "center", yanchor: "bottom",
+            font: { size: 10, color: "#246478" }, bgcolor: "rgba(255,255,255,0.8)",
+            hovertext: "Telluric " + band[0] + "<br>Approx. " + start.toFixed(0) + "–" + end.toFixed(0) +
+              " Å (" + medium.value + ", upload frame)<br>Atmospheric guides do not follow stellar redshift. Strength varies with observing conditions."
           });
         });
       }
@@ -397,6 +443,7 @@
       schedule();
     });
     [group, medium, labels].forEach(function (input) { input.addEventListener("change", schedule); });
+    if (telluricShow) telluricShow.addEventListener("change", schedule);
     // afterplot covers zoom, scale, resize, fit bounds, and transformed/model
     // traces; no extra traces are added to legends or fitting/export data.
     target.on("plotly_afterplot", schedule);

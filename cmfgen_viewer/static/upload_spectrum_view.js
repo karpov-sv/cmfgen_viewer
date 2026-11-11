@@ -39,10 +39,7 @@
   }
 
   function transformTargetForTrace(trace) {
-    if (trace && trace.meta && trace.meta.transform_target === "observed") {
-      return "observed";
-    }
-    return "model";
+    return trace && trace.meta && trace.meta.plot_role === "grid_fit_best" ? "model" : "observed";
   }
 
   var transformTargets = [];
@@ -181,6 +178,9 @@
     if (xValues.length < 2 || yValues.length < 2 || xValues.length !== yValues.length) {
       return null;
     }
+    var fittedRedshift = Number(overlay.fit_params && overlay.fit_params.redshift);
+    if (!Number.isFinite(fittedRedshift) || fittedRedshift <= -1) return null;
+    if (overlay.frame !== "model_vacuum") return null;
 
     var modelPath = String(overlay.model_path || overlay.model_name || "");
     var rmseText = formatOverlayRmse(overlay.rmse);
@@ -209,7 +209,8 @@
       },
       hovertemplate: hover,
       meta: {
-        transform_target: "observed",
+        transform_target: "model",
+        fit_normalization: Number(overlay.fit_params.normalization) || 1,
         plot_role: "grid_fit_best",
         y_axis_name: yLabel
       }
@@ -226,9 +227,16 @@
       return;
     }
     var cloned = cloneTraceWithArrays(trace);
+    var redshiftInput = document.getElementById(pageConfig.redshift_id);
+    if (redshiftInput) redshiftInput.value = formatNumeric(Number(overlay.fit_params.redshift), 10);
+    [[pageConfig.broadening_id, "broadening_km_s"], [pageConfig.ebv_id, "ebv"], [pageConfig.distance_id, "distance_kpc"]].forEach(function (pair) {
+      var field = document.getElementById(pair[0]);
+      if (field && Number.isFinite(Number(overlay.fit_params[pair[1]]))) field.value = formatNumeric(Number(overlay.fit_params[pair[1]]), 6);
+    });
+    viewer.updateVelocityFromRedshift();
     if (gridOverlayIndex >= 0 && gridOverlayIndex < baseData.length) {
       baseData[gridOverlayIndex] = cloned;
-      transformTargets[gridOverlayIndex] = "observed";
+      transformTargets[gridOverlayIndex] = "model";
       trace = sampling.replaceTrace(gridOverlayIndex, trace);
       Plotly.restyle(target, {
         x: [trace.x],
@@ -244,7 +252,7 @@
     }
     gridOverlayIndex = baseData.length;
     baseData.push(cloned);
-    transformTargets.push("observed");
+    transformTargets.push("model");
     trace = sampling.appendTrace(trace);
     Plotly.addTraces(target, [trace]).then(function () {
       scheduleTransforms();
@@ -322,8 +330,7 @@
   var viewer = CmfgenSpectrumViewer.create(pageConfig, {
     baseData: baseData,
     transformTargets: transformTargets,
-    shouldBroaden: function (index, trace) { return spectrumMode !== "both" || trace.meta?.plot_role === "final"; },
-    absoluteHint: "Absolute mode applies wavelength shift, reddening, distance scaling, and optional broadening."
+    shouldBroaden: function () { return true; }
   });
   var sampling = viewer.sampling;
   var scheduleTransforms = viewer.scheduleTransforms;

@@ -86,7 +86,7 @@
     var ready = Plotly.newPlot(target, sampling ? sampling.initialData : data, layout, config)
       .then(function () {
         if (sampling) sampling.bind();
-        CmfgenSpectralLines.bind(target, { redshiftInput: options.redshiftInput });
+        CmfgenSpectralLines.bind(target);
         bindVerticalResize(target);
         if (options.xScale && options.yScale) {
           function applyScale() {

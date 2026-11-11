@@ -20,8 +20,9 @@ async function check(mode) {
     elements.set(id, el);
     return el;
   }
-  const config = { plot_id: 'test', mode };
+  const config = { plot_id: 'test', mode, plot_data_layout: {xaxis: {}} };
   element('test');
+  element('test-lines-medium', 'vacuum');
   for (const [name, value] of Object.entries({
     redshift: '0', velocity: '0', broadening: '0', ebv: '0', distance: '1',
     reset_transform: '', transform_hint: '', x_scale: 'linear', y_scale: 'linear'
@@ -33,13 +34,14 @@ async function check(mode) {
   const baseData = [
     { x: [4900, 5000, 5100], y: [1, 0.2, 1] },
     { x: [4900, 5000, 5100], y: [1, 1, 1] },
-    { x: [4900, 5000, 5100], y: [2, 3, 2] }
+    { x: [5390, 5500, 5610], y: [2, 3, 2], mode: 'markers', meta: {wavelength_medium: 'vacuum'},
+      error_x: {array: [10, 10, 10]}, customdata: [20, 20, 20] }
   ];
   const original = JSON.stringify(baseData);
   const targets = ['model', 'model', 'observed'];
   let series;
   let frame;
-  const sampling = { setSeries(x, y) { series = { x, y }; } };
+  const sampling = { setSeries(x, y, extras) { series = { x, y, extras }; } };
   const context = {
     document: { getElementById(id) { return elements.get(id); } },
     CmfgenSpectrumTransforms: transforms,
@@ -51,9 +53,10 @@ async function check(mode) {
   };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname,
     '../cmfgen_viewer/static/spectrum_viewer.js'), 'utf8'), context);
-  const viewer = context.window.CmfgenSpectrumViewer.create(config, {
+  const options = {
     baseData, transformTargets: targets, shouldBroaden(index) { return index === 0; }
-  });
+  };
+  const viewer = context.window.CmfgenSpectrumViewer.create(config, options);
   await viewer.ready;
   function flush() { const next = frame; frame = null; next?.(); }
   flush();
@@ -71,10 +74,11 @@ async function check(mode) {
       mode, redshift: Number(get('redshift').value), ebv: 0.2, distance_kpc: 2,
       broadening_km_s: index === 0 ? 10000 : 0
     });
-    assert.deepEqual(Array.from(series.x[index]), expected[0]);
+    assert.deepEqual(Array.from(series.x[index]), expected[0], 'Models are redshifted into the uploaded wavelength system');
     assert.deepEqual(Array.from(series.y[index]), expected[1]);
   }
-  assert.deepEqual(Array.from(series.x[2]), baseData[2].x);
+  const scale = 1 / (1 + Number(get('redshift').value));
+  assert.deepEqual(Array.from(series.x[2]), baseData[2].x, 'Observed pixels never move');
   assert.deepEqual(Array.from(series.y[2]), baseData[2].y);
   assert.equal(JSON.stringify(baseData), original, 'Native trace arrays must remain intact');
 
@@ -94,10 +98,20 @@ async function check(mode) {
 
   // Grid-fit adapters mutate their trace arrays after plot initialization.
   baseData.push({ x: [5000, 5100], y: [4, 5] });
-  targets.push('observed');
+  targets.push('model');
+  get('redshift').value = '0.1';
+  get('redshift').dispatch('input');
   viewer.scheduleTransforms();
   flush();
   assert.deepEqual(Array.from(series.y[3]), [4, 5]);
+  assert.deepEqual(Array.from(series.x[3]), [5500, 5610], 'Fitted native model wavelengths use the source redshift');
+  assert(Math.abs(series.x[0][1] - series.x[2][1]) < 1e-10, 'Positive source redshift aligns the model to the fixed observed feature');
+  assert.equal(elements.get('test').__spectrumDisplayRedshift, 0.1);
+  const validFrame = JSON.stringify(series);
+  get('redshift').value = '-1'; get('redshift').dispatch('input'); flush();
+  assert.equal(JSON.stringify(series), validFrame);
+  assert.equal(elements.get('test').__spectrumDisplayRedshift, 0.1, 'Invalid redshift preserves the whole displayed frame');
+  assert.equal(elements.get('test-lines-medium').disabled, true, 'Upload convention fixes the displayed system');
 }
 
 Promise.all(['both', 'normalized'].map(check)).catch(error => {

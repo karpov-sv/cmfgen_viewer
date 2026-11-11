@@ -194,7 +194,7 @@ def test_fit_overlay_api_and_mode_guard(phoenix_case, tmp_path, monkeypatch, nor
     stream.seek(0)
     upload_root = tmp_path / "uploads"
     manifest = create_upload_bundle(upload_root, filename="observed.dat", stream=stream,
-                                    flux_mode="normalized" if normalized else "absolute")
+                                    flux_mode="normalized" if normalized else "absolute", wavelength_medium="vacuum")
     app = create_app(basepath=str(tmp_path), upload_root=str(upload_root), fit_pool_size_max=1)
     app.testing = True
     app.config["CMFGEN_VIEWER"].update(phoenix_root=str(root), summary_cache_db=str(tmp_path / "unused.sqlite"))

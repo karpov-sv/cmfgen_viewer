@@ -96,7 +96,7 @@ def test_fitted_overlays_broaden_native_samples_before_display(source, tmp_path,
     stream = BytesIO()
     np.savetxt(stream, np.column_stack((x, y)))
     stream.seek(0)
-    manifest = create_upload_bundle(upload_root, filename="observed.dat", stream=stream, flux_mode="absolute")
+    manifest = create_upload_bundle(upload_root, filename="observed.dat", stream=stream, flux_mode="absolute", wavelength_medium="vacuum")
     config = {"basepath": str(tmp_path), "upload_root": str(upload_root)}
     model = tmp_path / "model_a"
     obs = model / "obs"
@@ -159,6 +159,8 @@ def test_spectral_pages_render_native_payloads_and_valid_inline_scripts(tmp_path
         assert "spectrum_controls.js" in html
         assert "Line and display settings" in html
         assert "Custom spectral lines" in html
+        assert "Telluric bands" in html
+        assert "Uploaded samples and fitting intervals stay fixed" in html
         assert '<option value="custom">Custom lines</option>' in html
         assert 'aria-describedby=' in html
         assert "Full resolution in displayed region" in html
@@ -170,6 +172,8 @@ def test_spectral_pages_render_native_payloads_and_valid_inline_scripts(tmp_path
         if not url.startswith("/view/"):
             assert "spectrum_viewer.js" in html
             assert "Reset transformations" in html
+            assert "Spectrum transformations" in html
+            assert "Model transformations" not in html
         # Verify every rendered inline script parses, including raw combined
         # and separate plot branches and large embedded native vectors.
         scripts = re.findall(r"<script\b([^>]*)>(.*?)</script>", html, re.S)

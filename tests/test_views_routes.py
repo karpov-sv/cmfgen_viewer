@@ -768,6 +768,7 @@ def test_append_vizier_photometry_deduplicates_against_disabled_existing_row(tmp
                 "obs.phot",
             ),
             "flux_mode": "auto",
+            "wavelength_medium": "vacuum",
         },
         content_type="multipart/form-data",
         follow_redirects=False,

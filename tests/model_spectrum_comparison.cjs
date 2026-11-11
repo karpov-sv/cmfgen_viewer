@@ -32,6 +32,7 @@ async function main() {
     MutationObserver: class { constructor(fn) { observer = fn; } observe() {} },
     fetch: url => new Promise(resolve => requests.push({ url, resolve })),
     Plotly: { Plots: { resize: async () => {} } },
+    CmfgenSpectrumTransforms: require('../cmfgen_viewer/static/spectrum_transforms.js'),
     CmfgenSpectrumControls: { createPlot: () => {
       created++;
       return { ready: Promise.resolve(), sampling: { setTraces: async (traces, layout) => { plots.push(traces); target.data = traces; target.layout = layout; } } };

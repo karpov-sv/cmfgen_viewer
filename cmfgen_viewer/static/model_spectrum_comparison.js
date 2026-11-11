@@ -10,6 +10,7 @@
   const mode = document.getElementById("comparison-mode");
   const xScale = document.getElementById(target.id + "-xscale");
   const yScale = document.getElementById(target.id + "-yscale");
+  const medium = document.getElementById(target.id + "-lines-medium");
   const clear = document.getElementById("comparison-clear");
   const refresh = document.getElementById("comparison-refresh");
   const selectVisible = document.getElementById("comparison-select-visible");
@@ -103,7 +104,12 @@
       plotted += 1;
       result.plot.data.forEach((trace, traceIndex) => {
         const role = trace.meta.plot_role;
+        const converted = CmfgenSpectrumTransforms.transformSeries(trace.x, trace.y, {
+          mode: spectrumMode, redshift: 0, broadening_km_s: 0, ebv: 0, distance_kpc: 1,
+          wavelength_medium: medium ? medium.value : "air"
+        });
         traces.push(Object.assign({}, trace, {
+          x: converted[0], y: converted[1],
           // Plotly also uses trace IDs in CSS selectors during cleanup.
           uid: "comparison-" + boxes.indexOf(box) + "-" + spectrumMode + "-" + role,
           name: label + (role === "continuum" ? " · continuum" : " · " + result.fin),
@@ -154,6 +160,7 @@
     requestUpdate();
   });
   refresh.addEventListener("click", () => { cache.clear(); requestUpdate(); });
+  if (medium) medium.addEventListener("change", requestUpdate);
   mode.addEventListener("change", () => {
     yScale.value = mode.value === "both" ? "log" : "linear";
     requestUpdate();

@@ -43,6 +43,7 @@ def _grid_search_job_create(
     model_name_pattern: str,
     total_models: int,
     fit_regions: dict | None = None,
+    wavelength_medium: str = "vacuum",
 ) -> str:
     normalized_source = _normalize_grid_fit_source(fit_source)
     job_id = secrets.token_urlsafe(12)
@@ -58,6 +59,7 @@ def _grid_search_job_create(
         "fit_bounds": _fit_bounds_payload(fit_bounds),
         "fit_wavelength_range": _fit_wavelength_range_payload(fit_wavelength_range),
         "fit_regions": copy.deepcopy(fit_regions or {}),
+        "wavelength_medium": wavelength_medium,
         "total": int(total_models),
         "processed": 0,
         "successful": 0,

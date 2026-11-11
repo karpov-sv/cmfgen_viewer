@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import time
+from dataclasses import replace
 
 from flask import abort, redirect, request
 from werkzeug.utils import secure_filename
@@ -22,7 +23,8 @@ from .parsers.common import format_number, parse_float_token
 from .spectrum_options import _spectrum_lambda_bounds
 from .upload_service import create_photometry_bundle as _create_photometry_bundle
 from .upload_service import create_upload_bundle
-from .view_common import _notification_url, _upload_root, _viewer_config, bp
+from .view_common import _grid_jobs, _notification_url, _upload_root, _viewer_config, bp
+from .wavelengths import normalize_wavelength_medium
 from .vizier_photometry import (
     DEFAULT_VIZIER_RADIUS_ARCSEC,
     format_photometry_table_rows,
@@ -51,6 +53,7 @@ def _upload_entry_for_display(entry: dict[str, object]) -> dict[str, object]:
         "observation_type": str(entry.get("observation_type", "spectrum")),
         "flux_mode": str(entry.get("resolved_flux_mode", entry.get("requested_flux_mode", ""))),
         "detected_flux_mode": str(entry.get("detected_flux_mode", "")),
+        "wavelength_medium": normalize_wavelength_medium(entry.get("wavelength_medium", "air")),
         "points": int(entry.get("points", 0) or 0),
         "size": int(entry.get("size", 0) or 0),
         "exists": bool(entry.get("exists", False)),
@@ -133,6 +136,7 @@ def _upload_spectrum_summary_rows(
         ["Format details", _upload_format_description(format_name)],
         ["Observation type", observation_type],
         ["Flux mode", flux_mode],
+        ["Wavelength convention", str(parsed.get("wavelength_medium", "air"))],
         ["Detected flux mode", detected_flux_mode],
         ["Requested flux mode", requested_flux_mode],
         ["Parsed points", str(len(parsed.get("wavelength", [])))],
@@ -279,7 +283,7 @@ def _vizier_state_query_from_form() -> dict[str, object]:
     return query
 
 
-def _query_vizier_photometry_rows_from_form() -> str:
+def _query_vizier_photometry_rows_from_form(wavelength_medium: str = "vacuum") -> str:
     center_raw = str(request.form.get("vizier_center", "")).strip()
     if not center_raw:
         raise ValueError("VizieR center coordinates are required.")
@@ -310,6 +314,17 @@ def _query_vizier_photometry_rows_from_form() -> str:
     if not points:
         raise ValueError("No VizieR photometry points were found in the search region.")
 
+    if wavelength_medium == "air":
+        from .wavelengths import vacuum_to_air
+        converted = []
+        for point in points:
+            center, width = point.lambda_eff_a, point.band_width_a
+            edges = vacuum_to_air([center - width / 2, center + width / 2])
+            jacobian = float(vacuum_to_air(center, flux_jacobian=True))
+            converted.append(replace(point, lambda_eff_a=float(vacuum_to_air(center)),
+                band_width_a=float(edges[1] - edges[0]), flux=point.flux * jacobian,
+                flux_err=point.flux_err * jacobian if point.flux_err is not None else None))
+        points = converted
     rows_text = format_photometry_table_rows(points)
     if not rows_text.strip():
         raise ValueError("VizieR query returned no usable photometry rows.")
@@ -351,6 +366,7 @@ def uploads_upload():
             filename=uploaded.filename,
             stream=uploaded.stream,
             flux_mode=requested_flux_mode,
+            wavelength_medium=request.form.get("wavelength_medium", "air"),
             lambda_min=lambda_min,
             lambda_max=lambda_max,
         )
@@ -360,6 +376,24 @@ def uploads_upload():
     return redirect(
         _notification_url("viewer.uploads", message=f"Uploaded {manifest['filename']}.")
     )
+
+
+@bp.route("/uploads/wavelengths/<token>", methods=["POST"])
+def uploads_update_wavelengths(token: str):
+    root = _upload_root(_viewer_config())
+    entry = read_upload_manifest(root, token)
+    if entry is None:
+        abort(404)
+    if _grid_jobs().latest(upload_token=token, status="running"):
+        return _upload_view_redirect_with_vizier_state(token, error="Stop the running grid fit before changing its wavelength convention.")
+    try:
+        medium = normalize_wavelength_medium(request.form.get("wavelength_medium"))
+    except ValueError as exc:
+        return _upload_view_redirect_with_vizier_state(token, error=str(exc))
+    entry["wavelength_medium"] = medium
+    entry["updated_at"] = time.time()
+    write_upload_manifest(root, token, entry)
+    return _upload_view_redirect_with_vizier_state(token, message="Wavelength interpretation updated; stored wavelengths and fluxes were not converted. Rerun fits with the new convention.")
 
 
 @bp.route("/uploads/upload-photometry", methods=["POST"])
@@ -492,6 +526,7 @@ def uploads_update_photometry(token: str):
         "filename": filename,
         "stored_name": stored_name,
         "requested_flux_mode": requested_flux_mode,
+        "wavelength_medium": entry.get("wavelength_medium", "air"),
         "detected_flux_mode": str(parsed.get("detected_flux_mode", "")),
         "resolved_flux_mode": str(parsed.get("flux_mode", "")),
         "format": str(parsed.get("format", "")),
@@ -530,7 +565,7 @@ def uploads_append_vizier_photometry(token: str):
         return redirect(_notification_url("viewer.upload_view", token=token, error="Only photometry uploads can be edited here."))
 
     try:
-        rows_text = _query_vizier_photometry_rows_from_form()
+        rows_text = _query_vizier_photometry_rows_from_form(str(entry.get("wavelength_medium", "air")))
     except ValueError as exc:
         return _upload_view_redirect_with_vizier_state(token, error=str(exc))
 
@@ -589,6 +624,7 @@ def uploads_append_vizier_photometry(token: str):
         "filename": _photometry_filename_from_form(entry=entry),
         "stored_name": stored_name,
         "requested_flux_mode": requested_flux_mode,
+        "wavelength_medium": entry.get("wavelength_medium", "air"),
         "detected_flux_mode": str(parsed.get("detected_flux_mode", "")),
         "resolved_flux_mode": str(parsed.get("flux_mode", "")),
         "format": str(parsed.get("format", "")),

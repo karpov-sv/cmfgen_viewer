@@ -135,6 +135,7 @@ def spectrum_upload(path: str):
             filename=uploaded.filename,
             stream=uploaded.stream,
             flux_mode=requested_flux_mode,
+            wavelength_medium=request.form.get("wavelength_medium", "air"),
             lambda_min=lambda_min,
             lambda_max=lambda_max,
         )
@@ -341,6 +342,9 @@ def spectrum_fit(path: str):
     )
     if fit_error or best_params is None:
         return fit_error_response(f"Fit failed: {fit_error or 'unknown error'}")
+    current_entry = read_upload_manifest(upload_root, fit_token) or {}
+    if current_entry.get("wavelength_medium", "air") != observed.get("wavelength_medium"):
+        return fit_error_response("Upload wavelength convention changed during fitting; rerun the fit.")
 
     fitted_transform = {
         "redshift": best_params["redshift"],
@@ -471,6 +475,12 @@ def spectrum(path: str):
         parsed["name"] = str(entry.get("filename", source_path.name))
         parsed["token"] = token
 
+        expected_flux = "absolute" if view_mode == "both" else "normalized"
+        compatible = [item for item in selected_parsed if item.get("flux_mode") == expected_flux]
+        if (parsed.get("flux_mode") == expected_flux and compatible
+                and parsed.get("wavelength_medium") != compatible[0].get("wavelength_medium")):
+            warnings.append("Observed overlays must share a wavelength convention. Update the Air/Vacuum property on their upload pages or view them separately.")
+            continue
         selected_parsed.append(parsed)
         selected_observed_uploads.append(_upload_entry_for_display(entry))
         for warning in parsed.get("warnings", []):
@@ -512,7 +522,7 @@ def spectrum(path: str):
         display = _upload_entry_for_display(entry)
         token = str(display.get("token", ""))
         label = str(display.get("filename", token))
-        mode_label = str(display.get("flux_mode", ""))
+        mode_label = str(display.get("flux_mode", "")) + ", " + str(display.get("wavelength_medium", "air"))
         type_label = str(display.get("observation_type", ""))
         created_label = str(display.get("created_at", ""))
         if type_label:

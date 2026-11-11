@@ -3,11 +3,19 @@
   "use strict";
   function create(pageConfig, options) {
     var target = document.getElementById(pageConfig.plot_id);
+    var mediumInput = document.getElementById(pageConfig.plot_id + "-lines-medium");
+    var observed = options.baseData.find(function (trace, i) { return options.transformTargets[i] === "observed"; });
+    if (mediumInput && observed) {
+      mediumInput.value = observed.meta && observed.meta.wavelength_medium || "air";
+      mediumInput.disabled = true;
+      mediumInput.title = "Fixed by the upload's wavelength property. Edit it on the upload page; the observed samples stay unchanged.";
+    }
+    pageConfig.plot_data_layout.xaxis = Object.assign({}, pageConfig.plot_data_layout.xaxis,
+      { title: { text: observed ? "Uploaded wavelength (Å, " + (observed.meta && observed.meta.wavelength_medium || "air") + ")" : "Wavelength (Å)" } });
     var plot = CmfgenSpectrumControls.createPlot(target, pageConfig.plot_data_data,
       pageConfig.plot_data_layout, pageConfig.plot_data_config, {
         xScale: document.getElementById(pageConfig.x_scale_id),
-        yScale: document.getElementById(pageConfig.y_scale_id),
-        redshiftInput: document.getElementById(pageConfig.redshift_id)
+        yScale: document.getElementById(pageConfig.y_scale_id)
       });
     var sampling = plot.sampling;
     var baseData = options.baseData;
@@ -72,10 +80,7 @@
 
     function applyPhysicalTransforms() {
       var redshift = redshiftInput ? Number(redshiftInput.value) : 0;
-      if (!Number.isFinite(redshift)) {
-        redshift = 0;
-      }
-      if ((1 + redshift) <= 0) {
+      if (!Number.isFinite(redshift) || (1 + redshift) <= 0) {
         setTransformHint("Redshift must be greater than -1.", true);
         return;
       }
@@ -101,10 +106,12 @@
       var broadeningText = sigmaVelocity > 0
         ? " Gaussian line broadening uses sigma_v=" + formatNumeric(sigmaVelocity, 4) + " km/s."
         : " Gaussian line broadening is disabled.";
+      var medium = mediumInput ? mediumInput.value : "air";
+      var frameText = "Uploaded samples and fit intervals stay fixed. Model and stellar-marker wavelengths use vacuum rest × (1 + source z), then convert to " + medium + ". Telluric bands stay in the upload frame. ";
       if (spectrumMode === "both") {
-        setTransformHint((options.absoluteHint || "Flux is shown in erg s^-1 cm^-2 Å^-1, distance-scaled as 1/d^2 (1 kpc reference), and reddened with Fitzpatrick (1999) using E(B-V).") + broadeningText, false);
+        setTransformHint(frameText + "Distance, reddening and broadening apply to models only; uploaded flux and uncertainties are unchanged." + broadeningText, false);
       } else {
-        setTransformHint("Normalized mode applies wavelength shift and optional broadening; distance and reddening cancel in F/Fc." + broadeningText, false);
+        setTransformHint(frameText + "Distance and reddening cancel in F/Fc; broadening applies to models only." + broadeningText, false);
       }
 
       var transformedX = [];
@@ -113,21 +120,20 @@
       for (var traceIndex = 0; traceIndex < baseData.length; traceIndex += 1) {
         var sourceX = baseData[traceIndex].x;
         var sourceY = baseData[traceIndex].y;
-        if (transformTargets[traceIndex] !== "model") {
-          transformedX.push(sourceX.slice());
-          transformedY.push(sourceY.slice());
-          continue;
-        }
-
+        var kind = transformTargets[traceIndex];
         var shouldBroaden = options.shouldBroaden(traceIndex, baseData[traceIndex]);
-        var transformed = CmfgenSpectrumTransforms.transformSeries(sourceX, sourceY, {
-          mode: spectrumMode, redshift: redshift, distance_kpc: distanceKpc,
-          ebv: ebv, broadening_km_s: shouldBroaden ? sigmaVelocity : 0
-        });
-        transformedX.push(transformed[0]);
-        transformedY.push(transformed[1]);
+        var adjustFlux = kind === "model";
+        var transformed = adjustFlux ? CmfgenSpectrumTransforms.transformSeries(sourceX, sourceY, {
+          mode: spectrumMode, redshift: redshift, wavelength_medium: medium,
+          normalization: baseData[traceIndex].meta && baseData[traceIndex].meta.fit_normalization || 1,
+          distance_kpc: distanceKpc, ebv: ebv, broadening_km_s: shouldBroaden ? sigmaVelocity : 0
+        }) : [sourceX, sourceY];
+        transformedX.push(transformed[0].slice());
+        transformedY.push(transformed[1].slice());
       }
 
+      target.__spectrumDisplayRedshift = redshift;
+      target.__spectrumWavelengthMedium = medium;
       sampling.setSeries(transformedX, transformedY);
     }
 
@@ -161,6 +167,7 @@
       if (distanceInput) {
         distanceInput.addEventListener("input", scheduleTransforms);
       }
+      if (mediumInput) mediumInput.addEventListener("change", scheduleTransforms);
       if (ebvInput) {
         ebvInput.addEventListener("input", scheduleTransforms);
       }

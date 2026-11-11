@@ -1,6 +1,6 @@
   <div class="spectrum-field spectrum-zoom">
     <label for="{{ plot_id }}-lines-zoom" class="plot-control-label">Zoom to</label>
-    <select id="{{ plot_id }}-lines-zoom" class="form-select form-select-sm" title="Line windows: ±150 Å. Vertical scale fits the displayed region.">
+    <select id="{{ plot_id }}-lines-zoom" class="form-select form-select-sm" title="Line windows: ±150 Å about the redshifted line position in the displayed Air/Vacuum convention. Vertical scale fits the displayed region.">
       <option value="" selected>Choose a range or line…</option>
       <optgroup label="Spectrum views">
         <option value="full">Whole spectrum</option>
@@ -13,4 +13,7 @@
   {% endif %}
   <label class="form-check-label small spectrum-line-toggle" for="{{ plot_id }}-lines-show">
     <input id="{{ plot_id }}-lines-show" class="form-check-input me-1" type="checkbox"> Spectral lines
+  </label>
+  <label class="form-check-label small spectrum-line-toggle" for="{{ plot_id }}-telluric-show">
+    <input id="{{ plot_id }}-telluric-show" class="form-check-input me-1" type="checkbox" title="Approximate atmospheric absorption bands, fixed in the upload's Air/Vacuum convention and independent of stellar redshift. Prior observatory-frame corrections are not inferred." aria-describedby="{{ plot_id }}-telluric-help"> Telluric bands
   </label>

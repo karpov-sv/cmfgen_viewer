@@ -204,7 +204,7 @@
       </div>
       <p id="summary-no-matches" class="text-muted small" hidden>No models match the current filters.</p>
       <script src="{{ url_for('static', filename='summary_table.js') }}"></script>
-      {% for script in ['spectrum_controls.js', 'spectrum_sampling.js', 'spectral_lines.js', 'model_spectrum_comparison.js'] %}
+      {% for script in ['spectrum_transforms.js', 'spectrum_controls.js', 'spectrum_sampling.js', 'spectral_lines.js', 'model_spectrum_comparison.js'] %}
         <script src="{{ url_for('static', filename=script) }}"></script>
       {% endfor %}
     {% else %}

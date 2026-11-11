@@ -70,10 +70,11 @@ def test_browser_line_broadening_matches_fitting(descending, sigma):
 
 
 @pytest.mark.parametrize("mode", ["both", "normalized"])
-def test_browser_combined_transform_matches_fitting(mode):
+@pytest.mark.parametrize("medium", ["air", "vacuum"])
+def test_browser_combined_transform_matches_fitting(mode, medium):
     wavelength = np.exp(np.linspace(np.log(4900), np.log(5100), 1001))
     flux = 1 - 0.5 * np.exp(-0.5 * ((wavelength - 5000) / 0.8) ** 2)
-    options = dict(mode=mode, redshift=0.01, distance_kpc=2.0, ebv=0.2, broadening_km_s=60.0, normalization=1.5)
+    options = dict(mode=mode, redshift=0.01, distance_kpc=2.0, ebv=0.2, broadening_km_s=60.0, normalization=1.5, wavelength_medium=medium)
     actual = browser_calculate("transform", x=wavelength.tolist(), y=flux.tolist(), options=options)
     expected = apply_spectrum_transform(wavelength.tolist(), flux.tolist(), **options)
     np.testing.assert_allclose(actual[0], expected[0], rtol=1e-12)

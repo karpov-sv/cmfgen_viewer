@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from .fit_regions import fit_region_mask, validate_fit_region_samples
+from .wavelengths import air_to_vacuum, to_upload_medium
 from .spectrum_constants import (
     FIT_CANCELED_MESSAGE,
     FIT_DIFF_STEPS,
@@ -320,12 +321,13 @@ class FitResiduals:
     norm_weights: Any
     should_cancel: Callable[[], bool] | None = None
     ebv_bounds: tuple[float, float] = (0.0, 3.0)
+    wavelength_medium: str = "vacuum"
     transform: Any = field(init=False)
     photometry_sampler: Any = field(init=False, default=None)
 
     def __post_init__(self) -> None:
-        self.transform = PreparedSpectrumTransform(self.model_x, self.model_y, self.normalized_mode)
-        if self.normalized_mode == "both" and self.observed_band_width is not None:
+        self.transform = PreparedSpectrumTransform(self.model_x, self.model_y, self.normalized_mode, self.wavelength_medium)
+        if self.normalized_mode == "both" and self.observed_band_width is not None and self.wavelength_medium == "vacuum":
             self.photometry_sampler = PreparedPhotometrySampler(
                 self.model_x, self.model_y, self.observed_x,
                 self.observed_band_width, self.ebv_bounds,
@@ -464,9 +466,11 @@ def fit_model_to_observed(
     observed_x, observed_y, observed_band_width, observed_flux_err = observed_series
     observation_type = str(observed.get("observation_type", "")).strip().lower()
     is_photometry = observation_type == "photometry"
+    wavelength_medium = str(observed.get("wavelength_medium", "vacuum"))
 
     fit_regions = observed.get("fit_regions") or {}
     use_regions = bool(fit_regions.get("windows") or fit_regions.get("exclusions"))
+    strict_coverage = use_regions or bool(observed.get("require_full_coverage"))
     segment_ids = None
     if use_regions:
         if is_photometry:
@@ -568,19 +572,23 @@ def fit_model_to_observed(
     )
 
     bounds = _resolve_fit_bounds(normalized_mode, bounds_override)
-    if use_regions:
+    observed_vacuum = air_to_vacuum(observed_x) if wavelength_medium == "air" else observed_x
+    if strict_coverage:
         # Restrict the shift to complete coverage before choosing an initial
         # point. Otherwise a missing edge makes the strict residual constant
         # and the optimizer cannot move back into the usable interval.
         lower_z, upper_z = bounds["redshift"]
-        lower_z = max(lower_z, float(observed_x[-1] / model_x[-1] - 1))
-        upper_z = min(upper_z, float(observed_x[0] / model_x[0] - 1))
+        lower_z = max(lower_z, float(observed_vacuum[-1] / model_x[-1] - 1))
+        upper_z = min(upper_z, float(observed_vacuum[0] / model_x[0] - 1))
         if lower_z > upper_z:
-            return None, None, "Model does not cover every selected diagnostic sample within the redshift bounds."
+            return None, None, "Model does not cover every selected spectral sample within the redshift bounds."
         bounds["redshift"] = (lower_z, upper_z)
     if use_free_normalization:
         bounds.pop("distance_kpc", None)
-    model_x, model_y = _crop_model_for_fit(model_x, model_y, observed_x, observed_band_width, bounds)
+    crop_width = observed_band_width
+    if wavelength_medium == "air" and crop_width is not None:
+        crop_width = air_to_vacuum(observed_x + crop_width / 2) - air_to_vacuum(observed_x - crop_width / 2)
+    model_x, model_y = _crop_model_for_fit(model_x, model_y, observed_vacuum, crop_width, bounds)
     fixed_params = {name: float(lo) for name, (lo, hi) in bounds.items() if lo == hi}
     names = [name for name, (lo, hi) in bounds.items() if lo != hi]
     lower = np.array([bounds[name][0] for name in names], dtype=np.float64)
@@ -599,7 +607,7 @@ def fit_model_to_observed(
         and not initial_distance_ok
     ):
         model_on_obs = _sample_model_on_observed_grid(
-            model_x, model_y, observed_x, observed_band_width
+            *to_upload_medium(model_x, model_y, medium=wavelength_medium, absolute=True), observed_x, observed_band_width
         )
         valid_scale = (
             np.isfinite(model_on_obs)
@@ -637,7 +645,7 @@ def fit_model_to_observed(
     )
     name_to_index = {name: index for index, name in enumerate(names)}
 
-    if is_photometry or use_regions:
+    if is_photometry or strict_coverage:
         # Grid candidates must use identical diagnostic samples or bands.
         min_valid_points = max(fit_param_count + 1, int(observed_x.size))
     else:
@@ -671,6 +679,7 @@ def fit_model_to_observed(
         norm_weights=norm_weights,
         should_cancel=should_cancel,
         ebv_bounds=bounds.get("ebv", (0.0, 0.0)),
+        wavelength_medium=wavelength_medium,
     )
 
     def parameter_from_theta(theta: Any, name: str, fallback: float) -> float:
@@ -843,8 +852,8 @@ def fit_model_to_observed(
     except _FitCanceledError:
         return None, None, FIT_CANCELED_MESSAGE
     if final_valid_count < min_valid_points:
-        if use_regions:
-            return None, None, "Model does not cover every selected diagnostic sample."
+        if strict_coverage:
+            return None, None, "Model does not cover every selected spectral sample."
         if is_photometry and final_valid_count < int(observed_x.size):
             return None, None, "Model does not cover every enabled photometry point."
         return (
@@ -894,6 +903,7 @@ def fit_model_to_observed(
         "rmse": float(np.sqrt(np.mean(final_residual * final_residual))),
         "points": int(final_valid_count),
         "mode": normalized_mode,
+        "wavelength_medium": wavelength_medium,
     }
     chi2_value = float(np.sum(final_residual * final_residual))
     dof_value = max(1, int(final_valid_count) - int(fit_param_count))

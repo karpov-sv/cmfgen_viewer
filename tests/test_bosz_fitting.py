@@ -66,7 +66,7 @@ def test_bosz_fit_and_overlay_api(bosz_case, tmp_path, monkeypatch, mode, diagno
     upload_root = tmp_path / "uploads"
     manifest = create_upload_bundle(
         upload_root, filename="observed.dat", stream=stream,
-        flux_mode="absolute" if absolute else "normalized",
+        flux_mode="absolute" if absolute else "normalized", wavelength_medium="vacuum",
     )
     app = create_app(basepath=str(tmp_path), upload_root=str(upload_root), fit_pool_size_max=1)
     app.testing = True
@@ -131,6 +131,17 @@ def test_bosz_fit_and_overlay_api(bosz_case, tmp_path, monkeypatch, mode, diagno
     assert trace["fit_source"] == "bosz"
     np.testing.assert_allclose(trace["x"], wave)
     np.testing.assert_allclose(trace["y"], flux, rtol=1e-6)
+    native = client.get(f"/uploads/fit-grid/overlay/{job_id}?which=final&native=1")
+    assert native.status_code == 200
+    assert native.get_json()["trace"]["frame"] == "model_vacuum"
+    np.testing.assert_allclose(native.get_json()["trace"]["x"], wave)
+    # Convention changes invalidate old job overlays rather than silently
+    # plotting a fit performed in a different wavelength system.
+    client.post(f"/uploads/wavelengths/{token}", data={"wavelength_medium": "air"})
+    stale = client.get(f"/uploads/fit-grid/overlay/{job_id}?native=1")
+    assert stale.status_code == 400
+    assert "convention changed" in stale.get_json()["error"]
+    client.post(f"/uploads/wavelengths/{token}", data={"wavelength_medium": "vacuum"})
     # Restoring a running search must preserve BOSZ rather than falling back to CMFGEN.
     app.extensions["cmfgen_jobs"]["grid"].update(job_id, status="running")
     reload = client.get(f"/uploads/view/{token}").get_data(as_text=True)

@@ -18,6 +18,15 @@
       <span class="badge text-bg-light border">Format: <code>{{ upload.format }}</code></span>
     </div>
 
+    <form method="post" action="{{ url_for('viewer.uploads_update_wavelengths', token=upload.token) }}" class="d-flex flex-wrap align-items-center gap-2 mb-3">
+      <label for="upload-medium-edit" class="small">Uploaded wavelengths</label>
+      <select id="upload-medium-edit" name="wavelength_medium" class="form-select form-select-sm w-auto" title="Change the interpretation of the stored wavelength values, without converting or resampling the file. Rerun fits after changing this setting.">
+        <option value="air" {% if upload.wavelength_medium == 'air' %}selected{% endif %}>Air</option>
+        <option value="vacuum" {% if upload.wavelength_medium == 'vacuum' %}selected{% endif %}>Vacuum</option>
+      </select>
+      <button type="submit" class="btn btn-sm btn-outline-primary">Save wavelength convention</button>
+      <span class="small text-muted">Interpretation only; stored samples are unchanged. Air is the default for uploads without a saved convention.</span>
+    </form>
 
     {% if upload.observation_type == "photometry" %}
       <div class="card mb-3">
@@ -148,7 +157,7 @@
           <div class="spectrum-settings-body">
             <div class="grid-fit-wavelength">
               <fieldset class="grid-fit-bound">
-                <legend>Wavelength range (Å, optional)</legend>
+                <legend>Upload-frame wavelength range (Å, optional)</legend>
                 <div class="grid-fit-bound-inputs">
                   {% for side, label in [('min', 'Min'), ('max', 'Max')] %}
                     <div class="spectrum-field">
@@ -158,13 +167,13 @@
                   {% endfor %}
                 </div>
               </fieldset>
-              <button id="grid-fit-use-plot-range" type="button" class="btn btn-sm btn-outline-secondary">Use plot range</button>
+              <button id="grid-fit-use-plot-range" type="button" class="btn btn-sm btn-outline-secondary" title="Copy the displayed uploaded-wavelength limits directly; no frame conversion is applied.">Use plot range</button>
               <span class="small text-muted">Leave blank to use all {% if upload.observation_type == "photometry" %}enabled bands{% else %}available wavelengths{% endif %}.</span>
             </div>
             {% if upload.observation_type != 'photometry' %}
               <fieldset class="border rounded p-2 mb-3">
                 <legend class="float-none w-auto fs-6 px-1">Diagnostic regions (optional)</legend>
-                <p class="small text-muted mb-2">One interval per line: <code>label, min, max</code> or <code>min, max</code>, in observed-frame Å using the upload's air/vacuum convention. Windows stay fixed while the model is shifted. They are intersected with the wavelength range above; exclusions take precedence. Leave windows blank to fit all remaining samples.</p>
+                <p class="small text-muted mb-2">One interval per line: <code>label, min, max</code> or <code>min, max</code>, in the upload's original wavelength frame (Å and its air/vacuum convention), without any display wavelength correction. These numeric bounds select stored upload samples; display redshift does not change them. They are intersected with the wavelength range above; exclusions take precedence. Leave windows blank to fit all remaining samples.</p>
                 <div class="row g-2">
                   <div class="col-md-6">
                     <label for="grid-fit-windows" class="plot-control-label">Diagnostic windows</label>
@@ -197,7 +206,7 @@
                 </fieldset>
               {% endfor %}
             </div>
-            <p class="small text-muted spectrum-help">Bounds set the search range. Use equal minimum and maximum values to hold a parameter fixed.</p>
+            <p class="small text-muted spectrum-help">Bounds set the search range. Use equal minimum and maximum values to hold a parameter fixed. Fits compare the forward-redshifted model with stored upload wavelengths; display corrections do not change the fitted data. Grid-fit overlays are transformed to the upload convention and set the model controls to their fitted values.</p>
           </div>
         </details>
         {% if mode == "both" %}

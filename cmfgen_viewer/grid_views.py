@@ -457,6 +457,7 @@ def upload_fit_grid(token: str):
         model_name_pattern=model_name_pattern,
         total_models=len(model_candidates),
         fit_regions=fit_regions,
+        wavelength_medium=str(observed.get("wavelength_medium", "air")),
     )
 
     worker = Thread(
@@ -596,6 +597,8 @@ def _build_tlusty_overlay_trace(
     fit_params: dict[str, float],
     observed_min: float,
     observed_max: float,
+    wavelength_medium: str = "vacuum",
+    native: bool = False,
 ) -> tuple[dict[str, object] | None, str | None]:
     fit_source = _normalize_grid_fit_source(model_entry.get("fit_source", GRID_FIT_SOURCE_TLUSTY))
     source_label = _grid_fit_source_label(fit_source)
@@ -620,6 +623,11 @@ def _build_tlusty_overlay_trace(
     if not isinstance(model_x, list) or not isinstance(model_y, list):
         return None, f"Could not prepare {source_label} model series for overlay."
 
+    if native:
+        return {"frame": "model_vacuum", "fit_source": fit_source,
+                "model_path": model_entry.get("model_path", ""), "fit_params": fit_params,
+                "rmse": model_entry.get("rmse"), "x": model_x, "y": model_y}, None
+
     transformed = apply_spectrum_transform(
         model_x,
         model_y,
@@ -629,6 +637,7 @@ def _build_tlusty_overlay_trace(
         ebv=fit_params["ebv"],
         distance_kpc=fit_params["distance_kpc"],
         normalization=fit_params.get("normalization", 1.0),
+        wavelength_medium=wavelength_medium,
     )
     if transformed is None:
         return None, f"Could not transform {source_label} model spectrum for overlay."
@@ -678,6 +687,7 @@ def _build_upload_grid_overlay_trace(
     config: dict[str, object],
     snapshot: dict[str, object],
     model_entry: dict[str, object],
+    native: bool = False,
 ) -> tuple[dict[str, object] | None, str | None]:
     upload_token = str(snapshot.get("upload_token", "")).strip()
     if not is_valid_upload_token(upload_token):
@@ -707,6 +717,9 @@ def _build_upload_grid_overlay_trace(
     except Exception as exc:
         return None, f"Could not parse uploaded spectrum: {exc}"
     observed_range = _observed_overlay_wavelength_bounds(observed)
+    medium = str(observed.get("wavelength_medium", "air"))
+    if "wavelength_medium" in snapshot and snapshot["wavelength_medium"] != medium:
+        return None, "Upload wavelength convention changed; rerun the grid fit."
     if observed_range is None:
         return None, "Uploaded spectrum does not have enough valid wavelength points."
     observed_min, observed_max = observed_range
@@ -726,6 +739,8 @@ def _build_upload_grid_overlay_trace(
             fit_params=fit_params,
             observed_min=observed_min,
             observed_max=observed_max,
+            wavelength_medium=medium,
+            native=native,
         )
 
     model_relpath = str(model_entry.get("model_path", "")).strip()
@@ -772,6 +787,10 @@ def _build_upload_grid_overlay_trace(
         return None, "Could not prepare final model series for overlay."
     model_x, model_y = model_series
 
+    if native:
+        return {"frame": "model_vacuum", "model_path": model_relpath, "fit_params": fit_params,
+                "rmse": model_entry.get("rmse"), "x": model_x, "y": model_y}, None
+
     transformed = apply_spectrum_transform(
         model_x,
         model_y,
@@ -781,6 +800,7 @@ def _build_upload_grid_overlay_trace(
         ebv=fit_params["ebv"],
         distance_kpc=fit_params["distance_kpc"],
         normalization=fit_params.get("normalization", 1.0),
+        wavelength_medium=medium,
     )
     if transformed is None:
         return None, "Could not transform model spectrum for overlay."
@@ -928,6 +948,7 @@ def upload_fit_grid_overlay(job_id: str):
         config=_viewer_config(),
         snapshot=snapshot,
         model_entry=model_entry,
+        native=request.args.get("native") == "1",
     )
     if overlay_error:
         return jsonify({"ok": False, "error": overlay_error}), 400

@@ -322,8 +322,13 @@ and exit codes. Execution checks do not establish scientific convergence.
 - Final spectrum tools:
   - toggleable common spectral line markers (hydrogen, helium, metals), optional labels,
     plus browser-saved custom wavelength/label lists with their own line group,
-    air/vacuum conventions, and positions following model redshift; also available on
+    Air-default wavelength conventions, and positions following model/source redshift; also available on
     uploaded spectra and parsed wavelength plots ([usage and sources](doc/spectrum-viewer.md)),
+  - fixed-upload comparison: choose Air (default) or Vacuum on upload, editable later;
+    models and stellar markers are redshifted in vacuum and converted to that convention,
+    while observations, uncertainties and fitting intervals remain unchanged,
+  - independently toggleable telluric O₂/H₂O band guides, fixed in the upload
+    wavelength convention and independent of source velocity, without changing fit masks,
   - quick wavelength zoom presets for each reference line (±150 Å), the optical
     range (3800–7500 Å), and the whole visible spectrum, with vertical scaling
     to the displayed wavelength region,

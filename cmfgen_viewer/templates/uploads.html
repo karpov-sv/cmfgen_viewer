@@ -17,6 +17,7 @@
           <option value="normalized">Normalized</option>
           <option value="absolute">Absolute</option>
         </select>
+        {% include "_upload_wavelength_medium.html" %}
         <button type="submit" class="btn btn-sm btn-primary">Upload</button>
       </form>
       <p class="small text-muted mb-0">
@@ -118,6 +119,7 @@
             <th>File</th>
             <th>Type</th>
             <th>Flux mode</th>
+            <th>Wavelengths</th>
             <th>Detected</th>
             <th>Format</th>
             <th>Points</th>
@@ -139,6 +141,7 @@
               </td>
               <td><code>{{ item.observation_type }}</code></td>
               <td><code>{{ item.flux_mode }}</code></td>
+              <td>{{ item.wavelength_medium | capitalize }}</td>
               <td><code>{{ item.detected_flux_mode }}</code></td>
               <td><code>{{ item.format }}</code></td>
               <td><code>{{ item.points }}</code></td>

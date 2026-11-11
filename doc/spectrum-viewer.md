@@ -41,11 +41,71 @@ window is retained when adding or removing models; the vertical scale refits to
 the selected curves. Use the individual or bulk spectrum page for
 transformations and observed-data overlays.
 
-## Model transformations
+## Upload wavelength convention
 
-Expand **Model transformations** to adjust redshift or radial velocity, velocity dispersion, E(B-V), and distance. Redshift and radial velocity represent the same shift and stay synchronized. **Reset transformations** restores the defaults. Transformations apply to the model curves; check the wavelength convention and units of uploaded observations when comparing them.
+Choose **Air wavelengths** (the default) or **Vacuum wavelengths** when uploading
+from Uploads, a single-model page, or the bulk-spectrum page. On the upload's own
+page, change **Uploaded wavelengths** and press **Save wavelength convention** to
+correct the interpretation later. This updates metadata only: the source file,
+wavelength values, flux values, uncertainties, and bad pixels are not rewritten.
+Uploads made before this property existed default to Air. FITS wavelength-medium
+keywords are not used to override the explicit choice. Native vacuum uploads
+must be marked Vacuum. VizieR-generated photometry is recorded as Vacuum.
 
-Transformation and line/display settings remain available in expandable groups so the main controls stay compact. Display sampling changes the drawn curve; it does not change the data used for fitting or export.
+Stop a running grid fit before editing its convention, and rerun completed fits
+following a change. Cached parsing immediately uses the updated property; old
+job overlays with a different convention are rejected. Photometry edits preserve
+the saved convention; VizieR points appended to Air photometry are converted to
+that convention before merging. Air/vacuum and the velocity frame are separate properties:
+the source velocity must match the upload's existing topocentric, heliocentric,
+or barycentric frame; the viewer does not infer a velocity-frame correction.
+
+## Spectrum transformations
+
+The **uploaded spectrum defines the fixed plotted wavelength system**. Enter
+**Source redshift z** or **Source velocity (km/s)** relative to that system. The
+fields use **v = c z**, the optical velocity convention, rather than the
+relativistic Doppler velocity. Positive source velocity shifts the model and
+stellar reference markers towards **longer** wavelengths.
+
+| Component | Display and fitting behavior |
+| --- | --- |
+| Upload, its uncertainties and bad pixels | Native values; never shifted, smoothed or resampled |
+| Fitting windows, diagnostics and exclusions | Fixed intervals in the upload's original wavelengths |
+| Model spectra | Redshift in vacuum, broaden, convert to the upload's convention, then sample at observed pixels for fitting |
+| Stellar line markers and line-zoom centers | Redshift vacuum rest wavelengths, then convert to the upload's convention |
+| Telluric guides | Fixed in the upload convention, independent of source redshift |
+
+For an Air upload the model coordinate is
+`lambda_air = vacuum_to_air(lambda_model_vacuum * (1 + z))`.
+For a Vacuum upload it is `lambda_model_vacuum * (1 + z)`.
+An air-rest line-list entry is first converted to vacuum so markers follow the
+same order of operations as models. At z = 0, Air uploads still require the
+model vacuum-to-air conversion; the conversion must not be absorbed into velocity.
+
+Model broadening uses the native model samples before conversion and before
+interpolation onto observed pixels. Models with inadequate native resolution
+cannot be sharpened. Both the Python fitting pipeline and browser display use
+the same wavelength conversion and transform order. Normalized model flux values
+are unchanged by the air/vacuum conversion. Absolute F-lambda model densities
+include `d(lambda_vacuum)/d(lambda_air)` so integrated flux is preserved.
+Extinction is evaluated on the redshifted vacuum wavelengths.
+
+**Spectrum transformations** affects models only. Uploaded fluxes, bandwidths
+and errors remain unchanged even when distance, reddening or broadening is edited.
+Grid fits load a native vacuum model overlay and initialize the model controls
+with its fitted parameters; subsequent edits transform that model from its native
+samples, avoiding double shifting, conversion, or broadening. **Reset
+transformations** restores z = 0 and the other preview defaults; it does not
+change the upload's wavelength property. Invalid transform values retain the
+last valid display. Display adjustments do not modify saved observations or the
+native data used by subsequent fits.
+
+**Wavelengths** in Line and display settings is locked to the active upload's
+property. Update that property on its upload page to correct it. Multiple observed
+overlays on a model page must have the same convention; incompatible overlays are
+omitted with a warning. Without an upload, model comparisons and their line
+markers default to Air, with Vacuum available through **Wavelengths**.
 
 ## Fit diagnostic regions in uploaded spectra
 
@@ -67,11 +127,16 @@ with no windows, they remove samples from the full fit range.
 
 All bounds are inclusive, in **observed-frame Å**, using the upload's air/vacuum
 convention. Windows stay fixed as the model redshift is optimized. The overall
-wavelength range still applies. Plot zoom and display transformations do not
-shift these bounds or change the uploaded samples used for fitting. At least 30
+wavelength range still applies. Numeric fields and their plotted boundary markers
+refer directly to the stored upload wavelengths. Changing model velocity,
+broadening or wavelength conversion does not change the selected observed pixels.
+**Use plot range** copies the displayed limits directly, with no redshift or
+medium conversion. This applies to Grid Fit and the single-model fit controls.
+At least 30
 usable samples in total and two unmasked samples per window are required.
 Candidate models must cover every selected sample, ensuring the same comparison
-data for each candidate. The redshift search is intersected with the interval
+data for each candidate, including full-window fits without named diagnostics.
+A shorter model segment cannot silently omit observed edge pixels. The redshift search is intersected with the interval
 that gives complete coverage (and can become fixed at an edge). Selection happens before the existing fitting sample
 cap. Effective sample-size estimates do not correlate residuals across masked
 intervals or separate windows.
@@ -104,7 +169,7 @@ overlay on the wavelength plot.
 
 The model, bulk, upload, and parsed-file viewers share the same zoom and line
 controls. Open **Line and display settings** to choose a line group, wavelength
-convention, labels, and sampling detail. Model transformations are in a separate
+convention, labels, and sampling detail. Spectrum transformations are in a separate
 expandable group on the model, bulk, and upload pages.
 
 Choose **All lines**, **Hydrogen**, **Helium**, **Metals**, or **Custom lines**. Hydrogen includes
@@ -114,22 +179,23 @@ This is a small reference list for visual inspection. Multiplets use representat
 positions; entries labeled “blend” mark a combined feature, rather than individual
 doublet components. Square brackets denote forbidden transitions.
 
-**Vacuum** is the default wavelength convention. Select **Air** for spectra on an
-air wavelength scale. This changes only the markers; it does not convert the
-spectrum's wavelength axis. Reference wavelengths below 2000 Å remain in vacuum.
-On model and upload viewers, marker positions use the current model redshift:
-λ = λ_rest × (1 + z). On parsed file plots they stay at rest wavelengths.
+**Air** is the default wavelength convention for model comparisons and line
+lists. With an upload, its saved Air/Vacuum property controls the display; models
+and markers are converted to match it. This never converts the uploaded axis.
+Values below 2000 Å stay vacuum. Parsed model-file plots without transformation
+controls retain native vacuum coordinates and initialize their marker display to
+Vacuum, so their file axes and markers agree.
 
 Turn **Labels** off to keep only the dotted lines. Markers are limited to the
 visible wavelength range. Closely spaced labels are omitted at wide zoom levels;
 zoom in to reveal them, or select a single line family. Hover over a label for its
-rest and shifted wavelengths. The overlay leaves the spectrum data, fit bounds,
+rest wavelength and convention. The overlay leaves the spectrum data, fit bounds,
 and exported tables unchanged.
 
 Use **Zoom to** to jump to a reference line with a window of **±150 Å**, the
 **optical range (3800–7500 Å)**, or the **whole spectrum**. The menu works with
 the line overlay on or off. Lines are grouped by family and show their current
-positions using the selected air/vacuum convention and model redshift. Lines
+redshifted positions using the selected air/vacuum convention. Lines
 outside the displayed spectra's wavelength coverage are disabled. The whole
 spectrum preset covers the current data of all visible curves, excluding curves
 hidden through the legend or bulk visibility controls. Presets also fit the vertical
@@ -152,22 +218,63 @@ spaces, commas, or semicolons can separate the wavelength and label:
 6678.15 He I
 ```
 
-Set **Input wavelengths** to **Air** for this example, or **Vacuum** for vacuum
+The **Input wavelengths** default is **Air**, as in this example. Choose **Vacuum** for vacuum
 values. This specifies the convention of the entered numbers independently of
 the **Wavelengths** display selector. Below 2000 Å, values remain in vacuum.
 Blank lines and lines beginning with `#` are ignored. Labels are optional and
 display as plain text. Invalid rows are listed beneath the field and skipped;
-valid rows still appear. Edits apply immediately.
+valid rows still appear. Edits apply immediately. Previously saved custom lists
+retain their saved input convention; new lists default to Air.
 
 Enable **Spectral lines**, then choose **Custom lines** to show only your lines,
 or **All lines** to include the built-in catalog. Custom lines also appear in
-the **Zoom to** menu, follow model redshift, and use the same wavelength
+the **Zoom to** menu, follow the source redshift, and use the same wavelength
 conversion and label-spacing rules. Their labels take priority in crowded views.
 
 The list and its input convention are saved in this browser, when browser
 storage is available, and shared across viewers and tabs on the same server
 origin. Clear the textarea to remove the list. Custom lines affect reference
-markers only; model files, spectrum values, fitting, and exports are unchanged.
+markers only; model files, uploaded spectrum values, fitting masks, and exports are unchanged.
+
+### Telluric bands
+
+Enable **Telluric bands** beside **Spectral lines** to shade common atmospheric
+absorption regions. The toggle starts off and works independently of the stellar
+line overlay. The guides use approximate air intervals in Å:
+
+| Band | Approximate interval |
+| --- | --- |
+| O₂ γ + O₄ | 6270–6335 |
+| O₂ B | 6860–6970 |
+| H₂O | 7140–7400 |
+| O₂ A | 7580–7710 |
+| H₂O | 8080–8255 |
+| H₂O | 8910–9940 |
+| H₂O | 13450–14500 |
+| H₂O | 18000–19400 |
+
+The first six are rounded reference regions informed by
+[Buton et al. (2013), Table 1](https://www.aanda.org/articles/aa/pdf/2013/01/aa19834-12.pdf).
+The two infrared guides use strongly contaminated regions listed in
+[Davies et al. (2023), Table B2](https://academic.oup.com/mnras/article/521/1/289/7069299).
+These are broad visual guides, not exact boundaries or a complete telluric atlas.
+Absorption depths depend on airmass, water vapour, and observing conditions.
+
+Bands use the upload's Air/Vacuum convention and stay fixed as source redshift
+changes. The table lists approximate air-frame intervals; selecting Vacuum
+converts the atmospheric guides to vacuum without applying stellar redshift.
+
+The atmospheric catalog assumes **topocentric** uploaded wavelengths. A previously
+applied barycentric or heliocentric correction also moves atmospheric features;
+that prior correction is not inferred from a FITS header or source velocity.
+For such uploads the guides remain approximate until that separate correction
+is accounted for. It must not be replaced by the star's redshift.
+
+Only overlapping parts of bands are shaded; labels appear when there is room,
+with approximate bounds on hover. Guides do not expand the spectrum's wavelength
+coverage, correct absorption, modify exports, or automatically exclude fitting
+samples. Use **Exclude intervals** in Grid Fit for any desired masks, accounting
+for the uploaded spectrum's actual wavelength frame.
 
 ## Spectrum detail
 
@@ -187,8 +294,8 @@ native points of visible curves. Plotly's additional line simplification is disa
 coverage, so zooming does not discard access to other wavelengths. The quick zoom
 presets calculate the vertical range from native transformed flux and error bars.
 
-Redshift, distance, reddening, and velocity broadening operate on the complete
-native arrays before display reduction. Broadening therefore has the surrounding
+Model redshift, distance, reddening, and velocity broadening operate on the complete
+native model arrays before display reduction. Broadening therefore has the surrounding
 data it needs even when inspecting a narrow window. Fitted-model overlays also
 retain their native samples. Display settings do not change fitting or exports.
 
@@ -207,5 +314,6 @@ and [helium](https://physics.nist.gov/PhysRefData/Handbook/Tables/heliumtable2.h
 Optical Hβ, Hα, [O III], and [S II] positions follow the
 [SDSS common-transition table](https://www.sdss4.org/dr17/spectro/spectro_basics/#Vacuum).
 Air/vacuum conversion uses the Ciddor (1996) equation documented on that page.
-Air catalog entries are converted to vacuum before the display convention and
-redshift are applied.
+Air catalog entries are converted to vacuum before the display convention is
+applied. Source redshift is applied in vacuum before the displayed medium conversion;
+the stored rest catalog is unchanged.

@@ -3,6 +3,20 @@
   "use strict";
   var LIGHT_SPEED_KM_PER_S = 299792.458;
 
+  function vacuumToAir(wave) {
+    if (wave < 2000) return wave;
+    var s2 = Math.pow(10000 / wave, 2);
+    return wave / (1 + 0.05792105 / (238.0185 - s2) + 0.00167917 / (57.362 - s2));
+  }
+
+  function vacuumToAirJacobian(wave) {
+    if (wave < 2000) return 1;
+    var s2 = Math.pow(10000 / wave, 2);
+    var a = 238.0185 - s2, b = 57.362 - s2;
+    var index = 1 + 0.05792105 / a + 0.00167917 / b;
+    return index * index / (index + 2 * s2 * (0.05792105 / (a * a) + 0.00167917 / (b * b)));
+  }
+
   function polyEval(coeffs, x) {
     var value = 0;
     for (var i = 0; i < coeffs.length; i += 1) {
@@ -269,10 +283,19 @@
     if (options.broadening_km_s > 0) {
       transformed = gaussianBroadenByVelocity(shifted, transformed, options.broadening_km_s);
     }
+    if (options.wavelength_medium === "air") {
+      if (options.mode === "both") transformed = transformed.map(function (value, i) { return value * vacuumToAirJacobian(shifted[i]); });
+      shifted = shifted.map(vacuumToAir);
+      if (shifted.some(function (x, i) { return i && x <= shifted[i - 1]; })) {
+        var order = shifted.map(function (x, i) { return i; }).sort(function (a, b) { return shifted[a] - shifted[b]; });
+        transformed = order.map(function (i) { return transformed[i]; });
+        shifted = order.map(function (i) { return shifted[i]; });
+      }
+    }
     return [shifted, transformed];
   }
 
-  var api = { transformSeries: transformSeries, reddeningScaleAt: reddeningScaleAt, gaussianBroadenByVelocity: gaussianBroadenByVelocity,
+  var api = { transformSeries: transformSeries, vacuumToAir: vacuumToAir, reddeningScaleAt: reddeningScaleAt, gaussianBroadenByVelocity: gaussianBroadenByVelocity,
               buildNaturalSpline: buildNaturalSpline, evalNaturalSpline: evalNaturalSpline };
   if (typeof module === "object" && module.exports) module.exports = api;
   root.CmfgenSpectrumTransforms = api;

@@ -282,7 +282,7 @@
     fitLambdaMinInput.value = minText;
     fitLambdaMaxInput.value = maxText;
     syncFitRangeMarkers();
-    setFitFeedback("Fit wavelength range set from plot view: " + minText + " .. " + maxText + " Å.", false);
+    setFitFeedback("Fit range copied from uploaded wavelengths: " + minText + " .. " + maxText + " Å.", false);
   }
 
   var viewer = CmfgenSpectrumViewer.create(pageConfig, {

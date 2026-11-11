@@ -9,6 +9,7 @@ from functools import lru_cache
 from typing import Any
 
 from .spectrum_constants import JY_TO_FLAMBDA_ANGSTROM_FACTOR, LIGHT_SPEED_KM_PER_S
+from .wavelengths import air_to_vacuum, to_upload_medium, vacuum_to_air
 
 try:
     from scipy.interpolate import CubicSpline
@@ -396,10 +397,12 @@ class _PreparedBroadeningGeometry:
 class PreparedSpectrumTransform:
     """Per-fit, bounded caches; retain transform order and the native model axis."""
 
-    def __init__(self, wavelength: Any, flux: Any, mode: str):
+    def __init__(self, wavelength: Any, flux: Any, mode: str, wavelength_medium: str = "vacuum"):
         self.wavelength, self.flux, self.mode = wavelength, flux, mode
+        self.wavelength_medium = wavelength_medium
         self.log_step = _uniform_log_step(wavelength)
         self.shift_cache = OrderedDict()
+        self.medium_cache = OrderedDict()
         self.broadening_geometry = None
 
     def is_unbroadened(self, sigma_km_s: float) -> bool:
@@ -420,13 +423,15 @@ class PreparedSpectrumTransform:
         """
         if not math.isfinite(redshift) or redshift <= -1:
             return None
-        positions = np.searchsorted(self.wavelength, observed_x / (1 + redshift))
+        observed_vacuum = air_to_vacuum(observed_x) if self.wavelength_medium == "air" else observed_x
+        positions = np.searchsorted(self.wavelength, observed_vacuum / (1 + redshift))
         indices = np.unique(np.clip(np.concatenate((positions - 1, positions, positions + 1)),
                                     0, self.wavelength.size - 1))
         transformed = _apply_transform_arrays(
             self.wavelength[indices], self.flux[indices], mode=self.mode,
             redshift=redshift, broadening_km_s=0, ebv=ebv, distance_kpc=distance_kpc,
             normalization=normalization,
+            wavelength_medium=self.wavelength_medium,
         )
         if transformed is None:
             return None
@@ -463,6 +468,18 @@ class PreparedSpectrumTransform:
                 values = self.broadening_geometry(values, broadening_km_s, shifted)
             else:
                 values = _gaussian_broaden_by_velocity(shifted, values, broadening_km_s)
+        if self.wavelength_medium == "air":
+            if redshift not in self.medium_cache:
+                air = vacuum_to_air(shifted)
+                order = np.argsort(air) if np.any(np.diff(air) <= 0) else None
+                jacobian = vacuum_to_air(shifted, flux_jacobian=True) if self.mode == "both" else 1.0
+                self.medium_cache[redshift] = air if order is None else air[order], jacobian, order
+                if len(self.medium_cache) > 4:
+                    self.medium_cache.popitem(last=False)
+            self.medium_cache.move_to_end(redshift)
+            axis, jacobian, order = self.medium_cache[redshift]
+            values = values * jacobian
+            return axis, values if order is None else values[order]
         return shifted, values
 
 
@@ -515,6 +532,7 @@ def apply_spectrum_transform(
     ebv: float,
     distance_kpc: float,
     normalization: float = 1.0,
+    wavelength_medium: str = "vacuum",
 ) -> tuple[list[float], list[float]] | None:
     """
     Mirror browser-side transforms used in the final-spectrum view:
@@ -533,6 +551,7 @@ def apply_spectrum_transform(
         ebv=ebv,
         distance_kpc=distance_kpc,
         normalization=normalization,
+        wavelength_medium=wavelength_medium,
     )
     if transformed is None:
         return None
@@ -550,6 +569,7 @@ def _apply_transform_arrays(
     ebv: float,
     distance_kpc: float,
     normalization: float = 1.0,
+    wavelength_medium: str = "vacuum",
 ) -> tuple[Any, Any] | None:
     if np is None:
         return None
@@ -580,7 +600,7 @@ def _apply_transform_arrays(
             transformed_x, transformed_y, broadening_km_s
         )
 
-    return transformed_x, transformed_y
+    return to_upload_medium(transformed_x, transformed_y, medium=wavelength_medium, absolute=mode == "both")
 
 
 def _build_model_series_for_fit(

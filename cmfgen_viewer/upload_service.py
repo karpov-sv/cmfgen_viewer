@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import BinaryIO
 
 from werkzeug.utils import secure_filename
+from .wavelengths import normalize_wavelength_medium
 
 from .observed_spectrum import (
     generate_upload_token,
@@ -30,12 +31,14 @@ def create_upload_bundle(
     lambda_max: float | None = None,
     photometry: bool = False,
     empty_photometry: bool = False,
+    wavelength_medium: str = "air",
 ) -> dict[str, object]:
     """Persist a source and its manifest as one operation.
 
     The caller owns the input stream. A bundle is discoverable only after its
     manifest is committed; any save, parse, or manifest failure removes it.
     """
+    wavelength_medium = normalize_wavelength_medium(wavelength_medium)
     safe_name = secure_filename(filename) or "observed-spectrum"
     suffix = ".phot" if photometry else Path(safe_name).suffix.lower() or ".dat"
     token = generate_upload_token()
@@ -73,6 +76,7 @@ def create_upload_bundle(
             "filename": safe_name,
             "stored_name": stored_name,
             "requested_flux_mode": flux_mode,
+            "wavelength_medium": wavelength_medium,
             "detected_flux_mode": str(parsed.get("detected_flux_mode", "")),
             "resolved_flux_mode": str(parsed.get("flux_mode", "")),
             "format": str(parsed.get("format", "")),
@@ -106,6 +110,7 @@ def create_photometry_bundle(
         lambda_min=lambda_min,
         lambda_max=lambda_max,
         photometry=True,
+        wavelength_medium="vacuum",
         empty_photometry=not canonical_table,
     )
     return str(manifest["token"])

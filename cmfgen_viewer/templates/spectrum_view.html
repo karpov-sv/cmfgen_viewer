@@ -96,6 +96,7 @@
               <option value="normalized" {% if upload_flux_mode == "normalized" %}selected{% endif %}>Normalized</option>
               <option value="absolute" {% if upload_flux_mode == "absolute" %}selected{% endif %}>Absolute</option>
             </select>
+        {% include "_upload_wavelength_medium.html" %}
             <button type="submit" class="btn btn-sm btn-outline-primary">Upload</button>
             <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('viewer.uploads') }}">Manage Uploads</a>
           </form>
@@ -171,7 +172,7 @@
               <button type="submit" class="btn btn-sm btn-outline-success">Fit Model</button>
             </div>
             <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
-              <span class="small text-muted">Fit wavelength range (Å, optional):</span>
+              <span class="small text-muted">Upload-frame fit wavelength range (Å, optional):</span>
               <label for="fit-lambda-min" class="small text-muted mb-0">min</label>
               <input
                 id="fit-lambda-min"
@@ -194,7 +195,7 @@
                 value="{{ fit_wavelength_inputs.max }}"
                 placeholder="auto"
               >
-              <button id="fit-use-plot-range" type="button" class="btn btn-sm btn-outline-secondary">Use Plot Range</button>
+              <button id="fit-use-plot-range" type="button" class="btn btn-sm btn-outline-secondary" title="Copy the displayed uploaded-wavelength limits directly; no frame conversion is applied.">Use Plot Range</button>
             </div>
             <div class="d-flex flex-wrap align-items-center gap-2">
               <span class="small text-muted">Configure parameter bounds (equal values freeze a parameter):</span>

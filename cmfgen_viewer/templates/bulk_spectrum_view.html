@@ -59,6 +59,7 @@
           <option value="normalized" {% if upload_flux_mode == "normalized" %}selected{% endif %}>Normalized</option>
           <option value="absolute" {% if upload_flux_mode == "absolute" %}selected{% endif %}>Absolute</option>
         </select>
+        {% include "_upload_wavelength_medium.html" %}
         <button type="submit" class="btn btn-sm btn-outline-primary">Upload</button>
         <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('viewer.uploads') }}">Manage Uploads</a>
       </form>
