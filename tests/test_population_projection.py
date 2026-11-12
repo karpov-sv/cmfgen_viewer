@@ -235,6 +235,15 @@ def test_recognized_projection_is_read_only_and_requires_full_followup(projectio
     assert (ctx.model/'SCRTEMP').read_bytes() == before
 
 
+def test_unrelated_global_maximum_depth_does_not_hide_the_binary_spike(projection_context):
+    ctx = projection_context
+    evidence = deepcopy(ctx.evidence)
+    for record in evidence['records']:
+        record['maximum_decrease_depth'] = 4
+    decision = localized_population_projection(replace(ctx, evidence=evidence))
+    assert decision.evidence['projection']['depth'] == 3
+
+
 @pytest.mark.parametrize('contrast,accepted', [(81.5, True), (49.9, False)])
 def test_lower_contrast_policy_still_requires_the_complete_failure_signature(projection_context, contrast, accepted):
     ctx = projection_context
@@ -312,9 +321,11 @@ def settling_context(projection_context, monkeypatch):
     return ctx, proposal, raw_solutions
 
 
-def test_ground_only_settling_never_counts_as_positive_verification(settling_context):
+@pytest.mark.parametrize('contrast', [81.5, 237.973])
+def test_ground_only_settling_never_counts_as_positive_verification(settling_context, contrast):
     from cmfgen_viewer.population_projection import _projection_response
     ctx, proposal, raw_solutions = settling_context
+    proposal = {**proposal, 'contrast': contrast}
     raw_solutions()
     checks = _projection_response(ctx, proposal, [], [], settling=True)['population_projection_settling_check']
     assert checks['full_solve_requests'] == []
@@ -368,8 +379,8 @@ def test_two_settling_batches_require_improving_ground_request_and_never_grant_c
 @pytest.mark.parametrize('field,value', [('maximum_decrease_percent', None),
     ('maximum_decrease_percent', float('nan')), ('maximum_decrease_percent', 1e5),
     ('major_species_minimum_scale', None), ('major_species_minimum_scale', float('inf')),
-    ('major_species_minimum_scale', 0), ('major_species_minimum_scale', .1),
-    ('ba_computed', False), ('maximum_decrease_depth', 2),
+    ('major_species_minimum_scale', 0), ('major_species_minimum_scale', 1.01),
+    ('ba_computed', False), ('maximum_decrease_depth', 0),
     ('temperature_fixed', True), ('lambda_iteration', True)])
 def test_incomplete_or_different_full_step_signature_cannot_authorize_projection(projection_context, field, value):
     ctx = projection_context
@@ -423,3 +434,100 @@ def test_peak_in_one_ion_cannot_repair_unrelated_negative_target(projection_cont
     wrong_ion = _solution(.001).replace(line, '2( 1)# 0.001 0.001 700000 0.001 0.001')
     (ctx.model/'STEQ_VALS').write_text(wrong_ion*3)
     assert localized_population_projection(ctx) is None
+
+
+@pytest.fixture
+def production_failure_context(settling_context):
+    ctx, _, _ = settling_context
+    with (ctx.model/'SCRTEMP').open('r+b') as stream:
+        values = np.fromiter(_words(stream, 3, 75, '<'), float).reshape(5, 15)
+        values[2, :10] = 9e8
+        values[2, 10] = 1e9
+        values[2, 13] = values[2, 10]+values[2, 12]
+        stream.seek(3*RECORD_BYTES)
+        stream.write(values.astype('<f8').tobytes())
+
+    def invocation(specs):
+        records, text = [], ''
+        for iteration, local, global_max, scale, mode in specs:
+            lam = mode == 'lambda'
+            records.append({'global_iteration': iteration, 'ba_computed': True,
+                            'lambda_iteration': lam, 'temperature_fixed': lam,
+                            'maximum_decrease_depth': 3, 'maximum_decrease_percent': global_max,
+                            'major_species_minimum_scale': scale})
+            text += ' STEQ SOLUTION ARRAY\n'
+            for variable in range(1, 16):
+                row = [.001]*5
+                if mode == 'ground' and variable == 1:
+                    row[2] = local/100
+                elif mode in {'excited', 'minority'} and 2 <= variable <= (10 if mode == 'excited' else 2):
+                    row[2] = local/100
+                if variable == 12:
+                    row[2] = global_max/100  # Another ion owns the global maximum.
+                text += f'{variable}( 1)# '+' '.join(map(str, row))+'\n'
+        (ctx.model/'STEQ_VALS').write_text(text)
+        e = {**ctx.evidence, 'iterations': len(records), 'records': records}
+        return replace(ctx, evidence=e, history=[e])
+    return ctx, invocation
+
+
+def test_production_196_200_uses_ion_targets_despite_larger_other_ion_maximum(production_failure_context):
+    base, invocation = production_failure_context
+    ctx = invocation([(196, 131730, 1.59e7, .0033962, 'excited'),
+                      (197, 0, 9, 1, 'lambda'),
+                      (198, 984690, 6.45e6, .021046, 'excited'),
+                      (199, 0, 14, 1, 'lambda'),
+                      (200, 66400000, 6.64e7, .0011526, 'excited')])
+    before = (base.model/'SCRTEMP').read_bytes()
+    decision = localized_population_projection(ctx)
+    assert decision.evidence['diagnosed_full_iterations'] == [198, 200]
+    assert [r['maximum_decrease_percent'] for r in decision.evidence['offending_ion_requests']] == [984690, 66400000]
+    assert (base.model/'SCRTEMP').read_bytes() == before
+
+
+@pytest.mark.parametrize('contrast', [81.5, 237.973])
+def test_production_201_204_recognizes_ground_excited_cycle(production_failure_context, contrast):
+    base, invocation = production_failure_context
+    if contrast > 100:
+        with (base.model/'SCRTEMP').open('r+b') as stream:
+            values = np.fromiter(_words(stream, 3, 75, '<'), float).reshape(5, 15)
+            for depth, fraction in [(1, .0034), (3, .9/contrast)]:
+                values[depth, :10] = 1e9*fraction
+                values[depth, 10] = 1e10*(1-fraction)
+                values[depth, 13] = values[depth, 10]+values[depth, 12]
+            stream.seek(3*RECORD_BYTES)
+            stream.write(values.astype('<f8').tobytes())
+    ctx = invocation([(201, 700.73, 2750, .048336, 'ground'),
+                      (202, 0, 74.1, 1, 'lambda'),
+                      (203, 1511600, 1.6e6, .034148, 'excited'),
+                      (204, 0, 50.7, 1, 'lambda')])
+    decision = localized_population_projection(ctx)
+    assert decision.evidence['diagnosed_full_iterations'] == [201, 203]
+    assert len(decision.steps) == 2  # A ground/excited cycle needs uncredited settling even at high contrast.
+    assert decision.steps[-1].name == 'population_projection_full'
+    # Historical evidence alone cannot supply the second full observation.
+    one = {**ctx.evidence, 'records': ctx.evidence['records'][2:]}
+    assert localized_population_projection(replace(ctx, evidence=one)) is None
+
+
+@pytest.mark.parametrize('latest,expected', [('healthy', None), ('excited', [196, 200])])
+def test_weaker_intermediate_full_does_not_hide_failure_but_healthy_latest_blocks_it(production_failure_context, latest, expected):
+    _, invocation = production_failure_context
+    ctx = invocation([(196, 131730, 1.59e7, .0033962, 'excited'),
+                      (198, 0, 100, .1, 'healthy'),
+                      (200, 66400000, 6.64e7, .0011526, latest)])
+    decision = localized_population_projection(ctx)
+    if expected is None:
+        assert decision is None
+    else:
+        assert decision.evidence['diagnosed_full_iterations'] == expected
+
+
+@pytest.mark.parametrize('local,mode,accepted', [(1e5, 'excited', True), (99999, 'excited', False),
+                                               (1e5, 'minority', False), (700, 'ground', False),
+                                               (0, 'healthy', False)])
+def test_ground_cycle_needs_a_severe_distributed_ion_failure(production_failure_context, local, mode, accepted):
+    _, invocation = production_failure_context
+    ctx = invocation([(201, 700.73, 2750, .048336, 'ground'),
+                      (203, local, max(local, 2750), .034148, mode)])
+    assert (localized_population_projection(ctx) is not None) == accepted

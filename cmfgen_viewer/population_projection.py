@@ -262,10 +262,10 @@ def _projection_response(ctx, proposal, observed, attempts, *, settling=False):
             raise RunnerError('Repeated native counter cannot provide an independent projection check')
         if raw['nonpositive_unlimited_targets']:
             # An uncredited settling batch may have one moderate ground-only
-            # overshoot after a lower-contrast, multilevel spike is removed.
+            # overshoot after a diagnosed multilevel spike/cycle is removed.
             # Excited levels and Ne must already have positive raw targets.
             if not (settling and not settling_rows and
-                    50 <= proposal['contrast'] < 100 and
+                    proposal['contrast'] >= 50 and
                     len(proposal['reference_variables']) >= 10 and
                     raw['nonpositive_unlimited_variables'] == [proposal['reference_variables'][0]] and
                     raw['maximum_decrease_percent'] <= 1000 and
@@ -311,6 +311,45 @@ def _projection_response(ctx, proposal, observed, attempts, *, settling=False):
     return {'population_projection_check': checks}
 
 
+def _projection_failure_pair(records, raw, reference):
+    """Bind two independent full responses to the spike's own ion.
+
+    A different ion can own the printed maximum and the global scale. Neither
+    identifies this ion's failure. Require a severe, distributed excited-level
+    failure and a second severe response or the measured ground/excited cycle.
+    Only this invocation's complete raw arrays may authorize the procedure.
+    """
+    latest = None
+    qualified = []
+    for index, (row, values) in enumerate(zip(records, raw)):
+        if row.get('lambda_iteration') or row.get('temperature_fixed'):
+            continue
+        latest = index
+        decrease, scale = row.get('maximum_decrease_percent'), row.get('major_species_minimum_scale')
+        if (not row.get('ba_computed') or not isinstance(decrease, (int, float)) or
+                not math.isfinite(decrease) or decrease < 0 or
+                not isinstance(scale, (int, float)) or not math.isfinite(scale) or not 0 < scale <= 1):
+            continue
+        local = values['maximum_decrease_percent']
+        if decrease < .99*local:
+            continue  # Printed global extrema must cover the ion-specific request.
+        bad = set(values['nonpositive_unlimited_variables']) & set(reference)
+        severe = (local >= 1e5 and values['maximum_decrease_variable'] in reference and
+                  len(bad) >= math.ceil(len(reference)/2))
+        ground = (len(reference) >= 10 and
+                  values['nonpositive_unlimited_variables'] == [reference[0]] and
+                  values['maximum_decrease_variable'] == reference[0] and 100 <= local <= 1000)
+        if severe or ground:
+            qualified.append((index, severe))
+    if not qualified or qualified[-1][0] != latest:
+        return None  # A healthy latest full response cannot authorize an old failure.
+    last, last_severe = qualified[-1]
+    for earlier, severe in reversed(qualified[:-1]):
+        if severe or last_severe:
+            return earlier, last
+    return None
+
+
 def localized_population_projection(ctx):
     """Recognize a persistent impossible full-step target at one isolated spike."""
     from .auto_diagnostics import control_value, number
@@ -331,24 +370,26 @@ def localized_population_projection(ctx):
         return None
     if any(ctx.evidence.get(key) for key in ('hydro_revisions', 'ng_accelerations', 'checkpoint_updates')):
         return None
-    # Require both bad solves in this validated invocation, so their complete
-    # raw arrays can tie the impossible targets to the actual outlier ion.
+    # Keep the complete invocation: intervening weaker full solves must not
+    # hide independent failures whose raw targets identify the outlier ion.
     full = [r for r in ctx.evidence.get('records', [])
-            if not r.get('lambda_iteration') and not r.get('temperature_fixed')][-2:]
-    if len(full) != 2:
+            if not r.get('lambda_iteration') and not r.get('temperature_fixed')]
+    if len(full) < 2:
         return None
-    for row in full:
-        decrease, scale = row.get('maximum_decrease_percent'), row.get('major_species_minimum_scale')
-        if (not row.get('ba_computed') or not isinstance(decrease, (int, float)) or
-                not math.isfinite(decrease) or decrease < 1e6 or
-                not isinstance(scale, (int, float)) or not math.isfinite(scale) or not 0 < scale <= .01):
-            return None
-    depth = full[-1].get('maximum_decrease_depth')
-    if not isinstance(depth, int) or depth != full[0].get('maximum_decrease_depth'):
+    printed_depth = full[-1].get('maximum_decrease_depth')
+    if (not isinstance(printed_depth, int) or
+            not 1 <= printed_depth <= ctx.evidence.get('counts', {}).get('nd', 0)):
         return None
     if not repaired_runtime(ctx.native_plan):
         raise Declined('Localized population projection requires an authenticated repaired runtime')
     try:
+        # Locate the binary outlier independently: a different ion/depth may
+        # own the global correction maximum. Multiple eligible peaks decline.
+        state = _state(ctx.model)
+        depths = [d for d in range(2, state[2].shape[0]) if _candidate(state, d) is not None]
+        if len(depths) != 1:
+            return None
+        depth = depths[0]
         proposal = propose_projection(ctx.model, depth)
     except (OSError, ValueError) as exc:
         raise Declined(str(exc)) from exc
@@ -360,16 +401,17 @@ def localized_population_projection(ctx):
         raw = projected_raw_requests(ctx.model, ctx.evidence, proposal['reference_variables'], depth)
     except (OSError, ValueError) as exc:
         raise Declined(str(exc)) from exc
-    bound = [(row, values) for row, values in zip(ctx.evidence['records'], raw) if row in full]
-    if len(bound) != 2 or any(values['maximum_decrease_percent'] < 1e6 or
-            values['maximum_decrease_variable'] not in proposal['reference_variables'] or
-            len(set(values['nonpositive_unlimited_variables']) & set(proposal['reference_variables'])) <
-                math.ceil(len(proposal['reference_variables'])/2) for row, values in bound):
+    pair = _projection_failure_pair(ctx.evidence['records'], raw, proposal['reference_variables'])
+    if pair is None:
         return None
+    bound = [(ctx.evidence['records'][i], raw[i]) for i in pair]
     observed, attempts = [], []
     steps = (RecoveryStep('population_projection_full', 2,
                          lambda c: _projection_response(c, proposal, observed, attempts), repeat_on_native_fallback=True),)
-    if proposal['contrast'] < 100:
+    ground_cycle = (len(proposal['reference_variables']) >= 10 and
+                    any(v['nonpositive_unlimited_variables'] == [proposal['reference_variables'][0]]
+                        for r, v in bound))
+    if proposal['contrast'] < 100 or ground_cycle:
         settling_observed, settling_attempts = [], []
         steps = (RecoveryStep('population_projection_settling', 2,
                               lambda c: _projection_response(c, proposal, settling_observed, settling_attempts,
@@ -380,6 +422,8 @@ def localized_population_projection(ctx):
                     action='localized_population_projection',
                     changes={'VADAT': {'COMP_BA': 'T', 'N_FIX_BA': '0', 'FIX_BA': '0.0'}},
                     caches=('BAMAT', 'BAMATPNT', 'EDDFACTOR', 'EDDFACTOR_INFO'),
-                    evidence={'projection': proposal, 'full_decreases_percent': [r['maximum_decrease_percent'] for r in full],
+                    evidence={'projection': proposal,
+                              'diagnosed_full_iterations': [r['global_iteration'] for r, v in bound],
+                              'full_decreases_percent': [r['maximum_decrease_percent'] for r, v in bound],
                               'offending_ion_requests': [v for r, v in bound]},
                     steps=steps)

@@ -96,6 +96,18 @@ def _set_contrast(model, contrast):
             stream.write(values.astype('<f8').tobytes())
 
 
+def test_production_scale_no_longer_prevents_automatic_recovery(projection_workspace):
+    model, plan = projection_workspace
+    exe = model.parent/'cmf/exe/cmfgen_dev.exe'
+    source = exe.read_text()
+    assert '{1e-4 if spike else 1}' in source
+    exe.write_text(source.replace('{1e-4 if spike else 1}', '{.034148 if spike else 1}'))
+    result = run_plan(plan('projection', max_attempts=2))
+    assert result['status'] == 'limit_reached'
+    assert result['actions'][0]['policy_id'] == 'localized_population_projection'
+    assert result['attempts'][-1]['recovery_verified'] == 'localized_population_projection'
+
+
 @pytest.mark.parametrize('contrast', [900, 81.5])
 def test_projection_is_provisional_and_hands_back_without_claiming_convergence(projection_workspace, contrast):
     model, plan = projection_workspace

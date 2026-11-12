@@ -1,5 +1,10 @@
 # Bstar3518 copied production run — 12 November 2026
 
+**Production follow-up:** the later production copy is unrepaired checkpoint
+204. [The follow-up](bstar3518-production-followup.md) records the missed
+automatic trigger and its version-3 correction. The checkpoint-193 handoff
+below describes the earlier local native trial.
+
 Initial read-only investigation of `models/tests/model_Bstar3518`, followed by
 the explicitly requested bounded repair trial described below. The initial
 inspection did not modify the model or run the native solver.
