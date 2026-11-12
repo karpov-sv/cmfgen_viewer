@@ -6,6 +6,7 @@
     document.querySelectorAll("[data-help-popover]").forEach(function (button) {
       var popover = new bootstrap.Popover(button, {
         trigger: "click", container: "body", placement: "auto", html: button.dataset.helpHtml === "true",
+        content: function () { return button.getAttribute("data-bs-content"); },
         customClass: "spectrum-help-popover"
       });
       button.addEventListener("show.bs.popover", function () {

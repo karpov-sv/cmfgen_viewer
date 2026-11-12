@@ -48,7 +48,8 @@
   }
 
   // [label, group, rest wavelength, native medium]. NIST supplies H/He;
-  // SDSS supplies optical metal lines and representative UV blend positions.
+  // SDSS supplies nebular/UV positions; GOSSS adds optical classification
+  // features. Multiplet markers use representative positions, not every component.
   var commonCatalog = [
     ["Lyγ", "hydrogen", 972.5367, "vacuum"],
     ["Lyβ", "hydrogen", 1025.7222, "vacuum"],
@@ -68,8 +69,11 @@
     ["He II", "helium", 1640.4, "vacuum"],
     ["He I", "helium", 3888.6489, "air"],
     ["He I", "helium", 4026.191, "air"],
+    ["He I", "helium", 4143.76, "air"],
+    ["He II", "helium", 4199.83, "air"],
     ["He I", "helium", 4387.929, "air"],
     ["He I", "helium", 4471.479, "air"],
+    ["He II", "helium", 4541.59, "air"],
     ["He II", "helium", 4685.7044, "air"],
     ["He I", "helium", 4713.146, "air"],
     ["He I", "helium", 4921.931, "air"],
@@ -91,6 +95,10 @@
     ["[O II]", "metals", 3729.875, "vacuum"],
     ["Ca II K", "metals", 3934.777, "vacuum"],
     ["Ca II H", "metals", 3969.588, "vacuum"],
+    ["Si IV", "metals", 4088.86, "air"],
+    ["Si III", "metals", 4552.62, "air"],
+    ["N III 4634–4642", "metals", 4640.64, "air"],
+    ["C III 4647–4652", "metals", 4650.25, "air"],
     ["[O III]", "metals", 4364.436, "vacuum"],
     ["[O III]", "metals", 4960.295, "vacuum"],
     ["[O III]", "metals", 5008.239, "vacuum"],

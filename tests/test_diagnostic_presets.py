@@ -20,7 +20,11 @@ def test_diagnostic_presets():
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-def test_preset_windows_follow_backend_interval_rules():
+@pytest.mark.parametrize("preset,count", [
+    ("optical-combined", 5), ("gosss-late-o", 5), ("gosss-luminosity", 4),
+    ("gosss-of-ofc", 2), ("gosss-vz", 3),
+])
+def test_preset_windows_follow_backend_interval_rules(preset, count):
     node = shutil.which("node")
     if node is None:
         pytest.skip("Node.js is required for preset checks")
@@ -30,10 +34,10 @@ const fs=require('fs'), vm=require('vm'); const window={};
 const runtime=vm.createContext({window});
 for (const name of ['spectral_lines.js','diagnostic_presets.js']) vm.runInContext(fs.readFileSync(process.argv[1]+'/'+name,'utf8'),runtime);
 const api=window.CmfgenDiagnosticPresets;
-const selection=api.plan('optical-combined',{halfWidth:3000,redshift:.001,medium:'air',coverage:[3000,9000]});
+const selection=api.plan(process.argv[2],{redshift:.001,medium:'air',coverage:[3000,9000]});
 process.stdout.write(api.append('',selection).text);
 """
-    result = subprocess.run([node, "-e", program, str(script_root)], capture_output=True, text=True, timeout=30)
+    result = subprocess.run([node, "-e", program, str(script_root), preset], capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, result.stderr
     regions = parse_fit_regions(result.stdout)
-    assert len(regions["windows"]) == 5
+    assert len(regions["windows"]) == count

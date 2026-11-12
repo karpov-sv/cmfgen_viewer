@@ -206,7 +206,7 @@
                   <div class="spectrum-field">
                     <div class="d-flex align-items-baseline gap-1">
                       <label for="grid-fit-preset-width" class="plot-control-label">Half-width (km/s)</label>
-                      {{ help_popover('grid-fit-preset-width', 'Preset half-width', 'Velocity span on each side of a line, or outside the components of a doublet. Uses the optical v = c z convention. The default ±3000 km/s is an editable starting width, not a universal diagnostic boundary. Width changes affect newly added windows; previously inserted intervals stay fixed.') }}
+                      {{ help_popover('grid-fit-preset-width', 'Preset half-width', 'Velocity span on each side of a line, or outside a multiplet. Uses the optical v = c z convention. Choosing a preset resets its suggested half-width: ±3000 km/s for wind sets, ±250 km/s for GOSSS classification sets. Edit for rotation, resolution and blending. These are starting profile windows, not calibrated equivalent-width integration limits. Width changes affect newly added windows; previously inserted intervals stay fixed.') }}
                     </div>
                     <input id="grid-fit-preset-width" type="number" value="3000" min="0.000001" max="299792.457" step="any" class="form-control form-control-sm">
                   </div>

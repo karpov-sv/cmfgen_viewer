@@ -174,10 +174,29 @@ The display toggle does not enable or disable a window for fitting.
 wind + photosphere (also Hβ, Hγ, He I 4471 and He II 4542), UV wind (N V,
 Si IV and C IV doublets), and Far-UV wind (P V). **Half-width (km/s)** sets the
 optical-convention velocity extent on either side of each line or doublet;
-3000 km/s is an editable starting value, not a universal boundary. The preview
+Choosing a preset sets an editable suggested half-width: 3000 km/s for wind
+sets and 250 km/s for GOSSS classification sets. These are starting profile
+windows, not universal boundaries or calibrated EW integration limits. Adjust
+for rotation, instrumental resolution, and blending. The preview
 shows each interval in uploaded wavelengths, including unavailable and partially
 covered intervals. It considers both native upload coverage and the overall fit
 range; fully unavailable intervals are skipped without changing that fit range.
+
+The four GOSSS classification presets follow [Sota et al. (2011)](https://arxiv.org/abs/1101.4002)
+and [Sota et al. (2014)](https://arxiv.org/html/1312.6222v1):
+
+| Preset | Selected features | Interpretation |
+| --- | --- | --- |
+| Late-O subtype | He I 4144, He II 4200, He I 4388, He II 4542, Si III 4552 | Peak-strength comparisons 4542/4388, 4200/4144 and 4552/4542; Paper II, Table 3. |
+| Late-O luminosity | He I+II 4026, Si IV 4089, He II 4686, He I 4713 | Compare 4686/4713 and 4089/4026 for O9–O9.7; Paper I, Table 6. The 4026 feature is blended. |
+| Of / Ofc morphology | N III 4634–4642, C III 4647–4652, He II 4686 | Compare emission/absorption morphology. Overlapping nitrogen/carbon windows are combined as context; they are not separate EW measurements. |
+| Vz helium diagnostics | He I 4471, He II 4542, He II 4686 | Paper II uses EW(4686) / max[EW(4471), EW(4542)]. This classification ratio is distinct from source redshift z. |
+
+These presets select fitting regions and show profiles; they do not calculate
+line-strength ratios, equivalent widths, or spectral classifications. The preset
+help popover describes the selected comparison. The reference-line overlay and
+diagnostic plots include the added helium/silicon features and representative
+positions for the nitrogen/carbon blends.
 
 Preset controls sit below the window and exclusion fields. Click the circled
 **i** beside a field or section label for details about selection, persistence,

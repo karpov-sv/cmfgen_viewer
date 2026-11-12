@@ -35,6 +35,31 @@ assert.equal(uv.windows.length,0);
 assert(uv.rows.every(row=>row.status==='outside upload'));
 assert.equal(api.plan('uv-wind',{...context,coverage:[900,1800]}).windows.length,3);
 assert.equal(api.plan('fuv-wind',{...context,coverage:[900,1800]}).windows.length,1);
+for (const [id, rowCount, windowCount] of [
+  ['gosss-late-o',5,5], ['gosss-luminosity',4,4], ['gosss-of-ofc',3,2], ['gosss-vz',3,3]
+]) {
+  const selection = api.plan(id,{...context,halfWidth:undefined});
+  assert.equal(selection.halfWidth,250);
+  assert.equal(selection.rows.length,rowCount);
+  assert.equal(selection.windows.length,windowCount);
+  for(let i=1;i<selection.windows.length;i++) assert(selection.windows[i-1].max<selection.windows[i].min);
+  const text = api.append('',selection).text;
+  assert.equal(api.append(text,selection).added,0);
+}
+const late = api.plan('gosss-late-o',{...context,halfWidth:undefined});
+const helium = late.rows.find(row=>row.label==='He II 4542');
+const silicon = late.rows.find(row=>row.label==='Si III 4552');
+assert(helium.max<silicon.min, 'Default classification windows must keep the 4542/4552 pair separate');
+assert(helium.min<4541.59 && helium.max>4541.59);
+assert(silicon.min<4552.62 && silicon.max>4552.62);
+assert(api.plan('gosss-late-o',context).windows.length<5, 'An explicit broad width still overrides the classification default');
+const lateVacuum = api.plan('gosss-late-o',{...context,halfWidth:undefined,redshift:.001,medium:'vacuum'});
+const vacuumSilicon = lateVacuum.rows.find(row=>row.label==='Si III 4552');
+assert(Math.abs(vacuumSilicon.min-lines.airToVacuum(4552.62)*(1-250/299792.458)*1.001)<1e-6);
+const classificationMarkers = lines.referenceLines('air',0);
+assert(classificationMarkers.some(row=>row.label==='Si III' && Math.abs(row.wavelength-4552.62)<1e-6));
+assert(classificationMarkers.some(row=>row.label==='Si IV' && Math.abs(row.wavelength-4088.86)<1e-6));
+assert(api.plan('gosss-vz',{...context,halfWidth:undefined}).description.includes('not calculated'));
 const first = api.append('Manual, 6000, 6100\n',optical);
 assert.equal(first.added,2);
 assert(first.text.startsWith('Manual, 6000, 6100\n'));

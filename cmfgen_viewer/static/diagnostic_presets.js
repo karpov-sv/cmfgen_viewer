@@ -11,6 +11,15 @@
     hgamma: { label: "Hγ", medium: "vacuum", waves: [4341.68] },
     he4471: { label: "He I 4471", medium: "air", waves: [4471.479] },
     he4542: { label: "He II 4542", medium: "air", waves: [4541.59] },
+    he4388: { label: "He I 4388", medium: "air", waves: [4387.929] },
+    he4200: { label: "He II 4200", medium: "air", waves: [4199.83] },
+    he4144: { label: "He I 4144", medium: "air", waves: [4143.76] },
+    si4552: { label: "Si III 4552", medium: "air", waves: [4552.62] },
+    he4713: { label: "He I 4713", medium: "air", waves: [4713.146] },
+    si4089: { label: "Si IV 4089", medium: "air", waves: [4088.86] },
+    he4026: { label: "He I+II 4026", medium: "air", waves: [4026.191] },
+    niii: { label: "N III 4634–4642", medium: "air", waves: [4634.14, 4640.64, 4641.85] },
+    ciii: { label: "C III 4647–4652", medium: "air", waves: [4647.42, 4650.25, 4651.47] },
     nv: { label: "N V 1239/1243", medium: "vacuum", waves: [1238.821, 1242.804] },
     siiv: { label: "Si IV 1394/1403", medium: "vacuum", waves: [1393.7546, 1402.7697] },
     civ: { label: "C IV 1548/1551", medium: "vacuum", waves: [1548.204, 1550.781] },
@@ -20,13 +29,26 @@
     { id: "optical-wind", label: "Optical wind: Hα + He II 4686", features: ["halpha", "he4686"] },
     { id: "optical-combined", label: "Optical wind + photosphere", features: ["halpha", "he4686", "hbeta", "hgamma", "he4471", "he4542"] },
     { id: "uv-wind", label: "UV wind: N V + Si IV + C IV", features: ["nv", "siiv", "civ"] },
-    { id: "fuv-wind", label: "Far-UV wind: P V", features: ["pv"] }
+    { id: "fuv-wind", label: "Far-UV wind: P V", features: ["pv"] },
+    { id: "gosss-late-o", label: "GOSSS: late-O subtype", halfWidth: 250,
+      description: "Late-O subtype comparisons: He II 4542 / He I 4388, He II 4200 / He I 4144, and Si III 4552 / He II 4542 (peak line strengths).",
+      features: ["he4542", "he4388", "he4200", "he4144", "si4552"] },
+    { id: "gosss-luminosity", label: "GOSSS: late-O luminosity", halfWidth: 250,
+      description: "O9–O9.7 luminosity comparisons: He II 4686 / He I 4713 and Si IV 4089 / He I 4026. The 4026 feature is a He I+II blend.",
+      features: ["he4686", "he4713", "si4089", "he4026"] },
+    { id: "gosss-of-ofc", label: "GOSSS: Of / Ofc morphology", halfWidth: 250,
+      description: "Compare N III 4634–4642, C III 4647–4652, and He II 4686 emission/absorption morphology. Overlapping nitrogen/carbon intervals form one context window, not separate EW measurements.",
+      features: ["niii", "ciii", "he4686"] },
+    { id: "gosss-vz", label: "GOSSS: Vz helium diagnostics", halfWidth: 250,
+      description: "Vz uses EW(He II 4686) / max[EW(He I 4471), EW(He II 4542)]. These windows select profiles; the ratio and spectral class are not calculated. This Vz ratio is distinct from source redshift z.",
+      features: ["he4471", "he4542", "he4686"] }
   ];
 
   function plan(id, context) {
     var preset = presets.find(function (row) { return row.id === id; });
     if (!preset) throw new Error("Choose a diagnostic preset.");
-    var width = Number(context.halfWidth), z = Number(context.redshift);
+    var defaultWidth = preset.halfWidth || 3000;
+    var width = context.halfWidth == null ? defaultWidth : Number(context.halfWidth), z = Number(context.redshift);
     if (!Number.isFinite(width) || width <= 0 || width >= c) throw new Error("Enter a velocity half-width greater than 0 and less than 299792.458 km/s.");
     if (!Number.isFinite(z) || z <= -1) throw new Error("Enter a valid source redshift greater than −1 in Spectrum transformations.");
     if (context.medium !== "air" && context.medium !== "vacuum") throw new Error("Unknown upload wavelength convention.");
@@ -64,7 +86,8 @@
           previous.label += " + " + row.label;
         } else windows.push({ label: row.label, min: row.min, max: row.max });
       });
-    return { rows: rows, windows: windows };
+    return { rows: rows, windows: windows, halfWidth: width,
+      description: preset.description || "Wind-profile comparison windows; quantitative wind estimates require a suitable wind-model grid." };
   }
 
   function append(text, selection) {
@@ -106,7 +129,11 @@
       var option = document.createElement("option"); option.value = preset.id; option.textContent = preset.label; select.appendChild(option);
     });
     select.value = presets[0].id;
+    width.value = String(presets[0].halfWidth || 3000);
     select.disabled = false;
+    var helpButton = document.getElementById("grid-fit-preset-help-button");
+    var helpDescription = document.getElementById("grid-fit-preset-help");
+    var helpBase = helpButton ? helpButton.getAttribute("data-bs-content") : "";
     var redshift = document.getElementById(options.plot.id + "-redshift");
     var velocity = document.getElementById(options.plot.id + "-velocity");
     function context() {
@@ -133,10 +160,21 @@
           return row.label + ": " + row.min.toFixed(2) + "–" + row.max.toFixed(2) + " Å (" + row.status + ")";
         }).join("; ");
         if (preview.textContent !== text) preview.textContent = text;
+        select.title = selection.description;
+        if (helpButton) {
+          var helpText = helpBase + " " + selection.description;
+          helpButton.setAttribute("data-bs-content", helpText);
+          if (helpDescription && helpDescription.textContent !== helpText) helpDescription.textContent = helpText;
+        }
         button.disabled = !selection.windows.length;
       } catch (error) { preview.textContent = error.message; button.disabled = true; }
     }
-    [select, width, redshift, velocity, options.rangeMin, options.rangeMax].forEach(function (input) {
+    select.addEventListener("change", function () {
+      var preset = presets.find(function (row) { return row.id === select.value; });
+      if (preset) width.value = String(preset.halfWidth || 3000);
+      refresh();
+    });
+    [width, redshift, velocity, options.rangeMin, options.rangeMax].forEach(function (input) {
       if (input) { input.addEventListener("input", refresh); input.addEventListener("change", refresh); }
     });
     button.addEventListener("click", function () {
