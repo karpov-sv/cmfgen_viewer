@@ -503,7 +503,7 @@ POLICIES = (
     Policy('verified_convergence', 3, 'success', 'Independent fresh-Jacobian acceptance with a stable source and restoration of starting BA reuse', _verified),
     Policy('verify_candidate', 2, 'success', 'Fresh-Jacobian verification of a numerical candidate', _candidate),
     Policy('superlevel_temperature', 2, 'success', 'Superlevel temperature coupling before oscillation damping', temperature_coupling, 1),
-    Policy('localized_population_projection', 1, 'success', 'Conservative repair of a diagnosed isolated ionization spike with full native verification', localized_population_projection, 1),
+    Policy('localized_population_projection', 2, 'success', 'Conservative repair of a diagnosed isolated ionization spike with full native verification', localized_population_projection, 1),
     Policy('population_bootstrap', 7, 'success', 'Bounded fixed-T Lambda population recovery and full verification', population_bootstrap, 1),
     Policy('ng_cadence', 1, 'success', 'Contiguous batches permitting the first native Ng acceleration', ng_cadence, 1),
     Policy('global_ng', 1, 'success', 'Positive global extrapolation for a deep thermal stall, with six ordinary full solves and provisional rollback', global_ng_trial, 3),

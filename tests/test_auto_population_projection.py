@@ -6,9 +6,10 @@ import sys
 import pytest
 
 from test_runner_auto import auto_workspace
-from test_population_projection import projection_model
+from test_population_projection import projection_model, _pops
 from cmfgen_viewer import auto_policies as policies
 from cmfgen_viewer.checkpoint_physics import checkpoint_physics
+from cmfgen_viewer.checkpoint_health import RECORD_BYTES
 from cmfgen_viewer.population_projection import localized_population_projection, propose_projection
 from cmfgen_viewer.runner import run_plan
 
@@ -84,9 +85,22 @@ def projection_workspace(auto_workspace, projection_model):
     return model, plan
 
 
-def test_projection_is_provisional_and_hands_back_without_claiming_convergence(projection_workspace):
+def _set_contrast(model, contrast):
+    if contrast != 900:
+        values = _pops(model)
+        for depth, fraction in [(1, .9/contrast/3), (3, .9/contrast)]:
+            values[depth, :2] = [1e10*fraction, 1e10*(1-fraction)]
+            values[depth, -2] = values[depth, 1]+values[depth, 3]
+        with (model/'SCRTEMP').open('r+b') as stream:
+            stream.seek(3*RECORD_BYTES)
+            stream.write(values.astype('<f8').tobytes())
+
+
+@pytest.mark.parametrize('contrast', [900, 81.5])
+def test_projection_is_provisional_and_hands_back_without_claiming_convergence(projection_workspace, contrast):
     model, plan = projection_workspace
-    result = run_plan(plan('projection', max_attempts=2))
+    _set_contrast(model, contrast)
+    result = run_plan(plan('projection', max_attempts=3 if contrast < 100 else 2))
     assert result['status']=='limit_reached',result
     assert result['attempts'][-1]['recovery_verified']=='localized_population_projection'
     assert result['actions'][0]['checkpoint_projection']['restart_counter_unchanged']
@@ -96,13 +110,19 @@ def test_projection_is_provisional_and_hands_back_without_claiming_convergence(p
     assert 'numerical_convergence' not in result
     assert propose_projection(model,3) is None
     assert checkpoint_physics(model)['charge_relative_error'] < 1e-14
+    if contrast < 100:
+        settling = result['attempts'][-2]['population_projection_settling_check']
+        assert settling['full_solve_requests'] == []
+        assert len(settling['settling_full_requests']) == 2
 
 
 @pytest.mark.parametrize('mode', ['projection_fail','projection_ineffective','projection_bad_target'])
-def test_failed_or_ineffective_native_followup_restores_whole_preconditioner(projection_workspace, mode):
+@pytest.mark.parametrize('contrast', [900, 81.5])
+def test_failed_or_ineffective_native_followup_restores_whole_preconditioner(projection_workspace, mode, contrast):
     model, plan = projection_workspace
+    _set_contrast(model, contrast)
     original = (model/'VADAT').read_bytes()
-    result = run_plan(plan(mode,max_attempts=2))
+    result = run_plan(plan(mode,max_attempts=3 if contrast < 100 else 2))
     assert result['status']=='needs_review',result
     assert result['provisional_recovery_rolled_back']=='localized_population_projection'
     assert propose_projection(model,3) is not None
@@ -129,6 +149,28 @@ def test_cancel_after_projection_rolls_back_the_entire_provisional_action(projec
     assert result['status'] in {'stopped','cancelled'},result
     assert result['provisional_recovery_rolled_back']=='localized_population_projection'
     assert propose_projection(model,3) is not None
+
+
+@pytest.mark.parametrize('cancel', [False, True])
+def test_failure_or_cancel_after_settling_restores_the_original_spike(projection_workspace, cancel):
+    from cmfgen_viewer.runner_restart import inspect_restart
+    model, plan = projection_workspace
+    _set_contrast(model, 81.5)
+    if not cancel:
+        exe = model.parent/'cmf/exe/cmfgen_dev.exe'
+        exe.write_text(exe.read_text().replace("110 if mode=='projection_bad_target' else .1",
+                                               '110 if iteration > 6 else .1'))
+    stopped = False
+    def emit(event):
+        nonlocal stopped
+        if cancel and event['event'] == 'auto_attempt' and event['attempt'] == 3:
+            stopped = True
+    result = run_plan(plan('projection', max_attempts=3), emit, stop_requested=lambda: stopped)
+    assert result['status'] in ({'stopped', 'cancelled'} if cancel else {'needs_review'})
+    assert result['provisional_recovery_rolled_back'] == 'localized_population_projection'
+    assert result['attempts'][1]['population_projection_settling_check']['full_solve_requests'] == []
+    assert inspect_restart(model)['pointer']['iterations'] == 4
+    assert propose_projection(model, 3) is not None
 
 
 def test_ordinary_run_reports_projection_without_applying_it(projection_workspace):

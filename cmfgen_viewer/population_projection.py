@@ -88,7 +88,10 @@ def _candidate(state, depth):
                 max(fractions[[0, 2]])/min(fractions[[0, 2]]) > 10):
             continue
         contrast = float(fractions[1]/max(fractions[0], fractions[2]))
-        if contrast >= 100:
+        # Bstar3518 repeats the independently bound He I failure at contrast
+        # 81.5. Keep the sharp-peak requirement alongside the full/raw-target
+        # gates in localized_population_projection; contrast alone is no action.
+        if contrast >= 50:
             matches.append((name, species, first, count, fractions.tolist(), contrast))
     if len(matches) != 1:
         return None  # Broader/multiple-element features need a separate diagnosis.
@@ -235,9 +238,11 @@ def projected_raw_requests(model, evidence, variables, depth):
     return records
 
 
-def _projection_response(ctx, proposal, observed, attempts):
+def _projection_response(ctx, proposal, observed, attempts, *, settling=False):
     from .auto_hydro import guard_measurements
     from .auto_policies import VerificationPending
+    if settling and len(attempts) >= 2:
+        raise RunnerError('Localized population settling exceeded two bounded batches')
     state = _state(ctx.model)
     physics = compare_physics(proposal['physical_baseline'], state[0])
     guard = guard_measurements(ctx.model, ctx.before)
@@ -248,14 +253,28 @@ def _projection_response(ctx, proposal, observed, attempts):
         raise RunnerError('Localized population projection needs an unaccelerated fixed-structure follow-up')
     rows = projected_raw_requests(ctx.model, ctx.evidence, proposal['reference_variables'], proposal['depth'])
     element_rows = projected_raw_requests(ctx.model, ctx.evidence, proposal['variables'], proposal['depth'])
+    settling_rows = []
     for record, raw, element_raw in zip(ctx.evidence['records'], rows, element_rows):
         if (record.get('lambda_iteration') or record.get('temperature_fixed') or
                 not record.get('ba_computed')):
             continue
-        if raw['nonpositive_unlimited_targets']:
-            raise RunnerError('Full solves still request nonpositive populations at the repaired ion/depth')
         if any(r['iteration'] == record['global_iteration'] for r in observed):
             raise RunnerError('Repeated native counter cannot provide an independent projection check')
+        if raw['nonpositive_unlimited_targets']:
+            # An uncredited settling batch may have one moderate ground-only
+            # overshoot after a lower-contrast, multilevel spike is removed.
+            # Excited levels and Ne must already have positive raw targets.
+            if not (settling and not settling_rows and
+                    50 <= proposal['contrast'] < 100 and
+                    len(proposal['reference_variables']) >= 10 and
+                    raw['nonpositive_unlimited_variables'] == [proposal['reference_variables'][0]] and
+                    raw['maximum_decrease_percent'] <= 1000 and
+                    (not observed or raw['maximum_decrease_percent'] <=
+                     .9*observed[-1]['maximum_decrease_percent'])):
+                raise RunnerError('Full solves still request nonpositive populations at the repaired ion/depth')
+        if settling:
+            settling_rows.append({'iteration': record['global_iteration'], **raw})
+            continue
         observed.append({'iteration': record['global_iteration'], 'reference_ion': proposal['reference_ion'],
                          **raw, 'other_ion_nonpositive_targets': element_raw['nonpositive_unlimited_targets']})
     matches = [ion for ion in state[3] if ion[0] == proposal['reference_ion']
@@ -272,6 +291,17 @@ def _projection_response(ctx, proposal, observed, attempts):
     checks = {'physical_checks': physics, 'guard': guard, 'remaining_contrast': contrast,
               'full_solve_requests': list(observed),
               'native_source_changed': bool(ctx.evidence.get('source_changed'))}
+    if settling:
+        if not settling_rows:
+            raise RunnerError('Localized population settling requires an actual full variable-T fresh-BA response')
+        observed.extend(settling_rows)
+        attempts.append(ctx.evidence['iterations'])
+        checks['full_solve_requests'] = []
+        checks['settling_full_requests'] = list(observed)
+        if settling_rows[-1]['nonpositive_unlimited_targets'] and len(attempts) < 2:
+            raise VerificationPending('Require one more bounded settling batch before strict positive-target verification',
+                                      {'population_projection_settling_check': checks})
+        return {'population_projection_settling_check': checks}
     attempts.append(ctx.evidence['iterations'])
     if len(observed) < 2:
         if len(attempts) >= 2:
@@ -337,6 +367,13 @@ def localized_population_projection(ctx):
                 math.ceil(len(proposal['reference_variables'])/2) for row, values in bound):
         return None
     observed, attempts = [], []
+    steps = (RecoveryStep('population_projection_full', 2,
+                         lambda c: _projection_response(c, proposal, observed, attempts), repeat_on_native_fallback=True),)
+    if proposal['contrast'] < 100:
+        settling_observed, settling_attempts = [], []
+        steps = (RecoveryStep('population_projection_settling', 2,
+                              lambda c: _projection_response(c, proposal, settling_observed, settling_attempts,
+                                                             settling=True), repeat_on_native_fallback=True), *steps)
     return Decision('action', 'Repeated fresh full solves request impossible decreases at one isolated '
                     'ionization spike; conservatively interpolate that element at this depth, '
                     'recompute charge-balanced Ne, and require two bounded full native responses',
@@ -345,5 +382,4 @@ def localized_population_projection(ctx):
                     caches=('BAMAT', 'BAMATPNT', 'EDDFACTOR', 'EDDFACTOR_INFO'),
                     evidence={'projection': proposal, 'full_decreases_percent': [r['maximum_decrease_percent'] for r in full],
                               'offending_ion_requests': [v for r, v in bound]},
-                    steps=(RecoveryStep('population_projection_full', 2,
-                        lambda c: _projection_response(c, proposal, observed, attempts), repeat_on_native_fallback=True),))
+                    steps=steps)

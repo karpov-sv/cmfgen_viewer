@@ -205,6 +205,11 @@ T/Ne/impurity constraints are preserved. Exactly one ion-stage peak may qualify:
 fraction >=5%, contrast >=100 over both neighbors, neighboring fractions within
 a factor ten, three-depth T range <=25%, and element-density range <=4.
 
+The later [Bstar3518 investigation](bstar3518-instability-investigation.md)
+extends the contrast boundary to 50 in policy version 2; the original version-1
+boundary above records the Bstar3514 trial. All other recognition and response
+guards remain required.
+
 Application recomputes the proposal from checksum-bound native data, writes an
 atomic replacement, and preserves every other element/depth and the restart
 counter. The controller retains its complete baseline across the provisional

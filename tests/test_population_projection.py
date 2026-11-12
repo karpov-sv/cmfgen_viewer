@@ -74,6 +74,31 @@ def test_boundary_or_nonisolated_depth_does_not_authorize_projection(projection_
     assert propose_projection(projection_model, depth) is None
 
 
+@pytest.mark.parametrize('contrast,accepted', [(49.9, False), (50., True), (81.5, True)])
+def test_lower_contrast_spike_boundary_preserves_conservation(projection_model, contrast, accepted):
+    model = projection_model
+    values = _pops(model)
+    # A neutral spike like Bstar3518, with unequal but consistent neighbors.
+    peak = .78125
+    for depth, fraction in [(1, .0034), (2, peak), (3, peak/contrast)]:
+        values[depth, :2] = [1e10*fraction, 1e10*(1-fraction)]
+        values[depth, -2] = values[depth, 1]+values[depth, 3]
+    with (model/'SCRTEMP').open('r+b') as stream:
+        stream.seek(3*RECORD_BYTES)
+        stream.write(values.astype('<f8').tobytes())
+    before = (model/'SCRTEMP').read_bytes()
+    proposal = propose_projection(model, 3)
+    assert (proposal is not None) == accepted
+    assert (model/'SCRTEMP').read_bytes() == before
+    if accepted:
+        assert proposal['contrast'] == pytest.approx(contrast)
+        baseline = checkpoint_physics(model)
+        apply_projection(model, proposal)
+        checks = compare_physics(baseline, checkpoint_physics(model), fixed_temperature=True)
+        assert checks['element_density_max_relative_change'] < 1e-14
+        assert propose_projection(model, 3) is None
+
+
 @pytest.mark.parametrize('name', ['SCRTEMP', 'MODEL', 'MODEL_SPEC', 'POINT1'])
 def test_changed_baseline_is_refused_without_a_checkpoint_write(projection_model, name):
     model = projection_model
@@ -208,6 +233,136 @@ def test_recognized_projection_is_read_only_and_requires_full_followup(projectio
     assert decision.evidence['projection']['reference_ion'] == 'HI'
     assert decision.steps[0].iterations == 2 and decision.steps[0].repeat_on_native_fallback
     assert (ctx.model/'SCRTEMP').read_bytes() == before
+
+
+@pytest.mark.parametrize('contrast,accepted', [(81.5, True), (49.9, False)])
+def test_lower_contrast_policy_still_requires_the_complete_failure_signature(projection_context, contrast, accepted):
+    ctx = projection_context
+    values = _pops(ctx.model)
+    for depth, fraction in [(1, .0034), (3, .9/contrast)]:
+        values[depth, :2] = [1e10*fraction, 1e10*(1-fraction)]
+        values[depth, -2] = values[depth, 1]+values[depth, 3]
+    with (ctx.model/'SCRTEMP').open('r+b') as stream:
+        stream.seek(3*RECORD_BYTES)
+        stream.write(values.astype('<f8').tobytes())
+    assert (localized_population_projection(ctx) is not None) == accepted
+    # Even an eligible geometric peak does not authorize unrelated/small raw targets.
+    (ctx.model/'STEQ_VALS').write_text(_solution(.01)*3)
+    assert localized_population_projection(ctx) is None
+
+
+@pytest.mark.parametrize('failure', [None, 'negative_target', 'retained_spike'])
+def test_full_response_must_remove_both_the_spike_and_negative_targets(projection_context, monkeypatch, failure):
+    from cmfgen_viewer import auto_hydro
+    from cmfgen_viewer.population_projection import _projection_response
+    ctx = replace(projection_context, evidence={**projection_context.evidence, 'iterations': 3})
+    proposal = propose_projection(ctx.model, 3)
+    if failure != 'retained_spike':
+        apply_projection(ctx.model, proposal)
+    monkeypatch.setattr(auto_hydro, 'guard_measurements',
+                        lambda *args: {'luminosity_min': .99, 'luminosity_max': 1.1})
+    (ctx.model/'STEQ_VALS').write_text(_solution(1.01 if failure == 'negative_target' else .1)*3)
+    observed, attempts = [], []
+    if failure:
+        with pytest.raises(RunnerError, match='nonpositive|spike'):
+            _projection_response(ctx, proposal, observed, attempts)
+    else:
+        checks = _projection_response(ctx, proposal, observed, attempts)
+        assert checks['population_projection_check']['remaining_contrast'] == pytest.approx(1)
+        assert [r['iteration'] for r in observed] == [11, 13]
+
+
+@pytest.fixture
+def settling_context(projection_context, monkeypatch):
+    from cmfgen_viewer import auto_hydro
+    ctx = projection_context
+    model = ctx.model
+    old = _pops(model)
+    values = np.empty((5, 15))
+    values[:, :10] = old[:, :1]/10
+    values[:, 10:] = old[:, 1:]
+    for depth, fraction in [(1, .0034), (3, .9/81.5)]:
+        values[depth, :10] = 1e9*fraction
+        values[depth, 10] = 1e10*(1-fraction)
+        values[depth, -2] = values[depth, 10]+values[depth, 12]
+    (model/'MODEL_SPEC').write_text('5 [ND]\n10,10,10 [HI_ISF]\n1,1,1 [HeI_ISF]\n')
+    (model/'MODEL').write_text(
+        '5 !Number of depth points\n15 !Total number of variables\n\f\n'
+        'HI 10 10 1.0 1.0 1.0 1.0 1 1 1 1 ground\n'
+        'HeI 1 1 1.0 1.0 1.0 2.0 1 12 2 2 ground\n')
+    with (model/'SCRTEMP').open('r+b') as stream:
+        stream.seek(3*RECORD_BYTES)
+        stream.write(values.astype('<f8').tobytes())
+    proposal = propose_projection(model, 3)
+    assert proposal['contrast'] == pytest.approx(81.5)
+    apply_projection(model, proposal)
+    monkeypatch.setattr(auto_hydro, 'guard_measurements',
+                        lambda *args: {'luminosity_min': .99, 'luminosity_max': 1.1})
+    ctx = replace(ctx, evidence={**ctx.evidence, 'iterations': 3, 'counts': {'nt': 15, 'nd': 5}})
+    def raw_solutions(bad_variable=1, bad_value=2.1, repeat=False, count=3):
+        text = ''
+        for solve in range(count):
+            text += ' STEQ SOLUTION ARRAY\n'
+            for variable in range(1, 16):
+                row = [.001]*5
+                if variable == bad_variable and (solve == 0 or repeat):
+                    row[2] = bad_value
+                text += f'{variable}( 1)# '+' '.join(map(str, row))+'\n'
+        (model/'STEQ_VALS').write_text(text)
+    return ctx, proposal, raw_solutions
+
+
+def test_ground_only_settling_never_counts_as_positive_verification(settling_context):
+    from cmfgen_viewer.population_projection import _projection_response
+    ctx, proposal, raw_solutions = settling_context
+    raw_solutions()
+    checks = _projection_response(ctx, proposal, [], [], settling=True)['population_projection_settling_check']
+    assert checks['full_solve_requests'] == []
+    assert len(checks['settling_full_requests']) == 2
+    with pytest.raises(RunnerError, match='nonpositive'):
+        _projection_response(ctx, proposal, [], [])
+    raw_solutions(bad_value=.1)
+    observed = []
+    _projection_response(ctx, proposal, observed, [])
+    assert [r['iteration'] for r in observed] == [11, 13]
+
+
+@pytest.mark.parametrize('variable,value,repeat', [(2, 2.1, False), (14, 2.1, False),
+                                                 (1, 10.01, False), (1, 2.1, True)])
+def test_settling_refuses_excited_or_electron_failures_large_or_repeated_overshoots(settling_context, variable, value, repeat):
+    from cmfgen_viewer.population_projection import _projection_response
+    ctx, proposal, raw_solutions = settling_context
+    raw_solutions(variable, value, repeat)
+    with pytest.raises(RunnerError, match='nonpositive'):
+        _projection_response(ctx, proposal, [], [], settling=True)
+
+
+@pytest.mark.parametrize('second', [1.03, 2., 2.2])
+def test_two_settling_batches_require_improving_ground_request_and_never_grant_credit(settling_context, second):
+    from cmfgen_viewer.population_projection import _projection_response
+    from cmfgen_viewer.auto_policies import VerificationPending
+    ctx, proposal, raw_solutions = settling_context
+    first = replace(ctx, evidence={**ctx.evidence, 'iterations': 2, 'records': ctx.evidence['records'][:2]})
+    raw_solutions(count=2)
+    observed, attempts = [], []
+    with pytest.raises(VerificationPending) as pending:
+        _projection_response(first, proposal, observed, attempts, settling=True)
+    assert pending.value.checks['population_projection_settling_check']['full_solve_requests'] == []
+    records = [{**r, 'global_iteration': r['global_iteration']+2} for r in first.evidence['records']]
+    next_ctx = replace(first, evidence={**first.evidence, 'records': records})
+    raw_solutions(bad_value=second, count=2)
+    if second > 1.89:
+        with pytest.raises(RunnerError, match='nonpositive'):
+            _projection_response(next_ctx, proposal, observed, attempts, settling=True)
+        return
+    checks = _projection_response(next_ctx, proposal, observed, attempts, settling=True)
+    check = checks['population_projection_settling_check']
+    assert check['full_solve_requests'] == []
+    assert [r['iteration'] for r in check['settling_full_requests']] == [11, 13]
+    with pytest.raises(RunnerError, match='nonpositive'):
+        _projection_response(next_ctx, proposal, [], [])
+    with pytest.raises(RunnerError, match='exceeded two'):
+        _projection_response(next_ctx, proposal, observed, attempts, settling=True)
 
 
 @pytest.mark.parametrize('field,value', [('maximum_decrease_percent', None),
