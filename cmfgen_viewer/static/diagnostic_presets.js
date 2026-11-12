@@ -31,16 +31,16 @@
     { id: "uv-wind", label: "UV wind: N V + Si IV + C IV", features: ["nv", "siiv", "civ"] },
     { id: "fuv-wind", label: "Far-UV wind: P V", features: ["pv"] },
     { id: "gosss-late-o", label: "GOSSS: late-O subtype", halfWidth: 250,
-      description: "Late-O subtype comparisons: He II 4542 / He I 4388, He II 4200 / He I 4144, and Si III 4552 / He II 4542 (peak line strengths).",
+      description: "Late-O subtype comparisons: <code>He II 4542 / He I 4388</code>, <code>He II 4200 / He I 4144</code>, and <code>Si III 4552 / He II 4542</code> (peak line strengths).",
       features: ["he4542", "he4388", "he4200", "he4144", "si4552"] },
     { id: "gosss-luminosity", label: "GOSSS: late-O luminosity", halfWidth: 250,
-      description: "O9–O9.7 luminosity comparisons: He II 4686 / He I 4713 and Si IV 4089 / He I 4026. The 4026 feature is a He I+II blend.",
+      description: "O9–O9.7 luminosity comparisons: <code>He II 4686 / He I 4713</code> and <code>Si IV 4089 / He I 4026</code>. The 4026 feature is a He I+II blend.",
       features: ["he4686", "he4713", "si4089", "he4026"] },
     { id: "gosss-of-ofc", label: "GOSSS: Of / Ofc morphology", halfWidth: 250,
       description: "Compare N III 4634–4642, C III 4647–4652, and He II 4686 emission/absorption morphology. Overlapping nitrogen/carbon intervals form one context window, not separate EW measurements.",
       features: ["niii", "ciii", "he4686"] },
     { id: "gosss-vz", label: "GOSSS: Vz helium diagnostics", halfWidth: 250,
-      description: "Vz uses EW(He II 4686) / max[EW(He I 4471), EW(He II 4542)]. These windows select profiles; the ratio and spectral class are not calculated. This Vz ratio is distinct from source redshift z.",
+      description: "Vz uses <code>EW(He II 4686) / max[EW(He I 4471), EW(He II 4542)]</code>. These windows select profiles; the ratio and spectral class are not calculated. This Vz ratio is distinct from source redshift <code>z</code>.",
       features: ["he4471", "he4542", "he4686"] }
   ];
 
@@ -86,8 +86,9 @@
           previous.label += " + " + row.label;
         } else windows.push({ label: row.label, min: row.min, max: row.max });
       });
+    var descriptionHtml = preset.description || "Wind-profile comparison windows; quantitative wind estimates require a suitable wind-model grid.";
     return { rows: rows, windows: windows, halfWidth: width,
-      description: preset.description || "Wind-profile comparison windows; quantitative wind estimates require a suitable wind-model grid." };
+      description: descriptionHtml.replace(/<\/?code>/g, ""), descriptionHtml: descriptionHtml };
   }
 
   function append(text, selection) {
@@ -162,9 +163,9 @@
         if (preview.textContent !== text) preview.textContent = text;
         select.title = selection.description;
         if (helpButton) {
-          var helpText = helpBase + " " + selection.description;
+          var helpText = helpBase + " " + selection.descriptionHtml;
           helpButton.setAttribute("data-bs-content", helpText);
-          if (helpDescription && helpDescription.textContent !== helpText) helpDescription.textContent = helpText;
+          if (helpDescription && helpDescription.textContent !== helpText.replace(/<\/?code>/g, "")) helpDescription.textContent = helpText.replace(/<\/?code>/g, "");
         }
         button.disabled = !selection.windows.length;
       } catch (error) { preview.textContent = error.message; button.disabled = true; }

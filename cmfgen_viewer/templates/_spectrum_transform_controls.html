@@ -1,3 +1,4 @@
+{% from "_help_popover.html" import help_popover %}
 {% set transform_params = transform_params | default({"redshift": 0, "velocity_km_s": 0, "broadening_km_s": 0, "ebv": 0, "distance_kpc": 1}) %}
       <details class="spectrum-settings" id="{{ plot_id }}-transforms" {% if transform_params.redshift or transform_params.broadening_km_s or transform_params.ebv or transform_params.distance_kpc != 1 %}open{% endif %}>
         <summary>Spectrum transformations</summary>
@@ -11,13 +12,21 @@
               (distance_id, "Distance (kpc)", transform_params.distance_kpc, 0.000001)
             ] %}
               <div class="spectrum-field">
+                <div class="d-flex align-items-center gap-1">
                 <label for="{{ input_id }}" class="plot-control-label">{{ label }}</label>
+                {% if input_id == redshift_id %}
+                  {{ help_popover(plot_id ~ "-frame", "Source redshift and wavelength frame", "The plot uses uploaded wavelength coordinates. Enter the source redshift relative to that frame: models and stellar markers use <code>λ_vac,rest × (1 + z)</code>, then convert to the upload's Air/Vacuum convention. Positive source velocity moves predictions towards longer wavelengths. Upload samples, telluric guides, masks and fit intervals stay fixed. Velocity uses <code>v = c z</code> (optical convention); even at <code>z = 0</code>, vacuum models are converted when the upload is Air.", html=true) }}
+                {% endif %}
+                </div>
                 <input id="{{ input_id }}" type="number" step="any" {% if minimum is not none %}min="{{ minimum }}"{% endif %} class="form-control form-control-sm" value="{{ value }}" {% if input_id == redshift_id %}title="Source redshift relative to the upload's frame. Models and stellar markers use vacuum rest wavelength × (1+z), then convert to the upload's Air/Vacuum convention. Positive z moves predictions to longer wavelengths; uploaded samples, telluric bands and fit intervals stay fixed." aria-describedby="{{ plot_id }}-frame-help"{% elif input_id == velocity_id %}title="Source velocity v = c z (optical convention). Positive means a receding source and shifts model profiles and stellar markers to longer wavelengths. The uploaded spectrum never moves. No barycentric or heliocentric correction is inferred." aria-describedby="{{ plot_id }}-frame-help"{% endif %}>
               </div>
             {% endfor %}
-            <button id="{{ reset_transform_id }}" type="button" class="btn btn-outline-secondary btn-sm spectrum-reset">Reset transformations</button>
+            <div class="d-flex align-items-center gap-2">
+              <button id="{{ reset_transform_id }}" type="button" class="btn btn-outline-secondary btn-sm spectrum-reset">Reset transformations</button>
+              {{ help_popover(transform_hint_id, "Transformation effects", "Distance, reddening and broadening apply to models only. Uploaded flux and uncertainties stay unchanged. Distance and reddening cancel in normalized <code>F/Fc</code>.", html=true) }}
+            </div>
           </div>
-          <p id="{{ plot_id }}-frame-help" class="small text-muted spectrum-help">The plot uses uploaded wavelength coordinates. Enter the source redshift relative to that frame: models and stellar markers use <code>λ_vac,rest × (1 + z)</code>, then convert to the upload's Air/Vacuum convention. Positive source velocity moves predictions towards longer wavelengths. Upload samples, telluric guides, masks and fit intervals stay fixed. Velocity uses <code>v = c z</code> (optical convention); even at z = 0, vacuum models are converted when the upload is Air.</p>
+
           <div id="{{ transform_hint_id }}" class="small text-muted spectrum-help" aria-live="polite"></div>
         </div>
       </details>

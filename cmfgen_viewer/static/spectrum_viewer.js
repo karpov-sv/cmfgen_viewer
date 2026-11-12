@@ -45,6 +45,17 @@
         return;
       }
       transformHint.textContent = message;
+      transformHint.hidden = !isError;
+      if (!isError) {
+        var helpButton = document.getElementById(pageConfig.transform_hint_id + "-help-button");
+        var helpDescription = document.getElementById(pageConfig.transform_hint_id + "-help");
+        if (helpButton) {
+          var helpHtml = message.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+            .replace(/vacuum rest × \(1 \+ source z\)|F\/Fc|sigma_v=[\d.]+ km\/s/g, "<code>$&</code>");
+          helpButton.setAttribute("data-bs-content", helpHtml);
+        }
+        if (helpDescription) helpDescription.textContent = message;
+      }
       transformHint.classList.toggle("text-danger", !!isError);
       transformHint.classList.toggle("text-muted", !isError);
       if (isError && transformSettings) {

@@ -199,14 +199,14 @@
                   <div class="spectrum-field flex-grow-1">
                     <div class="d-flex align-items-baseline gap-1">
                       <label for="grid-fit-preset" class="plot-control-label">OB-star diagnostic preset</label>
-                      {{ help_popover('grid-fit-preset', 'Diagnostic presets', 'Set source redshift in Spectrum transformations before adding. Preset bounds convert to uploaded wavelengths once, then stay fixed. Unavailable intervals are skipped; partial windows retain their full bounds. Overlapping preset intervals are combined, and additions overlapping existing windows are skipped. Use Clear to replace existing windows. Exclusions are preserved. Wind estimates require a suitable wind-model grid; TLUSTY/BOSZ/PHOENIX provide photospheric comparisons.') }}
+                      {{ help_popover('grid-fit-preset', 'Diagnostic presets', 'Set source redshift in Spectrum transformations before adding. Preset bounds convert to uploaded wavelengths once, then stay fixed. Unavailable intervals are skipped; partial windows retain their full bounds. Overlapping preset intervals are combined, and additions overlapping existing windows are skipped. Use Clear to replace existing windows. Exclusions are preserved. Wind estimates require a suitable wind-model grid; TLUSTY/BOSZ/PHOENIX provide photospheric comparisons.', html=true) }}
                     </div>
                     <select id="grid-fit-preset" class="form-select form-select-sm" disabled><option>Loading presets…</option></select>
                   </div>
                   <div class="spectrum-field">
                     <div class="d-flex align-items-baseline gap-1">
                       <label for="grid-fit-preset-width" class="plot-control-label">Half-width (km/s)</label>
-                      {{ help_popover('grid-fit-preset-width', 'Preset half-width', 'Velocity span on each side of a line, or outside a multiplet. Uses the optical v = c z convention. Choosing a preset resets its suggested half-width: ±3000 km/s for wind sets, ±250 km/s for GOSSS classification sets. Edit for rotation, resolution and blending. These are starting profile windows, not calibrated equivalent-width integration limits. Width changes affect newly added windows; previously inserted intervals stay fixed.') }}
+                      {{ help_popover('grid-fit-preset-width', 'Preset half-width', 'Velocity span on each side of a line, or outside a multiplet. Uses the optical <code>v = c z</code> convention. Choosing a preset resets its suggested half-width: ±3000 km/s for wind sets, ±250 km/s for GOSSS classification sets. Edit for rotation, resolution and blending. These are starting profile windows, not calibrated equivalent-width integration limits. Width changes affect newly added windows; previously inserted intervals stay fixed.', html=true) }}
                     </div>
                     <input id="grid-fit-preset-width" type="number" value="3000" min="0.000001" max="299792.457" step="any" class="form-control form-control-sm">
                   </div>
@@ -244,11 +244,11 @@
         {% endif %}
         <p id="grid-fit-bosz-resolution-note" class="small text-muted grid-fit-note{% if fit_source != 'bosz' %} d-none{% endif %}">
           BOSZ native resolution: R=2000.
-          {{ help_popover('grid-fit-bosz-resolution', 'BOSZ resolution', 'The installed BOSZ subset is already broadened to R=2000 (about 150 km/s FWHM). The fitted Gaussian broadening σ is additional to the native broadening; it cannot sharpen the grid. Use spectra at comparable or lower resolution. Full BOSZ filenames distinguish atmosphere families.') }}
+          {{ help_popover('grid-fit-bosz-resolution', 'BOSZ resolution', 'The installed BOSZ subset is already broadened to <code>R = 2000</code> (about 150 km/s FWHM). The fitted Gaussian broadening <code>σ</code> is additional to the native broadening; it cannot sharpen the grid. Use spectra at comparable or lower resolution. Full BOSZ filenames distinguish atmosphere families.', html=true) }}
         </p>
         <p id="grid-fit-phoenix-resolution-note" class="small text-muted grid-fit-note{% if fit_source != 'phoenix' %} d-none{% endif %}">
           PHOENIX supports absolute-flux spectra and photometry only.
-          {{ help_popover('grid-fit-phoenix-resolution', 'PHOENIX resolution and coverage', 'PHOENIX ACES: R=10000 (about 30 km/s FWHM), vacuum wavelengths 3000–25000 Å. Gaussian broadening σ is additional to the native broadening; use spectra at comparable or lower resolution. Absolute-flux spectra and photometry only: no continua are supplied for normalized fitting. Models with negative flux are excluded. Grid-author interpolated spectra are retained and labelled in results.') }}
+          {{ help_popover('grid-fit-phoenix-resolution', 'PHOENIX resolution and coverage', 'PHOENIX ACES: <code>R = 10000</code> (about 30 km/s FWHM), vacuum wavelengths 3000–25000 Å. Gaussian broadening <code>σ</code> is additional to the native broadening; use spectra at comparable or lower resolution. Absolute-flux spectra and photometry only: no continua are supplied for normalized fitting. Models with negative flux are excluded. Grid-author interpolated spectra are retained and labelled in results.', html=true) }}
         </p>
         <div class="grid-fit-actions">
           <button id="grid-fit-submit" type="submit" class="btn btn-sm btn-success" data-fit-source="{{ fit_source }}">Find best {{ fit_source | upper }} model</button>
@@ -316,7 +316,6 @@
   <script src="{{ url_for('static', filename='diagnostic_plots.js') }}"></script>
   <script src="{{ url_for('static', filename='fit_region_storage.js') }}"></script>
   <script src="{{ url_for('static', filename='diagnostic_presets.js') }}"></script>
-  <script src="{{ url_for('static', filename='help_popovers.js') }}"></script>
   <script type="application/json">
 {
   "statusUrlTemplate": {{ url_for('viewer.upload_fit_grid_status', job_id='__JOB_ID__') | tojson }},

@@ -185,6 +185,7 @@
     var zoom = document.getElementById(target.id + "-lines-zoom");
     var zoomWidth = document.getElementById(target.id + "-lines-zoom-width");
     var customInput = document.getElementById(target.id + "-lines-custom");
+    var customClear = document.getElementById(target.id + "-lines-custom-clear");
     var customMedium = document.getElementById(target.id + "-lines-custom-medium");
     var customStatus = document.getElementById(target.id + "-lines-custom-status");
     var catalog = commonCatalog.slice();
@@ -420,6 +421,13 @@
         try { window.localStorage.setItem(customStorageKey, JSON.stringify(settings)); }
         catch (error) { /* Keep the current plot usable without storage access. */ }
         window.dispatchEvent(new CustomEvent("cmfgen-custom-lines-changed", { detail: settings }));
+      }
+      if (customClear) {
+        customClear.disabled = false;
+        customClear.addEventListener("click", function () {
+          customInput.value = "";
+          customChanged();
+        });
       }
       customInput.addEventListener("input", customChanged);
       customMedium.addEventListener("change", customChanged);

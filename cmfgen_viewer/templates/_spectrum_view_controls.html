@@ -1,3 +1,4 @@
+{% from "_help_popover.html" import help_popover %}
 <details class="spectrum-settings">
   <summary>Line and display settings</summary>
   <div class="spectrum-settings-body">
@@ -13,7 +14,12 @@
         </select>
       </div>
       <div class="spectrum-field">
+        <div class="d-flex align-items-center gap-1">
         <label for="{{ plot_id }}-lines-medium" class="plot-control-label">Wavelengths</label>
+        {{ help_popover(plot_id ~ "-wavelength-frame", "Wavelength frame", "Uploaded samples and fitting intervals stay fixed. Models and stellar markers are redshifted in vacuum, then converted to the upload's Air/Vacuum convention. Wavelengths is locked to the active upload property; edit it on the upload page. Without uploads, Air is the default for model comparisons. Width (Å) sets the total span of a line jump about the displayed, redshifted line position; the default 300 Å gives ±150 Å.") }}
+        <span class="plot-control-label ms-1">Tellurics</span>
+        {{ help_popover(plot_id ~ "-telluric", "Telluric bands", 'Telluric bands shade approximate O₂ and H₂O absorption regions in the selected Air/Vacuum convention. They stay fixed as source velocity changes. Guides assume topocentric uploaded wavelengths; prior barycentric/heliocentric corrections are not inferred. They do not correct absorption or mask fitting samples.') }}
+        </div>
         <select id="{{ plot_id }}-lines-medium" class="form-select form-select-sm">
           <option value="air" {% if line_display_medium|default('air') == 'air' %}selected{% endif %}>Air (UV stays vacuum)</option>
           <option value="vacuum" {% if line_display_medium|default('air') == 'vacuum' %}selected{% endif %}>Vacuum</option>
@@ -30,11 +36,12 @@
         <input id="{{ plot_id }}-lines-labels" class="form-check-input me-1" type="checkbox" checked disabled> Line labels
       </label>
     </div>
-    <p class="small text-muted spectrum-help">Uploaded samples and fitting intervals stay fixed. Models and stellar markers are redshifted in vacuum, then converted to the upload's Air/Vacuum convention. Wavelengths is locked to the active upload property; edit it on the upload page. Without uploads, Air is the default for model comparisons. Width (Å) sets the total span of a line jump about the displayed, redshifted line position; the default 300 Å gives ±150 Å.</p>
-    <p id="{{ plot_id }}-telluric-help" class="small text-muted spectrum-help">Telluric bands shade approximate O₂ and H₂O absorption regions in the selected Air/Vacuum convention. They stay fixed as source velocity changes. Guides assume topocentric uploaded wavelengths; prior barycentric/heliocentric corrections are not inferred. They do not correct absorption or mask fitting samples.</p>
     <div class="row g-2 mt-1">
       <div class="col-md-8">
+        <div class="d-flex align-items-center gap-1">
         <label for="{{ plot_id }}-lines-custom" class="plot-control-label">Custom spectral lines</label>
+        {{ help_popover(plot_id ~ "-lines-custom", "Custom spectral lines", 'One wavelength and optional label per line; spaces or commas separate them. Input defaults to Air; saved lists retain their selected convention. For example: <code>5006.84 [O III]</code>. Blank lines and <code>#</code> comments are ignored. Enable Spectral lines to show markers, then choose All lines or Custom lines. Reused across viewers in this browser. Clear removes the saved list and its markers, keeping the selected input convention.', html=true) }}
+        </div>
         <textarea id="{{ plot_id }}-lines-custom" class="form-control form-control-sm font-monospace" rows="3" placeholder="5006.84 [O III]&#10;6562.80 Hα" aria-describedby="{{ plot_id }}-lines-custom-help {{ plot_id }}-lines-custom-status" spellcheck="false" disabled></textarea>
       </div>
       <div class="col-md-4">
@@ -43,9 +50,10 @@
           <option value="air" selected>Air (Å; UV stays vacuum)</option>
           <option value="vacuum">Vacuum (Å)</option>
         </select>
+        <button id="{{ plot_id }}-lines-custom-clear" type="button" class="btn btn-outline-secondary btn-sm mt-2" disabled>Clear</button>
       </div>
     </div>
-    <p id="{{ plot_id }}-lines-custom-help" class="small text-muted mt-2 mb-1">One wavelength and optional label per line; spaces or commas separate them. Input defaults to Air; saved lists retain their selected convention. Blank lines and # comments are ignored. Enable Spectral lines to show markers, then choose All lines or Custom lines. Reused across viewers in this browser.</p>
+
     <div id="{{ plot_id }}-lines-custom-status" class="small text-muted mb-2" role="status"></div>
     <div id="{{ plot_id }}-sampling-status" class="small text-muted" aria-live="polite"></div>
   </div>
