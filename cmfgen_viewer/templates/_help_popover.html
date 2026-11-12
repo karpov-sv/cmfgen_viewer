@@ -1,0 +1,8 @@
+{% macro help_popover(input_id, label, notice, html=false) %}
+  <button type="button" class="model-parameter-help-button text-body-secondary"
+    data-help-popover data-bs-title="{{ label }}" data-bs-content="{{ notice }}"
+    {% if html %}data-help-html="true"{% endif %}
+    aria-label="Help for {{ label }}" aria-expanded="false"
+    aria-describedby="{{ input_id }}-help">i</button>
+  <span id="{{ input_id }}-help" hidden>{{ notice | striptags if html else notice }}</span>
+{% endmacro %}

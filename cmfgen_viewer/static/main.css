@@ -573,7 +573,7 @@ a:focus {
 }
 
 .grid-fit-wavelength > .grid-fit-bound {
-    flex: 0 1 20rem;
+    flex: 0 1 24rem;
 }
 
 .grid-fit-wavelength > span {
@@ -981,6 +981,14 @@ a:focus {
 .model-parameter-help-button:hover,
 .model-parameter-help-button:focus-visible {
     color: var(--bs-body-color) !important;
+}
+
+.spectrum-help-popover {
+    --bs-popover-max-width: min(28rem, calc(100vw - 2rem));
+}
+
+.spectrum-help-popover .popover-body {
+    line-height: 1.45;
 }
 
 .model-quick-parameter-details > summary {

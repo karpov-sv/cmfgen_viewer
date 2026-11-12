@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_vizier_photometry_fields.html" import vizier_photometry_fields %}
+{% from "_help_popover.html" import help_popover %}
 
 {% block title %}Uploaded Spectrum - CMFGEN Viewer{% endblock %}
 
@@ -20,12 +21,12 @@
 
     <form method="post" action="{{ url_for('viewer.uploads_update_wavelengths', token=upload.token) }}" class="d-flex flex-wrap align-items-center gap-2 mb-3">
       <label for="upload-medium-edit" class="small">Uploaded wavelengths</label>
+      {{ help_popover('upload-medium-edit', 'Uploaded wavelengths', 'Interpretation only: stored samples are unchanged. Air is the default for uploads without a saved convention. Models and stellar markers are converted to this convention. Rerun fits after changing it.') }}
       <select id="upload-medium-edit" name="wavelength_medium" class="form-select form-select-sm w-auto" title="Change the interpretation of the stored wavelength values, without converting or resampling the file. Rerun fits after changing this setting.">
         <option value="air" {% if upload.wavelength_medium == 'air' %}selected{% endif %}>Air</option>
         <option value="vacuum" {% if upload.wavelength_medium == 'vacuum' %}selected{% endif %}>Vacuum</option>
       </select>
       <button type="submit" class="btn btn-sm btn-outline-primary">Save wavelength convention</button>
-      <span class="small text-muted">Interpretation only; stored samples are unchanged. Air is the default for uploads without a saved convention.</span>
     </form>
 
     {% if upload.observation_type == "photometry" %}
@@ -157,7 +158,7 @@
           <div class="spectrum-settings-body">
             <div class="grid-fit-wavelength">
               <fieldset class="grid-fit-bound">
-                <legend>Upload-frame wavelength range (Å, optional)</legend>
+                <legend class="d-flex align-items-baseline gap-1"><span>Upload-frame wavelength range (Å, optional)</span> {{ help_popover('grid-fit-range', 'Fit wavelength range', 'Leave blank to use all available wavelengths or enabled photometric bands. Limits refer directly to stored upload wavelengths in its Air/Vacuum convention and remain fixed as source velocity changes. Diagnostic windows are intersected with this range, then exclusions are removed.') }}</legend>
                 <div class="grid-fit-bound-inputs">
                   {% for side, label in [('min', 'Min'), ('max', 'Max')] %}
                     <div class="spectrum-field">
@@ -168,26 +169,50 @@
                 </div>
               </fieldset>
               <button id="grid-fit-use-plot-range" type="button" class="btn btn-sm btn-outline-secondary" title="Copy the displayed uploaded-wavelength limits directly; no frame conversion is applied.">Use plot range</button>
-              <span class="small text-muted">Leave blank to use all {% if upload.observation_type == "photometry" %}enabled bands{% else %}available wavelengths{% endif %}.</span>
             </div>
             {% if upload.observation_type != 'photometry' %}
               <fieldset class="border rounded p-2 mb-3">
-                <legend class="float-none w-auto fs-6 px-1">Diagnostic regions (optional)</legend>
-                <p class="small text-muted mb-2"><strong>Diagnostic windows select the wavelengths used for fitting and per-window diagnostics.</strong> The fit uses their union within the overall range above, with excluded intervals removed. Leave windows blank to fit the whole range minus exclusions. Enter one interval per line: <code>label, min, max</code> or <code>min, max</code>, in the upload's original wavelength frame (Å and its air/vacuum convention). Display redshift does not move these bounds. Edits apply to the next fit; rerun to update results.</p>
+                <legend class="float-none w-auto fs-6 px-1">Diagnostic regions (optional) {{ help_popover('grid-fit-regions', 'Diagnostic regions', 'The fit uses the union of diagnostic windows within the overall fit range, with exclusions removed. Leave windows blank to fit the whole range minus exclusions. Bounds use stored upload wavelengths in its Air/Vacuum convention; source redshift does not move them. Edits apply to the next fit: rerun to update parameters and scores.') }}</legend>
+                <p class="small text-muted mb-2">Windows restrict the fit; exclusions remove samples.</p>
                 <div class="row g-2">
                   <div class="col-md-6">
-                    <label for="grid-fit-windows" class="plot-control-label">Diagnostic windows</label>
+                    <div class="d-flex align-items-baseline gap-1 mb-1">
+                      <label for="grid-fit-windows" class="plot-control-label">Diagnostic windows</label>
+                      {{ help_popover('grid-fit-windows', 'Diagnostic windows', 'One interval per line: <code>label, min, max</code> or <code>min, max</code>, in uploaded Å. Windows must not overlap or share endpoints. Each needs at least two unmasked samples, with at least 30 samples in total. Models must cover every selected sample. Scores use the current pixel/error weighting; normalized uploads should already be continuum-normalized. Drafts save automatically in this browser for this upload, including zoom additions. Clear saves the field empty.', html=true) }}
+                    </div>
                     <textarea id="grid-fit-windows" name="fit_windows" rows="4" maxlength="16000" class="form-control form-control-sm" placeholder="He I 4471, 4455, 4485&#10;He II 4542, 4525, 4558">{{ fit_region_inputs.windows }}</textarea>
                     <button type="button" class="btn btn-sm btn-outline-secondary mt-2" data-fit-region-target="grid-fit-windows" title="Append the current zoom range as a diagnostic window in uploaded wavelengths. Existing windows are kept.">Add zoom range as window</button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary mt-2" data-fit-region-clear="grid-fit-windows" aria-label="Clear diagnostic windows" title="Clear all diagnostic windows and save the empty field. The next fit uses the overall range minus exclusions.">Clear</button>
                   </div>
                   <div class="col-md-6">
-                    <label for="grid-fit-exclusions" class="plot-control-label">Exclude intervals</label>
+                    <div class="d-flex align-items-baseline gap-1 mb-1">
+                      <label for="grid-fit-exclusions" class="plot-control-label">Exclude intervals</label>
+                      {{ help_popover('grid-fit-exclusions', 'Excluded intervals', 'One interval per line: <code>label, min, max</code> or <code>min, max</code>, in uploaded Å. These samples are removed from fitting and diagnostic scores. Add telluric bands appends the overlay bands overlapping the upload, preserving existing exclusions and skipping bands already covered. Edit these broad guides to match your observations. Display checkboxes only control visibility. Drafts save automatically for this upload; Clear saves the field empty.', html=true) }}
+                    </div>
                     <textarea id="grid-fit-exclusions" name="fit_exclusions" rows="4" maxlength="16000" class="form-control form-control-sm" placeholder="Telluric, 6860, 6960">{{ fit_region_inputs.exclusions }}</textarea>
                     <button type="button" class="btn btn-sm btn-outline-secondary mt-2" data-fit-region-target="grid-fit-exclusions" title="Append the current zoom range as an excluded interval in uploaded wavelengths. Existing exclusions are kept.">Exclude zoom range</button>
                     <button id="grid-fit-add-tellurics" type="button" class="btn btn-sm btn-outline-secondary mt-2" title="Append telluric overlay bands that overlap this upload, in its Air/Vacuum convention. Keeps existing exclusions and skips bands already covered. Uses full band bounds, independent of zoom and stellar velocity.">Add telluric bands</button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary mt-2" data-fit-region-clear="grid-fit-exclusions" aria-label="Clear excluded intervals" title="Clear all excluded intervals and save the empty field. Applies to the next fit.">Clear</button>
                   </div>
                 </div>
-                <p class="small text-muted mt-2 mb-0">Windows and exclusions are saved automatically in this browser for this upload, including edits made with the zoom buttons. Clear a field to save it empty. Use non-overlapping windows with at least two unmasked samples each and at least 30 samples in total. Models must cover every selected sample. Scores retain the current pixel/error weighting; normalized uploads should already be continuum-normalized.</p>
+                <div class="d-flex flex-wrap align-items-end gap-2 mt-3 pt-2 border-top mb-2">
+                  <div class="spectrum-field flex-grow-1">
+                    <div class="d-flex align-items-baseline gap-1">
+                      <label for="grid-fit-preset" class="plot-control-label">OB-star diagnostic preset</label>
+                      {{ help_popover('grid-fit-preset', 'Diagnostic presets', 'Set source redshift in Spectrum transformations before adding. Preset bounds convert to uploaded wavelengths once, then stay fixed. Unavailable intervals are skipped; partial windows retain their full bounds. Overlapping preset intervals are combined, and additions overlapping existing windows are skipped. Use Clear to replace existing windows. Exclusions are preserved. Wind estimates require a suitable wind-model grid; TLUSTY/BOSZ/PHOENIX provide photospheric comparisons.') }}
+                    </div>
+                    <select id="grid-fit-preset" class="form-select form-select-sm" disabled><option>Loading presets…</option></select>
+                  </div>
+                  <div class="spectrum-field">
+                    <div class="d-flex align-items-baseline gap-1">
+                      <label for="grid-fit-preset-width" class="plot-control-label">Half-width (km/s)</label>
+                      {{ help_popover('grid-fit-preset-width', 'Preset half-width', 'Velocity span on each side of a line, or outside the components of a doublet. Uses the optical v = c z convention. The default ±3000 km/s is an editable starting width, not a universal diagnostic boundary. Width changes affect newly added windows; previously inserted intervals stay fixed.') }}
+                    </div>
+                    <input id="grid-fit-preset-width" type="number" value="3000" min="0.000001" max="299792.457" step="any" class="form-control form-control-sm">
+                  </div>
+                  <button id="grid-fit-add-preset" type="button" class="btn btn-sm btn-outline-secondary" disabled>Add windows</button>
+                </div>
+                <div id="grid-fit-preset-preview" class="small text-muted" role="status"></div>
               </fieldset>
             {% endif %}
             <div class="grid-fit-bounds">
@@ -197,7 +222,7 @@
               {% endif %}
               {% for slug, parameter, label, minimum in parameters %}
                 <fieldset {% if slug == 'distance' %}id="grid-fit-distance-fields"{% endif %} class="grid-fit-bound{% if slug == 'distance' and fit_source in ['tlusty', 'bosz', 'phoenix'] %} d-none{% endif %}">
-                  <legend>{{ label }}</legend>
+                  <legend>{{ label }} {{ help_popover('grid-fit-' ~ slug ~ '-bounds', label ~ ' bounds', 'Bounds set the search range. Use equal minimum and maximum values to hold a parameter fixed. Fits compare the forward-redshifted model with stored upload wavelengths; display corrections do not change the fitted data. Grid-fit overlays use the upload convention and initialize the model controls to their fitted values.') }}</legend>
                   <div class="grid-fit-bound-inputs">
                     {% for side, side_label in [('min', 'Min'), ('max', 'Max')] %}
                       <div class="spectrum-field">
@@ -209,24 +234,21 @@
                 </fieldset>
               {% endfor %}
             </div>
-            <p class="small text-muted spectrum-help">Bounds set the search range. Use equal minimum and maximum values to hold a parameter fixed. Fits compare the forward-redshifted model with stored upload wavelengths; display corrections do not change the fitted data. Grid-fit overlays are transformed to the upload convention and set the model controls to their fitted values.</p>
           </div>
         </details>
         {% if mode == "both" %}
           <p id="grid-fit-tlusty-scale-note" class="small text-muted grid-fit-note{% if fit_source not in ['tlusty', 'bosz', 'phoenix'] %} d-none{% endif %}">
-            TLUSTY/BOSZ/PHOENIX absolute fits solve a free normalization for each model; distance is not fitted. Photometry requires coverage of every enabled band.
+            Free normalization; distance is not fitted.
+            {{ help_popover('grid-fit-scale', 'Absolute grid normalization', 'TLUSTY/BOSZ/PHOENIX absolute fits solve a free normalization for each model; distance is not fitted. Photometry requires coverage of every enabled band.') }}
           </p>
         {% endif %}
         <p id="grid-fit-bosz-resolution-note" class="small text-muted grid-fit-note{% if fit_source != 'bosz' %} d-none{% endif %}">
-          The installed BOSZ subset is already broadened to R=2000 (about 150 km/s FWHM).
-          The fitted Gaussian broadening σ is additional to the native broadening; it cannot sharpen the grid.
-          Use spectra at comparable or lower resolution. Full BOSZ filenames distinguish atmosphere families.
+          BOSZ native resolution: R=2000.
+          {{ help_popover('grid-fit-bosz-resolution', 'BOSZ resolution', 'The installed BOSZ subset is already broadened to R=2000 (about 150 km/s FWHM). The fitted Gaussian broadening σ is additional to the native broadening; it cannot sharpen the grid. Use spectra at comparable or lower resolution. Full BOSZ filenames distinguish atmosphere families.') }}
         </p>
-        <p id="grid-fit-phoenix-resolution-note" class="small text-muted grid-fit-note{% if fit_source != 'phoenix' and mode == 'both' %} d-none{% endif %}">
-          PHOENIX ACES: R=10000 (about 30 km/s FWHM), vacuum wavelengths 3000–25000 Å.
-          Gaussian broadening σ is additional to the native broadening; use spectra at comparable or lower resolution.
-          Absolute-flux spectra and photometry only: no continua are supplied for normalized fitting.
-          Models with negative flux are excluded. Grid-author interpolated spectra are retained and labelled in results.
+        <p id="grid-fit-phoenix-resolution-note" class="small text-muted grid-fit-note{% if fit_source != 'phoenix' %} d-none{% endif %}">
+          PHOENIX supports absolute-flux spectra and photometry only.
+          {{ help_popover('grid-fit-phoenix-resolution', 'PHOENIX resolution and coverage', 'PHOENIX ACES: R=10000 (about 30 km/s FWHM), vacuum wavelengths 3000–25000 Å. Gaussian broadening σ is additional to the native broadening; use spectra at comparable or lower resolution. Absolute-flux spectra and photometry only: no continua are supplied for normalized fitting. Models with negative flux are excluded. Grid-author interpolated spectra are retained and labelled in results.') }}
         </p>
         <div class="grid-fit-actions">
           <button id="grid-fit-submit" type="submit" class="btn btn-sm btn-success" data-fit-source="{{ fit_source }}">Find best {{ fit_source | upper }} model</button>
@@ -293,6 +315,8 @@
   {% endif %}
   <script src="{{ url_for('static', filename='diagnostic_plots.js') }}"></script>
   <script src="{{ url_for('static', filename='fit_region_storage.js') }}"></script>
+  <script src="{{ url_for('static', filename='diagnostic_presets.js') }}"></script>
+  <script src="{{ url_for('static', filename='help_popovers.js') }}"></script>
   <script type="application/json">
 {
   "statusUrlTemplate": {{ url_for('viewer.upload_fit_grid_status', job_id='__JOB_ID__') | tojson }},

@@ -152,7 +152,8 @@ use uploaded wavelengths, including when the plot has a logarithmic axis.
 
 Diagnostic windows and exclusions are saved automatically in this browser,
 separately for each upload, and restored on your next visit. Manual edits and
-zoom-button additions both persist; clearing a field saves it empty. Explicit
+zoom-button additions both persist; the **Clear** button beside each zoom action
+empties its corresponding field, updates the plot guides, and saves it empty. Explicit
 URL values and a restored running fit's regions take precedence over saved
 drafts. Browser storage does not change a running fit or its saved results.
 
@@ -168,6 +169,36 @@ stay fixed as source velocity changes, and are independent of the spectral-line
 and telluric toggles. These bands show the complete entered windows; fit-range
 limits and exclusions still apply to scoring. Labels appear when there is room.
 The display toggle does not enable or disable a window for fitting.
+
+**OB-star diagnostic preset** offers Optical wind (Hα and He II 4686), Optical
+wind + photosphere (also Hβ, Hγ, He I 4471 and He II 4542), UV wind (N V,
+Si IV and C IV doublets), and Far-UV wind (P V). **Half-width (km/s)** sets the
+optical-convention velocity extent on either side of each line or doublet;
+3000 km/s is an editable starting value, not a universal boundary. The preview
+shows each interval in uploaded wavelengths, including unavailable and partially
+covered intervals. It considers both native upload coverage and the overall fit
+range; fully unavailable intervals are skipped without changing that fit range.
+
+Preset controls sit below the window and exclusion fields. Click the circled
+**i** beside a field or section label for details about selection, persistence,
+coordinate conventions, or model limitations. Popovers also work with keyboard
+activation; Escape or clicking outside closes them. Live coverage previews,
+fit feedback, and the short selection reminder remain visible.
+
+**Add windows** converts vacuum rest bounds using the current source redshift
+from Spectrum transformations, then the upload's Air/Vacuum convention, once.
+Inserted bounds remain fixed when transformation controls change. Overlapping
+new preset intervals are combined into their union; existing windows are kept
+and overlapping additions skipped. Clear existing windows first to replace them.
+Exclusions are preserved. Added windows save automatically and update the main
+plot bands and Zoom to menu. All bounds remain editable.
+
+These presets identify standard diagnostics, not a mass-loss estimator. Wind
+parameter estimates require wind models with suitable parameter coverage, such
+as CMFGEN, and must account for ionization and clumping. The current hydrostatic
+TLUSTY, BOSZ and PHOENIX grids provide photospheric comparisons. See
+[Puls, Vink & Najarro (2008)](https://arxiv.org/abs/0811.0487) for wind diagnostics;
+the P V doublet wavelengths follow [Fullerton et al. (2006)](https://discovery.ucl.ac.uk/id/eprint/9920/1/9920.pdf).
 
 **Excluded intervals** shows pale red bands, independently of the amber windows
 and blue telluric guides. **Add telluric bands** appends the same approximate

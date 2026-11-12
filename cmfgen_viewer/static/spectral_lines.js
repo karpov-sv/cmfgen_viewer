@@ -614,5 +614,6 @@
   }
 
   window.CmfgenSpectralLines = { bind: bind, parseCustomLines: parseCustomLines, referenceLines: referenceLines,
-    telluricIntervals: telluricIntervals, appendTelluricExclusions: appendTelluricExclusions };
+    telluricIntervals: telluricIntervals, appendTelluricExclusions: appendTelluricExclusions,
+    vacuumToAir: vacuumToAir, airToVacuum: airToVacuum };
 })();

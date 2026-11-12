@@ -105,7 +105,7 @@
     var boszNote = document.getElementById("grid-fit-bosz-resolution-note");
     var phoenixNote = document.getElementById("grid-fit-phoenix-resolution-note");
     if (phoenixNote) {
-      phoenixNote.classList.toggle("d-none", normalized !== "phoenix" && spectrumMode === "both");
+      phoenixNote.classList.toggle("d-none", normalized !== "phoenix");
     }
     if (boszNote) {
       boszNote.classList.toggle("d-none", normalized !== "bosz");
@@ -1436,6 +1436,19 @@
     button.addEventListener("click", function () { appendPlotRangeToRegion(button); });
   });
   var telluricExclusionButton = document.getElementById("grid-fit-add-tellurics");
+  Array.prototype.forEach.call(form.querySelectorAll("[data-fit-region-clear]"), function (button) {
+    button.addEventListener("click", function () {
+      var input = document.getElementById(button.getAttribute("data-fit-region-clear"));
+      if (!input) return;
+      input.value = "";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+      input.focus({ preventScroll: true });
+      setFeedback(input.name === "fit_windows"
+        ? "Diagnostic windows cleared. The next fit uses the overall range minus exclusions."
+        : "Excluded intervals cleared. Applies to the next fit.", false);
+    });
+  });
   if (telluricExclusionButton) telluricExclusionButton.addEventListener("click", addTelluricExclusions);
   if (cancelButton) {
     cancelButton.addEventListener("click", requestCancelActiveJob);
@@ -1471,6 +1484,10 @@
     });
   }
   notifyDiagnosticWindows();
+  if (window.CmfgenDiagnosticPresets) {
+    window.CmfgenDiagnosticPresets.bind({ plot: uploadPlot, windows: diagnosticWindowsInput,
+      rangeMin: lambdaMinInput, rangeMax: lambdaMaxInput, feedback: setFeedback });
+  }
   fetchPatternMatchCount();
   syncFitRangeMarkers();
 
