@@ -322,11 +322,21 @@ class FitResiduals:
     should_cancel: Callable[[], bool] | None = None
     ebv_bounds: tuple[float, float] = (0.0, 3.0)
     wavelength_medium: str = "vacuum"
+    fit_bounds: dict | None = None
     transform: Any = field(init=False)
     photometry_sampler: Any = field(init=False, default=None)
 
     def __post_init__(self) -> None:
-        self.transform = PreparedSpectrumTransform(self.model_x, self.model_y, self.normalized_mode, self.wavelength_medium)
+        observed_range = None
+        if self.observed_band_width is None:
+            limits = self.observed_x[[0, -1]]
+            if self.wavelength_medium == "air":
+                limits = air_to_vacuum(limits)
+            observed_range = (float(limits[0]), float(limits[-1]))
+        self.transform = PreparedSpectrumTransform(
+            self.model_x, self.model_y, self.normalized_mode, self.wavelength_medium,
+            observed_range=observed_range, fit_bounds=self.fit_bounds,
+        )
         if self.normalized_mode == "both" and self.observed_band_width is not None and self.wavelength_medium == "vacuum":
             self.photometry_sampler = PreparedPhotometrySampler(
                 self.model_x, self.model_y, self.observed_x,
@@ -680,6 +690,7 @@ def fit_model_to_observed(
         should_cancel=should_cancel,
         ebv_bounds=bounds.get("ebv", (0.0, 0.0)),
         wavelength_medium=wavelength_medium,
+        fit_bounds=bounds,
     )
 
     def parameter_from_theta(theta: Any, name: str, fallback: float) -> float:

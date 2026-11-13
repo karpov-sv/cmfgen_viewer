@@ -367,28 +367,39 @@ class _PreparedLinearInterpolation:
 
 
 class _PreparedBroadeningGeometry:
-    """Reuse the native-size log lattice and both interpolation mappings.
+    """Reuse the original log lattice and both interpolation mappings.
 
     A redshift scales all wavelengths equally, leaving this geometry unchanged
     apart from roundoff. Extinction is still applied on the native, shifted
     wavelengths before interpolation and the existing Gaussian convolution.
+    Normalized fits can select a portion of the same lattice with a kernel halo.
     """
 
-    def __init__(self, wavelength: Any):
+    def __init__(self, wavelength: Any, *, output_slice: slice | None = None,
+                 sigma_max: float = 0.0):
+        self.native_size = wavelength.size
+        self.output_slice = output_slice
         log_min, log_max = math.log(wavelength[0]), math.log(wavelength[-1])
         self.step = (log_max - log_min) / (wavelength.size - 1)
-        sample_x = np.exp(np.linspace(log_min, log_max, wavelength.size))
-        position = (np.log(wavelength) - log_min) / self.step
+        position = (np.log(wavelength if output_slice is None else wavelength[output_slice]) - log_min) / self.step
+        left, right = 0, wavelength.size
+        if output_slice is not None:
+            # Keep the original resampling lattice and its convolution halo.
+            # Recropping the native grid would change both spacing and phase.
+            radius = int(math.ceil(4 * sigma_max / LIGHT_SPEED_KM_PER_S / self.step)) + 3
+            left = max(0, int(math.floor(position[0])) - radius)
+            right = min(wavelength.size, int(math.ceil(position[-1])) + radius + 1)
+        sample_x = np.exp(np.linspace(log_min, log_max, wavelength.size)[left:right])
         self.to_log = _PreparedLinearInterpolation(wavelength, sample_x)
-        self.to_native = _PreparedLinearInterpolation(np.arange(wavelength.size), position)
+        self.to_native = _PreparedLinearInterpolation(np.arange(left, right), position)
 
     def __call__(self, values: Any, sigma_km_s: float, shifted: Any) -> Any:
         # Match the original shifted-axis arithmetic for the discrete kernel's
         # radius/threshold, even exactly at rounding-sensitive boundaries.
-        step = (math.log(shifted[-1]) - math.log(shifted[0])) / (shifted.size - 1)
+        step = (math.log(shifted[-1]) - math.log(shifted[0])) / (self.native_size - 1)
         sigma_pixels = sigma_km_s / LIGHT_SPEED_KM_PER_S / step
         if sigma_pixels < 0.15:
-            return values
+            return values if self.output_slice is None else values[self.output_slice]
         sampled = self.to_log(values)
         smoothed = _smooth_gaussian(sampled, sigma_pixels)
         return self.to_native(smoothed)
@@ -397,13 +408,32 @@ class _PreparedBroadeningGeometry:
 class PreparedSpectrumTransform:
     """Per-fit, bounded caches; retain transform order and the native model axis."""
 
-    def __init__(self, wavelength: Any, flux: Any, mode: str, wavelength_medium: str = "vacuum"):
+    def __init__(self, wavelength: Any, flux: Any, mode: str, wavelength_medium: str = "vacuum",
+                 *, observed_range: tuple[float, float] | None = None, fit_bounds: dict | None = None):
         self.wavelength, self.flux, self.mode = wavelength, flux, mode
         self.wavelength_medium = wavelength_medium
         self.log_step = _uniform_log_step(wavelength)
         self.shift_cache = OrderedDict()
         self.medium_cache = OrderedDict()
         self.broadening_geometry = None
+        self.output_slice = None
+        # Normalized point spectra need only the native samples bracketing all
+        # allowed shifts of the observations. Absolute flux and band integration
+        # retain their existing full-vector transform order.
+        if mode == "normalized" and self.log_step is None and observed_range is not None and fit_bounds:
+            zlo, zhi = fit_bounds.get("redshift", (0.0, 0.0))
+            sigma_max = max(fit_bounds.get("broadening_km_s", (0.0, 0.0)))
+            if (-1 < zlo <= zhi and sigma_max > 0
+                    and np.isfinite([zlo, zhi, sigma_max, *observed_range]).all()):
+                lo = observed_range[0] / (1 + zhi)
+                hi = observed_range[1] / (1 + zlo)
+                left = max(0, int(np.searchsorted(wavelength, lo)) - 1)
+                right = min(wavelength.size, int(np.searchsorted(wavelength, hi, side="right")) + 1)
+                if 3 <= right - left < wavelength.size:
+                    self.output_slice = slice(left, right)
+                    self.broadening_geometry = _PreparedBroadeningGeometry(
+                        wavelength, output_slice=self.output_slice, sigma_max=sigma_max,
+                    )
 
     def is_unbroadened(self, sigma_km_s: float) -> bool:
         if not math.isfinite(sigma_km_s) or sigma_km_s < 0:
@@ -443,7 +473,8 @@ class PreparedSpectrumTransform:
                 or redshift <= -1 or broadening_km_s < 0 or distance_kpc <= 0):
             return None
         if redshift not in self.shift_cache:
-            shifted = self.wavelength * (1 + redshift)
+            axis = self.wavelength if self.output_slice is None else self.wavelength[self.output_slice]
+            shifted = axis * (1 + redshift)
             self.shift_cache[redshift] = shifted, None
             if len(self.shift_cache) > 4:
                 self.shift_cache.popitem(last=False)
@@ -457,7 +488,13 @@ class PreparedSpectrumTransform:
                     exponent = _reddening_exponent(shifted)
                     self.shift_cache[redshift] = shifted, exponent
                 values = values * _attenuation_from_exponent(exponent, ebv)
-        if broadening_km_s > 0:
+        if self.output_slice is not None:
+            if not self.is_unbroadened(broadening_km_s):
+                edges = self.wavelength[[0, -1]] * (1 + redshift)
+                values = self.broadening_geometry(values, broadening_km_s, edges)
+            else:
+                values = values[self.output_slice]
+        elif broadening_km_s > 0:
             if self.log_step is not None and gaussian_filter1d is not None:
                 sigma_pixels = broadening_km_s / LIGHT_SPEED_KM_PER_S / self.log_step
                 if sigma_pixels >= 0.15:

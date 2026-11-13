@@ -386,6 +386,13 @@ cropped to the enabled observations with margins for the full redshift bounds,
 Gaussian kernel, and photometric band edges. Native sampling is retained;
 nonuniform grids keep their original convolution lattice.
 
+Normalized point-spectrum fits also restrict nonuniform-grid broadening to the
+observed wavelength span, allowing for all fitted redshifts and the maximum
+Gaussian kernel. They retain the original logarithmic lattice's spacing and
+phase, interpolation, and native output samples. This avoids repeatedly
+broadening the entire UV-to-IR BOSZ grid for optical diagnostic windows.
+Absolute spectra and band-integrated photometry retain their existing paths.
+
 CMFGEN spectra use validated bulk numeric parsing, with the legacy parser as a
 fallback for missing-E Fortran exponents and punctuation. Grid fits request
 read-only NumPy arrays directly; viewer callers continue to receive lists.

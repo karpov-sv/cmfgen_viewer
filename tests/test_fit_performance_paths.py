@@ -155,6 +155,48 @@ def test_crop_keeps_nonuniform_grids_and_true_model_edges():
     np.testing.assert_array_equal(x, wave)
 
 
+@pytest.mark.parametrize("medium", ["air", "vacuum"])
+@pytest.mark.parametrize("shift", [-0.02, 0, 0.02])
+@pytest.mark.parametrize("sigma", [0, 0.1, 20, 800])
+def test_normalized_fit_limits_nonuniform_work_without_changing_lattice(medium, shift, sigma):
+    # Published BOSZ rounding and conversion both make its log grid nonuniform.
+    wave = transforms.air_to_vacuum(np.round(np.geomspace(500, 320000, 100000), 4))
+    flux = 1 + .4 * np.sin(wave / 3)
+    observed = np.r_[np.linspace(4297, 4909, 311), np.linspace(6497, 6628, 101)]
+    limits = transforms.air_to_vacuum(observed[[0, -1]]) if medium == "air" else observed[[0, -1]]
+    bounds = {"redshift": (-.02, .02), "broadening_km_s": (0, 800)}
+    full = transforms.PreparedSpectrumTransform(wave, flux, "normalized", medium)
+    limited = transforms.PreparedSpectrumTransform(
+        wave, flux, "normalized", medium, observed_range=tuple(limits), fit_bounds=bounds,
+    )
+    args = dict(redshift=shift, broadening_km_s=sigma, ebv=0, distance_kpc=1)
+    expected = _sample_model_on_observed_grid(*full(**args), observed)
+    result = limited(**args)
+    actual = _sample_model_on_observed_grid(*result, observed)
+    np.testing.assert_allclose(actual, expected, rtol=2e-12, atol=2e-13)
+    assert result[0].size < wave.size / 10
+    assert limited.broadening_geometry.to_log.left.size < wave.size / 10
+    # Keep every original sample in the output interval, with no resampling.
+    np.testing.assert_array_equal(limited.wavelength[limited.output_slice], wave[limited.output_slice])
+
+
+@pytest.mark.parametrize("limits", [(450, 1000), (300000, 350000), (450, 350000)])
+def test_limited_nonuniform_broadening_keeps_true_edges_and_missing_coverage(limits):
+    wave = np.linspace(500, 320000, 50000)
+    flux = np.ones_like(wave)
+    flux[:3], flux[-3:] = 10, .01
+    observed = np.linspace(*limits, 101)
+    bounds = {"redshift": (-.02, .02), "broadening_km_s": (0, 800)}
+    args = dict(redshift=-.02, broadening_km_s=800, ebv=0, distance_kpc=1)
+    full = transforms.PreparedSpectrumTransform(wave, flux, "normalized")(**args)
+    limited = transforms.PreparedSpectrumTransform(
+        wave, flux, "normalized", observed_range=limits, fit_bounds=bounds,
+    )(**args)
+    expected = _sample_model_on_observed_grid(*full, observed)
+    actual = _sample_model_on_observed_grid(*limited, observed)
+    np.testing.assert_allclose(actual, expected, rtol=2e-12, atol=2e-13, equal_nan=True)
+
+
 @pytest.mark.parametrize("sigma", [0, 200])
 def test_absolute_broadening_can_leave_zero_initial_guess(sigma):
     wave = np.geomspace(4000, 6000, 30000)
