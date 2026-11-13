@@ -36,7 +36,13 @@
           detail.textContent = line;
         }
         if (String(state.status || "") !== "running") {
-          window.location.replace(returnUrl);
+          // A same-page URL with #model-cache only scrolls; fetch the final HTML.
+          var target = new URL(returnUrl, window.location.href);
+          if (target.href.split("#")[0] === window.location.href.split("#")[0]) {
+            window.location.reload();
+          } else {
+            window.location.replace(target.href);
+          }
           return;
         }
         window.setTimeout(poll, 1000);

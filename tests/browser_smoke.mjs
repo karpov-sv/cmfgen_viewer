@@ -5,7 +5,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const [baseUrl, uploadToken, chromium] = process.argv.slice(2);
+const [baseUrl, uploadToken, chromium, cacheJobId] = process.argv.slice(2);
 const profile = await mkdtemp(join(tmpdir(), "cmfgen-browser-"));
 const browser = spawn(chromium, ["--headless", "--no-sandbox", "--disable-dev-shm-usage",
   "--disable-gpu", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "about:blank"]);
@@ -243,6 +243,11 @@ try {
       return Plotly.react(${plot}, window.verticalZoomOriginal.data, window.verticalZoomOriginal.layout)
         .then(() => controller.render()).then(() => null);})()`);
   }
+
+  await open('/system/?job=' + cacheJobId + '#model-cache');
+  await waitFor('document.getElementById("cache-maintenance-job")?.dataset.status === "completed"');
+  assert(await evaluate('!document.querySelector("#model-cache button[disabled]")'));
+  assert(await evaluate('location.hash === "#model-cache"'));
 
   await open("/view/");
   assert(await evaluate('document.body.textContent.includes("model_a")'));

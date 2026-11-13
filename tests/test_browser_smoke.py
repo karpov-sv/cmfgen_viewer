@@ -13,8 +13,10 @@ from threading import Thread
 import pytest
 import numpy as np
 from werkzeug.serving import make_server
+from flask import request
 
 from cmfgen_viewer.app import create_app
+from cmfgen_viewer.cache_jobs import cache_maintenance_job_create
 from cmfgen_viewer.upload_service import create_upload_bundle
 
 
@@ -98,6 +100,17 @@ def test_spectrum_pages_in_chromium(tmp_path):
         writer.writeheader()
         writer.writerow(row)
 
+    # Finish after the initial page loads, so the real browser must poll and reload.
+    cache_store = app.extensions["cmfgen_jobs"]["cache"]
+    cache_job_id, _ = cache_maintenance_job_create(
+        cache_store, action="refresh_stale", basepath=str(tmp_path),
+    )
+
+    @app.before_request
+    def finish_test_cache_job():
+        if request.path == f"/system/cache/job/{cache_job_id}":
+            cache_store.update(cache_job_id, status="completed", phase="Completed")
+
     @app.route("/test-plotly.js")
     def local_plotly():
         return app.response_class(
@@ -128,6 +141,7 @@ def test_spectrum_pages_in_chromium(tmp_path):
                 f"http://127.0.0.1:{server.server_port}",
                 str(manifest["token"]),
                 chromium,
+                cache_job_id,
             ],
             text=True,
             capture_output=True,

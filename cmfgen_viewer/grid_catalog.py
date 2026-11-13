@@ -6,7 +6,9 @@ import csv
 import fnmatch
 import json
 import math
+import os
 import re
+import time
 from functools import lru_cache
 from pathlib import Path
 
@@ -1096,14 +1098,72 @@ def _imported_grid_resolution_note(config: dict[str, object], source: str) -> di
     }
 
 
+@lru_cache(maxsize=12)
+def _inventory_directories(root: str, index_signature: tuple[int, int]) -> tuple[str, ...]:
+    """Track directory changes without statting every spectrum on each page load."""
+    index = Path(root) / "models.csv"
+    directories = {root}
+    try:
+        rows = _load_tlusty_models_csv_cached(str(index), *index_signature)
+    except (OSError, ValueError, csv.Error):
+        return (root,)
+    parents = {os.path.dirname(str(row["spectrum_relpath"])) for row in rows}
+    base = Path(root)
+    for parent in parents:
+        directory = base / parent
+        # Include ancestors so replacing an intermediate directory invalidates counts.
+        while directory.is_relative_to(root):
+            directories.add(str(directory))
+            if directory == base:
+                break
+            directory = directory.parent
+    return tuple(sorted(directories))
+
+
+@lru_cache(maxsize=12)
+def _cached_inventory_item(
+    source: str, root: str, signature: tuple, interval: int,
+) -> dict[str, object]:
+    del signature, interval
+    return _build_imported_grid_inventory({f"{source}_root": root}, sources=(source,))[0]
+
+
 def _imported_grid_inventory(config: dict[str, object]) -> list[dict[str, object]]:
+    """Reuse fitting counts until an index/directory changes, for at most 30 seconds."""
+    inventory = []
+    for source in (GRID_FIT_SOURCE_TLUSTY, GRID_FIT_SOURCE_BOSZ, GRID_FIT_SOURCE_PHOENIX):
+        root = str(_npz_grid_root(config, source))
+        try:
+            index_signature = _file_signature(Path(root) / "models.csv")
+        except OSError:
+            index_signature = None
+        directories = _inventory_directories(root, index_signature) if index_signature else (root,)
+        directory_signatures = []
+        for directory in directories:
+            try:
+                stat = Path(directory).stat()
+                signature = (stat.st_ino, stat.st_mtime_ns, stat.st_ctime_ns)
+            except OSError:
+                signature = None
+            directory_signatures.append((directory, signature))
+        item = _cached_inventory_item(
+            source, root, (index_signature, tuple(directory_signatures)), int(time.monotonic() // 30),
+        )
+        inventory.append(dict(item))
+    return inventory
+
+
+def _build_imported_grid_inventory(
+    config: dict[str, object], *,
+    sources: tuple[str, ...] = (GRID_FIT_SOURCE_TLUSTY, GRID_FIT_SOURCE_BOSZ, GRID_FIT_SOURCE_PHOENIX),
+) -> list[dict[str, object]]:
     """Describe installed grids using the same index and eligibility rules as fits.
 
     No spectra are decompressed. Candidate counts omit upload-specific filters,
     so they describe the installation rather than a particular observation.
     """
     inventory = []
-    for source in (GRID_FIT_SOURCE_TLUSTY, GRID_FIT_SOURCE_BOSZ, GRID_FIT_SOURCE_PHOENIX):
+    for source in sources:
         root = _npz_grid_root(config, source)
         index = root / "models.csv"
         item = dict(source=source, label=source.upper(), root=str(root), indexed_spectra=0,

@@ -9,6 +9,10 @@ The upload viewer reads resolution labels and velocity FWHM tooltips from each
 installed grid's catalogue. Mixed resolutions and missing resolution metadata
 are identified; TLUSTY SED binning is listed separately from spectral broadening.
 
+The System page reuses imported-grid inventory counts for up to 30 seconds.
+Catalogue and spectrum-directory changes invalidate the affected grid immediately;
+maintenance-job status and model-summary cache results are read live.
+
 For browsing models, viewer configuration, and the command-line CMFGEN runner,
 see the [README](README.md).
 

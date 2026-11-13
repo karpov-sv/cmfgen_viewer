@@ -84,6 +84,40 @@ def test_tlusty_resolution_note_distinguishes_sed_binning_from_broadening(tmp_pa
     assert "R = 3000" not in note["tooltip"]
 
 
+def test_inventory_reuses_counts_and_invalidates_changed_catalogues(tmp_path, monkeypatch):
+    config = {f"{source}_root": str(tmp_path / source) for source in ("tlusty", "bosz", "phoenix")}
+    clock = [120.0]
+    monkeypatch.setattr(grid_catalog.time, "monotonic", lambda: clock[0])
+    original = grid_catalog._build_imported_grid_inventory
+    calls = []
+
+    def build(config, *, sources):
+        calls.extend(sources)
+        return original(config, sources=sources)
+
+    monkeypatch.setattr(grid_catalog, "_build_imported_grid_inventory", build)
+    first = grid_catalog._imported_grid_inventory(config)
+    assert calls == ["tlusty", "bosz", "phoenix"]
+    assert grid_catalog._imported_grid_inventory(config) == first
+    assert len(calls) == 3
+    # Callers cannot mutate the cached inventory.
+    first[0]["status"] = "changed"
+    assert grid_catalog._imported_grid_inventory(config)[0]["status"] == "Not installed"
+    _write_imported_index(tmp_path / "bosz", [dict(
+        grid="bosz", model_name="new", spectrum_relpath="new.npz", resolving_power=50000,
+        available_arrays=["flux_lambda_cgs", "continuum_lambda_cgs"],
+    )])
+    updated = grid_catalog._imported_grid_inventory(config)
+    assert calls == ["tlusty", "bosz", "phoenix", "bosz"]
+    assert updated[1]["indexed_spectra"] == 1
+    assert updated[1]["resolution"] == "R=50000"
+    # TTL bounds staleness even for changes not reflected by directory timestamps.
+    clock[0] += 30
+    grid_catalog._imported_grid_inventory(config)
+    assert calls[-3:] == ["tlusty", "bosz", "phoenix"]
+    assert len(calls) == 7
+
+
 def _eight_band_photometry() -> dict[str, object]:
     return {
         "observation_type": "photometry",
