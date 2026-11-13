@@ -115,6 +115,11 @@ change the upload's wavelength property. Invalid transform values retain the
 last valid display. Display adjustments do not modify saved observations or the
 native data used by subsequent fits.
 
+Candidate model overlays display only within the uploaded wavelength span
+(including band edges for photometry). This limit is applied after transforming
+and broadening the native model and is updated when preview parameters change.
+It uses the whole upload, independently of narrower diagnostic fitting windows.
+
 **Wavelengths** in Line and display settings is locked to the active upload's
 property. Update that property on its upload page to correct it. Multiple observed
 overlays on a model page must have the same convention; incompatible overlays are

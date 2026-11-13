@@ -112,6 +112,36 @@ async function check(mode) {
   assert.equal(JSON.stringify(series), validFrame);
   assert.equal(elements.get('test').__spectrumDisplayRedshift, 0.1, 'Invalid redshift preserves the whole displayed frame');
   assert.equal(elements.get('test-lines-medium').disabled, true, 'Upload convention fixes the displayed system');
+
+  // Upload pages limit candidate display after transforming the full model.
+  options.clipModelsToObservedRange = true;
+  const wideModel = {x: [4000, 4800, 4895, 4900, 5000, 5100, 5200, 5500, 6000], y: [1, 1, 0.8, 0.2, 1, 0.4, 1, 0.7, 1]};
+  const nativeModel = JSON.stringify(wideModel);
+  baseData.push(wideModel);
+  targets.push('model');
+  options.shouldBroaden = index => index === 4;
+  get('redshift').value = '0.1';
+  get('broadening').value = '10000';
+  viewer.scheduleTransforms();
+  flush();
+  const fullModel = transforms.transformSeries(wideModel.x, wideModel.y, {
+    mode, redshift: 0.1, ebv: 0, distance_kpc: 1, broadening_km_s: 10000
+  });
+  // The uploaded band edges extend 10 Å beyond the first and last centers.
+  const selected = fullModel[0].map((x, i) => x >= 5380 && x <= 5620 ? i : -1).filter(i => i >= 0);
+  assert.deepEqual(Array.from(series.x[4]), selected.map(i => fullModel[0][i]));
+  assert.deepEqual(Array.from(series.y[4]), selected.map(i => fullModel[1][i]));
+  assert.equal(series.x[4].length, 4);
+  assert.deepEqual(Array.from(series.x[2]), baseData[2].x, 'Clipping never changes uploaded pixels');
+  assert.equal(JSON.stringify(wideModel), nativeModel, 'Clipping preserves native arrays for later transformations');
+  delete baseData[2].error_x;
+  viewer.scheduleTransforms();
+  flush();
+  assert.deepEqual(Array.from(series.x[4]), [5390, 5500, 5610], 'Point spectra use the actual uploaded pixel span');
+  get('redshift').value = '0';
+  viewer.scheduleTransforms();
+  flush();
+  assert.deepEqual(Array.from(series.x[4]), [5500], 'Reclip when the source redshift changes');
 }
 
 Promise.all(['both', 'normalized'].map(check)).catch(error => {

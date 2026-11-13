@@ -89,6 +89,24 @@
       isSyncingVelocity = false;
     }
 
+    function observedWavelengthBounds() {
+      var lower = Infinity;
+      var upper = -Infinity;
+      baseData.forEach(function (trace, index) {
+        if (transformTargets[index] !== "observed") return;
+        trace.x.forEach(function (value, point) {
+          if (!Number.isFinite(value)) return;
+          var errors = trace.error_x;
+          var plus = errors && errors.array ? Number(errors.array[point]) : 0;
+          var minus = errors && errors.symmetric === false && errors.arrayminus
+            ? Number(errors.arrayminus[point]) : plus;
+          lower = Math.min(lower, value - (Number.isFinite(minus) ? minus : 0));
+          upper = Math.max(upper, value + (Number.isFinite(plus) ? plus : 0));
+        });
+      });
+      return lower < upper ? [lower, upper] : null;
+    }
+
     function applyPhysicalTransforms() {
       var redshift = redshiftInput ? Number(redshiftInput.value) : 0;
       if (!Number.isFinite(redshift) || (1 + redshift) <= 0) {
@@ -127,6 +145,7 @@
 
       var transformedX = [];
       var transformedY = [];
+      var displayBounds = options.clipModelsToObservedRange ? observedWavelengthBounds() : null;
 
       for (var traceIndex = 0; traceIndex < baseData.length; traceIndex += 1) {
         var sourceX = baseData[traceIndex].x;
@@ -139,8 +158,22 @@
           normalization: baseData[traceIndex].meta && baseData[traceIndex].meta.fit_normalization || 1,
           distance_kpc: distanceKpc, ebv: ebv, broadening_km_s: shouldBroaden ? sigmaVelocity : 0
         }) : [sourceX, sourceY];
-        transformedX.push(transformed[0].slice());
-        transformedY.push(transformed[1].slice());
+        if (adjustFlux && displayBounds) {
+          // Broaden the complete native model before limiting displayed samples.
+          var clippedX = [];
+          var clippedY = [];
+          transformed[0].forEach(function (value, index) {
+            if (value >= displayBounds[0] && value <= displayBounds[1]) {
+              clippedX.push(value);
+              clippedY.push(transformed[1][index]);
+            }
+          });
+          transformedX.push(clippedX);
+          transformedY.push(clippedY);
+        } else {
+          transformedX.push(transformed[0].slice());
+          transformedY.push(transformed[1].slice());
+        }
       }
 
       target.__spectrumDisplayRedshift = redshift;

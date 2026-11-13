@@ -234,10 +234,13 @@
       if (field && Number.isFinite(Number(overlay.fit_params[pair[1]]))) field.value = formatNumeric(Number(overlay.fit_params[pair[1]]), 6);
     });
     viewer.updateVelocityFromRedshift();
+    // Keep native arrays in baseData, and avoid briefly autoranging to the
+    // full model before the controller transforms and clips its display.
+    var displayTrace = Object.assign({}, trace, {x: [], y: []});
     if (gridOverlayIndex >= 0 && gridOverlayIndex < baseData.length) {
       baseData[gridOverlayIndex] = cloned;
       transformTargets[gridOverlayIndex] = "model";
-      trace = sampling.replaceTrace(gridOverlayIndex, trace);
+      trace = sampling.replaceTrace(gridOverlayIndex, displayTrace);
       Plotly.restyle(target, {
         x: [trace.x],
         y: [trace.y],
@@ -253,7 +256,7 @@
     gridOverlayIndex = baseData.length;
     baseData.push(cloned);
     transformTargets.push("model");
-    trace = sampling.appendTrace(trace);
+    trace = sampling.appendTrace(displayTrace);
     Plotly.addTraces(target, [trace]).then(function () {
       scheduleTransforms();
     });
@@ -330,6 +333,7 @@
   var viewer = CmfgenSpectrumViewer.create(pageConfig, {
     baseData: baseData,
     transformTargets: transformTargets,
+    clipModelsToObservedRange: true,
     shouldBroaden: function () { return true; }
   });
   var sampling = viewer.sampling;
