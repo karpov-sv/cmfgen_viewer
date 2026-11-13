@@ -5,6 +5,10 @@ uploaded-spectrum and photometry fitting tools, including data conventions,
 quality checks, and fitting performance. Run the commands from the repository
 root after following the [installation instructions](README.md#installation).
 
+The upload viewer reads resolution labels and velocity FWHM tooltips from each
+installed grid's catalogue. Mixed resolutions and missing resolution metadata
+are identified; TLUSTY SED binning is listed separately from spectral broadening.
+
 For browsing models, viewer configuration, and the command-line CMFGEN runner,
 see the [README](README.md).
 

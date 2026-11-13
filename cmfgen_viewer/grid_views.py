@@ -11,7 +11,7 @@ from flask import abort, jsonify, redirect, render_template, request, url_for
 
 from .browser import resolve_path
 from .fit_regions import format_fit_regions, parse_fit_regions, validate_fit_region_samples
-from .grid_catalog import _discover_grid_fit_candidates
+from .grid_catalog import _discover_grid_fit_candidates, _imported_grid_resolution_note
 from .grid_config import (
     GRID_FIT_SOURCE_CMFGEN,
     GRID_FIT_SOURCE_TLUSTY,
@@ -284,6 +284,8 @@ def upload_view(token: str):
 
     return render_template(
         "upload_spectrum_view.html",
+        grid_resolution_notes={source: _imported_grid_resolution_note(config, source)
+                               for source in ("tlusty", "bosz", "phoenix")},
         upload=display_entry,
         upload_summary_rows=_upload_spectrum_summary_rows(
             entry,

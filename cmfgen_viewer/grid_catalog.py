@@ -1053,6 +1053,49 @@ def _discover_imported_grid_models(
     return candidates, None
 
 
+def _imported_grid_resolution_note(config: dict[str, object], source: str) -> dict[str, str]:
+    """Describe native broadening from the installed index without loading spectra."""
+    rows, _ = _load_tlusty_model_rows(_npz_grid_root(config, source))
+    if source != GRID_FIT_SOURCE_TLUSTY:
+        rows = [row for row in rows if row["grid"] == source]
+    title = source.upper()
+    resolutions = sorted({row["resolving_power"] for row in rows
+                          if row["resolving_power"] and row["resolving_power"] > 0})
+    label = ", ".join(f"R={value:g}" for value in resolutions) or "not recorded"
+    if resolutions:
+        widths = ", ".join(
+            f"R = {value:g} (about {299792.458 / value:.3g} km/s FWHM)"
+            for value in resolutions
+        )
+        description = f"The installed {title} catalogue records native broadening of {widths}."
+        if any(not row["resolving_power"] or row["resolving_power"] <= 0 for row in rows):
+            label += "; other spectra not recorded"
+            description += " Some models have no recorded native resolution."
+    else:
+        description = f"Native resolution is unavailable from the installed {title} catalogue."
+    binning = sorted({row["sed_binning_power"] for row in rows
+                      if row["sed_binning_power"] and row["sed_binning_power"] > 0})
+    if binning:
+        powers = ", ".join(f"{value:g}" for value in binning)
+        label += f"; SED binning λ/Δλ={powers}"
+        description += f" SED binning λ/Δλ = {powers} describes wavelength bins, not Gaussian broadening."
+    details = ""
+    if source == GRID_FIT_SOURCE_BOSZ:
+        details = " Full BOSZ filenames distinguish atmosphere families."
+    elif source == GRID_FIT_SOURCE_PHOENIX:
+        details = (
+            " Absolute-flux spectra and photometry only: no continua are supplied for normalized fitting."
+            " Models with negative flux are excluded. Grid-author interpolated spectra are retained"
+            " and labelled in results."
+        )
+    return {
+        "label": label,
+        "tooltip": description + " The fitted Gaussian broadening σ is additional to the native "
+        "broadening; it cannot sharpen the grid. Use spectra at comparable or lower resolution."
+        + details,
+    }
+
+
 def _imported_grid_inventory(config: dict[str, object]) -> list[dict[str, object]]:
     """Describe installed grids using the same index and eligibility rules as fits.
 

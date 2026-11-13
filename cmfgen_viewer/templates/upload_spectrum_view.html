@@ -242,14 +242,13 @@
             {{ help_popover('grid-fit-scale', 'Absolute grid normalization', 'TLUSTY/BOSZ/PHOENIX absolute fits solve a free normalization for each model; distance is not fitted. Photometry requires coverage of every enabled band.') }}
           </p>
         {% endif %}
-        <p id="grid-fit-bosz-resolution-note" class="small text-muted grid-fit-note{% if fit_source != 'bosz' %} d-none{% endif %}">
-          BOSZ native resolution: R=2000.
-          {{ help_popover('grid-fit-bosz-resolution', 'BOSZ resolution', 'The installed BOSZ subset is already broadened to <code>R = 2000</code> (about 150 km/s FWHM). The fitted Gaussian broadening <code>σ</code> is additional to the native broadening; it cannot sharpen the grid. Use spectra at comparable or lower resolution. Full BOSZ filenames distinguish atmosphere families.', html=true) }}
-        </p>
-        <p id="grid-fit-phoenix-resolution-note" class="small text-muted grid-fit-note{% if fit_source != 'phoenix' %} d-none{% endif %}">
-          PHOENIX supports absolute-flux spectra and photometry only.
-          {{ help_popover('grid-fit-phoenix-resolution', 'PHOENIX resolution and coverage', 'PHOENIX ACES: <code>R = 10000</code> (about 30 km/s FWHM), vacuum wavelengths 3000–25000 Å. Gaussian broadening <code>σ</code> is additional to the native broadening; use spectra at comparable or lower resolution. Absolute-flux spectra and photometry only: no continua are supplied for normalized fitting. Models with negative flux are excluded. Grid-author interpolated spectra are retained and labelled in results.', html=true) }}
-        </p>
+        {% for source, note in grid_resolution_notes.items() %}
+          <p id="grid-fit-{{ source }}-resolution-note" class="small text-muted grid-fit-note{% if fit_source != source %} d-none{% endif %}">
+            {{ source | upper }} native resolution: {{ note.label }}.
+            {% if source == 'phoenix' %}PHOENIX supports absolute-flux spectra and photometry only.{% endif %}
+            {{ help_popover('grid-fit-' ~ source ~ '-resolution', (source | upper) ~ ' resolution', note.tooltip) }}
+          </p>
+        {% endfor %}
         <div class="grid-fit-actions">
           <button id="grid-fit-submit" type="submit" class="btn btn-sm btn-success" data-fit-source="{{ fit_source }}">Find best {{ fit_source | upper }} model</button>
           <button id="grid-fit-cancel" type="button" class="btn btn-sm btn-outline-danger d-none">Stop search</button>

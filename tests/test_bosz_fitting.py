@@ -1,3 +1,4 @@
+import csv
 import gzip
 from io import BytesIO
 
@@ -56,6 +57,62 @@ def test_bosz_discovery_preserves_distinct_atmospheres_and_filters(bosz_case):
     observed = {"observation_type": "photometry", "wavelength": [5000, 9000], "band_width": [100, 100]}
     assert not discover(root, mode="both", observed=observed)[0]
     assert "BOSZ" in discover(root / "missing")[1]
+
+
+@pytest.mark.parametrize("source", ["tlusty", "bosz", "phoenix"])
+def test_grid_resolution_note_follows_installed_catalogue(bosz_case, tmp_path, source):
+    root, wave, _, norm = bosz_case
+    stream = BytesIO()
+    np.savetxt(stream, np.column_stack((wave, norm)))
+    stream.seek(0)
+    upload_root = tmp_path / "uploads"
+    manifest = create_upload_bundle(
+        upload_root, filename="observed.dat", stream=stream,
+        flux_mode="normalized", wavelength_medium="vacuum",
+    )
+    app = create_app(basepath=str(tmp_path), upload_root=str(upload_root))
+    app.testing = True
+    app.config["CMFGEN_VIEWER"][f"{source}_root"] = str(root)
+    client = app.test_client()
+    url = f"/uploads/view/{manifest['token']}?fit_source={source}"
+    index = root / "models.csv"
+    with index.open() as handle:
+        reader = csv.DictReader(handle)
+        columns, rows = reader.fieldnames, list(reader)
+
+    for row in rows:
+        row["grid"] = "bstar" if source == "tlusty" else source
+    with index.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=columns)
+        writer.writeheader()
+        writer.writerows(rows)
+    title = source.upper()
+    assert f"{title} native resolution: R=2000." in client.get(url).get_data(as_text=True)
+    for resolutions, label, width in (
+        ([50000, 50000], "R=50000", "about 6 km/s FWHM"),
+        ([2000, 50000], "R=2000, R=50000", "about 150 km/s FWHM"),
+        (["", ""], "not recorded", "Native resolution is unavailable"),
+    ):
+        for row, resolution in zip(rows, resolutions):
+            row["resolving_power"] = resolution
+        with index.open("w", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=columns)
+            writer.writeheader()
+            writer.writerows(rows)
+        response = client.get(url)
+        assert response.status_code == 200
+        page = response.get_data(as_text=True)
+        assert f"{title} native resolution: {label}." in page
+        assert width in page
+        if resolutions == [50000, 50000]:
+            assert "R = 2000" not in page
+            assert "150 km/s" not in page
+        assert f'id="grid-fit-{source}-resolution-note" class="small text-muted grid-fit-note"' in page
+        if source == "phoenix":
+            assert "PHOENIX supports absolute-flux spectra and photometry only." in page
+
+    index.unlink()
+    assert f"{title} native resolution: not recorded." in client.get(url).get_data(as_text=True)
 
 
 @pytest.mark.parametrize("mode", ["normalized", "both"])

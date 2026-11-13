@@ -68,6 +68,22 @@ def test_grid_inventory_reports_missing_empty_and_unreadable_indices(tmp_path):
     assert inventory["phoenix"]["detail"]
 
 
+def test_tlusty_resolution_note_distinguishes_sed_binning_from_broadening(tmp_path):
+    _write_imported_index(tmp_path, [
+        dict(grid="bstar", model_name="detailed", spectrum_relpath="detailed.npz",
+             resolving_power=50000),
+        dict(grid="ostar", model_name="sed", spectrum_relpath="sed.npz", sed_binning_power=3000),
+        dict(grid="ostar", model_name="native", spectrum_relpath="native.npz"),
+    ])
+    note = grid_catalog._imported_grid_resolution_note({"tlusty_root": str(tmp_path)}, "tlusty")
+    assert "R=50000" in note["label"]
+    assert "other spectra not recorded" in note["label"]
+    assert "SED binning λ/Δλ=3000" in note["label"]
+    assert "about 6 km/s FWHM" in note["tooltip"]
+    assert "not Gaussian broadening" in note["tooltip"]
+    assert "R = 3000" not in note["tooltip"]
+
+
 def _eight_band_photometry() -> dict[str, object]:
     return {
         "observation_type": "photometry",

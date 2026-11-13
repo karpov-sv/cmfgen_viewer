@@ -102,14 +102,12 @@
     if (tlustyScaleNote) {
       tlustyScaleNote.classList.toggle("d-none", !hideDistance);
     }
-    var boszNote = document.getElementById("grid-fit-bosz-resolution-note");
-    var phoenixNote = document.getElementById("grid-fit-phoenix-resolution-note");
-    if (phoenixNote) {
-      phoenixNote.classList.toggle("d-none", normalized !== "phoenix");
-    }
-    if (boszNote) {
-      boszNote.classList.toggle("d-none", normalized !== "bosz");
-    }
+    ["tlusty", "bosz", "phoenix"].forEach(function (source) {
+      var note = document.getElementById("grid-fit-" + source + "-resolution-note");
+      if (note) {
+        note.classList.toggle("d-none", normalized !== source);
+      }
+    });
   }
 
   function extractTlustyParams(model) {
