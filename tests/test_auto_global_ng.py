@@ -60,6 +60,31 @@ def test_policy_selects_one_six_solve_trial(ng_context):
     assert auto_ng.global_ng_trial(ng_context) is None
 
 
+@pytest.mark.parametrize('deviation,kind', [(.019,None),(.02,'positive_coupled_secant'),
+    (.04,'positive_coupled_secant'),(.049,'positive_coupled_secant'),
+    (.05,'global_geometric_ng'),(.12,'global_geometric_ng')])
+def test_profile_error_selects_the_validated_extrapolation_family(ng_context, monkeypatch, deviation, kind):
+    monkeypatch.setattr(auto_ng,'guard_measurements',lambda *a:dict(
+        luminosity_min=1.,luminosity_max=1+deviation,inner_tau_ross=100.))
+    decision=auto_ng.global_ng_trial(ng_context)
+    if kind is None:
+        assert decision is None
+    else:
+        assert decision and decision.evidence['proposal']['kind']==kind
+        assert [step.iterations for step in decision.steps]==[2,2,2]
+        if kind=='positive_coupled_secant':
+            assert decision.evidence['proposal']['factor']<=64
+            assert decision.evidence['proposal']['maximum_T_percent']==.25
+
+
+def test_small_surface_flux_error_cannot_select_a_low_profile_secant(ng_context, monkeypatch):
+    monkeypatch.setattr(auto_ng,'guard_measurements',lambda *a:dict(
+        luminosity_min=1.,luminosity_max=1.04,inner_tau_ross=100.))
+    for batch in ng_context.history:
+        for row in batch['records']:row['luminosity_generated']=1.019
+    assert auto_ng.global_ng_trial(ng_context) is None
+
+
 @pytest.mark.parametrize('fault', ['budget','attempts','candidate','phase','fast',
                                   'ng','source','grid','hydro','lambda','fixed_t','old_ba',
                                   'scale','temperature','counter_gap','missing_history',
@@ -200,8 +225,15 @@ def ng_workspace(auto_workspace, ng_model, monkeypatch):
     return model,plan
 
 
+@pytest.mark.parametrize('secant', [False, True])
 @pytest.mark.parametrize('mode,outcome', [('ng_good','accepted'),('ng_bad','rejected'),('ng_crash','aborted')])
-def test_controller_six_solve_trial_and_atomic_rollback(ng_workspace, mode, outcome):
+def test_controller_six_solve_trial_and_atomic_rollback(ng_workspace, monkeypatch, mode, outcome, secant):
+    if secant:
+        # Exercise each transaction through the full controller independently
+        # of the fixture's profile-error selection branch.
+        from cmfgen_viewer import global_ng
+        original_propose=global_ng.propose
+        monkeypatch.setattr(global_ng,'propose',lambda model:original_propose(model,secant=True))
     model,plan=ng_workspace
     saved={};finished=False
     def emit(event):

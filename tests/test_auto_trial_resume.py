@@ -18,12 +18,18 @@ def interrupted(make, pair=2):
     return run_plan(make('ng_good',max_attempts=15,max_iterations=50),emit,stop_requested=lambda:stop)
 
 
-def test_resume_finishes_only_remaining_pair_without_reapplying_seed(ng_workspace):
+@pytest.mark.parametrize('secant', [False, True])
+def test_resume_finishes_only_remaining_pair_without_reapplying_seed(ng_workspace, monkeypatch, secant):
+    if secant:
+        from cmfgen_viewer import global_ng
+        original_propose=global_ng.propose
+        monkeypatch.setattr(global_ng,'propose',lambda model:original_propose(model,secant=True))
     model,make=ng_workspace
     first=interrupted(make)
     assert first['status']=='stopped',first
     saved=json.loads((model/'.cmfgen-runs'/auto_trial_resume.NAME).read_text())
     assert saved['completed_pairs']==2
+    assert saved['baseline']['proposal']['kind']==('positive_coupled_secant' if secant else 'global_geometric_ng')
     assert int((model/'POINT1').read_text().splitlines()[1].split()[1])==saved['baseline']['checkpoint']
     receipt=(model/'.cmfgen-runs/global-ng-trials.json').read_bytes()
     done=False
@@ -98,7 +104,12 @@ def test_second_interruption_restores_baseline_and_retains_completed_pairs(ng_wo
     assert auto_trial_resume.load(model,make('ng_good',max_attempts=8,max_iterations=20))['usable']
 
 
-def test_resumed_trial_rejection_discards_provisional_gain(ng_workspace):
+@pytest.mark.parametrize('secant', [False, True])
+def test_resumed_trial_rejection_discards_provisional_gain(ng_workspace, monkeypatch, secant):
+    if secant:
+        from cmfgen_viewer import global_ng
+        original_propose=global_ng.propose
+        monkeypatch.setattr(global_ng,'propose',lambda model:original_propose(model,secant=True))
     model,make=ng_workspace;interrupted(make)
     before=(model/'SCRTEMP').read_bytes();rejected=False
     def emit(event):

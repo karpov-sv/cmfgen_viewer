@@ -416,17 +416,22 @@ retains a large, slowly changing thermal imbalance. It requires six consecutive
 observed fresh-BA/free-T solves without source, hydro, grid or native Ng
 transitions. The surface flux error must keep its sign and exceed 2%, with no
 more than 5% relative reduction across the window; the normalized luminosity
-profile must deviate by at least 5% and inner τRoss must be at least 50.
+profile must deviate by at least 2% and inner τRoss must be at least 50.
 Corrections must be small and nearly stationary, with complete temperature
 vectors and no temperature cycling. The executable must authenticate patch
 revision ≥2026-11-02.1. Unsupported checkpoint/solver regimes skip the rule.
 
 The native affine proposal must fail its core checks and require a fraction
-no larger than 1/16 under the existing conservative bounds. The alternative
-uses four saved states and one global coefficient fit, reconstructing all
-populations and temperature in logarithmic coordinates. Species totals and
-charge are conserved. Common backoff keeps population/Ne ratios within 0.1–10
-and T changes within 1%. No trace population is removed or floored. Geometry,
+no larger than 1/16 under the existing conservative bounds. At profile errors
+of 5% or greater, the alternative retains the four-state global coefficient fit
+and a maximum T change of 1%. At errors from 2% to below 5%, it uses the recent
+coupled secant direction: `log(new) = log(current) + factor * (log(current) -
+log(previous))`. Four states still verify the common physical regime. The common
+factor starts at 64 and halves until T changes are at most 0.25% and all
+population/Ne ratios are within 0.1–10. A flat T direction skips this variant.
+Both variants reconstruct populations and temperature in logarithmic coordinates,
+conserve species totals and recompute Ne from charge. No trace population is
+removed or floored. Geometry,
 other checkpoint records and native counters remain unchanged: this is a
 provisional restart guess, with no solved-iteration or convergence credit. The
 global T step must follow the observed direction; it is checked independently
@@ -448,6 +453,8 @@ cooldown. Six healthy post-trial observations can authorize ordinary continuatio
 through the remaining cooldown when all slow-tail conditions still hold.
 `global-ng-trials.json` records attempted checkpoint fingerprints before mutation
 and survives rollback, preventing same-checkpoint retries across invocations.
+Both variants share this receipt, rollback and cooldown; switching variants
+cannot authorize another attempt at the same restored checkpoint.
 At most three trials run per invocation; each needs nine remaining iterations
 and four attempts. This bypasses a measured slow mode; it does not repair the
 native Jacobian or guarantee eventual convergence.

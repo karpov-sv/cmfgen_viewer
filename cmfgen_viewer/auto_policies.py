@@ -506,7 +506,7 @@ POLICIES = (
     Policy('localized_population_projection', 4, 'success', 'Conservative repair of a diagnosed isolated ionization spike with full native verification', localized_population_projection, 1),
     Policy('population_bootstrap', 7, 'success', 'Bounded fixed-T Lambda population recovery and full verification', population_bootstrap, 1),
     Policy('ng_cadence', 1, 'success', 'Contiguous batches permitting the first native Ng acceleration', ng_cadence, 1),
-    Policy('global_ng', 2, 'success', 'Positive global extrapolation for a deep thermal stall, with six ordinary full solves and provisional rollback', global_ng_trial, 3),
+    Policy('global_ng', 3, 'success', 'Positive global or coupled secant extrapolation for a deep thermal stall, with six ordinary full solves and provisional rollback', global_ng_trial, 3),
     Policy('bounded_ng', 2, 'success', 'One bounded rejected-Ng fallback with six full solves and provisional rollback', bounded_ng_trial, 1),
     Policy('population_relaxation', 4, 'success', 'Guarded half-relaxation for measured small population cycles', population_relaxation, 1),
     Policy('local_relaxation', 2, 'success', 'Measured localized temperature oscillation damping', _oscillation, 2),

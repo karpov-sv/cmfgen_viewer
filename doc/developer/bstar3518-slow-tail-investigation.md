@@ -6,6 +6,11 @@ The original model remains unchanged. The copied incomplete iteration 311 is
 excluded from the initial diagnosis. Diagnostics, proposals and trial evidence
 are retained under `output/bstar3518-slow-tail/`.
 
+The [subsequent coupled-step investigation](bstar3518-coupled-acceleration-investigation.md)
+now validates an actual state acceleration, using a different, smaller coupled
+history proposal. This report records the earlier computational-reuse remedy
+and rejected four-state experiment.
+
 ## Finding
 
 The helium repair held. The remaining limitation is a slowly improving deep
@@ -13,7 +18,7 @@ thermal imbalance, closely resembling the later Bstar3514 slow mode. The
 initial next experiment was the existing conserved positive global Ng method,
 whose 5% profile-error boundary excludes this approximately 4.2% case.
 The native experiment below rejects that candidate: its population transient
-exceeds the existing guard. The global eligibility boundary is retained.
+exceeds the existing guard. That four-state method's eligibility boundary is retained.
 The matched one-step BA-reuse experiment passes all checks and cuts two-solve
 elapsed time by 42.96%, with virtually identical saved-state thermal progress.
 
@@ -254,8 +259,9 @@ initial hashes. Production receives code changes only; no experiment checkpoint
 or control edit is promoted. `ba_reuse_trial` version 4 can select this regime
 once the controller has the required trusted ordinary observations. An old,
 nonmatching accepted-history receipt still requires fresh observations rather
-than bypassing provenance checks. The global step remains guarded at its
-existing 5% profile boundary and original transient limits.
+than bypassing provenance checks. The four-state fit retains its existing 5%
+profile boundary and original transient limits. The subsequent investigation
+linked above adds a distinct coupled secant variant below 5%.
 
 Validation: 205 focused performance/population/Ng tests passed, including the
 new slow-tail eligibility/acceptance cases, all-threshold damping behavior,

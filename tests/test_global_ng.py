@@ -38,11 +38,12 @@ def global_model(projection_model):
     return model
 
 
-def test_native_backoff_transaction_preserves_history_geometry_and_counters(global_model):
+@pytest.mark.parametrize('secant', [False, True])
+def test_native_backoff_transaction_preserves_history_geometry_and_counters(global_model, secant):
     model = global_model
     before = (model/'SCRTEMP').read_bytes()
     pointers = [(model/n).read_bytes() for n in ['POINT1','POINT2']]
-    plan = ng.propose(model)
+    plan = ng.propose(model, secant=secant)
     assert plan and plan['native_rejected_depths'] == 5
     assert plan['ratio_min'] >= .1 and plan['ratio_max'] <= 10
     assert plan['max_temperature_change_percent'] <= 1
@@ -125,9 +126,10 @@ def test_history_guards(global_model, fault):
         with pytest.raises(RunnerError):ng.propose(global_model)
 
 
+@pytest.mark.parametrize('secant', [False, True])
 @pytest.mark.parametrize('fault', ['low_space','copy_failure','cancel','replace_failure'])
-def test_staging_failures_do_not_publish_partial_state(global_model, monkeypatch, fault):
-    plan = ng.propose(global_model)
+def test_staging_failures_do_not_publish_partial_state(global_model, monkeypatch, fault, secant):
+    plan = ng.propose(global_model, secant=secant)
     before = (global_model/'SCRTEMP').read_bytes()
     if fault == 'low_space':monkeypatch.setattr(ng.shutil,'disk_usage',lambda p:SimpleNamespace(free=0))
     else:
@@ -245,4 +247,77 @@ def test_global_math_and_caps_cannot_be_supplied_by_the_caller(global_model,key)
     plan=ng.propose(global_model);before=(global_model/'SCRTEMP').read_bytes()
     plan[key]=0
     with pytest.raises(RunnerError,match='descriptor'):ng.apply(global_model,plan)
+    assert (global_model/'SCRTEMP').read_bytes()==before
+
+
+def test_coupled_secant_uses_the_recent_direction_without_floors():
+    history,groups,charge=physical_history(tiny_neutral=True)
+    before=history.copy()
+    values,report=ng.calculate_secant(history,groups,charge)
+    np.testing.assert_array_equal(history,before)
+    assert report['factor']==64 and report['history_points']==2
+    assert values[:,2].max()<1e-230 and (values>0).all()
+    assert report['max_temperature_change_percent']<=.25
+    for ids in groups.values():
+        np.testing.assert_allclose(values[:,ids].sum(axis=1),history[0][:,ids].sum(axis=1),rtol=1e-13)
+    np.testing.assert_array_equal(values[:,-2],values[:,:-2]@charge)
+    expected=np.exp(np.log(history[0,:,-4])+64*(np.log(history[0,:,-4])-np.log(history[1,:,-4])))
+    np.testing.assert_array_equal(values[:,-1],expected)
+
+
+def test_coupled_secant_backs_off_the_whole_step_at_its_temperature_cap():
+    history,groups,charge=physical_history()
+    history[:,:,-4]=np.array([1.,1.0009,1.0018,1.0027])[:,None]
+    values,report=ng.calculate_secant(history,groups,charge)
+    assert report['factor']==2
+    assert 0<report['max_temperature_change_percent']<=.25
+    assert np.all(values[:,-1]<history[0,:,-4])
+
+
+@pytest.mark.parametrize('fault', ['geometry','charge','density','zero','temperature'])
+def test_coupled_secant_refuses_an_inconsistent_history(fault):
+    history,groups,charge=physical_history()
+    if fault=='geometry':history[1,0,-1]+=1
+    if fault=='charge':history[1,0,-5]*=2
+    if fault=='density':history[1,0,:2]*=2
+    if fault=='zero':history[1,0,0]=0
+    if fault=='temperature':history[1,0,-4]*=2
+    with pytest.raises(ValueError):ng.calculate_secant(history,groups,charge)
+
+
+def test_coupled_secant_refuses_a_flat_temperature_direction():
+    history,groups,charge=physical_history()
+    history[:,:,-4]=1.
+    assert ng.calculate_secant(history,groups,charge) is None
+
+
+@pytest.mark.parametrize('key', ['factor','history_points','kind','maximum_T_percent'])
+def test_coupled_secant_descriptor_tampering_is_refused(global_model,key):
+    plan=ng.propose(global_model,secant=True)
+    before=(global_model/'SCRTEMP').read_bytes()
+    plan[key]=0
+    with pytest.raises(RunnerError):ng.apply(global_model,plan)
+    assert (global_model/'SCRTEMP').read_bytes()==before
+
+
+def test_switching_extrapolation_kind_does_not_bypass_the_attempt_receipt(global_model):
+    plan=ng.propose(global_model,secant=True)
+    before=(global_model/'SCRTEMP').read_bytes()
+    mark_attempt(global_model,plan,'secant-action')
+    ng.apply(global_model,plan)
+    (global_model/'SCRTEMP').write_bytes(before)
+    other=ng.propose(global_model)
+    assert other['kind']!=plan['kind']
+    assert fingerprint(other)==fingerprint(plan)
+    with pytest.raises(RunnerError,match='already'):
+        mark_attempt(global_model,other,'four-state-action')
+
+
+@pytest.mark.parametrize('kind', [[], {}, None, 'unknown'])
+def test_malformed_proposal_kind_is_refused_before_publication(global_model,kind):
+    plan=ng.propose(global_model,secant=True)
+    before=(global_model/'SCRTEMP').read_bytes()
+    plan['kind']=kind
+    with pytest.raises(RunnerError,match='Unsupported'):
+        ng.apply(global_model,plan)
     assert (global_model/'SCRTEMP').read_bytes()==before

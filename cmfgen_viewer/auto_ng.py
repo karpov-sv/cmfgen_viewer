@@ -252,9 +252,10 @@ def _trial(ctx, *, global_trial=False):
         return None
     try:
         guard = guard_measurements(ctx.model, ctx.before)
+        deviation = max(abs(guard['luminosity_min']-1), abs(guard['luminosity_max']-1))
         if (guard['inner_tau_ross'] < 50 or guard['luminosity_min'] < .5 or
                 guard['luminosity_max'] > 2 or
-                max(abs(guard['luminosity_min']-1), abs(guard['luminosity_max']-1)) < (.05 if global_trial else .02)):
+                deviation < .02):
             return None
         if cooldown:
             ends = [a['evidence']['checkpoint']+(6 if a.get('trial_outcome') == 'accepted' else 0)
@@ -264,7 +265,11 @@ def _trial(ctx, *, global_trial=False):
             return Decision('continue', 'Observe eight healthy ordinary full solves before another global Ng trial')
         if global_trial:
             from .global_ng import propose as global_propose
-            proposal = global_propose(ctx.model)
+            # The smaller-error thermal tail needs a bounded recent coupled
+            # direction rather than the four-state curvature fit. Both remain
+            # provisional under the same six-solve acceptance and cooldown.
+            proposal = (global_propose(ctx.model, secant=True) if deviation < .05
+                        else global_propose(ctx.model))
         else:
             proposal = propose(ctx.model)
         if proposal is None or fingerprint(proposal) in _receipts(ctx.model, global_trial=global_trial)[1]:
@@ -288,6 +293,9 @@ def trial_decision(baseline, *, global_trial=False):
               'test a positive global extrapolation over six ordinary full solves'
               if global_trial else 'Slow full-solve tail with a rejected native Ng proposal; '
               'test one bounded affine step over six full solves')
+    if global_trial and baseline['proposal'].get('kind') == 'positive_coupled_secant':
+        reason = ('Slow deep thermal mode; test a bounded coupled history '
+                  'extrapolation over six ordinary full solves')
     return Decision('action', reason,
         action=policy, evidence=baseline, reversible_trial=True,
         changes={'VADAT': {'COMP_F': 'T', 'COMP_BA': 'T', 'N_FIX_BA': '0', 'FIX_BA': '0.0'}},

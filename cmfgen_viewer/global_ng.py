@@ -48,14 +48,8 @@ def coefficients(history):
     return a, b
 
 
-def calculate(history, groups, charge):
-    """Return one provisional conserved seed under fixed, verified trial caps.
-
-    Input is newest-first (4, ND, NT+3): populations, Ne, T, R, V, sigma+1.
-    It must represent four fresh free-T ordinary solves in one physical regime;
-    verifying that provenance is the caller's responsibility. No floors,
-    population exclusion, native-solve credit, or convergence decision occurs.
-    """
+def _verified_history(history, groups, charge):
+    """Validate the complete four-state physical regime before extrapolation."""
     h = np.asarray(history, dtype=float)
     if h.ndim != 3 or h.shape[0] != 4 or h.shape[2] < 6:
         raise ValueError('Four complete population/geometry states required')
@@ -76,6 +70,18 @@ def calculate(history, groups, charge):
             raise ValueError('History charge is inconsistent')
     if np.max(np.abs(100*(h[:-1,:,nt-1]/h[1:,:,nt-1]-1))) > .1:
         raise ValueError('Temperature history exceeds the trial regime')
+    return h, old, nt
+
+
+def calculate(history, groups, charge):
+    """Return one provisional conserved seed under fixed, verified trial caps.
+
+    Input is newest-first (4, ND, NT+3): populations, Ne, T, R, V, sigma+1.
+    It must represent four fresh free-T ordinary solves in one physical regime;
+    verifying that provenance is the caller's responsibility. No floors,
+    population exclusion, native-solve credit, or convergence decision occurs.
+    """
+    h, old, nt = _verified_history(history, groups, charge)
     a, b = coefficients(h)
     logs = np.log(h[:,:,:nt])
     proposed = logs[0]+a*(logs[1]-logs[0])+b*(logs[2]-logs[0])
@@ -110,9 +116,50 @@ def calculate(history, groups, charge):
     return None
 
 
+def calculate_secant(history, groups, charge):
+    """Bounded continuation along the last coupled native step in log space.
+
+    All four history states still authenticate the same physical regime. The
+    direction uses the newest two, avoiding an ill-conditioned curvature fit.
+    A common factor starts at 64 and backs off; no population is excluded.
+    """
+    h, old, nt = _verified_history(history, groups, charge)
+    direction = np.log(old)-np.log(h[1,:,:nt])
+    if not np.isfinite(direction).all():
+        raise ValueError('Unrepresentable coupled secant direction')
+    if not np.any(direction[:,-1]):
+        return None
+    factor = 64
+    while factor >= 1:
+        try:
+            with np.errstate(over='raise', invalid='raise', divide='raise', under='ignore'):
+                new = np.exp(np.log(old)+factor*direction)
+                for group in groups.values():
+                    new[:,group] *= old[:,group].sum(axis=1)[:,None]/new[:,group].sum(axis=1)[:,None]
+                new[:,-2] = new[:,:-2]@charge
+                ratios = new/old
+            valid = (np.isfinite(new).all() and np.all(new > 0) and
+                     ratios.min() >= .1 and ratios.max() <= 10 and
+                     np.max(np.abs(ratios[:,-1]-1)) <= .0025)
+        except FloatingPointError:
+            valid = False
+        if valid:
+            if np.array_equal(new, old):
+                return None
+            density_error = max(float(np.max(np.abs(new[:,g].sum(axis=1)/old[:,g].sum(axis=1)-1))) for g in groups.values())
+            charge_error = float(np.max(np.abs(new[:,:-2]@charge/new[:,-2]-1)))
+            if max(density_error,charge_error) > 1e-10:
+                raise ValueError('Coupled secant reconstruction failed conservation')
+            return new, dict(factor=factor, history_points=2,
+                ratio_min=float(ratios.min()),ratio_max=float(ratios.max()),
+                max_temperature_change_percent=float(100*np.max(np.abs(ratios[:,-1]-1))),
+                element_density_relative_error=density_error,charge_relative_error=charge_error)
+        factor //= 2
+    return None
 
 
-def compute(model):
+
+def compute(model, *, secant=False):
     model = Path(model)
     try:
         with np.errstate(over='raise', invalid='raise', divide='raise'):
@@ -140,26 +187,26 @@ def compute(model):
     if not np.array_equal(history[0,:,:nt], state[2]) or snapshot(model/'SCRTEMP') != state[-1]:
         raise RunnerError('Checkpoint changed during global Ng inspection')
     try:
-        result = calculate(history, state[4], state[5])
+        result = (calculate_secant if secant else calculate)(history, state[4], state[5])
     except (ArithmeticError, ValueError) as exc:
         raise RunnerError('Unsupported global Ng history: '+str(exc)) from exc
     if result is None:
         return None
     new, description = result
-    description.update(kind='global_geometric_ng', band=nd,
+    description.update(kind='positive_coupled_secant' if secant else 'global_geometric_ng', band=nd,
                        native_rejected_depths=affine[2]['native_rejected_depths'],
                        native_temperature_reversal_depths=affine[2]['native_temperature_reversal_depths'],
                        bounded_affine_alpha=affine[2]['alpha'],
-                       population_ratio_bounds=[.1, 10.], maximum_T_percent=1.)
+                       population_ratio_bounds=[.1, 10.], maximum_T_percent=.25 if secant else 1.)
     bounded_ng.physics(new, state)
     return state, new, description
 
 
-def propose(model):
+def propose(model, *, secant=False):
     """Read-only numerical proposal; the policy establishes solve provenance."""
     model = Path(model)
     before = bounded_ng.signatures(model)
-    result = compute(model)
+    result = compute(model, secant=secant)
     if result is None:
         return None
     if before != bounded_ng.signatures(model):
@@ -173,7 +220,10 @@ def apply(model, proposal):
     model = Path(model)
     if not isinstance(proposal, dict) or proposal.get('inputs') != bounded_ng.signatures(model):
         raise RunnerError('Stale global Ng proposal')
-    result = compute(model)
+    kind = proposal.get('kind')
+    if not isinstance(kind, str) or kind not in {'global_geometric_ng', 'positive_coupled_secant'}:
+        raise RunnerError('Unsupported global Ng proposal kind')
+    result = compute(model, secant=kind == 'positive_coupled_secant')
     if result is None:
         raise RunnerError('Global Ng is no longer eligible')
     state, new, description = result
