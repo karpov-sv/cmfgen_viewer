@@ -12,7 +12,7 @@ import shutil
 import tempfile
 import numpy as np
 from .population_projection import _state
-from .checkpoint_health import _words, WORDS_PER_RECORD, RECORD_BYTES
+from .checkpoint_health import _words, WORDS_PER_RECORD, RECORD_BYTES, MAX_RECOVERY_CHECKPOINT_BYTES
 from .runner_recipe import RunnerError, snapshot
 from .runner_restart import read_pointer
 from .auto_diagnostics import control_value, number
@@ -27,7 +27,7 @@ def digest(path):
     info = path.stat()
     if not path.is_file() or info.st_nlink != 1:
         raise RunnerError('Unsafe Ng input: ' + path.name)
-    cap = 512 * 1024**2 if path.name == 'SCRTEMP' else 16 * 1024**2
+    cap = MAX_RECOVERY_CHECKPOINT_BYTES if path.name == 'SCRTEMP' else 16 * 1024**2
     if path.name.startswith('POINT'):
         cap = 4096
     if info.st_size > cap:

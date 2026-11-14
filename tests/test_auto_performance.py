@@ -255,3 +255,111 @@ def test_damping_release_keeps_three_batches_and_one_percent_ceiling(performance
     ctx.history[0]['records'][0]['maximum_increase_percent'] = 1.01
     assert _baseline(ctx) is None
     assert _baseline(ctx, reuse=True) is not None
+
+
+def test_reuse_ignores_only_counts_below_native_epsilon():
+    from copy import deepcopy
+    from cmfgen_viewer.auto_performance import _counts_ok
+    previous = {'epsilon_percent': .02, 'counts': {
+        'nd': 2, 'nt': 4, 'totals': {'0.1%': 4, '0.01%': 5, '0.001%': 6}}}
+    current = deepcopy(previous)
+    current['counts']['totals']['0.001%'] += 1
+    assert _counts_ok(current, previous, significant=True)
+    assert not _counts_ok(current, previous)  # Damping-release guard is unchanged.
+    current['counts']['totals']['0.1%'] += 1
+    assert not _counts_ok(current, previous, significant=True)
+    current['epsilon_percent'] = float('nan')
+    assert not _counts_ok(current, previous, significant=True)
+
+
+@pytest.fixture
+def slow_tail_context(performance_context, monkeypatch):
+    from cmfgen_viewer import auto_performance, auto_ng
+    ctx = performance_context
+    for n, batch in enumerate(ctx.history):
+        batch['records'] = []
+        for i in range(3):
+            counter = 35+3*n+i
+            value = 1.20-.002*(counter-35)
+            batch['records'].append(dict(global_iteration=counter,
+                solver_maximum_change=value, maximum_increase_percent=.3,
+                maximum_decrease_percent=value, ba_computed=True,
+                major_species_minimum_scale=1, luminosity_target=1,
+                luminosity_generated=1.04-.00001*(counter-35)))
+        batch.update(checkpoint=37+3*n, iterations=3, full_iterations=3,
+                     hydro_revisions=[], raw_temperature_steps=[[-.001, -.001]]*3)
+    monkeypatch.setattr(auto_performance, 'guard_measurements', lambda *args:
+                        dict(luminosity_min=1., luminosity_max=1.04, inner_tau_ross=100))
+    monkeypatch.setattr(auto_ng, '_energy', lambda *args: 100.)
+    return ctx
+
+
+def test_six_slow_full_solves_can_authorize_one_reused_matrix(slow_tail_context):
+    from cmfgen_viewer.auto_performance import ba_reuse_trial
+    decision = ba_reuse_trial(slow_tail_context)
+    assert decision and decision.evidence['slow_thermal_tail']
+    assert decision.evidence['correction_limit'] == pytest.approx(1.05*1.19)
+    assert [step.iterations for step in decision.steps] == [2]
+
+
+def test_slow_tail_trial_can_test_after_a_threshold_crossing(slow_tail_context):
+    from cmfgen_viewer.auto_performance import ba_reuse_trial
+    # Near-stationary trace corrections can cross a count threshold in the
+    # observation window. The actual trial must improve from its latest state.
+    slow_tail_context.evidence['counts']['totals']['1.0%'] += 1
+    decision = ba_reuse_trial(slow_tail_context)
+    assert decision and decision.evidence['counts']['totals']['1.0%'] == 11
+
+
+@pytest.mark.parametrize('fault', ['gap', 'source', 'old_ba', 'fixed_t', 'scale',
+                                  'fast', 'large', 'small_flux', 'few_solves', 'count_layout'])
+def test_slow_tail_reuse_requires_stable_ordinary_history(slow_tail_context, fault):
+    from cmfgen_viewer.auto_performance import ba_reuse_trial
+    ctx = slow_tail_context
+    row = ctx.history[0]['records'][0]
+    if fault == 'gap': row['global_iteration'] -= 1
+    if fault == 'source': ctx.history[0]['source_changed'] = True
+    if fault == 'old_ba': row['ba_computed'] = False
+    if fault == 'fixed_t': row['temperature_fixed'] = True
+    if fault == 'scale': row['major_species_minimum_scale'] = .5
+    if fault == 'fast': row['solver_maximum_change'] = 1.4
+    if fault == 'large': row['solver_maximum_change'] = 10.1
+    if fault == 'small_flux': row['luminosity_generated'] = 1.01
+    if fault == 'few_solves':
+        ctx.history[0]['records'].pop(0)
+        ctx.history[0].update(iterations=2, full_iterations=2,
+                              raw_temperature_steps=[[-.001, -.001]]*2)
+    if fault == 'count_layout': ctx.evidence['counts']['nt'] += 1
+    assert ba_reuse_trial(ctx) is None
+
+
+@pytest.mark.parametrize('fault', [None, 'transient', 'growing', 'energy', 'flux',
+                                 'counter', 'fixed_t', 'counts'])
+def test_slow_tail_reuse_must_retain_thermal_progress(slow_tail_context, monkeypatch, fault):
+    from copy import deepcopy
+    from dataclasses import replace
+    from cmfgen_viewer import auto_performance, auto_ng
+    from cmfgen_viewer.auto_policies import TrialRejected
+    ctx = slow_tail_context
+    decision = auto_performance.ba_reuse_trial(ctx)
+    e = deepcopy(ctx.evidence)
+    e.update(checkpoint=42, iterations=2, full_iterations=2,
+             raw_temperature_steps=[[-.001, -.001]]*2)
+    e['records'] = e['records'][-2:]
+    for r, counter, value, fresh in zip(e['records'], [41,42], [1.21,1.20], [True,False]):
+        r.update(global_iteration=counter, solver_maximum_change=value,
+                 maximum_decrease_percent=value, ba_computed=fresh)
+    monkeypatch.setattr(auto_ng, '_energy', lambda *args: 100. if fault == 'energy' else 99.8)
+    monkeypatch.setattr(auto_performance, 'guard_measurements', lambda *args:
+                        dict(luminosity_min=1., luminosity_max=1.04 if fault == 'flux' else 1.0398,
+                             inner_tau_ross=100))
+    if fault == 'transient': e['records'][0]['maximum_decrease_percent'] = 1.26
+    if fault == 'growing': e['records'][1]['maximum_decrease_percent'] = 1.22
+    if fault == 'counter': e['records'][0]['global_iteration'] -= 1
+    if fault == 'fixed_t': e['records'][1]['temperature_fixed'] = True
+    if fault == 'counts': e['counts']['totals']['1.0%'] += 1
+    if fault:
+        with pytest.raises(TrialRejected):
+            decision.steps[0].validate(replace(ctx, evidence=e))
+    else:
+        assert decision.steps[0].validate(replace(ctx, evidence=e))['performance_trial']['accepted']

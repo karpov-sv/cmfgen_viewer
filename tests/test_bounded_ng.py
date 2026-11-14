@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from test_population_projection import projection_model
+from test_population_projection import projection_model, _relocate_history_beyond_512mib
 from cmfgen_viewer import bounded_ng as ng
 from cmfgen_viewer.auto_ng import mark_attempt, fingerprint
 from cmfgen_viewer.checkpoint_health import RECORD_BYTES
@@ -126,6 +126,20 @@ def test_unsafe_inputs_are_refused(ng_model, tmp_path, kind):
     else:
         with path.open('wb') as stream:stream.truncate(17*1024**2)
     with pytest.raises(RunnerError):ng.propose(ng_model)
+
+
+def test_bounded_ng_can_stream_retained_history_beyond_512mib(ng_model):
+    record, size = _relocate_history_beyond_512mib(ng_model, 4)
+    assert ng.propose(ng_model)['pointer']['record'] == record
+    assert (ng_model/'SCRTEMP').stat().st_size == size
+
+
+def test_bounded_ng_refuses_history_above_shared_limit(ng_model):
+    from cmfgen_viewer.checkpoint_health import MAX_RECOVERY_CHECKPOINT_BYTES
+    with (ng_model/'SCRTEMP').open('r+b') as stream:
+        stream.truncate(MAX_RECOVERY_CHECKPOINT_BYTES+RECORD_BYTES)
+    with pytest.raises(RunnerError, match='too large'):
+        ng.propose(ng_model)
 
 
 def test_receipt_survives_restoration_and_blocks_the_identical_checkpoint(ng_model):

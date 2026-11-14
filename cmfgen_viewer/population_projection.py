@@ -14,7 +14,7 @@ import tempfile
 
 import numpy as np
 
-from .checkpoint_health import RECORD_BYTES, WORDS_PER_RECORD, _words
+from .checkpoint_health import RECORD_BYTES, WORDS_PER_RECORD, MAX_RECOVERY_CHECKPOINT_BYTES, _words
 from .checkpoint_physics import checkpoint_physics, compare_physics
 from .runner_recipe import RunnerError, snapshot
 from .runner_restart import inspect_restart
@@ -33,8 +33,8 @@ def _digest(path):
 
 def _state(model):
     path = model/'SCRTEMP'
-    if path.stat().st_size > 512 * 1024**2:
-        raise RunnerError('Localized population projection supports checkpoints up to 512 MiB')
+    if path.stat().st_size > MAX_RECOVERY_CHECKPOINT_BYTES:
+        raise RunnerError('Population recovery supports checkpoints up to 2 GiB')
     signature = snapshot(path)
     physical = checkpoint_physics(model)
     restart = inspect_restart(model)

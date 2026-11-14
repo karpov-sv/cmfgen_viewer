@@ -15,11 +15,15 @@ def _metrics(evidence):
     return [max(row) for row in values]
 
 
-def _counts_ok(current, previous):
+def _counts_ok(current, previous, *, significant=False):
+    epsilon = current.get('epsilon_percent') if significant else 0
+    if not isinstance(epsilon, (int, float)) or not math.isfinite(epsilon) or epsilon < 0 or (significant and epsilon == 0):
+        return False
     return (current['counts']['nd'] == previous['counts']['nd'] and
             current['counts']['nt'] == previous['counts']['nt'] and
             current['counts']['totals'].keys() == previous['counts']['totals'].keys() and
-            all(v <= previous['counts']['totals'][k] for k, v in current['counts']['totals'].items()))
+            all(v <= previous['counts']['totals'][k] for k, v in current['counts']['totals'].items()
+                if float(k.removesuffix('%')) >= epsilon))
 
 
 def _thermal_complete(evidence):
@@ -36,12 +40,14 @@ def _baseline(ctx, *, reuse=False):
         return None
     if not repaired_runtime(ctx.native_plan):
         return None
+    if reuse and not _counts_ok(ctx.evidence, ctx.evidence, significant=True):
+        return None
     history = ctx.history[-batches:]
     if any(e.get('hydro_revisions') or e.get('ng_accelerations') or len(e['records']) < 2 or
            e['full_iterations'] != e['iterations'] or not _thermal_complete(e) for e in history):
         return None
-    if not all(_counts_ok(b, a) for a, b in zip(history, history[1:])):
-        return None
+    counts_improving = all(_counts_ok(b, a, significant=reuse)
+                           for a, b in zip(history, history[1:]))
     thermal = [v for e in history for v in e['raw_temperature_steps']]
     if oscillating_region({**ctx.evidence, 'raw_temperature_steps': thermal}, ctx.history, localized_only=False):
         return None
@@ -50,9 +56,38 @@ def _baseline(ctx, *, reuse=False):
     except ValueError:
         return None
     values = [m[-1] for m in metrics]
-    if not ((reuse or all(max(m) <= 1 for m in metrics)) and
+    improving = (counts_improving and (reuse or all(max(m) <= 1 for m in metrics)) and
             all(a > b > 0 for a, b in zip(values, values[1:])) and
-            values[-1] <= .8*values[0]):
+            values[-1] <= .8*values[0])
+    slow = False
+    if reuse and not improving:
+        # The deep thermal tail can be healthy while relative corrections of
+        # trace ions barely move. Test computational savings separately from
+        # extrapolation; require six ordinary observations of this regime.
+        from .auto_ng import _full, _slow_thermal_tail
+        from .auto_hydro import structure_fixed
+        history = ctx.history[-3:]
+        rows = [r for e in history for r in e['records']][-6:]
+        try:
+            flat_metrics = _metrics({'records': rows})
+        except ValueError:
+            return None
+        counters = [r.get('global_iteration') for r in rows]
+        complete_thermal = [v for e in history for v in e.get('raw_temperature_steps', [])][-6:]
+        slow = (all(_full(e) for e in history) and structure_fixed(ctx.model) and
+                all(a['counts']['nd'] == b['counts']['nd'] and
+                    a['counts']['nt'] == b['counts']['nt'] and
+                    a['counts']['totals'].keys() == b['counts']['totals'].keys()
+                    for a, b in zip(history, history[1:])) and
+                len(rows) == 6 and all(.1 <= v <= 10 for v in flat_metrics) and
+                all(type(i) is int for i in counters) and
+                counters == list(range(counters[0], counters[0]+6)) and
+                counters[-1] == ctx.evidence.get('checkpoint') and
+                not oscillating_region({**ctx.evidence, 'raw_temperature_steps': complete_thermal},
+                                       ctx.history, localized_only=False) and
+                .9 <= flat_metrics[-1]/flat_metrics[0] <= 1.01 and
+                max(flat_metrics)/min(flat_metrics) <= 1.1 and _slow_thermal_tail(rows))
+    if not (improving or slow):
         return None
     try:
         from .checkpoint_physics import checkpoint_physics, compare_physics
@@ -63,9 +98,25 @@ def _baseline(ctx, *, reuse=False):
         return None  # Missing scientific evidence prevents tuning, not normal iteration.
     if guard['luminosity_min'] < .5 or guard['luminosity_max'] > 2:
         return None
-    return dict(correction_metric=values[-1], counts=ctx.evidence['counts'],
+    result = dict(correction_metric=values[-1], counts=ctx.evidence['counts'],
+                epsilon_percent=ctx.evidence.get('epsilon_percent'),
                 physical=physical, guard=guard,
                 temperature_steps=thermal[-3:])
+    if slow:
+        from .auto_ng import _energy
+        deviation = max(abs(guard['luminosity_min']-1), abs(guard['luminosity_max']-1))
+        if guard.get('inner_tau_ross', 0) < 50 or deviation < .02:
+            return None
+        try:
+            energy = _energy(ctx.model, ctx.evidence['counts']['nd'])
+        except (OSError, ValueError):
+            return None
+        if energy <= 0:
+            return None
+        result.update(slow_thermal_tail=True, energy=energy,
+                      checkpoint=ctx.evidence['checkpoint'],
+                      correction_limit=1.05*values[-1])
+    return result
 
 
 def _validate(ctx, baseline, *, reuse):
@@ -83,8 +134,17 @@ def _validate(ctx, baseline, *, reuse):
             raise RunnerError('Trial did not demonstrate the requested fresh/reused matrix schedule')
         metrics = _metrics(e)
         metric = metrics[-1]
-        if (max(metrics) > baseline['correction_metric'] or metric >= baseline['correction_metric'] or
-                not _counts_ok(e, {'counts': baseline['counts']})):
+        slow = reuse and baseline.get('slow_thermal_tail', False)
+        if slow and (any(r.get('temperature_fixed') or r.get('lambda_iteration') or
+                         r.get('major_species_minimum_scale') != 1 for r in e['records']) or
+                     [r.get('global_iteration') for r in e['records']] !=
+                     [baseline['checkpoint']+1, baseline['checkpoint']+2] or
+                     e.get('checkpoint') != baseline['checkpoint']+2):
+            raise RunnerError('Slow-tail BA reuse needs consecutive ordinary free-T solves')
+        limit = baseline['correction_limit'] if slow else baseline['correction_metric']
+        if (max(metrics) > limit or (not slow and metric >= baseline['correction_metric']) or
+                (slow and metric > metrics[0]) or
+                not _counts_ok(e, {'counts': baseline['counts']}, significant=reuse)):
             raise RunnerError('Corrections or threshold counts worsened or failed to improve')
         thermal = {**e, 'raw_temperature_steps': [*baseline['temperature_steps'],
                                                 *e.get('raw_temperature_steps', [])]}
@@ -96,6 +156,13 @@ def _validate(ctx, baseline, *, reuse):
                 guard['luminosity_max'] > min(2, old['luminosity_max']+.01)):
             raise RunnerError('Trial degraded the normalized luminosity profile')
         physics = compare_physics(baseline['physical'], checkpoint_physics(ctx.model))
+        if slow:
+            from .auto_ng import _energy
+            old_deviation = max(abs(old['luminosity_min']-1), abs(old['luminosity_max']-1))
+            deviation = max(abs(guard['luminosity_min']-1), abs(guard['luminosity_max']-1))
+            if (_energy(ctx.model, e['counts']['nd']) > .999*baseline['energy'] or
+                    deviation > .999*old_deviation):
+                raise RunnerError('BA reuse did not retain thermal progress in the slow tail')
     except (ImportError, OSError, ValueError) as exc:
         raise TrialRejected(str(exc)) from exc
     return {'performance_trial': dict(accepted=True, correction_metric=metric,
@@ -114,7 +181,10 @@ def ba_reuse_trial(ctx):
     baseline = _baseline(ctx, reuse=True)
     if baseline is None:
         return None
-    return Decision('action', 'Sustained healthy progress; provisionally reuse BA for one iteration',
+    reason = ('Healthy deep thermal tail; provisionally reuse BA for one iteration'
+              if baseline.get('slow_thermal_tail') else
+              'Sustained healthy progress; provisionally reuse BA for one iteration')
+    return Decision('action', reason,
         action='ba_reuse_trial', changes={'VADAT': {'N_FIX_BA': '1', 'FIX_BA': '0.0'}},
         evidence=baseline, reversible_trial=True,
         steps=(RecoveryStep('ba_reuse_check', 2, lambda c: _validate(c, baseline, reuse=True)),))

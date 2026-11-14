@@ -17,6 +17,9 @@ from .control_files import control_occurrences
 
 RECORD_BYTES = 4094 * 4
 WORDS_PER_RECORD = RECORD_BYTES // 8
+# Recovery hashes/copies stream the complete history, while population audits
+# read selected records only. Keep a finite bound consistent with auto_history.
+MAX_RECOVERY_CHECKPOINT_BYTES = 2 * 1024**3
 
 
 def _identity(info):

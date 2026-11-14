@@ -46,6 +46,25 @@ def _pops(model):
         return np.fromiter(_words(stream, 3, 30, '<'), float).reshape(5, 6)
 
 
+def _relocate_history_beyond_512mib(model, count):
+    """Sparse native fixture with the selected history itself beyond 512 MiB."""
+    old = int((model/'POINT1').read_text().splitlines()[1].split()[0])
+    start = 2*((512*1024**2//RECORD_BYTES)//2+1)
+    record = (start-2)//2+count  # Fixture has one geometry + one population record/state.
+    size = (start+2*count)*RECORD_BYTES
+    with (model/'SCRTEMP').open('r+b') as stream:
+        stream.seek((2+2*(old-count))*RECORD_BYTES)
+        history = stream.read(2*count*RECORD_BYTES)
+        stream.seek(2*RECORD_BYTES)
+        stream.write(bytes(2*old*RECORD_BYTES))  # An erroneous early read must fail.
+        stream.truncate(size)
+        stream.seek(start*RECORD_BYTES)
+        stream.write(history)
+    for name in ['POINT1', 'POINT2']:
+        (model/name).write_text(f'28-Feb-2004 !Format date\n{record} {record} 1 -1000 T\n')
+    return record, size
+
+
 def test_proposal_is_read_only_and_atomic_application_preserves_other_state(projection_model):
     model = projection_model
     original = (model/'SCRTEMP').read_bytes()
@@ -67,6 +86,33 @@ def test_proposal_is_read_only_and_atomic_application_preserves_other_state(proj
     assert checks['element_density_max_relative_change'] < 1e-14
     assert checks['charge_relative_error'] < 1e-14
     assert propose_projection(model, 3) is None
+
+
+def test_selected_state_inspection_streams_history_beyond_old_512mib_limit(projection_model, monkeypatch):
+    from pathlib import Path
+    from cmfgen_viewer.population_projection import _state
+    model = projection_model
+    before = checkpoint_physics(model)
+    record, size = _relocate_history_beyond_512mib(model, 1)
+    read_bytes = Path.read_bytes
+    def bounded_reads(path):
+        if path.name == 'SCRTEMP':
+            raise AssertionError('Whole checkpoint must not be loaded into memory')
+        return read_bytes(path)
+    monkeypatch.setattr(Path, 'read_bytes', bounded_reads)
+    state = _state(model)
+    assert state[0] == before
+    assert state[2].shape == (5, 6)
+    assert state[1]['record'] == record
+    assert (model/'SCRTEMP').stat().st_size == size
+
+
+def test_recovery_history_still_has_a_finite_size_bound(projection_model):
+    from cmfgen_viewer.checkpoint_health import MAX_RECOVERY_CHECKPOINT_BYTES
+    with (projection_model/'SCRTEMP').open('r+b') as stream:
+        stream.truncate(MAX_RECOVERY_CHECKPOINT_BYTES+RECORD_BYTES)
+    with pytest.raises(RunnerError, match='2 GiB'):
+        propose_projection(projection_model, 3)
 
 
 @pytest.mark.parametrize('depth', [1, 2, 4, 5, 0, 6])

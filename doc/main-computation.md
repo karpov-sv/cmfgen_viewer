@@ -495,7 +495,8 @@ batches**, with no 1% correction ceiling. **Releasing damping retains the strict
 three-batch window**, with every raw/native correction metric at most 1%. For both
 trials, metrics must be finite, final batch metrics must decrease strictly, and the
 last must improve by at least 20% relative to the first in the comparison window.
-All correction-threshold counts must be non-increasing. Complete temperature-request
+BA reuse compares counts at thresholds at or above the explicit native `EPS_TERM`;
+damping release still compares every threshold. Complete temperature-request
 vectors must exclude persistent cycling; hydro revisions and Ng steps invalidate this comparison window.
 The running executable must authenticate the line/BA repairs. Fresh complete
 luminosity/optical-depth profiles and a recognized, positive, charge-conserving
@@ -504,15 +505,29 @@ iteration and recovery remain available. If this invocation introduced damping
 that can still be released, its fresh-BA release trials take precedence over BA
 reuse; rejected or exhausted damping-release trials do not block a reuse trial.
 
+BA reuse has a separate eligibility path for a deep thermal slow tail. Six
+consecutive ordinary fresh-BA/free-T solves must show nearly stationary small
+corrections (0.1–10%), complete noncycling temperature requests, an unchanged
+structure/source and a persistent surface-flux error of at least 2%. The
+normalized luminosity deviation must also be at least 2%, with inner τRoss≥50.
+This path does not require the 20% correction decrease above. Its two-solve
+fresh/reused trial permits at most 5% above the starting correction maximum,
+requires the reused solve's maximum not to exceed the fresh solve's, and retains
+only a trial with at least 0.1% reduction in **both** absolute integrated RE
+residual and maximum normalized luminosity deviation. Significant threshold
+counts must not worsen relative to the starting state. These checks allow a
+bounded test of computational savings while the deep thermal error decays slowly.
+
 | Trial | Conditions and provisional change | Required demonstration |
 |---|---|---|
-| `ba_reuse_trial` | `COMP_BA=T`, `STORE_BA=T`, `N_FIX_BA=0`. Try `N_FIX_BA=1`, `FIX_BA=0`. At most once per automatic invocation. This can include a run that started with zero reuse. | Exactly two full solves, the first with fresh BA and the second with reused BA; improving corrections and unchanged-or-better counts/physical checks. |
+| `ba_reuse_trial` | `COMP_BA=T`, `STORE_BA=T`, `N_FIX_BA=0`. Try `N_FIX_BA=1`, `FIX_BA=0`. At most once per automatic invocation. This can include a run that started with zero reuse. | Exactly two full solves, the first with fresh BA and the second with reused BA; improving corrections or the bounded thermal-tail checks above, nonworsening significant counts and physical checks. |
 | `relaxation_release` | Damping was introduced by this automatic invocation and the current matrix policy is fresh. Double `RELAX`, capped at the starting value (or 1 when no correction file existed). Keep the depth range and other controls. At most three trials, with another healthy comparison window before each increase. | Exactly two full solves with fresh BA, improving corrections, no temperature cycling, and unchanged-or-better counts/physical checks. |
 
 Each trial reserves two iterations plus room for a subsequent verification batch
 (at least five remaining iterations and two remaining attempts before selection).
-The trial's final correction metric must improve, neither trial step may rebound
-above the baseline, no threshold count may increase, and normalized luminosities
+Outside the separate slow-tail path, the final correction metric must improve
+and neither trial step may rebound above the baseline. The applicable threshold
+counts must not increase, and normalized luminosities
 must remain inside `[0.5,2]` without widening the baseline range by more than 0.01.
 Inner Rosseland depth must remain at least 30. Geometry, element densities and
 charge conservation are checked using the recognized checkpoint metadata.
@@ -525,6 +540,11 @@ damping release disables further damping-release trials for this invocation.
 Unknown native failures still stop for review after rollback. Cancellation,
 timeout or an incomplete trial also restores the conservative baseline. Trial
 outcomes and rollback reasons appear in the journal, CLI and workflow report.
+
+Population recovery and both Ng extrapolators accept checkpoint files up to
+2 GiB. Selected-state inspection and whole-file hashing stream the data;
+atomic population updates still require enough staging space for a full copy.
+Larger or unsupported checkpoints skip these remedies without truncating history.
 
 These trials do not promise a universal speedup: the BA trial must demonstrate
 an actual skipped rebuild, and damping release must demonstrate continued progress.
