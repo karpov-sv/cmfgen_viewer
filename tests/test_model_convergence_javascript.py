@@ -27,6 +27,7 @@ function setup(fetcher,stored=false,empty=false) {
   querySelector(selector){return selector==='[data-correction-history-toggle]'?toggle:status;},
   querySelectorAll(){return [target,second];}},
   fetch(...args){calls++;return fetcher(...args);},window:{
+   CmfgenPlotTheme:{layout: value=>value},
    Plotly:{newPlot(){return Promise.resolve();},react(target,data){renders.push(JSON.parse(JSON.stringify(data)));}},
    localStorage:{getItem(key){return storage.get(key);},setItem(key,value){storage.set(key,value);}}}});
  return {toggle,status,renders,panels,get calls(){return calls;}};

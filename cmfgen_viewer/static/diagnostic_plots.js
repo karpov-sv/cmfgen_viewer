@@ -125,7 +125,7 @@
       return Promise.all(plots.map(function (entry) {
         var spec = windowPlot(entry.score, sources, model, medium,
           best.fit_regions && best.fit_regions.exclusions, lines, options.mode);
-        return Plotly.newPlot(entry.plot, spec.data, spec.layout, { responsive: true, displaylogo: false,
+        return Plotly.newPlot(entry.plot, spec.data, window.CmfgenPlotTheme.layout(spec.layout), { responsive: true, displaylogo: false,
           modeBarButtonsToRemove: ["select2d", "lasso2d"] });
       })).then(function () { status.remove(); });
     }).catch(function (error) {

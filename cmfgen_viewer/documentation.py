@@ -7,7 +7,7 @@ import re
 from markupsafe import Markup
 from pygments.formatters import HtmlFormatter
 
-from .syntax import highlight_text, syntax_css
+from .syntax import dark_syntax_css, highlight_text, syntax_css
 
 try:
     import markdown as md
@@ -106,7 +106,8 @@ def discover_docs(docs_dir: Path = DOCS_DIR) -> list[dict[str, object]]:
 @lru_cache(maxsize=1)
 def _markdown_css() -> str:
     formatter = HtmlFormatter(cssclass="codehilite")
-    return formatter.get_style_defs(".doc-content .codehilite")
+    base_css = formatter.get_style_defs(".doc-content .codehilite")
+    return f"{base_css}\n{dark_syntax_css('.doc-content .codehilite')}"
 
 
 def render_document(path: Path) -> tuple[Markup, str]:

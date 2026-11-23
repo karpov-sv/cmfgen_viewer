@@ -479,7 +479,7 @@
                         modeBarButtonsToRemove: ["lasso2d", "select2d", "autoScale2d"]
                       };
 
-                      Plotly.react(target, [trace], layout, config).then(function () {
+                      Plotly.react(target, [trace], window.CmfgenPlotTheme.layout(layout), config).then(function () {
                         CmfgenSpectrumControls.bindVerticalResize(target);
                       });
                     }

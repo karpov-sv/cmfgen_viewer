@@ -88,7 +88,7 @@
     }
     const panel = target.closest('[data-convergence-panel]');
     if (panel) panel.hidden = !plot.data.some(trace => trace.x?.length);
-    const ready = window.Plotly.newPlot(target, plot.data, plot.layout, plot.config).then(() => {
+    const ready = window.Plotly.newPlot(target, plot.data, window.CmfgenPlotTheme.layout(plot.layout), plot.config).then(() => {
       bindVerticalResize(target);
     });
     if (plot.history_key) charts.push({target, panel, plot, ready});
@@ -108,7 +108,7 @@
       const earlier = show ? history[plot.history_key] : [];
       const displayed = [...earlier, ...data];
       if (panel) panel.hidden = !displayed.some(trace => trace.x?.length);
-      window.Plotly.react(target, displayed, layout, plot.config);
+      window.Plotly.react(target, displayed, window.CmfgenPlotTheme.layout(layout), plot.config);
     });
     status.textContent = show ? (history.run_count ?
       `${history.run_count} earlier runs, ${history.record_count} completed solves. ${history.note}${history.limited ? ' History was truncated to its size limits.' : ''}${history.luminosity_data.length ? '' : ' No earlier luminosity records are available.'}` :

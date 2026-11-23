@@ -44,7 +44,7 @@ const Plotly = {
 vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../cmfgen_viewer/static/summary_table.js'), 'utf8'), {
   document: {getElementById: id => elements[id] || null,
     createDocumentFragment: () => ({appendChild() {}})},
-  window: {Plotly}, Plotly
+  window: {Plotly, CmfgenPlotTheme: {layout: value => value}}, Plotly
 });
 const field = elements['summary-name-filter'];
 function filter(pattern) { field.value = pattern; field.handlers.input(); }

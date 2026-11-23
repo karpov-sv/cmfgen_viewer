@@ -18,6 +18,13 @@ _CMFGEN_CONTROL_STYLE_ROLES = {"input_control", "input_hydro_iteration"}
 _CMFGEN_KEY_PATTERN = re.compile(r"\[[^\]\n]+\]")
 
 
+def dark_syntax_css(selector: str) -> str:
+    """Use a complete Pygments palette for system dark mode."""
+    formatter = HtmlFormatter(style="native")
+    css = formatter.get_style_defs(selector)
+    return f"@media (prefers-color-scheme: dark) {{\n{css}\n}}"
+
+
 class CmfgenInputLexer(RegexLexer):
     name = "CMFGEN Input"
     aliases = ["cmfgen-input"]
@@ -58,7 +65,21 @@ def syntax_css() -> str:
     color: #c00000 !important;
 }
 """.strip()
-    return f"{base_css}\n{number_override}"
+    dark_css = dark_syntax_css(".syntax-preview .cmf-codehilite")
+    dark_numbers = """
+@media (prefers-color-scheme: dark) {
+    .syntax-preview .cmf-codehilite .m,
+    .syntax-preview .cmf-codehilite .mb,
+    .syntax-preview .cmf-codehilite .mf,
+    .syntax-preview .cmf-codehilite .mh,
+    .syntax-preview .cmf-codehilite .mi,
+    .syntax-preview .cmf-codehilite .mo,
+    .syntax-preview .cmf-codehilite .il {
+        color: #ff9999 !important;
+    }
+}
+""".strip()
+    return f"{base_css}\n{number_override}\n{dark_css}\n{dark_numbers}"
 
 
 def _should_use_cmfgen_input_lexer(filename: str, role: str | None = None) -> bool:

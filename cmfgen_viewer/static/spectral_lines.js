@@ -509,7 +509,7 @@
             name: markerName, xref: "x", yref: "paper", x: candidate.x, y: 0.98,
             text: escapePlotText(line.label), textangle: -90, showarrow: false,
             xanchor: "center", yanchor: "top", font: { size: 10, color: colors[line.group] },
-            bgcolor: "rgba(255,255,255,0.75)", borderpad: 1,
+            bgcolor: window.CmfgenPlotTheme.background(), borderpad: 1,
             hovertext: escapePlotText(line.label) + "<br>Rest: " + candidate.rest.toFixed(2) + " Å (" +
               (medium.value === "air" && line.vacuum >= 2000 ? "air" : "vacuum") + ")<br>Displayed: " + candidate.wavelength.toFixed(2) + " Å"
           });
@@ -543,7 +543,7 @@
           nextAnnotations.push({
             name: name, xref: "x", yref: "paper", x: center, y: labelY,
             text: escapePlotText(label), showarrow: false, xanchor: "center", yanchor: "bottom",
-            font: { size: 10, color: color }, bgcolor: "rgba(255,255,255,0.7)",
+            font: { size: 10, color: color }, bgcolor: window.CmfgenPlotTheme.background(),
             hovertext: prefix + ": " + escapePlotText(label) + "<br>" + row.min + "–" + row.max +
               " Å (upload frame). Display toggles do not change fit selection."
           });
@@ -584,7 +584,7 @@
           nextAnnotations.push({
             name: telluricName, xref: "x", yref: "paper", x: center, y: 0.02,
             text: band.label.slice(9), showarrow: false, xanchor: "center", yanchor: "bottom",
-            font: { size: 10, color: "#246478" }, bgcolor: "rgba(255,255,255,0.8)",
+            font: { size: 10, color: "#246478" }, bgcolor: window.CmfgenPlotTheme.background(),
             hovertext: band.label + "<br>Approx. " + start.toFixed(0) + "–" + end.toFixed(0) +
               " Å (" + medium.value + ", upload frame)<br>Atmospheric guides do not follow stellar redshift. Strength varies with observing conditions."
           });

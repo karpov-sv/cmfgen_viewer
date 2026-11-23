@@ -183,7 +183,7 @@
         // with viewport redraws so an older redraw cannot restore removed data.
         renderPromise = renderPromise.then(function () {
           sources = traces.map(function (trace) { return Object.assign({}, trace); });
-          return Plotly.react(target, sources.map(function (trace) { return displayed(trace, false); }), layout, config);
+          return Plotly.react(target, sources.map(function (trace) { return displayed(trace, false); }), window.CmfgenPlotTheme.layout(layout), config);
         }).then(function () { report(target.data); });
         return renderPromise;
       },

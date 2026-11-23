@@ -81,10 +81,12 @@
   }
   function createPlot(target, data, layout, config, options) {
     options = options || {};
+    data = data.map(window.CmfgenPlotTheme.trace);
     var sampling = options.sampling === false ? null
       : CmfgenSpectrumSampling.create(target, data, layout);
-    var ready = Plotly.newPlot(target, sampling ? sampling.initialData : data, layout, config)
+    var ready = Plotly.newPlot(target, sampling ? sampling.initialData : data, window.CmfgenPlotTheme.layout(layout), config)
       .then(function () {
+        window.CmfgenPlotTheme.bind(target);
         if (sampling) sampling.bind();
         CmfgenSpectralLines.bind(target);
         bindVerticalResize(target);

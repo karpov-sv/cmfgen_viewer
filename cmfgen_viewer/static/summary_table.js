@@ -693,7 +693,7 @@
             ],
         };
 
-        const renderResult = Plotly.react(scatterPlot, plotData, layout, config);
+        const renderResult = Plotly.react(scatterPlot, plotData, window.CmfgenPlotTheme.layout(layout), config);
         if (renderResult && typeof renderResult.then === "function") {
             renderResult.then(function () {
                 bindScatterInteractions();
